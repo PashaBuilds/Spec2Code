@@ -1,0 +1,12 @@
+platform: zynq_7000
+display_name: "Zynq-7000 SoC"
+summary: "Dual Cortex-A9 PS with hardened peripherals + 7-series PL."
+zones:
+  - { id: ps, label: "PS", description: "Processing System — Cortex-A9 + hardened peripherals" }
+  - { id: pl, label: "PL", description: "Programmable Logic (7-series fabric)" }
+cores:
+  - { id: ps7_cortexa9_0, label: "Cortex-A9 #0" }
+  - { id: ps7_cortexa9_1, label: "Cortex-A9 #1" }
+# How a parsed controller's driver family maps onto a zone (Brief §9.2).
+family_zone: { ps: ps, pl: pl }
+default_zone: pl

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Project artifacts (generated)
+outputs/*/
+specs/*/
+!specs/samples/
+!specs/samples/**
+rag/index/
+*.faiss
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log

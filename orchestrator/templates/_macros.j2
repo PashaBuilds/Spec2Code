@@ -1,0 +1,16 @@
+{# Shared Jinja macros for C codegen. Output is LF here; hostplat.io rewrites to CRLF. #}
+{%- macro doxygen(func) -%}
+/**
+ * @brief {{ func.brief }}
+{% for p, d in func.doxy_params %} * @param {{ p }} {{ d }}
+{% endfor %}{% if func.doxy_return %} * @return {{ func.doxy_return }}
+{% endif %} */
+{% endmacro -%}
+
+{%- macro render_func(func, doxy_enabled) -%}
+{% if doxy_enabled and not func.static %}{{ doxygen(func) }}{% endif -%}
+{{ func.signature }}
+{
+{% for line in func.body %}{{ line }}
+{% endfor %}}
+{% endmacro -%}

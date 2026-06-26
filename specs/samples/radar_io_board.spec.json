@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "radar_io_board",
+    "platform": "zynq_ultrascale",
+    "target_core": "a53_0",
+    "runtime": "freertos",
+    "output_mode": "dropin"
+  },
+  "coding_standard_ref": "std/default.ruleset.json",
+  "llm": { "enabled": false },
+  "controllers": [
+    { "id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+      "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+      "source": "xparameters", "zone": "ps" },
+    { "id": "ps_spi_0", "type": "spi", "instance": "XPAR_XSPIPS_0",
+      "base_address": "0xFF040000", "device_id": 0, "driver": "XSpiPs",
+      "source": "xparameters", "zone": "ps" }
+  ],
+  "muxes": [
+    { "id": "u7_tca9548a", "part": "TCA9548A", "controller_id": "ps_i2c_0",
+      "i2c_address": "0x70", "channels": 8 }
+  ],
+  "devices": [
+    {
+      "id": "u12_ltc2991", "part": "LTC2991",
+      "descriptor_ref": "descriptors/ltc2991.yaml",
+      "attach": {
+        "controller_id": "ps_i2c_0",
+        "i2c_address": "0x48",
+        "via_mux": { "mux_id": "u7_tca9548a", "channel": 3 },
+        "reset_gpio": null, "irq_line": null
+      },
+      "operations_requested": ["device_init", "voltage_read", "temperature_read"],
+      "tests_requested": ["self_test"]
+    },
+    {
+      "id": "u20_mt25qu02g", "part": "MT25QU02G",
+      "descriptor_ref": "descriptors/mt25qu02g.yaml",
+      "attach": {
+        "controller_id": "ps_spi_0",
+        "spi_chip_select": 0,
+        "address_width": 32,
+        "reset_gpio": null
+      },
+      "operations_requested": ["device_init", "id_read", "data_read", "sector_erase", "page_program"],
+      "tests_requested": ["self_test"]
+    }
+  ],
+  "generation_options": { "qc_max_rounds": 3, "include_doxygen": true, "line_ending": "crlf" }
+}

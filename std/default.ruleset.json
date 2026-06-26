@@ -1,0 +1,29 @@
+{
+  "ruleset_version": "1.0",
+  "formatting": {
+    "brace_style": "allman",
+    "indent": "spaces_4",
+    "line_ending": "crlf",
+    "max_line_length": 100
+  },
+  "naming": {
+    "hungarian_prefixes": {
+      "uint8_t": "uc",
+      "uint16_t": "us",
+      "uint32_t": "ui",
+      "uint64_t": "ull",
+      "int32_t": "i",
+      "struct_pointer": "sp",
+      "static_var": "S_",
+      "pointer": "p"
+    },
+    "function_pattern": "module_object_action",
+    "function_regex": "^[a-z][a-z0-9]*_[a-z][a-z0-9]*_[a-z][a-z0-9]*$"
+  },
+  "print_conventions": {
+    "line_terminator_in_prints": "\\r\\n"
+  },
+  "doxygen": {
+    "required_on_public_functions": true
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spec2code/schemas/project.spec.schema.json",
+  "title": "Spec2Code project.spec",
+  "description": "Canonical handoff artifact produced by the UI and consumed by the orchestrator (Brief §6.1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "controllers", "devices"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "platform", "target_core", "runtime"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "platform": {
+          "type": "string",
+          "enum": ["zynq_7000", "zynq_ultrascale", "versal", "microblaze_7series"]
+        },
+        "target_core": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "enum": ["bare_metal", "freertos"] },
+        "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" }
+      }
+    },
+    "coding_standard_ref": { "type": "string" },
+    "llm": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "base_url": { "type": "string" },
+        "model": { "type": "string" },
+        "api_key": { "type": "string" }
+      },
+      "required": ["enabled"]
+    },
+    "controllers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "instance", "base_address", "source", "zone"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": {
+            "type": "string",
+            "enum": ["i2c", "spi", "qspi", "gpio", "uart", "dma", "can", "eth", "sdio", "unknown"]
+          },
+          "instance": { "type": "string" },
+          "base_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
+          "device_id": { "type": ["string", "integer"] },
+          "driver": { "type": "string", "description": "Canonical Xilinx driver (e.g. XIicPs), used by codegen to pick the BSP API. Optional." },
+          "source": { "type": "string", "enum": ["xparameters", "manual"] },
+          "zone": { "type": "string", "enum": ["ps", "pl", "noc", "aie"] }
+        }
+      }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "part", "attach"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "part": { "type": "string", "minLength": 1 },
+          "descriptor_ref": { "type": ["string", "null"] },
+          "attach": {
+            "type": "object",
+            "description": "Connection metadata only (address/cs/mux/channel/gpio). Behaviour lives in the descriptor. Versioned + extensible (Brief §10).",
+            "additionalProperties": true,
+            "required": ["controller_id"],
+            "properties": {
+              "controller_id": { "type": "string", "minLength": 1 },
+              "i2c_address": { "type": ["string", "null"], "pattern": "^0[xX][0-9a-fA-F]+$" },
+              "spi_chip_select": { "type": ["integer", "null"], "minimum": 0 },
+              "address_width": { "type": ["integer", "null"], "enum": [8, 16, 24, 32, null] },
+              "via_mux": {
+                "type": ["object", "null"],
+                "additionalProperties": false,
+                "required": ["mux_id", "channel"],
+                "properties": {
+                  "mux_id": { "type": "string", "minLength": 1 },
+                  "channel": { "type": "integer", "minimum": 0, "maximum": 7 }
+                }
+              },
+              "reset_gpio": { "type": ["string", "integer", "null"] },
+              "irq_line": { "type": ["string", "integer", "null"] }
+            }
+          },
+          "operations_requested": { "type": "array", "items": { "type": "string" } },
+          "tests_requested": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "muxes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "part", "controller_id", "i2c_address", "channels"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "part": { "type": "string", "minLength": 1 },
+          "controller_id": { "type": "string", "minLength": 1 },
+          "i2c_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
+          "channels": { "type": "integer", "minimum": 1, "maximum": 8 }
+        }
+      }
+    },
+    "generation_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "qc_max_rounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
+        "include_doxygen": { "type": "boolean", "default": true },
+        "line_ending": { "type": "string", "enum": ["crlf"], "default": "crlf" }
+      }
+    }
+  }
+}

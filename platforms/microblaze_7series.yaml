@@ -1,0 +1,10 @@
+platform: microblaze_7series
+display_name: "MicroBlaze (7-series)"
+summary: "Soft MicroBlaze core in 7-series PL with AXI-attached soft peripherals."
+zones:
+  - { id: pl, label: "PL", description: "Programmable Logic — soft MicroBlaze + AXI peripherals" }
+cores:
+  - { id: microblaze_0, label: "MicroBlaze #0" }
+# No PS on MicroBlaze designs: any controller (including ps-classified) folds into PL.
+family_zone: { ps: pl, pl: pl }
+default_zone: pl

@@ -1,0 +1,15 @@
+platform: versal
+display_name: "Versal ACAP"
+summary: "Cortex-A72 APU + Cortex-R5 RPU, NoC interconnect, AI Engine array, and PL."
+zones:
+  - { id: ps, label: "PS", description: "Processing System — APU/RPU + hardened peripherals" }
+  - { id: pl, label: "PL", description: "Programmable Logic / Adaptable Engines" }
+  - { id: noc, label: "NoC", description: "Network-on-Chip interconnect" }
+  - { id: aie, label: "AIE", description: "AI Engine array" }
+cores:
+  - { id: a72_0, label: "Cortex-A72 #0" }
+  - { id: a72_1, label: "Cortex-A72 #1" }
+  - { id: r5_0, label: "Cortex-R5 #0" }
+  - { id: r5_1, label: "Cortex-R5 #1" }
+family_zone: { ps: ps, pl: pl }
+default_zone: pl

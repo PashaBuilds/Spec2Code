@@ -1,0 +1,8 @@
+# Spec2Code — RAG dependencies (Brief §17, DEFERRED / last).
+# Kept separate so the core deterministic path installs without torch/faiss.
+# NOTE: on Python 3.14 some of these may lack wheels yet; install under 3.11–3.12 if needed.
+docling
+sentence-transformers
+torch
+faiss-cpu
+numpy

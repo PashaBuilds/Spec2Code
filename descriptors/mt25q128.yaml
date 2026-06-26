@@ -1,0 +1,45 @@
+descriptor_version: "1.0"
+part: "MT25Q128"
+manufacturer: "Micron"
+summary: "128 Mbit (16 MB) SPI NOR flash, 3-byte (24-bit) addressing."
+transport:
+  type: spi
+  address_width: 24          # 3-byte addressing (contrast with MT25QU02G @ 32)
+  byte_order: big
+access_primitives:
+  read_command:  { pattern: opcode_then_read }
+  write_command: { pattern: opcode_then_write }
+commands:
+  - { name: READ_ID,         opcode: 0x9F, address_bytes: 0, description: "RDID" }
+  - { name: READ_STATUS,     opcode: 0x05, address_bytes: 0, description: "RDSR" }
+  - { name: WRITE_ENABLE,    opcode: 0x06, address_bytes: 0, description: "WREN" }
+  - { name: READ_DATA,       opcode: 0x03, address_bytes: 3, description: "READ" }
+  - { name: FAST_READ,       opcode: 0x0B, address_bytes: 3, description: "FAST_READ" }
+  - { name: PAGE_PROGRAM,    opcode: 0x02, address_bytes: 3, description: "PP" }
+  - { name: SECTOR_ERASE,    opcode: 0xD8, address_bytes: 3, description: "SE (64KB)" }
+  - { name: SUBSECTOR_ERASE, opcode: 0x20, address_bytes: 3, description: "SSE (4KB)" }
+operations:
+  - name: device_init
+    description: "3-byte (24-bit) addressing — no address-mode switch required."
+    steps:
+      - { op: comment, note: "Default 3-byte addressing; no mode switch needed." }
+  - name: id_read
+    description: "Read the 3-byte JEDEC device ID (RDID)."
+    steps:
+      - { op: read_command_address, cmd: READ_ID, length: 3 }
+  - name: data_read
+    description: "Read length bytes starting at a 24-bit address."
+    steps:
+      - { op: read_command_address, cmd: READ_DATA }
+  - name: page_program
+    description: "Program length bytes at a 24-bit address (page <= 256 bytes)."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: PAGE_PROGRAM }
+  - name: sector_erase
+    description: "Erase the 64KB sector containing a 24-bit address."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: SECTOR_ERASE, length: 0 }
+test_hints:
+  self_test: { description: "Read JEDEC ID, verify non-zero / non-0xFF manufacturer byte." }

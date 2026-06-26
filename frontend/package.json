@@ -1,0 +1,43 @@
+{
+  "name": "spec2code-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:fast": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@xyflow/react": "^12.3.5",
+    "@dagrejs/dagre": "^1.1.4",
+    "zustand": "^5.0.1",
+    "lucide-react": "^0.460.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.4",
+    "class-variance-authority": "^0.7.0",
+    "@radix-ui/react-select": "^2.1.2",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-label": "^2.1.0",
+    "react-hook-form": "^7.53.2",
+    "zod": "^3.23.8",
+    "@hookform/resolvers": "^3.9.1",
+    "@uiw/react-codemirror": "^4.23.6",
+    "@codemirror/lang-cpp": "^6.0.2"
+  },
+  "devDependencies": {
+    "vite": "^6.0.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^3.4.15",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20",
+    "typescript": "^5.6.3",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1"
+  }
+}

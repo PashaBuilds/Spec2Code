@@ -1,0 +1,24 @@
+/* Spec2Code design tokens (Brief §9.3): dark engineering-tool aesthetic. */
+:root {
+  --bg: #0e0f12;
+  --elev: #16181d;
+  --inset: #1c1f26;
+  --border: #262a33;
+  --text: #e6e8eb;
+  --muted: #9ba1ac;
+  --faint: #5c6370;
+
+  /* the single vivid color: primary action + active + data signal */
+  --accent: #4c8dff;
+  --accent-dim: #23344f;
+
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+
+  /* low-saturation, distinct zone tones (PS / PL / NoC / AIE) */
+  --zone-ps: #4a6d8c;
+  --zone-pl: #5e8c4a;
+  --zone-noc: #8c6fb0;
+  --zone-aie: #b0894a;
+}

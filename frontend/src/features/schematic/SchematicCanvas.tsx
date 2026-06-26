@@ -1,0 +1,155 @@
+import { useEffect, useMemo } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  ReactFlow,
+  useReactFlow,
+  type Edge,
+  type Node,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
+// Re-fits the view after nodes are measured and whenever the graph changes.
+function FitView({ signature }: { signature: string }) {
+  const rf = useReactFlow();
+  useEffect(() => {
+    const id = setTimeout(() => rf.fitView({ padding: 0.18, duration: 220 }), 90);
+    return () => clearTimeout(id);
+  }, [signature, rf]);
+  return null;
+}
+import { useStore } from "@/store/useStore";
+import { computeLayout, computeZoneRects } from "./layout";
+import { nodeTypes } from "./nodes";
+import { zoneColor } from "@/lib/utils";
+
+export default function SchematicCanvas() {
+  const zones = useStore((s) => s.zones);
+  const controllers = useStore((s) => s.controllers);
+  const muxes = useStore((s) => s.muxes);
+  const devices = useStore((s) => s.devices);
+  const descriptors = useStore((s) => s.descriptors);
+  const selectedId = useStore((s) => s.selectedId);
+  const select = useStore((s) => s.select);
+
+  const { nodes, edges } = useMemo(() => {
+    const pos = computeLayout(controllers, muxes, devices);
+    const zoneRects = computeZoneRects(zones, controllers, pos);
+    const ctrlById = Object.fromEntries(controllers.map((c) => [c.id, c]));
+    const hasDescriptor = (part: string) =>
+      descriptors.some((d) => d.part === part) ||
+      ["LTC2991", "TCA9548A", "MT25Q128", "MT25QU02G"].includes(part);
+
+    const nodes: Node[] = [];
+    for (const z of zoneRects) {
+      nodes.push({
+        id: `zone-${z.id}`,
+        type: "zone",
+        position: { x: z.x, y: z.y },
+        data: { label: z.label, color: zoneColor(z.id) },
+        draggable: false,
+        selectable: false,
+        zIndex: 0,
+        width: z.w,
+        height: z.h,
+        style: { width: z.w, height: z.h },
+      });
+    }
+    for (const c of controllers) {
+      const p = pos.get(c.id);
+      if (!p) continue;
+      nodes.push({
+        id: c.id,
+        type: "controller",
+        position: { x: p.x, y: p.y },
+        data: { label: c.instance, type: c.type, base_address: c.base_address, driver: c.driver, zone: c.zone },
+        selected: c.id === selectedId,
+        draggable: false,
+        zIndex: 1,
+      });
+    }
+    for (const m of muxes) {
+      const p = pos.get(m.id);
+      if (!p) continue;
+      nodes.push({
+        id: m.id,
+        type: "mux",
+        position: { x: p.x, y: p.y },
+        data: { part: m.part, i2c_address: m.i2c_address, channels: m.channels },
+        selected: m.id === selectedId,
+        draggable: false,
+        zIndex: 1,
+      });
+    }
+    for (const d of devices) {
+      const p = pos.get(d.id);
+      if (!p) continue;
+      const ctrl = ctrlById[d.attach.controller_id];
+      const transport = ctrl?.type ?? "i2c";
+      const sub =
+        transport === "spi" || transport === "qspi"
+          ? `CS ${d.attach.spi_chip_select ?? 0}`
+          : String(d.attach.i2c_address ?? "—");
+      nodes.push({
+        id: d.id,
+        type: "device",
+        position: { x: p.x, y: p.y },
+        data: { part: d.part, sub, transport, hasDescriptor: hasDescriptor(d.part) },
+        selected: d.id === selectedId,
+        draggable: false,
+        zIndex: 1,
+      });
+    }
+
+    const edges: Edge[] = [];
+    for (const m of muxes) {
+      if (ctrlById[m.controller_id]) {
+        edges.push({ id: `e-${m.controller_id}-${m.id}`, source: m.controller_id, target: m.id, label: "I2C" });
+      }
+    }
+    for (const d of devices) {
+      const via = d.attach.via_mux;
+      const ctrl = ctrlById[d.attach.controller_id];
+      if (via) {
+        edges.push({ id: `e-${via.mux_id}-${d.id}`, source: via.mux_id, target: d.id, label: `ch ${via.channel}` });
+      } else if (ctrl) {
+        const lbl =
+          ctrl.type === "spi" || ctrl.type === "qspi"
+            ? `SPI CS${d.attach.spi_chip_select ?? 0}`
+            : "I2C";
+        edges.push({ id: `e-${ctrl.id}-${d.id}`, source: ctrl.id, target: d.id, label: lbl });
+      }
+    }
+    return { nodes, edges };
+  }, [zones, controllers, muxes, devices, descriptors, selectedId]);
+
+  if (!controllers.length) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center text-sm text-faint">
+        Upload an <span className="mx-1 font-mono text-muted">xparameters.h</span> to render the schematic.
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-0">
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      onNodeClick={(_, n) => select(n.id.startsWith("zone-") ? null : n.id)}
+      onPaneClick={() => select(null)}
+      onInit={(inst) => inst.fitView({ padding: 0.18 })}
+      nodesDraggable={false}
+      fitView
+      minZoom={0.2}
+      proOptions={{ hideAttribution: true }}
+    >
+      <FitView signature={`${controllers.length}-${muxes.length}-${devices.length}`} />
+      <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
+      <Controls showInteractive={false} className="!bg-elev !border-border" />
+    </ReactFlow>
+    </div>
+  );
+}

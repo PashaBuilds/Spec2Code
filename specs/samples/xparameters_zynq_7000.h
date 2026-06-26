@@ -1,0 +1,46 @@
+/******************************************************************************
+* Sample xparameters.h  —  Zynq-7000 SoC  (Spec2Code demo fixture)
+******************************************************************************/
+#ifndef XPARAMETERS_H
+#define XPARAMETERS_H
+
+/* PS7 I2C 0 (bus for LTC2991 + TCA9548A mux) */
+#define XPAR_XIICPS_0_DEVICE_ID 0
+#define XPAR_XIICPS_0_BASEADDR 0xE0004000U
+#define XPAR_XIICPS_0_HIGHADDR 0xE0004FFFU
+#define XPAR_XIICPS_0_I2C_CLK_FREQ_HZ 111111000
+
+/* PS7 SPI 0 */
+#define XPAR_XSPIPS_0_DEVICE_ID 0
+#define XPAR_XSPIPS_0_BASEADDR 0xE0006000U
+#define XPAR_XSPIPS_0_HIGHADDR 0xE0006FFFU
+
+/* PS7 QSPI 0 (MT25Q128 flash lives here) */
+#define XPAR_XQSPIPS_0_DEVICE_ID 0
+#define XPAR_XQSPIPS_0_BASEADDR 0xE000D000U
+#define XPAR_XQSPIPS_0_HIGHADDR 0xE000DFFFU
+
+/* PS7 GPIO 0 */
+#define XPAR_XGPIOPS_0_DEVICE_ID 0
+#define XPAR_XGPIOPS_0_BASEADDR 0xE000A000U
+#define XPAR_XGPIOPS_0_HIGHADDR 0xE000AFFFU
+
+/* PS7 UART 1 */
+#define XPAR_XUARTPS_1_DEVICE_ID 1
+#define XPAR_XUARTPS_1_BASEADDR 0xE0001000U
+#define XPAR_XUARTPS_1_HIGHADDR 0xE0001FFFU
+
+/* AXI GPIO 0 (soft IP in PL) */
+#define XPAR_AXI_GPIO_0_DEVICE_ID 1
+#define XPAR_AXI_GPIO_0_BASEADDR 0x41200000U
+#define XPAR_AXI_GPIO_0_HIGHADDR 0x4120FFFFU
+
+/* DDR memory region -> filtered (no DEVICE_ID) */
+#define XPAR_PS7_DDR_0_BASEADDR 0x00100000U
+#define XPAR_PS7_DDR_0_HIGHADDR 0x3FFFFFFFU
+
+/* SCU timer -> ignored */
+#define XPAR_XSCUTIMER_0_DEVICE_ID 0
+#define XPAR_XSCUTIMER_0_BASEADDR 0xF8F00600U
+
+#endif /* XPARAMETERS_H */

@@ -1,0 +1,124 @@
+"""Generate-job manager (Brief §18).
+
+A generate job writes the spec, runs deterministic codegen + the QC loop in a worker thread,
+and streams structured pipeline events to any number of WebSocket subscribers. Events are
+buffered (with sequence numbers) so a late subscriber replays from the start with no gaps and
+no duplicates.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import traceback
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from orchestrator import codegen
+from orchestrator.qc import loop as qc_loop
+
+_ROOT = Path(__file__).resolve().parent.parent
+_OUTPUTS = _ROOT / "outputs"
+_SPECS = _ROOT / "specs"
+
+
+def _load_ruleset(spec: dict) -> dict:
+    ref = spec.get("coding_standard_ref", "std/default.ruleset.json")
+    path = _ROOT / ref
+    if not path.is_file():
+        path = _ROOT / "std" / "default.ruleset.json"
+    return json.loads(path.read_text())
+
+
+@dataclass
+class Job:
+    id: str
+    spec: dict
+    status: str = "pending"            # pending | running | done | error
+    events: list[dict] = field(default_factory=list)
+    subscribers: set = field(default_factory=set)
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    _loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def emit(self, event: dict) -> None:
+        """Thread-safe: append (with seq) and fan out to subscriber queues."""
+        event = {**event, "_seq": len(self.events)}
+        self.events.append(event)
+        loop = self._loop
+        if loop is None:
+            return
+        for q in list(self.subscribers):
+            loop.call_soon_threadsafe(q.put_nowait, event)
+
+
+class JobManager:
+    def __init__(self) -> None:
+        self._jobs: dict[str, Job] = {}
+        self._counter = 0
+
+    def get(self, job_id: str) -> Optional[Job]:
+        return self._jobs.get(job_id)
+
+    async def start(self, spec: dict, *, max_rounds: int = 3) -> str:
+        self._counter += 1
+        job_id = f"job_{self._counter:04d}"
+        job = Job(id=job_id, spec=spec, _loop=asyncio.get_running_loop())
+        self._jobs[job_id] = job
+
+        # Persist the spec (canonical handoff artifact) before generating.
+        name = spec["project"]["name"]
+        spec_path = _SPECS / name / "project.spec.json"
+        spec_path.parent.mkdir(parents=True, exist_ok=True)
+        spec_path.write_text(json.dumps(spec, indent=2))
+
+        asyncio.create_task(self._run(job, max_rounds))
+        return job_id
+
+    async def _run(self, job: Job, max_rounds: int) -> None:
+        job.status = "running"
+        job.emit({"event": "job.start", "project": job.spec["project"]["name"]})
+        try:
+            await asyncio.to_thread(self._blocking, job, max_rounds)
+            job.status = "done"
+        except Exception as exc:  # noqa: BLE001 — surface any failure to the console
+            job.status = "error"
+            job.error = str(exc)
+            job.emit({"event": "error", "message": str(exc),
+                      "trace": traceback.format_exc().splitlines()[-3:]})
+        finally:
+            job.emit({"event": "job.end", "status": job.status})
+            # wake subscribers with a sentinel
+            loop = job._loop
+            if loop is not None:
+                for q in list(job.subscribers):
+                    loop.call_soon_threadsafe(q.put_nowait, None)
+
+    def _blocking(self, job: Job, max_rounds: int) -> None:
+        spec = job.spec
+        out_dir = _OUTPUTS / spec["project"]["name"]
+        files = codegen.generate(spec, out_dir, emit=job.emit)
+        ruleset = _load_ruleset(spec)
+        fixer = _maybe_llm_fixer(spec, ruleset)
+        report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer)
+        job.result = {
+            "out_dir": str(out_dir.relative_to(_ROOT)),
+            "files": [str(Path(f).relative_to(_ROOT)) for f in files],
+            "qc": report,
+        }
+        job.emit({"event": "result.ready", "files": len(files), "qc_passed": report["passed"]})
+
+
+def _maybe_llm_fixer(spec: dict, ruleset: dict):
+    """Return an LLM-backed QC fixer when llm.enabled, else None (deterministic path)."""
+    if not spec.get("llm", {}).get("enabled"):
+        return None
+    try:
+        from orchestrator.llm.tasks import make_qc_fixer
+        return make_qc_fixer(spec, ruleset)
+    except Exception:
+        return None
+
+
+manager = JobManager()

@@ -1,0 +1,32 @@
+descriptor_version: "1.0"
+part: "TCA9548A"
+manufacturer: "Texas Instruments"
+summary: "8-channel I2C switch/multiplexer."
+transport:
+  type: i2c_mux
+  address_width: 8           # informational; the mux has no register address — a single
+  default_address: 0x70      # control byte is written directly (1 bit enables 1 channel).
+  byte_order: big
+  channels: 8
+access_primitives:
+  write_control: { pattern: write_byte, width_bytes: 1 }
+registers:
+  # Pseudo control register for UI/documentation. The device is written as a single raw
+  # byte (no register address); codegen renders the i2c_mux transport directly.
+  - { name: CONTROL, offset: 0x00, width: 8, access: rw, reset: 0x00,
+      fields: [
+        { name: CH0_EN, bits: "0" }, { name: CH1_EN, bits: "1" },
+        { name: CH2_EN, bits: "2" }, { name: CH3_EN, bits: "3" },
+        { name: CH4_EN, bits: "4" }, { name: CH5_EN, bits: "5" },
+        { name: CH6_EN, bits: "6" }, { name: CH7_EN, bits: "7" } ] }
+operations:
+  - name: channel_select
+    description: "Enable exactly one downstream channel (writes 1<<channel to the control byte)."
+    steps:
+      - { op: select_mux_channel, note: "writes (1 << uc_channel)" }
+  - name: channel_disable
+    description: "Disable all downstream channels (writes 0x00 to the control byte)."
+    steps:
+      - { op: select_mux_channel, note: "writes 0x00 (all channels off)" }
+test_hints:
+  self_test: { description: "Select then disable a channel; verify no bus error." }

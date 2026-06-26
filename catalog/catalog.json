@@ -1,0 +1,32 @@
+{
+  "catalog_version": "1.0",
+  "statuses": {
+    "builtin": "Descriptor in the library; generated deterministically.",
+    "needs_source": "Provide your .c/.h sources or a datasheet to enable.",
+    "from_datasheet": "Descriptor will be extracted from a datasheet (RAG)."
+  },
+  "devices": [
+    { "part": "LTC2991", "transport": "i2c", "status": "builtin",
+      "descriptor": "descriptors/ltc2991.yaml",
+      "summary": "8-channel I2C voltage/temperature monitor",
+      "match_tokens": ["LTC2991", "ltc2991_", "CONTROL_V1V2", "V1_MSB"] },
+    { "part": "TCA9548A", "transport": "i2c_mux", "status": "builtin",
+      "descriptor": "descriptors/tca9548a.yaml",
+      "summary": "8-channel I2C switch / multiplexer",
+      "match_tokens": ["TCA9548A", "tca9548a_", "channel_select"] },
+    { "part": "MT25Q128", "transport": "spi", "status": "builtin",
+      "descriptor": "descriptors/mt25q128.yaml",
+      "summary": "128 Mbit SPI NOR flash, 3-byte addressing",
+      "match_tokens": ["MT25Q128", "mt25q128_", "SECTOR_ERASE", "0xD8"] },
+    { "part": "MT25QU02G", "transport": "spi", "status": "builtin",
+      "descriptor": "descriptors/mt25qu02g.yaml",
+      "summary": "2 Gbit SPI NOR flash, 4-byte addressing",
+      "match_tokens": ["MT25QU02G", "mt25qu02g_", "ENTER_4BYTE", "0xB7"] },
+    { "part": "ADXL345", "transport": "spi", "status": "needs_source",
+      "summary": "3-axis accelerometer (provide sources to enable)",
+      "match_tokens": ["ADXL345", "adxl345_"] },
+    { "part": "BME280", "transport": "i2c", "status": "from_datasheet",
+      "summary": "Humidity/pressure/temperature sensor (datasheet extraction)",
+      "match_tokens": ["BME280", "bme280_"] }
+  ]
+}

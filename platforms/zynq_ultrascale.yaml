@@ -1,0 +1,15 @@
+platform: zynq_ultrascale
+display_name: "Zynq UltraScale+ MPSoC"
+summary: "APU (Cortex-A53) + RPU (Cortex-R5) PS with hardened peripherals + UltraScale+ PL."
+zones:
+  - { id: ps, label: "PS", description: "Processing System — APU/RPU + hardened peripherals" }
+  - { id: pl, label: "PL", description: "Programmable Logic (UltraScale+ fabric)" }
+cores:
+  - { id: a53_0, label: "Cortex-A53 #0" }
+  - { id: a53_1, label: "Cortex-A53 #1" }
+  - { id: a53_2, label: "Cortex-A53 #2" }
+  - { id: a53_3, label: "Cortex-A53 #3" }
+  - { id: r5_0, label: "Cortex-R5 #0" }
+  - { id: r5_1, label: "Cortex-R5 #1" }
+family_zone: { ps: ps, pl: pl }
+default_zone: pl

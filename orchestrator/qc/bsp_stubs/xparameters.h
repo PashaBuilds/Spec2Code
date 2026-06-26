@@ -1,0 +1,9 @@
+/* Minimal Xilinx BSP stub for Spec2Code QC. Real device IDs come from the user's BSP. */
+#ifndef XPARAMETERS_H
+#define XPARAMETERS_H
+#define XPAR_XIICPS_0_DEVICE_ID 0
+#define XPAR_XIICPS_1_DEVICE_ID 1
+#define XPAR_XSPIPS_0_DEVICE_ID 0
+#define XPAR_XQSPIPS_0_DEVICE_ID 0
+#define XPAR_XGPIOPS_0_DEVICE_ID 0
+#endif /* XPARAMETERS_H */

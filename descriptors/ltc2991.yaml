@@ -1,0 +1,63 @@
+descriptor_version: "1.0"
+part: "LTC2991"
+manufacturer: "Analog Devices"
+summary: "8-channel I2C voltage/temperature monitor."
+transport:
+  type: i2c
+  address_width: 8           # 8-bit register address
+  default_address: 0x48      # 0x48..0x4F via address pins
+  byte_order: big
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+registers:
+  - { name: STATUS_LOW,  offset: 0x00, width: 8, access: ro, reset: 0x00,
+      fields: [ { name: V1_V2_BUSY, bits: "0" } ] }
+  - { name: STATUS_HIGH, offset: 0x01, width: 8, access: ro, reset: 0x00,
+      fields: [ { name: T_INTERNAL_BUSY, bits: "0" } ] }
+  - { name: CONTROL_V1V2, offset: 0x06, width: 8, access: rw, reset: 0x00 }
+  - { name: CONTROL_V3V4, offset: 0x07, width: 8, access: rw, reset: 0x00 }
+  - { name: CONTROL_V5V6, offset: 0x08, width: 8, access: rw, reset: 0x00 }
+  - { name: CONTROL_V7V8, offset: 0x09, width: 8, access: rw, reset: 0x00 }
+  - { name: V1_MSB, offset: 0x0A, width: 8, access: ro, reset: 0x00 }
+  - { name: V1_LSB, offset: 0x0B, width: 8, access: ro, reset: 0x00 }
+  - { name: V2_MSB, offset: 0x0C, width: 8, access: ro, reset: 0x00 }
+  - { name: V2_LSB, offset: 0x0D, width: 8, access: ro, reset: 0x00 }
+  - { name: V3_MSB, offset: 0x0E, width: 8, access: ro, reset: 0x00 }
+  - { name: V3_LSB, offset: 0x0F, width: 8, access: ro, reset: 0x00 }
+  - { name: V4_MSB, offset: 0x10, width: 8, access: ro, reset: 0x00 }
+  - { name: V4_LSB, offset: 0x11, width: 8, access: ro, reset: 0x00 }
+  - { name: V5_MSB, offset: 0x12, width: 8, access: ro, reset: 0x00 }
+  - { name: V5_LSB, offset: 0x13, width: 8, access: ro, reset: 0x00 }
+  - { name: V6_MSB, offset: 0x14, width: 8, access: ro, reset: 0x00 }
+  - { name: V6_LSB, offset: 0x15, width: 8, access: ro, reset: 0x00 }
+  - { name: V7_MSB, offset: 0x16, width: 8, access: ro, reset: 0x00 }
+  - { name: V7_LSB, offset: 0x17, width: 8, access: ro, reset: 0x00 }
+  - { name: V8_MSB, offset: 0x18, width: 8, access: ro, reset: 0x00 }
+  - { name: V8_LSB, offset: 0x19, width: 8, access: ro, reset: 0x00 }
+  - { name: T_INTERNAL_MSB, offset: 0x1A, width: 8, access: ro, reset: 0x00 }
+  - { name: T_INTERNAL_LSB, offset: 0x1B, width: 8, access: ro, reset: 0x00 }
+operations:
+  - name: device_init
+    description: "Configure all eight inputs as single-ended voltage measurements."
+    steps:
+      - { op: write_register, reg: CONTROL_V1V2, value: 0x07 }
+      - { op: write_register, reg: CONTROL_V3V4, value: 0x07 }
+      - { op: write_register, reg: CONTROL_V5V6, value: 0x07 }
+      - { op: write_register, reg: CONTROL_V7V8, value: 0x07 }
+  - name: voltage_read
+    returns: "voltages[8]"
+    description: "Read all eight voltage channels as raw 14-bit codes."
+    steps:
+      - { op: poll, reg: STATUS_LOW, field: V1_V2_BUSY, until: 0, timeout_ms: 10 }
+      - { op: read_channels, reg: V1_MSB, count: 8 }
+  - name: temperature_read
+    returns: "uint16"
+    description: "Read the internal temperature as a raw code."
+    steps:
+      - { op: poll, reg: STATUS_HIGH, field: T_INTERNAL_BUSY, until: 0, timeout_ms: 10 }
+      - { op: read_register, reg: T_INTERNAL_MSB }
+      - { op: read_register, reg: T_INTERNAL_LSB }
+test_hints:
+  self_test:     { description: "Read STATUS_LOW, verify reset value 0x00." }
+  read_loopback: { description: "Read all voltages, verify codes are within plausible range." }

@@ -1,0 +1,13 @@
+# Spec2Code — core backend/orchestrator dependencies (deterministic path + LLM toggle).
+# RAG deps live in requirements-rag.txt (deferred; do not pull torch/faiss for the core path).
+fastapi
+uvicorn[standard]
+websockets
+pydantic
+jsonschema
+jinja2
+watchdog
+httpx
+pyyaml
+python-docx
+libclang

@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spec2code/descriptors/_schema/descriptor.schema.json",
+  "title": "Spec2Code device descriptor",
+  "description": "Custom YAML descriptor for non-memory-mapped external devices (I2C/SPI/GPIO/mux). Codegen targets the named 'operations', not raw registers (Brief §6.2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["descriptor_version", "part", "transport", "operations"],
+  "properties": {
+    "descriptor_version": { "type": "string" },
+    "part": { "type": "string", "minLength": 1 },
+    "manufacturer": { "type": "string" },
+    "summary": { "type": "string" },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["i2c", "spi", "gpio", "i2c_mux"] },
+        "address_width": {
+          "type": "integer",
+          "enum": [8, 16, 24, 32],
+          "description": "Device register/command address width in bits. Critical for SPI flash (24 vs 32)."
+        },
+        "default_address": { "type": "integer", "minimum": 0 },
+        "byte_order": { "type": "string", "enum": ["big", "little"] },
+        "channels": { "type": "integer", "minimum": 1, "maximum": 8 }
+      }
+    },
+    "access_primitives": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "pattern": { "type": "string" },
+          "width_bytes": { "type": "integer", "minimum": 1 },
+          "opcode": { "type": "integer" }
+        }
+      }
+    },
+    "registers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "offset"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "offset": { "type": "integer", "minimum": 0 },
+          "width": { "type": "integer", "enum": [8, 16, 32] },
+          "access": { "type": "string", "enum": ["ro", "rw", "wo"] },
+          "reset": { "type": "integer" },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "bits"],
+              "properties": {
+                "name": { "type": "string" },
+                "bits": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Opcode table for command-driven devices (SPI flash). Each entry names a one-byte opcode.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "opcode"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "opcode": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "address_bytes": { "type": "integer", "enum": [0, 3, 4] },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "steps"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*_[a-z][a-z0-9]*$",
+            "description": "object_action form (two tokens). Codegen prepends the module to yield a strict module_object_action function name per the ruleset regex."
+          },
+          "returns": { "type": "string" },
+          "description": { "type": "string" },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["op"],
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "write_register", "read_register", "read_channels", "poll", "delay_ms",
+                    "send_command", "write_command_address", "read_command_address",
+                    "select_mux_channel", "comment"
+                  ]
+                },
+                "reg": { "type": "string" },
+                "cmd": { "type": "string" },
+                "value": { "type": "integer" },
+                "field": { "type": "string" },
+                "until": { "type": "integer" },
+                "count": { "type": "integer", "minimum": 1, "description": "read_channels: number of consecutive 16-bit (MSB/LSB) channels to read into the out array." },
+                "length": { "type": "integer", "minimum": 0, "description": "read/write_command_address byte length: omitted = runtime function parameter; 0 = no data payload (e.g. erase = opcode+address only); >0 = fixed length (e.g. RDID=3)." },
+                "timeout_ms": { "type": "integer", "minimum": 0 },
+                "ms": { "type": "integer", "minimum": 0 },
+                "note": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "test_hints": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": { "description": { "type": "string" } }
+      }
+    }
+  }
+}
