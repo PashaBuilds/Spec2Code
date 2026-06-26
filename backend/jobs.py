@@ -18,6 +18,7 @@ from typing import Optional
 
 from orchestrator import codegen
 from orchestrator.qc import loop as qc_loop
+from backend.rulesets import resolve_ruleset_ref
 
 _ROOT = Path(__file__).resolve().parent.parent
 _OUTPUTS = _ROOT / "outputs"
@@ -27,8 +28,8 @@ _IMPORTED = _ROOT / "catalog" / "imported.json"
 
 def _load_ruleset(spec: dict) -> dict:
     ref = spec.get("coding_standard_ref", "std/default.ruleset.json")
-    path = _ROOT / ref
-    if not path.is_file():
+    path = resolve_ruleset_ref(ref)
+    if path is None:
         path = _ROOT / "std" / "default.ruleset.json"
     return json.loads(path.read_text(encoding="utf-8"))
 

@@ -18,6 +18,14 @@ from pydantic import BaseModel
 
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
+from backend.rulesets import (
+    DEFAULT_RULESET,
+    RULESET_SCHEMA,
+    build_candidate_from_text,
+    evaluate_ruleset,
+    save_ruleset,
+    source_text_from_upload,
+)
 from backend.validators.wiring import validate_wiring
 from catalog.matcher import scan_folder
 from hostplat import io as hio
@@ -58,6 +66,22 @@ class ConfirmRequest(BaseModel):
     part: str
     role: str = "as_is"          # as_is | llm_exemplar | descriptor_source
     files: list[str] = []
+
+
+class RulesetExtractRequest(BaseModel):
+    filename: str = ""
+    text: str = ""
+    content_base64: str = ""
+    llm: dict | None = None
+
+
+class RulesetValidateRequest(BaseModel):
+    ruleset: dict
+
+
+class RulesetSaveRequest(BaseModel):
+    name: str
+    ruleset: dict
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -310,6 +334,35 @@ def get_descriptor(part: str) -> dict:
     if not path.is_file():
         raise HTTPException(404, f"no descriptor for '{part}'")
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@router.get("/rulesets/default")
+def ruleset_default() -> dict:
+    return {"ruleset": DEFAULT_RULESET, "schema": RULESET_SCHEMA}
+
+
+@router.post("/rulesets/extract")
+def ruleset_extract(req: RulesetExtractRequest) -> dict:
+    try:
+        text = source_text_from_upload(req.filename, text=req.text, content_base64=req.content_base64)
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not text.strip():
+        raise HTTPException(400, "coding-standard source is empty")
+    return build_candidate_from_text(text, req.llm or {})
+
+
+@router.post("/rulesets/validate")
+def ruleset_validate(req: RulesetValidateRequest) -> dict:
+    return evaluate_ruleset(req.ruleset)
+
+
+@router.post("/rulesets/save")
+def ruleset_save(req: RulesetSaveRequest) -> dict:
+    result = save_ruleset(req.name, req.ruleset)
+    if not result.get("ok"):
+        raise HTTPException(400, {"message": "ruleset invalid", "issues": result.get("issues", [])})
+    return result
 
 
 @router.post("/spec/validate")

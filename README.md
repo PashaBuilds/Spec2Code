@@ -21,6 +21,8 @@ ve devam geliştirme.
   kod formatı ve statik kontroller yapılır.
 - **Project save/load:** UI'daki proje `project.spec.json` olarak indirilebilir ve
   daha sonra aynı dosyadan geri yüklenebilir.
+- **Coding Standard Studio:** Setup ekranında Word/Markdown/text/JSON standardından
+  ruleset adayı üretir; schema validation, diff ve örnek QC check'leri gösterir.
 - **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, raporlar ve
   varsa `reference_sources/` hiyerarşik gösterilir; tek dosya veya tüm çıktı zip
   olarak indirilebilir.
@@ -79,7 +81,19 @@ Makinece uygulanacak kurallar için JSON gerekir. Word veya Markdown dosyası iy
 bir insan dokümanıdır ama QC'nin otomatik karar vermesi için nihayetinde JSON
 ruleset'e çevrilmesi gerekir.
 
-Word standardın varsa:
+En temiz akış UI içindedir:
+
+1. Setup ekranında **Coding standard → Studio** aç.
+2. Word (`.docx`), Markdown, text veya mevcut JSON ruleset yükle ya da metni paste et.
+3. LLM açıksa lokal OpenAI-compatible model aday JSON üretir. LLM kapalıysa default
+   ruleset üzerinden manuel review/edit yapılır.
+4. Form alanlarında formatting, function regex, prefix map, print terminator ve
+   Doxygen kuralını gözden geçir.
+5. Schema validation, default diff ve örnek QC check sonuçları temizse kaydet.
+6. Kaydedilen ref otomatik olarak `std/user/<ad>.ruleset.json` biçiminde
+   **Coding standard** alanına yazılır.
+
+CLI ile Word standardından ham başlangıç almak istersen:
 
 ```bash
 .venv/bin/python -m std.extract_ruleset path/to/standard.docx > std/my.ruleset.json
@@ -98,6 +112,10 @@ JSON ruleset'e girmelidir. En sağlıklı model:
 
 - `docs/coding-standard.md`: İnsan tarafından okunacak açıklama ve örnekler.
 - `std/my.ruleset.json`: Spec2Code/QC tarafından uygulanacak makine kuralları.
+
+`std/user/` altındaki ruleset'ler kullanıcı tarafından üretilen lokal çalışma
+dosyalarıdır; Git'e alınmaz. Windows executable ile çalışırken aynı ref, uygulamayı
+çalıştırdığın klasördeki `std/user/` altında saklanır.
 
 ## LLM Ayarları
 

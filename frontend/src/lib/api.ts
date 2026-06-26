@@ -9,7 +9,9 @@ import type {
   PlatformInfo,
   ProjectSpec,
   DriverMatch,
+  LlmConfig,
   SpecValidation,
+  RulesetResult,
 } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -67,6 +69,27 @@ export const api = {
     req<SpecValidation>("/api/spec/validate", {
       method: "POST",
       body: JSON.stringify({ spec }),
+    }),
+
+  rulesetDefault: () =>
+    req<{ ruleset: Record<string, unknown>; schema: Record<string, unknown> }>("/api/rulesets/default"),
+
+  extractRuleset: (payload: { filename?: string; text?: string; content_base64?: string; llm?: LlmConfig }) =>
+    req<RulesetResult>("/api/rulesets/extract", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  validateRuleset: (ruleset: Record<string, unknown>) =>
+    req<RulesetResult>("/api/rulesets/validate", {
+      method: "POST",
+      body: JSON.stringify({ ruleset }),
+    }),
+
+  saveRuleset: (name: string, ruleset: Record<string, unknown>) =>
+    req<RulesetResult>("/api/rulesets/save", {
+      method: "POST",
+      body: JSON.stringify({ name, ruleset }),
     }),
 
   generate: (spec: ProjectSpec, max_rounds = 3) =>

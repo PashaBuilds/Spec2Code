@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, FileJson, Upload } from "lucide-react";
+import { Download, FileJson, Upload, Wand2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
 import type { LlmConfig, PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
+import RulesetStudio from "./RulesetStudio";
 import {
   Badge,
   Button,
@@ -29,6 +30,7 @@ export default function ProjectSetup() {
   const [tools, setTools] = useState<Record<string, string | null>>({});
   const [projectIoMessage, setProjectIoMessage] = useState<string | null>(null);
   const [projectIoError, setProjectIoError] = useState<string | null>(null);
+  const [showRulesetStudio, setShowRulesetStudio] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -180,12 +182,31 @@ export default function ProjectSetup() {
         </div>
 
         <div className="space-y-1.5">
-          <Label>Coding standard</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label>Coding standard</Label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowRulesetStudio((value) => !value)}
+            >
+              <Wand2 className="h-4 w-4" /> Studio
+            </Button>
+          </div>
           <Input
             value={codingStandardRef}
             onChange={(e) => setCodingStandardRef(e.target.value)}
             placeholder="std/default.ruleset.json"
           />
+          {showRulesetStudio && (
+            <RulesetStudio
+              llm={llm}
+              onSaved={(ref) => {
+                setCodingStandardRef(ref);
+                setProjectIoError(null);
+                setProjectIoMessage(`${ref} saved`);
+              }}
+            />
+          )}
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

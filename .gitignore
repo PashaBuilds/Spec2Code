@@ -17,6 +17,7 @@ outputs/*/
 specs/*/
 !specs/samples/
 !specs/samples/**
+std/user/
 rag/index/
 *.faiss
 release-assets/

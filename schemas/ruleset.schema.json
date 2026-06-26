@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Spec2Code coding ruleset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ruleset_version", "formatting", "naming", "print_conventions", "doxygen"],
+  "properties": {
+    "ruleset_version": { "type": "string", "default": "1.0" },
+    "formatting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brace_style", "indent", "line_ending", "max_line_length"],
+      "properties": {
+        "brace_style": { "type": "string", "enum": ["allman", "attach", "k&r"] },
+        "indent": { "type": "string", "enum": ["spaces_4"] },
+        "line_ending": { "type": "string", "enum": ["crlf"] },
+        "max_line_length": { "type": "integer", "minimum": 60, "maximum": 180 }
+      }
+    },
+    "naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hungarian_prefixes", "function_pattern", "function_regex"],
+      "properties": {
+        "hungarian_prefixes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "required": ["uint8_t", "uint16_t", "uint32_t", "uint64_t", "int32_t", "struct_pointer", "static_var", "pointer"]
+        },
+        "function_pattern": { "type": "string" },
+        "function_regex": { "type": "string" }
+      }
+    },
+    "print_conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_terminator_in_prints"],
+      "properties": {
+        "line_terminator_in_prints": { "type": "string" }
+      }
+    },
+    "doxygen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_on_public_functions"],
+      "properties": {
+        "required_on_public_functions": { "type": "boolean" }
+      }
+    }
+  }
+}

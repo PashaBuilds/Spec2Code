@@ -42,6 +42,10 @@ Full PoC is built end-to-end and was confirmed working on the Mac Mini. Verified
 - **Frontend** (React + Vite + Tailwind + React Flow): full flow verified visually — setup →
   upload xparameters → schematic with zones → add TCA9548A mux + LTC2991 device → set via-mux
   channel 3 → generate → live console + CodeMirror code view with QC pass.
+- **Coding Standard Studio**: Setup-integrated ruleset builder. Backend endpoints
+  `/api/rulesets/default|extract|validate|save` normalize LLM candidates against
+  `schemas/ruleset.schema.json`, show diff/checks/issues, and persist approved refs as
+  `std/user/<name>.ruleset.json`.
 - **Portability static audit**: no platform-specific code, no `shell=True`, no manual path joins,
   no non-CRLF output outside `hostplat/`.
 

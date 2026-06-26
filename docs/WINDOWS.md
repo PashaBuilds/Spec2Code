@@ -237,6 +237,24 @@ candidate first, rejected if it removes existing C functions or fails the availa
 checks, and only then written to the real file. Every accepted LLM-produced file is re-run through
 the deterministic QC loop before delivery.
 
+## Coding Standard Studio on Windows
+
+In the Setup screen, use **Coding standard -> Studio** to build a ruleset from a Word,
+Markdown, text, or existing JSON standard file. With LLM enabled, the local
+OpenAI-compatible model produces only a candidate JSON. Spec2Code then normalizes it to the
+versioned ruleset schema, shows unsupported fields, runs regex/sample QC checks, and blocks Save
+when the ruleset is invalid.
+
+Saved rulesets use refs like:
+
+```text
+std/user/company.ruleset.json
+```
+
+When running from the Windows `.exe`, this file is written under the folder where you start
+`Spec2Code.exe`, so keep that folder with the project files if you want the same standard to be
+available after restart or on another air-gapped machine.
+
 ## Creating a Windows executable manually
 
 Normally GitHub Actions builds the Windows `.exe` when a `v*` tag is pushed. To build it
