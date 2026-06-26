@@ -1,0 +1,42 @@
+descriptor_version: "1.0"
+part: "AD7414"
+manufacturer: "Analog Devices"
+summary: "10-bit I2C temperature sensor with programmable alert thresholds."
+transport:
+  type: i2c
+  address_width: 8
+  default_address: 0x48      # AD7414 address family starts at 0x48 (AS-dependent).
+  byte_order: big
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+registers:
+  - { name: TEMPERATURE,   offset: 0x00, width: 16, access: ro, reset: 0x0000,
+      fields: [ { name: TEMP_CODE, bits: "15:6" } ] }
+  - { name: CONFIGURATION, offset: 0x01, width: 8, access: rw, reset: 0x40,
+      fields: [
+        { name: POWER_DOWN, bits: "7" },
+        { name: FILTER_BYPASS, bits: "6" },
+        { name: ALERT_ENABLE, bits: "5" },
+        { name: ALERT_POLARITY, bits: "4" },
+        { name: ALERT_RESET, bits: "3" },
+        { name: ONE_SHOT, bits: "2" } ] }
+  - { name: THIGH,         offset: 0x02, width: 8, access: rw, reset: 0x50 }
+  - { name: TLOW,          offset: 0x03, width: 8, access: rw, reset: 0x4B }
+operations:
+  - name: device_init
+    description: "Initialize the I2C controller; the AD7414 powers up in continuous conversion mode."
+    steps:
+      - { op: comment, note: "AD7414 default mode is continuous conversion; no device register write required." }
+  - name: temperature_read
+    returns: "uint16"
+    description: "Read the 10-bit two's-complement temperature register as the raw 16-bit transfer image."
+    steps:
+      - { op: read_registers, reg: TEMPERATURE, length: 2 }
+  - name: config_read
+    returns: "uint8"
+    description: "Read the configuration register."
+    steps:
+      - { op: read_register, reg: CONFIGURATION }
+test_hints:
+  self_test: { description: "Read the temperature register and print the raw code." }

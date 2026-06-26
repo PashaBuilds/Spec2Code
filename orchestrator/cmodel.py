@@ -145,9 +145,49 @@ def _hexu8(value: int) -> str:
     return f"0x{value & 0xFF:02X}U"
 
 
+def _hexu32(value: int) -> str:
+    return f"0x{value & 0xFFFFFFFF:X}U"
+
+
 def _first_bit(bits: str) -> int:
     bits = str(bits)
     return int(bits.split(":")[-1]) if ":" in bits else int(bits)
+
+
+def _return_param(op_name: str, returns: str) -> tuple[str, str]:
+    obj = op_name.split("_")[0]
+    ret = returns.lower()
+    if "uint8" in ret:
+        return "uint8_t", f"puc_{obj}"
+    if "uint32" in ret:
+        return "uint32_t", f"pui_{obj}"
+    return "uint16_t", f"pus_{obj}"
+
+
+def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
+                        pieces: list[dict[str, int]]) -> str:
+    cast = "uint32_t" if c_type == "uint32_t" or byte_count > 2 else c_type
+    explicit = any(("mask" in p) or ("shift" in p) for p in pieces)
+    terms: list[str] = []
+
+    if explicit:
+        for p in pieces:
+            idx = p["index"]
+            mask = p.get("mask", 0xFF)
+            shift = p.get("shift", 0)
+            term = f"(({cast})uc_bytes[{idx}U] & {_hexu32(mask)})"
+            if shift:
+                term = f"({term} << {shift}U)"
+            terms.append(term)
+    else:
+        for idx in range(byte_count):
+            shift = (8 * idx) if byte_order == "little" else (8 * (byte_count - 1 - idx))
+            term = f"({cast})uc_bytes[{idx}U]"
+            if shift:
+                term = f"({term} << {shift}U)"
+            terms.append(term)
+
+    return " | ".join(terms) if terms else "0U"
 
 
 def _doxy(func: CFunc) -> CFunc:
@@ -218,7 +258,22 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     r.ln("return XST_SUCCESS;")
     read = CFunc(f"{module}_register_read", "int",
                  [f"{htype} *{hvar}", "uint8_t uc_reg", "uint8_t *puc_value"], r.out(), static=True)
-    return [write, read]
+
+    rb = Emit()
+    rb.ln("int i_status;").blank()
+    rb.open("if ((puc_buffer == NULL) || (ui_length == 0U))")
+    rb.ln("return XST_FAILURE;")
+    rb.close()
+    rb.ln(f"i_status = XIicPs_MasterSendPolled({hvar}, &uc_reg, 1, {addr_def});").check_status()
+    rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    rb.ln(f"i_status = XIicPs_MasterRecvPolled({hvar}, puc_buffer, (int)ui_length, {addr_def});").check_status()
+    rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    rb.ln("return XST_SUCCESS;")
+    read_block = CFunc(f"{module}_registers_read", "int",
+                       [f"{htype} *{hvar}", "uint8_t uc_reg",
+                        "uint8_t *puc_buffer", "uint32_t ui_length"],
+                       rb.out(), static=True)
+    return [write, read, read_block]
 
 
 def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
@@ -230,6 +285,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     addr_def, sclk_def, to_def = f"{MOD}_I2C_ADDR", f"{MOD}_I2C_SCLK_HZ", f"{MOD}_POLL_TIMEOUT"
     regs = {rg["name"]: rg for rg in descriptor.get("registers", [])}
     instance = controller["instance"]
+    byte_order = descriptor.get("transport", {}).get("byte_order", "big")
 
     defines = [
         (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
@@ -254,14 +310,23 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         returns = op.get("returns", "")
         is_init = op_name == "device_init"
         params = [f"{htype} *{hvar}"]
+        out_c_type = ""
         out_param = None
         if returns:
-            obj = op_name.split("_")[0]
-            out_param = f"pus_{obj}"
-            params.append(f"uint16_t *{out_param}")
+            out_c_type, out_param = _return_param(op_name, returns)
+            params.append(f"{out_c_type} *{out_param}")
 
         has_channels = any(s["op"] == "read_channels" for s in op["steps"])
         scalar_combine = bool(returns) and "[" not in returns
+        scalar_read_bytes = 0
+        if scalar_combine:
+            for step in op["steps"]:
+                if step["op"] == "read_register":
+                    scalar_read_bytes += 1
+                elif step["op"] == "read_registers":
+                    scalar_read_bytes += int(step.get("length", 1))
+            if scalar_read_bytes > 4:
+                raise CodegenError(f"{device['id']} {op_name}: scalar reads are limited to 4 bytes")
         e = Emit()
         # declarations (top of block, embedded C style)
         e.ln("int i_status;")
@@ -269,8 +334,10 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             e.ln(f"{htype}_Config *sp_config;")
         if has_channels:
             e.ln("uint8_t uc_index;")
-        if has_channels or scalar_combine:
+        if has_channels:
             e.ln("uint8_t uc_msb;").ln("uint8_t uc_lsb;")
+        if scalar_read_bytes:
+            e.ln("uint8_t uc_bytes[4];")
         e.blank()
 
         if is_init:
@@ -282,6 +349,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         inject_mux(e)
 
         read_seen = 0
+        scalar_pieces: list[dict[str, int]] = []
         for step in op["steps"]:
             sop = step["op"]
             if sop == "comment":
@@ -304,9 +372,25 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                 e.close(f" while ({mask_expr} != {step.get('until', 0)}U);")
                 e.close()
             elif sop == "read_register":
-                target = "uc_msb" if read_seen == 0 else "uc_lsb"
+                if scalar_combine:
+                    target = f"uc_bytes[{read_seen}U]"
+                    piece = {"index": read_seen}
+                    if "mask" in step:
+                        piece["mask"] = int(step["mask"])
+                    if "shift" in step:
+                        piece["shift"] = int(step["shift"])
+                    scalar_pieces.append(piece)
+                else:
+                    target = "uc_msb" if read_seen == 0 else "uc_lsb"
                 read_seen += 1
                 e.ln(f"i_status = {module}_register_read({hvar}, {MOD}_REG_{step['reg']}, &{target});").check_status()
+            elif sop == "read_registers":
+                length = int(step.get("length", 1))
+                if not scalar_combine:
+                    raise CodegenError(f"{device['id']} {op_name}: read_registers needs a scalar return")
+                e.ln(f"i_status = {module}_registers_read({hvar}, {MOD}_REG_{step['reg']}, "
+                     f"&uc_bytes[{read_seen}U], {length}U);").check_status()
+                read_seen += length
             elif sop == "read_channels":
                 base, count = f"{MOD}_REG_{step['reg']}", step.get("count", 8)
                 e.open(f"for (uc_index = 0U; uc_index < {count}U; uc_index++)")
@@ -316,7 +400,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                 e.close()
 
         if scalar_combine and out_param:
-            e.ln(f"*{out_param} = (uint16_t)(((uint16_t)uc_msb << 8) | (uint16_t)uc_lsb);")
+            expr = _scalar_assign_expr(read_seen, out_c_type, byte_order, scalar_pieces)
+            e.ln(f"*{out_param} = ({out_c_type})({expr});")
         e.ln("return XST_SUCCESS;")
 
         doxy_params = [(hvar, "Initialized I2C controller handle.")]
@@ -509,14 +594,36 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     part = unit.part
     # Non-destructive ops only: device_init + *_read.
     read_ops = [n for n in unit.public_names if n.endswith("_read")]
+    funcs_by_name = {func.name: func for func in unit.funcs}
+
+    def is_array_read(name: str) -> bool:
+        return any("[uc_index]" in line for line in funcs_by_name.get(name, CFunc("", "", [], [])).body)
 
     st = Emit()
     st.ln("int i_status;")
     if unit.transport == "i2c":
-        if any(n.endswith("voltage_read") for n in read_ops):
+        if any(n.endswith("config_read") for n in read_ops):
+            st.ln("uint8_t uc_config;")
+        if any(n.endswith("status_read") for n in read_ops):
+            st.ln("uint8_t uc_status;")
+        if any(n.endswith("voltage_read") and is_array_read(n) for n in read_ops):
             st.ln("uint16_t us_voltages[8];")
+        if any(n.endswith("voltage_read") and not is_array_read(n) for n in read_ops):
+            st.ln("uint16_t us_voltage;")
         if any(n.endswith("temperature_read") for n in read_ops):
             st.ln("uint16_t us_temperature;")
+        if any(n.endswith("power_read") for n in read_ops):
+            st.ln("uint32_t ui_power;")
+        if any(n.endswith("sense_read") for n in read_ops):
+            st.ln("uint16_t us_sense;")
+        if any(n.endswith("adin_read") for n in read_ops):
+            st.ln("uint16_t us_adin;")
+        if any(n.endswith("elapsed_read") for n in read_ops):
+            st.ln("uint32_t ui_elapsed;")
+        if any(n.endswith("alarm_read") for n in read_ops):
+            st.ln("uint32_t ui_alarm;")
+        if any(n.endswith("event_read") for n in read_ops):
+            st.ln("uint32_t ui_event;")
     else:
         if any(n.endswith("id_read") for n in read_ops):
             st.ln("uint8_t uc_id[3];")
@@ -525,12 +632,40 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     st.blank()
     st.ln(f"i_status = {module}_device_init({hvar});").check_status()
     for name in read_ops:
-        if name.endswith("voltage_read"):
-            st.ln(f"i_status = {name}({hvar}, us_voltages);").check_status()
-            st.ln('xil_printf("' + part + ' V1 raw = %u\\r\\n", (unsigned int)us_voltages[0]);')
+        if name.endswith("config_read"):
+            st.ln(f"i_status = {name}({hvar}, &uc_config);").check_status()
+            st.ln('xil_printf("' + part + ' config = %02X\\r\\n", uc_config);')
+        elif name.endswith("status_read"):
+            st.ln(f"i_status = {name}({hvar}, &uc_status);").check_status()
+            st.ln('xil_printf("' + part + ' status = %02X\\r\\n", uc_status);')
+        elif name.endswith("voltage_read"):
+            if is_array_read(name):
+                st.ln(f"i_status = {name}({hvar}, us_voltages);").check_status()
+                st.ln('xil_printf("' + part + ' V1 raw = %u\\r\\n", (unsigned int)us_voltages[0]);')
+            else:
+                st.ln(f"i_status = {name}({hvar}, &us_voltage);").check_status()
+                st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)us_voltage);')
         elif name.endswith("temperature_read"):
             st.ln(f"i_status = {name}({hvar}, &us_temperature);").check_status()
             st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)us_temperature);')
+        elif name.endswith("power_read"):
+            st.ln(f"i_status = {name}({hvar}, &ui_power);").check_status()
+            st.ln('xil_printf("' + part + ' power raw = %lu\\r\\n", (unsigned long)ui_power);')
+        elif name.endswith("sense_read"):
+            st.ln(f"i_status = {name}({hvar}, &us_sense);").check_status()
+            st.ln('xil_printf("' + part + ' sense raw = %u\\r\\n", (unsigned int)us_sense);')
+        elif name.endswith("adin_read"):
+            st.ln(f"i_status = {name}({hvar}, &us_adin);").check_status()
+            st.ln('xil_printf("' + part + ' ADIN raw = %u\\r\\n", (unsigned int)us_adin);')
+        elif name.endswith("elapsed_read"):
+            st.ln(f"i_status = {name}({hvar}, &ui_elapsed);").check_status()
+            st.ln('xil_printf("' + part + ' elapsed ticks = %lu\\r\\n", (unsigned long)ui_elapsed);')
+        elif name.endswith("alarm_read"):
+            st.ln(f"i_status = {name}({hvar}, &ui_alarm);").check_status()
+            st.ln('xil_printf("' + part + ' alarm ticks = %lu\\r\\n", (unsigned long)ui_alarm);')
+        elif name.endswith("event_read"):
+            st.ln(f"i_status = {name}({hvar}, &ui_event);").check_status()
+            st.ln('xil_printf("' + part + ' events = %lu\\r\\n", (unsigned long)ui_event);')
         elif name.endswith("id_read"):
             st.ln(f"i_status = {name}({hvar}, uc_id);").check_status()
             st.ln('xil_printf("' + part + ' JEDEC id = %02X %02X %02X\\r\\n", uc_id[0], uc_id[1], uc_id[2]);')

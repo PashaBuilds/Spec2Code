@@ -49,8 +49,9 @@ xparameters.h
 
 Dosya vermesen bile kod üretilebilmesinin sebebi budur: üretim, mevcut
 `descriptors/*.yaml` dosyaları ve `orchestrator/templates/*.j2` template'leri ile
-deterministik yapılır. Yani LTC2991, TCA9548A, MT25Q128 gibi desteklenen cihazlar
-için hazır descriptor varsa dış kaynak dosyaya ihtiyaç yoktur.
+deterministik yapılır. Yani LTC2991, TCA9548A, MT25Q128, AD7414, DS1682 ve
+LTC2945 gibi desteklenen cihazlar için hazır descriptor varsa dış kaynak dosyaya
+ihtiyaç yoktur.
 
 Senin verdiğin `.c/.h` dosyalar **Import** ekranında taranır ve parça ile
 eşleştirilirse `catalog/imported.json` içine kaydedilir. Bu sürümde bu dosyalar

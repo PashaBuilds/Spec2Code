@@ -11,7 +11,8 @@ the brief left a decision open and we picked a default — per Brief §23.7
   `descriptor`, `ruleset` schemas) + `hostplat/` isolation module.
   *Verify:* CRLF write + tool-resolve self-test pass.
 - **B — Deterministic core:** `xparameters.h` parser → 4 sample headers + 4 platform
-  topologies + 4 seed descriptors (LTC2991 / MT25Q128 / TCA9548A / MT25QU02G) → Jinja2
+  topologies + seed descriptors (LTC2991 / MT25Q128 / TCA9548A / MT25QU02G /
+  AD7414 / DS1682 / LTC2945) → Jinja2
   static codegen + catalog. *Verify:* real `ltc2991.c/.h` + test, CRLF, naming, mux
   channel-select injected, MT25QU02G `0xB7` 4-byte init differs from MT25Q128.
 - **C — QC loop:** runners (clang-format / clang-tidy / cppcheck) + naming-linter

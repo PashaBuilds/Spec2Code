@@ -107,7 +107,7 @@
                 "op": {
                   "type": "string",
                   "enum": [
-                    "write_register", "read_register", "read_channels", "poll", "delay_ms",
+                    "write_register", "read_register", "read_registers", "read_channels", "poll", "delay_ms",
                     "send_command", "write_command_address", "read_command_address",
                     "select_mux_channel", "comment"
                   ]
@@ -119,6 +119,8 @@
                 "until": { "type": "integer" },
                 "count": { "type": "integer", "minimum": 1, "description": "read_channels: number of consecutive 16-bit (MSB/LSB) channels to read into the out array." },
                 "length": { "type": "integer", "minimum": 0, "description": "read/write_command_address byte length: omitted = runtime function parameter; 0 = no data payload (e.g. erase = opcode+address only); >0 = fixed length (e.g. RDID=3)." },
+                "mask": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Optional byte mask for read_register scalar composition." },
+                "shift": { "type": "integer", "minimum": 0, "maximum": 31, "description": "Optional left shift for read_register scalar composition." },
                 "timeout_ms": { "type": "integer", "minimum": 0 },
                 "ms": { "type": "integer", "minimum": 0 },
                 "note": { "type": "string" }

@@ -1,0 +1,66 @@
+descriptor_version: "1.0"
+part: "DS1682"
+manufacturer: "Analog Devices / Maxim Integrated"
+summary: "I2C total elapsed-time recorder with alarm and event counter."
+transport:
+  type: i2c
+  address_width: 8
+  default_address: 0x6B
+  byte_order: little
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+registers:
+  - { name: CONFIGURATION, offset: 0x00, width: 8, access: rw, reset: 0x00,
+      fields: [
+        { name: ALARM_FLAG, bits: "6" },
+        { name: WRITE_DISABLE_FLAG, bits: "5" },
+        { name: WRITE_MEMORY_DISABLE_FLAG, bits: "4" },
+        { name: ALARM_OUTPUT_SELECT, bits: "3" },
+        { name: RESET_ENABLE, bits: "2" },
+        { name: ALARM_POLARITY, bits: "1" },
+        { name: EVENT_COUNT_MSB, bits: "0" } ] }
+  - { name: ALARM_LOW,      offset: 0x01, width: 8, access: rw, reset: 0x00 }
+  - { name: ALARM_LOW_MID,  offset: 0x02, width: 8, access: rw, reset: 0x00 }
+  - { name: ALARM_HIGH_MID, offset: 0x03, width: 8, access: rw, reset: 0x00 }
+  - { name: ALARM_HIGH,     offset: 0x04, width: 8, access: rw, reset: 0x00 }
+  - { name: ETC_LOW,        offset: 0x05, width: 8, access: ro, reset: 0x00 }
+  - { name: ETC_LOW_MID,    offset: 0x06, width: 8, access: ro, reset: 0x00 }
+  - { name: ETC_HIGH_MID,   offset: 0x07, width: 8, access: ro, reset: 0x00 }
+  - { name: ETC_HIGH,       offset: 0x08, width: 8, access: ro, reset: 0x00 }
+  - { name: EVENT_LOW,      offset: 0x09, width: 8, access: ro, reset: 0x00 }
+  - { name: EVENT_HIGH,     offset: 0x0A, width: 8, access: ro, reset: 0x00 }
+  - { name: USER_1,         offset: 0x0B, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_10,        offset: 0x14, width: 8, access: rw, reset: 0x00 }
+  - { name: RESET_COMMAND,  offset: 0x1D, width: 8, access: wo }
+  - { name: WRITE_DISABLE,  offset: 0x1E, width: 8, access: wo }
+  - { name: MEMORY_DISABLE, offset: 0x1F, width: 8, access: wo }
+operations:
+  - name: device_init
+    description: "Initialize the I2C controller; DS1682 counting behavior is controlled by the EVENT pin."
+    steps:
+      - { op: comment, note: "DS1682 has no mandatory startup command." }
+  - name: config_read
+    returns: "uint8"
+    description: "Read status/configuration bits including alarm flag and event counter MSB."
+    steps:
+      - { op: read_register, reg: CONFIGURATION }
+  - name: elapsed_read
+    returns: "uint32"
+    description: "Read the 32-bit elapsed time counter in quarter-second ticks."
+    steps:
+      - { op: read_registers, reg: ETC_LOW, length: 4 }
+  - name: alarm_read
+    returns: "uint32"
+    description: "Read the 32-bit alarm trip point in quarter-second ticks."
+    steps:
+      - { op: read_registers, reg: ALARM_LOW, length: 4 }
+  - name: event_read
+    returns: "uint32"
+    description: "Read the 17-bit event counter using CONFIGURATION[0] plus EVENT_HIGH:EVENT_LOW."
+    steps:
+      - { op: read_register, reg: CONFIGURATION, mask: 0x01, shift: 16 }
+      - { op: read_register, reg: EVENT_LOW, shift: 0 }
+      - { op: read_register, reg: EVENT_HIGH, shift: 8 }
+test_hints:
+  self_test: { description: "Read elapsed time and event count without modifying EEPROM-backed state." }

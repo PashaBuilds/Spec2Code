@@ -1,0 +1,67 @@
+descriptor_version: "1.0"
+part: "LTC2945"
+manufacturer: "Analog Devices"
+summary: "Wide range I2C power monitor measuring current, voltage, power, and ADIN."
+transport:
+  type: i2c
+  address_width: 8
+  default_address: 0x67      # 7-bit form of the CEh write address option.
+  byte_order: big
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+registers:
+  - { name: CONTROL,       offset: 0x00, width: 8, access: rw, reset: 0x05,
+      fields: [
+        { name: SNAPSHOT_ENABLE, bits: "7" },
+        { name: SNAPSHOT_CHANNEL, bits: "6:5" },
+        { name: TEST_MODE, bits: "4" },
+        { name: ADC_BUSY, bits: "3" },
+        { name: VIN_MONITOR, bits: "2" },
+        { name: SHUTDOWN, bits: "1" },
+        { name: MULTIPLIER_SELECT, bits: "0" } ] }
+  - { name: ALERT,         offset: 0x01, width: 8, access: rw, reset: 0x00 }
+  - { name: STATUS,        offset: 0x02, width: 8, access: ro, reset: 0x00 }
+  - { name: FAULT,         offset: 0x03, width: 8, access: ro, reset: 0x00 }
+  - { name: FAULT_CLEAR,   offset: 0x04, width: 8, access: rw, reset: 0x00 }
+  - { name: POWER_MSB2,    offset: 0x05, width: 8, access: ro, reset: 0x00 }
+  - { name: POWER_MSB1,    offset: 0x06, width: 8, access: ro, reset: 0x00 }
+  - { name: POWER_LSB,     offset: 0x07, width: 8, access: ro, reset: 0x00 }
+  - { name: SENSE_MSB,     offset: 0x14, width: 8, access: ro, reset: 0x00 }
+  - { name: SENSE_LSB,     offset: 0x15, width: 8, access: ro, reset: 0x00 }
+  - { name: VIN_MSB,       offset: 0x1E, width: 8, access: ro, reset: 0x00 }
+  - { name: VIN_LSB,       offset: 0x1F, width: 8, access: ro, reset: 0x00 }
+  - { name: ADIN_MSB,      offset: 0x28, width: 8, access: ro, reset: 0x00 }
+  - { name: ADIN_LSB,      offset: 0x29, width: 8, access: ro, reset: 0x00 }
+operations:
+  - name: device_init
+    description: "Initialize I2C and select continuous scan of SENSE+/VDD for power calculation."
+    steps:
+      - { op: write_register, reg: CONTROL, value: 0x05 }
+  - name: status_read
+    returns: "uint8"
+    description: "Read the status register."
+    steps:
+      - { op: read_register, reg: STATUS }
+  - name: power_read
+    returns: "uint32"
+    description: "Read the raw 24-bit power calculation register."
+    steps:
+      - { op: read_registers, reg: POWER_MSB2, length: 3 }
+  - name: sense_read
+    returns: "uint16"
+    description: "Read the raw 12-bit delta-sense/current ADC register image."
+    steps:
+      - { op: read_registers, reg: SENSE_MSB, length: 2 }
+  - name: voltage_read
+    returns: "uint16"
+    description: "Read the raw 12-bit VIN ADC register image."
+    steps:
+      - { op: read_registers, reg: VIN_MSB, length: 2 }
+  - name: adin_read
+    returns: "uint16"
+    description: "Read the raw 12-bit auxiliary ADIN ADC register image."
+    steps:
+      - { op: read_registers, reg: ADIN_MSB, length: 2 }
+test_hints:
+  self_test: { description: "Read status, power, sense, VIN, and ADIN raw codes." }

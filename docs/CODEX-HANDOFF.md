@@ -58,7 +58,7 @@ backend/         main.py · jobs.py (JobManager + WS event buffering) · api/rou
 orchestrator/    codegen.py · cmodel.py (C render-model: Emit class + i2c/spi/mux/test builders)
                  templates/*.j2 · qc/{loop,runners,naming_linter}.py + bsp_stubs/ · llm/{client,tasks}.py
                  selftest.py
-descriptors/     ltc2991/tca9548a/mt25q128/mt25qu02g .yaml + _schema/descriptor.schema.json
+descriptors/     ltc2991/tca9548a/mt25q128/mt25qu02g/ad7414/ds1682/ltc2945 .yaml + _schema/descriptor.schema.json
 platforms/       4 topology models (zones/cores)
 catalog/         catalog.json + matcher.py (content-aware .c/.h matching, verified 100%)
 std/             default.ruleset.json + extract_ruleset.py (Word→ruleset)
