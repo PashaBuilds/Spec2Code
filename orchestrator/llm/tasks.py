@@ -6,19 +6,138 @@ is re-checked by the QC loop (Brief §15), so a bad generation can't bypass the 
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from pathlib import Path
 from typing import Callable, Optional
 
 from hostplat import io as hio
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
+from orchestrator.qc import naming_linter, runners
 
 _FENCE_RE = re.compile(r"^\s*```[a-zA-Z]*\s*\n(.*?)\n```\s*$", re.DOTALL)
+_FUNC_DEF_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_ \t\r\n\*]*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{",
+    re.MULTILINE,
+)
+
+
+class LlmCandidateError(LlmError):
+    """Raised when the model answered, but the candidate failed deterministic gates."""
+
+
+@dataclass
+class CandidateCheck:
+    text: str
+    warnings: int
+    tools: dict[str, bool | None]
 
 
 def _strip_fences(text: str) -> str:
     m = _FENCE_RE.match(text.strip())
     return m.group(1) if m else text
+
+
+def _function_names(source: str) -> set[str]:
+    return {match.group(1) for match in _FUNC_DEF_RE.finditer(source)}
+
+
+def _out_dir_for(path: Path) -> Path:
+    path = Path(path)
+    if path.parent.name in {"drivers", "tests"}:
+        return path.parent.parent
+    return path.parent
+
+
+def _candidate_path_for(path: Path) -> Path:
+    candidate = path.with_name(f".{path.stem}.llm_candidate{path.suffix}")
+    if not candidate.exists():
+        return candidate
+    for idx in range(1, 100):
+        candidate = path.with_name(f".{path.stem}.llm_candidate_{idx}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise LlmCandidateError(f"could not allocate temporary candidate path near {path}")
+
+
+def _gate_errors(violations: list[runners.Violation]) -> list[runners.Violation]:
+    return [v for v in violations if v.severity == "error"]
+
+
+def _violation_summary(v: runners.Violation) -> str:
+    return f"{v.source}:{v.rule} line {v.line}: {v.message}"
+
+
+def _preflight_candidate_text(path: Path, original: str, candidate: str) -> str:
+    suffix = path.suffix.lower()
+    text = _strip_fences(candidate).strip()
+    if suffix not in {".c", ".h"}:
+        raise LlmCandidateError(f"unsupported LLM target file type: {path.suffix}")
+    if not text:
+        raise LlmCandidateError("LLM candidate is empty")
+    if "```" in text:
+        raise LlmCandidateError("LLM candidate still contains markdown fences")
+    bad_controls = [ch for ch in text if ord(ch) < 32 and ch not in "\r\n\t"]
+    if bad_controls:
+        raise LlmCandidateError("LLM candidate contains unsupported control characters")
+    if suffix == ".c":
+        original_functions = _function_names(original)
+        candidate_functions = _function_names(text)
+        missing = sorted(original_functions - candidate_functions)
+        if original_functions and missing:
+            raise LlmCandidateError(
+                "LLM candidate removed existing function definition(s): " + ", ".join(missing[:5])
+            )
+        if not candidate_functions:
+            raise LlmCandidateError("LLM candidate does not contain any C function definitions")
+    if len(original) > 400 and len(text) < int(len(original) * 0.35):
+        raise LlmCandidateError(
+            f"LLM candidate is suspiciously short ({len(text)} chars vs original {len(original)} chars)"
+        )
+    return text + "\n"
+
+
+def _check_candidate(path: Path, original: str, candidate: str, ruleset: dict) -> CandidateCheck:
+    path = Path(path)
+    text = _preflight_candidate_text(path, original, candidate)
+    out_dir = _out_dir_for(path)
+    drivers_dir = out_dir / "drivers"
+    include_dirs = [drivers_dir]
+    temp_path = _candidate_path_for(path)
+    tools: dict[str, bool | None] = {"clang-format": None, "clang-tidy": None, "cppcheck": None, "libclang": None}
+    try:
+        hio.write_output(out_dir / ".clang-format", runners.clang_format_config(ruleset))
+        hio.write_output(temp_path, text)
+
+        fmt_available, _changed, fmt_reason = runners.format_file(temp_path, out_dir)
+        tools["clang-format"] = fmt_available
+        if fmt_available and fmt_reason:
+            raise LlmCandidateError(f"clang-format rejected LLM candidate: {fmt_reason}")
+
+        formatted = temp_path.read_text(encoding="utf-8", errors="replace")
+        violations: list[runners.Violation] = []
+        if path.suffix.lower() == ".c":
+            violations += naming_linter.lint_file(temp_path, ruleset, include_dirs)
+            tidy = runners.run_clang_tidy(temp_path, include_dirs)
+            cpp = runners.run_cppcheck(temp_path, include_dirs)
+            tools["clang-tidy"] = tidy.available
+            tools["cppcheck"] = cpp.available
+            violations += tidy.violations + cpp.violations
+            tools["libclang"] = not any(v.rule == "naming.libclang_missing" for v in violations)
+
+        errors = _gate_errors(violations)
+        if errors:
+            first = _violation_summary(errors[0])
+            raise LlmCandidateError(
+                f"LLM candidate failed deterministic QC gate: {len(errors)} error(s); first: {first}"
+            )
+        warnings = sum(1 for v in violations if v.severity == "warning")
+        return CandidateCheck(text=formatted, warnings=warnings, tools=tools)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def system_prompt(ruleset: dict) -> str:
@@ -81,6 +200,23 @@ def make_qc_fixer(
         })
         try:
             fixed = _strip_fences(client.chat(messages, temperature=0.0))
+            emit({
+                "event": "llm.check",
+                "task": "qc_fix",
+                "file": str(path),
+                "model": client.config.model,
+            })
+            check = _check_candidate(Path(path), code, fixed, ruleset)
+        except LlmCandidateError as exc:
+            disabled_reason = f"candidate rejected: {exc}"
+            emit({
+                "event": "llm.rejected",
+                "task": "qc_fix",
+                "model": client.config.model,
+                "file": str(path),
+                "message": str(exc),
+            })
+            return
         except LlmError as exc:
             disabled_reason = str(exc)
             emit({
@@ -90,13 +226,20 @@ def make_qc_fixer(
                 "message": disabled_reason,
             })
             return
-        if fixed.strip():
-            hio.write_output(path, fixed)
+        if check.text.strip():
+            hio.write_output(path, check.text)
+            emit({
+                "event": "llm.accepted",
+                "task": "qc_fix",
+                "model": client.config.model,
+                "file": str(path),
+                "warnings": check.warnings,
+            })
             emit({
                 "event": "llm.done",
                 "task": "qc_fix",
                 "model": client.config.model,
-                "chars": len(fixed),
+                "chars": len(check.text),
             })
 
     return fixer

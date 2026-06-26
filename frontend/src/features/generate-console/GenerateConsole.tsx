@@ -103,6 +103,28 @@ function describe(e: JobEvent): Line {
         prefix: "LLM",
         text: `${field(e, "task")} completed with ${field(e, "chars", "0")} chars`,
       };
+    case "llm.check":
+      return {
+        tone: "accent",
+        prefix: "LLM QC",
+        text: `checking candidate for ${field(e, "file", "file?")}`,
+      };
+    case "llm.accepted":
+      return {
+        tone: "ok",
+        prefix: "LLM QC",
+        text: `candidate accepted for ${field(e, "file", "file?")} warnings=${field(e, "warnings", "0")}`,
+      };
+    case "llm.rejected":
+      return {
+        tone: "danger",
+        prefix: "LLM QC",
+        text: `candidate rejected for ${field(e, "file", "file?")}: ${field(
+          e,
+          "message",
+          "unknown reason",
+        )}`,
+      };
     case "llm.skipped":
       return {
         tone: "warn",

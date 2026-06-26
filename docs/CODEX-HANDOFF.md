@@ -35,7 +35,9 @@ Full PoC is built end-to-end and was confirmed working on the Mac Mini. Verified
   a gate-failing bare `\n` print was fixed to `\r\n`, then QC re-ran clean in round 2. Direct
   `optimize_code()` also returned non-empty C output. The LLM client now requires the exact model id
   from the user and reports timeout, HTTP, truncated, empty, and overlong responses as structured
-  `llm.error` events without rewriting files.
+  `llm.error` events without rewriting files. Model answers are staged as temporary candidates and
+  must pass shape guards plus the available deterministic tools (clang-format, naming-linter,
+  clang-tidy, cppcheck) before replacing the real file; rejected candidates emit `llm.rejected`.
 - **Backend** (FastAPI + WS): `generate` → live event stream → result, verified on real uvicorn.
 - **Frontend** (React + Vite + Tailwind + React Flow): full flow verified visually — setup →
   upload xparameters → schematic with zones → add TCA9548A mux + LTC2991 device → set via-mux

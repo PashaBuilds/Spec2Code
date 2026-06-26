@@ -133,9 +133,21 @@ export SPEC2CODE_LLM_RETRIES="0"
 ```
 
 Model cevap vermezse timeout hatası generate console'da `LLM` satırında görev adı ve
-hata mesajıyla görünür. Model cevabı `max_tokens` nedeniyle kesilirse veya cevap `max_response_chars`
-limitini aşarsa çıktı kullanılmaz; hata açıkça raporlanır ve deterministic QC
-akışı sonucu teslim etmeye devam eder.
+hata mesajıyla görünür. Model cevabı `max_tokens` nedeniyle kesilirse veya cevap
+`max_response_chars` limitini aşarsa çıktı kullanılmaz; hata açıkça raporlanır.
+
+LLM'in ürettiği cevap doğrudan dosyaya yazılmaz. Önce geçici bir aday dosyaya alınır ve şu
+kapılardan geçer:
+
+- Markdown/prose, boş cevap, kontrol karakteri ve şüpheli kısa çıktı reddedilir.
+- Mevcut C fonksiyonlarının kaldırılmadığı kontrol edilir.
+- Aday dosya kurulu deterministik araçlarla kontrol edilir: `clang-format`, naming linter,
+  `clang-tidy` ve `cppcheck`.
+- Sadece hata seviyesinde ihlal yoksa gerçek dosyanın yerine yazılır.
+- Aday reddedilirse mevcut dosya korunur; olay generate console'da `LLM QC` satırıyla görünür.
+
+Sonrasında normal QC round'u yine tüm proje üzerinde çalışır. Yani LLM sadece yardımcıdır;
+teslim edilecek çıktı deterministik kalite kapısından geçmeden kabul edilmez.
 
 ## Windows'ta Çalıştırma
 

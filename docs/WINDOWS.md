@@ -232,8 +232,10 @@ $env:SPEC2CODE_LLM_RETRIES = "0"
 You can use Kimi, Qwen, or a weaker local model for iteration as long as the server exposes the
 OpenAI-compatible `/v1/chat/completions` API. Enter the exact model id shown by that server. Treat
 local-model output as an assistive pass, not the source of truth. Timeout, truncated, empty, or
-overlong responses are reported explicitly in the generate console, and every accepted LLM-produced
-file is re-run through the deterministic QC loop before delivery.
+overlong responses are reported explicitly in the generate console. LLM output is staged as a
+candidate first, rejected if it removes existing C functions or fails the available deterministic
+checks, and only then written to the real file. Every accepted LLM-produced file is re-run through
+the deterministic QC loop before delivery.
 
 ## Creating a Windows executable manually
 
