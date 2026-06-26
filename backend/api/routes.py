@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
+from backend.validators.wiring import validate_wiring
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
@@ -121,6 +122,109 @@ def _resolve_job_file(job, file_path: str) -> tuple[Path, str]:
     return path, requested
 
 
+def _driver_module(part: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", part.lower())
+
+
+def _controller_handle_type(controller_type: str) -> str | None:
+    return {
+        "i2c": "XIicPs",
+        "spi": "XSpiPs",
+        "qspi": "XQspiPs",
+    }.get(controller_type)
+
+
+def _vitis_readme(job, files: list[str]) -> str:
+    project = job.spec.get("project", {}).get("name", job.id)
+    runtime = job.spec.get("project", {}).get("runtime", "bare_metal")
+    qc = job.result.get("qc", {}) if job.result else {}
+    file_list = "\n".join(f"- `{f}`" for f in files)
+    return (
+        f"# {project} - Vitis entegrasyon paketi\n\n"
+        "Bu paket Spec2Code tarafindan uretilen suruculeri Vitis uygulamasina daha kolay "
+        "tasimak icin hazirlanmistir.\n\n"
+        "## Klasorler\n\n"
+        "- `src/drivers/`: uretilen `.c` ve `.h` suruculer.\n"
+        "- `src/tests/`: secilen self-test dosyalari.\n"
+        "- `src/spec2code_selftest_main.c`: self-testleri topluca cagiran ornek runner.\n"
+        "- `meta/project.spec.json`: bu paketi ureten canonical spec.\n"
+        "- `meta/qc_report.json`: son QC raporu.\n\n"
+        "## Vitis'e aktarma\n\n"
+        "1. `src/drivers` altindaki `.c` ve `.h` dosyalarini Vitis application source tree'ye ekle.\n"
+        "2. Self-test kullanacaksan `src/tests` ve `src/spec2code_selftest_main.c` dosyalarini da ekle.\n"
+        "3. Include path'e `src/drivers` klasorunu ekle.\n"
+        "4. BSP tarafinda `xparameters.h` ayni donanim platformundan gelmeli.\n"
+        "5. `spec2code_run_self_tests()` fonksiyonunu kendi `main.c` veya FreeRTOS task akisin icinden cagir.\n\n"
+        f"Runtime: `{runtime}`\n\n"
+        f"QC: `passed={str(qc.get('passed')).lower()}`\n\n"
+        "## Paket dosyalari\n\n"
+        f"{file_list}\n"
+    )
+
+
+def _vitis_selftest_main(spec: dict) -> str:
+    controllers = {c["id"]: c for c in spec.get("controllers", [])}
+    devices = spec.get("devices", [])
+    declarations: list[str] = []
+    calls: list[str] = []
+    includes = {
+        "xstatus.h",
+        "xil_printf.h",
+        "xil_types.h",
+    }
+
+    for device in devices:
+        if "self_test" not in (device.get("tests_requested") or []):
+            continue
+        controller = controllers.get(device.get("attach", {}).get("controller_id"))
+        if not controller:
+            continue
+        handle_type = _controller_handle_type(controller.get("type", ""))
+        if handle_type is None:
+            continue
+        module = _driver_module(device.get("part", ""))
+        handle_name = f"{module}_handle"
+        includes.add(f"{module}.h")
+        declarations.append(f"int {module}_self_test({handle_type} *sp_handle);")
+        calls.extend([
+            f"    {handle_type} {handle_name};",
+            f"    i_status = {module}_self_test(&{handle_name});",
+            "    if (i_status != XST_SUCCESS)",
+            "    {",
+            f'        xil_printf("{device.get("part", module)} self-test FAILED: %d\\r\\n", i_status);',
+            "        return i_status;",
+            "    }",
+            f'    xil_printf("{device.get("part", module)} self-test PASSED\\r\\n");',
+            "",
+        ])
+
+    include_lines = [f'#include "{name}"' for name in sorted(includes) if name.endswith(".h")]
+    if "xiicps.h" not in includes:
+        include_lines.append('#include "xiicps.h"')
+    if "xspips.h" not in includes:
+        include_lines.append('#include "xspips.h"')
+    if "xqspips.h" not in includes:
+        include_lines.append('#include "xqspips.h"')
+    declaration_block = "\n".join(declarations) or "/* No self-test functions were selected. */"
+    call_block = "\n".join(calls) if calls else "    xil_printf(\"No Spec2Code self-tests selected.\\r\\n\");\n"
+    return (
+        "/**\n"
+        " * @file spec2code_selftest_main.c\n"
+        " * @brief Example Vitis runner for Spec2Code generated self-tests.\n"
+        " */\n"
+        + "\n".join(include_lines)
+        + "\n\n"
+        + declaration_block
+        + "\n\n"
+        "int spec2code_run_self_tests(void)\n"
+        "{\n"
+        "    int i_status;\n\n"
+        + call_block
+        + "    return XST_SUCCESS;\n"
+        "}\n"
+    )
+
+
 # --- endpoints --------------------------------------------------------------------------
 
 @router.get("/health")
@@ -187,10 +291,16 @@ def get_descriptor(part: str) -> dict:
 
 @router.post("/spec/validate")
 def validate_spec(req: ValidateRequest) -> dict:
-    errors = sorted(Draft7Validator(_SPEC_SCHEMA).iter_errors(req.spec), key=lambda e: list(e.path))
+    schema_errors = sorted(Draft7Validator(_SPEC_SCHEMA).iter_errors(req.spec), key=lambda e: list(e.path))
+    schema_result = [{"path": "/".join(map(str, e.path)), "message": e.message} for e in schema_errors]
+    wiring = {"valid": False, "errors": [], "warnings": []}
+    if not schema_errors:
+        wiring = validate_wiring(req.spec)
     return {
-        "valid": not errors,
-        "errors": [{"path": "/".join(map(str, e.path)), "message": e.message} for e in errors],
+        "valid": not schema_errors and wiring["valid"],
+        "errors": [*schema_result, *wiring["errors"]],
+        "schema_errors": schema_result,
+        "wiring": wiring,
     }
 
 
@@ -200,6 +310,9 @@ async def generate(req: GenerateRequest) -> dict:
     if errors:
         raise HTTPException(400, {"message": "spec invalid",
                                   "errors": [e.message for e in errors[:5]]})
+    wiring = validate_wiring(req.spec)
+    if wiring["errors"]:
+        raise HTTPException(400, {"message": "wiring invalid", "errors": wiring["errors"][:10]})
     job_id = await manager.start(req.spec, max_rounds=req.max_rounds)
     return {"job_id": job_id}
 
@@ -239,6 +352,58 @@ def download_job(job_id: str) -> Response:
 
     project = job.spec.get("project", {}).get("name", job_id)
     filename = f"{_safe_download_name(project)}-generated.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/jobs/{job_id}/vitis")
+def download_vitis_job(job_id: str) -> Response:
+    job = _job_with_result(job_id)
+    out_dir = job.result.get("out_dir", "")
+    buffer = io.BytesIO()
+    archived: list[str] = []
+
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for rel in job.result.get("files", []):
+            path, normalized = _resolve_job_file(job, rel)
+            name = _archive_name(normalized, out_dir)
+            if name.startswith("drivers/"):
+                arcname = f"src/{name}"
+            elif name.startswith("tests/"):
+                arcname = f"src/{name}"
+            elif name.startswith("reference_sources/"):
+                arcname = name
+            elif name == "qc_report.json":
+                arcname = "meta/qc_report.json"
+            elif name == "README.md":
+                arcname = "meta/generated_README.md"
+            elif name == ".clang-format":
+                arcname = "meta/.clang-format"
+            else:
+                arcname = f"meta/{name}"
+            archive.write(path, arcname)
+            archived.append(arcname)
+
+        archive.writestr(
+            "src/spec2code_selftest_main.c",
+            hio.normalize_crlf(_vitis_selftest_main(job.spec)).encode("utf-8"),
+        )
+        archived.append("src/spec2code_selftest_main.c")
+        archive.writestr(
+            "meta/project.spec.json",
+            (json.dumps(job.spec, indent=2) + "\n").encode("utf-8"),
+        )
+        archived.append("meta/project.spec.json")
+        archive.writestr(
+            "README_TR.md",
+            hio.normalize_crlf(_vitis_readme(job, sorted(archived))).encode("utf-8"),
+        )
+
+    project = job.spec.get("project", {}).get("name", job_id)
+    filename = f"{_safe_download_name(project)}-vitis.zip"
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",

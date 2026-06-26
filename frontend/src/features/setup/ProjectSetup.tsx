@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Download, FileJson, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
-import type { PlatformId, PlatformInfo } from "@/lib/types";
+import type { PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
 import {
   Badge,
+  Button,
   Card,
   Input,
   Label,
@@ -17,21 +19,95 @@ import {
 export default function ProjectSetup() {
   const project = useStore((s) => s.project);
   const setProject = useStore((s) => s.setProject);
+  const codingStandardRef = useStore((s) => s.codingStandardRef);
+  const setCodingStandardRef = useStore((s) => s.setCodingStandardRef);
   const llm = useStore((s) => s.llm);
   const setLlm = useStore((s) => s.setLlm);
+  const buildSpec = useStore((s) => s.buildSpec);
+  const loadSpec = useStore((s) => s.loadSpec);
   const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
+  const [tools, setTools] = useState<Record<string, string | null>>({});
+  const [projectIoMessage, setProjectIoMessage] = useState<string | null>(null);
+  const [projectIoError, setProjectIoError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.platforms().then(setPlatforms).catch(() => setPlatforms([]));
+    api.health().then((h) => setTools(h.tools)).catch(() => setTools({}));
   }, []);
 
   const current = platforms.find((p) => p.id === project.platform);
   const cores = current?.cores ?? [];
 
+  function downloadSpec() {
+    setProjectIoMessage(null);
+    setProjectIoError(null);
+    const spec = buildSpec();
+    const blob = new Blob([JSON.stringify(spec, null, 2) + "\n"], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${spec.project.name}.project.spec.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setProjectIoMessage("project.spec.json exported");
+  }
+
+  async function loadProjectSpec(file: File | undefined) {
+    if (!file) return;
+    setProjectIoMessage(null);
+    setProjectIoError(null);
+    try {
+      const spec = JSON.parse(await file.text()) as ProjectSpec;
+      const validation = await api.validate(spec);
+      if (!validation.valid) {
+        throw new Error(validation.errors.map((e) => `${e.path}: ${e.message}`).join("; "));
+      }
+      const platform = await api.platform(spec.project.platform);
+      loadSpec(spec, { zones: platform.zones, cores: platform.cores });
+      setProjectIoMessage(`${file.name} loaded`);
+    } catch (err) {
+      setProjectIoError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   return (
     <Card className="p-5">
-      <h2 className="mb-4 text-sm font-semibold text-text">Project</h2>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-text">Project</h2>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => void loadProjectSpec(e.target.files?.[0])}
+          />
+          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            <Upload className="h-4 w-4" /> Load
+          </Button>
+          <Button variant="outline" size="sm" onClick={downloadSpec}>
+            <Download className="h-4 w-4" /> Save
+          </Button>
+        </div>
+      </div>
       <div className="space-y-4">
+        {(projectIoMessage || projectIoError) && (
+          <div
+            className={
+              projectIoError
+                ? "rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-xs text-danger"
+                : "rounded-md border border-ok/30 bg-ok/10 px-3 py-2 text-xs text-ok"
+            }
+          >
+            {projectIoError ?? projectIoMessage}
+          </div>
+        )}
+
         <div className="space-y-1.5">
           <Label>Project name</Label>
           <Input
@@ -99,7 +175,11 @@ export default function ProjectSetup() {
 
         <div className="space-y-1.5">
           <Label>Coding standard</Label>
-          <Input value="std/default.ruleset.json" readOnly className="text-faint" />
+          <Input
+            value={codingStandardRef}
+            onChange={(e) => setCodingStandardRef(e.target.value)}
+            placeholder="std/default.ruleset.json"
+          />
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">
@@ -137,6 +217,21 @@ export default function ProjectSetup() {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="rounded-md border border-border bg-inset p-3">
+          <div className="mb-2 flex items-center gap-2 text-sm text-text">
+            <FileJson className="h-4 w-4 text-accent" />
+            Toolchain
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {["clang-format", "clang-tidy", "cppcheck", "libclang"].map((name) => (
+              <div key={name} className="flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate font-mono text-[11px] text-muted">{name}</span>
+                <Badge tone={tools[name] ? "ok" : "warn"}>{tools[name] ? "ok" : "missing"}</Badge>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </Card>

@@ -9,6 +9,7 @@ import type {
   PlatformInfo,
   ProjectSpec,
   DriverMatch,
+  SpecValidation,
 } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -37,6 +38,12 @@ export const api = {
 
   platforms: () => req<{ platforms: PlatformInfo[] }>("/api/platforms").then((r) => r.platforms),
 
+  platform: (platformId: string) =>
+    req<PlatformInfo & { platform?: string }>(`/api/platforms/${encodeURIComponent(platformId)}`).then((p) => ({
+      ...p,
+      id: p.id ?? (p.platform as PlatformInfo["id"]),
+    })),
+
   parseXparameters: (text: string, platform: string) =>
     req<ParseResult>("/api/xparameters/parse", {
       method: "POST",
@@ -57,7 +64,7 @@ export const api = {
     }>(`/api/descriptors/${part}`),
 
   validate: (spec: ProjectSpec) =>
-    req<{ valid: boolean; errors: { path: string; message: string }[] }>("/api/spec/validate", {
+    req<SpecValidation>("/api/spec/validate", {
       method: "POST",
       body: JSON.stringify({ spec }),
     }),
@@ -78,6 +85,8 @@ export const api = {
     }>(`/api/jobs/${jobId}/result`),
 
   jobDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/download`,
+
+  jobVitisDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/vitis`,
 
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,

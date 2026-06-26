@@ -22,6 +22,7 @@ from orchestrator.qc import loop as qc_loop
 _ROOT = Path(__file__).resolve().parent.parent
 _OUTPUTS = _ROOT / "outputs"
 _SPECS = _ROOT / "specs"
+_IMPORTED = _ROOT / "catalog" / "imported.json"
 
 
 def _load_ruleset(spec: dict) -> dict:
@@ -48,6 +49,51 @@ def _collect_output_files(out_dir: Path) -> list[Path]:
         (path for path in out_dir.rglob("*") if path.is_file()),
         key=lambda path: path.relative_to(out_dir).as_posix(),
     )
+
+
+def _module_of(part: str) -> str:
+    return "".join(ch for ch in part.lower() if ch.isalnum()) or "part"
+
+
+def _copy_imported_sources(spec: dict, out_dir: Path, emit) -> None:
+    if not _IMPORTED.is_file():
+        return
+    try:
+        imported = json.loads(_IMPORTED.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        emit({"event": "imported_sources.error", "message": "catalog/imported.json is invalid"})
+        return
+
+    used_parts = {item.get("part") for item in [*spec.get("devices", []), *spec.get("muxes", [])]}
+    copied = 0
+    missing: list[str] = []
+    manifest: dict[str, dict] = {}
+    for part in sorted(p for p in used_parts if p):
+        entry = imported.get(part)
+        if not entry:
+            continue
+        target_dir = out_dir / "reference_sources" / _module_of(part)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied_files: list[str] = []
+        for file_name in entry.get("files", []):
+            source = Path(file_name)
+            if not source.is_file():
+                missing.append(file_name)
+                continue
+            target = target_dir / source.name
+            shutil.copy2(source, target)
+            copied_files.append(target.relative_to(out_dir).as_posix())
+            copied += 1
+        manifest[part] = {
+            "role": entry.get("role", "as_is"),
+            "source_files": entry.get("files", []),
+            "copied_files": copied_files,
+        }
+
+    if manifest:
+        target = out_dir / "reference_sources" / "manifest.json"
+        target.write_text(json.dumps({"parts": manifest, "missing": missing}, indent=2), encoding="utf-8")
+        emit({"event": "imported_sources.copied", "files": copied, "missing": len(missing)})
 
 
 @dataclass
@@ -119,6 +165,7 @@ class JobManager:
         out_dir = _OUTPUTS / spec["project"]["name"]
         _reset_output_dir(out_dir)
         codegen.generate(spec, out_dir, emit=job.emit)
+        _copy_imported_sources(spec, out_dir, job.emit)
         ruleset = _load_ruleset(spec)
         fixer = _maybe_llm_fixer(spec, ruleset)
         report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer)

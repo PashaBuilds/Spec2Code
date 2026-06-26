@@ -125,6 +125,21 @@ export interface QcReport {
   final_violations: QcViolation[];
   warning: string | null;
 }
+export interface ValidationIssue {
+  severity?: "error" | "warning";
+  path: string;
+  message: string;
+}
+export interface SpecValidation {
+  valid: boolean;
+  errors: ValidationIssue[];
+  schema_errors?: ValidationIssue[];
+  wiring?: {
+    valid: boolean;
+    errors: ValidationIssue[];
+    warnings: ValidationIssue[];
+  };
+}
 export interface GeneratedFile {
   path: string;
   relative_path?: string;

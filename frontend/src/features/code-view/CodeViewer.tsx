@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { cpp } from "@codemirror/lang-cpp";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { Archive, Download, FileCode2, FileJson, FileText, Folder } from "lucide-react";
+import { Archive, Download, FileCode2, FileJson, FileText, Folder, Package } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
@@ -217,6 +217,7 @@ export default function CodeViewer() {
   const activeDisplayPath = generatedPath(activeFile);
   const activeDownloadUrl = jobId ? api.jobFileDownloadUrl(jobId, activeFile.path) : null;
   const allDownloadUrl = jobId ? api.jobDownloadUrl(jobId) : null;
+  const vitisDownloadUrl = jobId ? api.jobVitisDownloadUrl(jobId) : null;
 
   const errorCount = qc
     ? qc.final_violations.filter((v) => v.severity.toLowerCase() === "error").length
@@ -245,12 +246,20 @@ export default function CodeViewer() {
         {qc?.warning ? (
           <span className="text-xs text-warn">{qc.warning}</span>
         ) : null}
-        {allDownloadUrl ? (
-          <DownloadLink href={allDownloadUrl} download className="ml-auto">
-            <Archive className="h-4 w-4" />
-            Download all
-          </DownloadLink>
-        ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {vitisDownloadUrl ? (
+            <DownloadLink href={vitisDownloadUrl} download>
+              <Package className="h-4 w-4" />
+              Download Vitis
+            </DownloadLink>
+          ) : null}
+          {allDownloadUrl ? (
+            <DownloadLink href={allDownloadUrl} download>
+              <Archive className="h-4 w-4" />
+              Download all
+            </DownloadLink>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid min-h-0 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">

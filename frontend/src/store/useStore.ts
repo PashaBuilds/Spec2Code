@@ -30,6 +30,7 @@ interface JobState {
 interface StoreState {
   step: Step;
   project: ProjectMeta;
+  codingStandardRef: string;
   llm: LlmConfig;
 
   zones: Zone[];
@@ -49,8 +50,15 @@ interface StoreState {
   // actions
   setStep: (s: Step) => void;
   setProject: (p: Partial<ProjectMeta>) => void;
+  setCodingStandardRef: (ref: string) => void;
   setLlm: (p: Partial<LlmConfig>) => void;
-  applyParse: (r: { controllers: Controller[]; unmatched: any[]; zones: Zone[]; cores: Core[] }) => void;
+  applyParse: (r: {
+    controllers: Controller[];
+    unmatched: { instance: string; base_address: string; reason: string }[];
+    zones: Zone[];
+    cores: Core[];
+  }) => void;
+  loadSpec: (spec: ProjectSpec, context?: { zones?: Zone[]; cores?: Core[] }) => void;
   setCatalog: (c: CatalogDevice[]) => void;
   setDescriptors: (d: DescriptorMeta[]) => void;
   select: (id: string | null) => void;
@@ -76,11 +84,23 @@ const DEFAULT_PROJECT: ProjectMeta = {
   output_mode: "dropin",
 };
 
+const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";
 const slug = (part: string) => part.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function inferCounter(muxes: Mux[], devices: Device[]): number {
+  return Math.max(
+    0,
+    ...[...muxes.map((m) => m.id), ...devices.map((d) => d.id)].map((id) => {
+      const match = /^u(\d+)_/.exec(id);
+      return match ? Number(match[1]) : 0;
+    }),
+  );
+}
 
 export const useStore = create<StoreState>((set, get) => ({
   step: "setup",
   project: { ...DEFAULT_PROJECT },
+  codingStandardRef: DEFAULT_CODING_STANDARD,
   llm: { enabled: false, base_url: "", model: "kimi-k2.6", api_key: "" },
 
   zones: [],
@@ -99,6 +119,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setStep: (step) => set({ step }),
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),
+  setCodingStandardRef: (codingStandardRef) => set({ codingStandardRef }),
   setLlm: (p) => set((s) => ({ llm: { ...s.llm, ...p } })),
 
   applyParse: (r) =>
@@ -110,6 +131,25 @@ export const useStore = create<StoreState>((set, get) => ({
       muxes: [],
       devices: [],
       selectedId: null,
+    }),
+
+  loadSpec: (spec, context) =>
+    set({
+      step: spec.controllers?.length ? "schematic" : "setup",
+      project: { ...DEFAULT_PROJECT, ...spec.project },
+      codingStandardRef: spec.coding_standard_ref || DEFAULT_CODING_STANDARD,
+      llm: spec.llm?.enabled
+        ? { base_url: "", model: "kimi-k2.6", api_key: "", ...spec.llm }
+        : { enabled: false, base_url: "", model: "kimi-k2.6", api_key: "" },
+      zones: context?.zones ?? [],
+      cores: context?.cores ?? [],
+      controllers: spec.controllers ?? [],
+      muxes: spec.muxes ?? [],
+      devices: spec.devices ?? [],
+      unmatched: [],
+      selectedId: null,
+      counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
+      job: { id: null, status: "idle", events: [], files: [], qc: null },
     }),
 
   setCatalog: (catalog) => set({ catalog }),
@@ -142,7 +182,13 @@ export const useStore = create<StoreState>((set, get) => ({
 
   removeNode: (id) =>
     set((s) => ({
-      devices: s.devices.filter((d) => d.id !== id),
+      devices: s.devices
+        .filter((d) => d.id !== id)
+        .map((d) =>
+          d.attach.via_mux?.mux_id === id
+            ? { ...d, attach: { ...d.attach, via_mux: null } }
+            : d,
+        ),
       // remove a mux and detach any device that used it
       muxes: s.muxes.filter((m) => m.id !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
@@ -153,7 +199,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return {
       schema_version: "1.0",
       project: s.project,
-      coding_standard_ref: "std/default.ruleset.json",
+      coding_standard_ref: s.codingStandardRef || DEFAULT_CODING_STANDARD,
       llm: s.llm.enabled
         ? s.llm
         : { enabled: false },

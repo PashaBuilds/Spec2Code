@@ -49,7 +49,7 @@ export default function App() {
     try {
       const v = await api.validate(spec);
       if (!v.valid) {
-        setGenError("Spec invalid: " + v.errors.map((e) => `${e.path} ${e.message}`).join("; "));
+        setGenError("Spec/preflight invalid: " + v.errors.map((e) => `${e.path} ${e.message}`).join("; "));
         return;
       }
       resetJob();

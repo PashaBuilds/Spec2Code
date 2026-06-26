@@ -57,6 +57,18 @@ function describe(e: JobEvent): Line {
         prefix: "CODEGEN",
         text: `${field(e, "files")} files written`,
       };
+    case "imported_sources.copied":
+      return {
+        tone: Number(e.missing ?? 0) > 0 ? "warn" : "ok",
+        prefix: "IMPORT",
+        text: `${field(e, "files", "0")} reference file(s), missing=${field(e, "missing", "0")}`,
+      };
+    case "imported_sources.error":
+      return {
+        tone: "warn",
+        prefix: "IMPORT",
+        text: field(e, "message", "imported source manifest could not be read"),
+      };
     case "qc.round": {
       const errors = Number(e.errors ?? 0);
       return {
