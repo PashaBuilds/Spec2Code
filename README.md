@@ -65,8 +65,8 @@ Releases are created from `v*` tags. The workflow builds and uploads:
 
 | Asset | Contents | Build host |
 | --- | --- | --- |
-| `spec2code-vX.Y.Z-source.zip` | Curated tracked source archive | Linux runner |
-| `spec2code-vX.Y.Z-source.tar.gz` | Same curated source archive | Linux runner |
+| `spec2code-vX.Y.Z-source.zip` | Full tracked source archive for development | Linux runner |
+| `spec2code-vX.Y.Z-source.tar.gz` | Same full tracked source archive | Linux runner |
 | `spec2code-vX.Y.Z-macos-*.zip` | macOS `Spec2Code` executable + docs | macOS runner |
 | `spec2code-vX.Y.Z-windows-*.zip` | Windows `Spec2Code.exe` executable + docs | Windows runner |
 
@@ -88,6 +88,11 @@ python3 scripts/package_release.py --version v0.1.0
 Platform executables must be built on their own OS. See
 [`docs/WINDOWS.md`](docs/WINDOWS.md) for the Windows path and
 `scripts/build_executable.py` for the executable packaging entrypoint.
+
+The executable bundles are runtime packages. Use the source archive when you want to continue
+development on Windows. The source archive includes Windows helper scripts under
+`scripts/windows/` for online setup, air-gapped setup from an offline dependency cache, single-server
+runtime, and frontend HMR development.
 
 ## Prerequisites
 
@@ -191,7 +196,8 @@ For full QC on Windows, install LLVM and Cppcheck, then confirm:
 - [ ] Frontend deps install from your npm mirror (React Flow included); `npm run build` succeeds.
 
 Full Windows instructions are in [`docs/WINDOWS.md`](docs/WINDOWS.md), including `.exe` usage,
-source-mode setup, offline transfer checklist, and manual Windows executable builds.
+source-mode setup, offline dependency cache preparation, local LLM configuration, and manual
+Windows executable builds.
 
 RAG (`requirements-rag.txt`: torch/faiss/sentence-transformers/docling) is **deferred**; install
 under Python 3.11–3.12 when you implement it (Brief §17).

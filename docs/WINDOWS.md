@@ -11,6 +11,20 @@ There are two supported Windows paths:
 
 The executable is easiest for users. Source mode is best for development or debugging.
 
+## EXE, source, and the web UI
+
+Spec2Code is a local web application. The UI you open in the browser is not hosted by an
+external cloud service. It is a React single-page app served by a local FastAPI process.
+
+- `Spec2Code.exe` is a packaged runtime: it starts the local server and serves the built web UI.
+- `spec2code-vX.Y.Z-source.zip` is the full tracked source tree: use this when you want to keep
+  developing on Windows.
+- In source mode, the same UI is available through either the single-server built app
+  (`run_spec2code.py`) or the Vite dev server (`npm run dev`) with hot reload.
+
+For an air-gapped Windows development machine, copy the source zip plus an offline dependency
+cache prepared on a connected Windows machine.
+
 ## Option A: Run the release executable
 
 Download the Windows asset from GitHub Releases:
@@ -114,17 +128,9 @@ From PowerShell:
 ```powershell
 cd C:\Work\Spec2Code
 
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-
-cd frontend
-npm ci
-npm run build
-cd ..
-
-.\.venv\Scripts\python.exe -m orchestrator.selftest
-.\.venv\Scripts\python.exe run_spec2code.py
+.\scripts\windows\setup-source.ps1
+.\scripts\windows\verify-source.ps1
+.\scripts\windows\run-source.ps1
 ```
 
 Open:
@@ -136,10 +142,7 @@ http://127.0.0.1:8077
 For frontend development with HMR:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --port 8077
-
-cd frontend
-npm run dev
+.\scripts\windows\run-dev.ps1
 ```
 
 Then open:
@@ -148,11 +151,51 @@ Then open:
 http://localhost:5181
 ```
 
+The helper scripts are thin wrappers around the normal commands. You can still run the commands
+manually if you prefer.
+
+## Source development on an air-gapped Windows host
+
+On a connected Windows machine, use the same source tree to prepare dependency caches:
+
+```powershell
+.\scripts\windows\prepare-offline-deps.ps1 -OfflineRoot offline
+```
+
+Copy these into the air-gapped machine:
+
+- `spec2code-vX.Y.Z-source.zip`
+- the generated `offline\` folder, copied into the extracted source root or referenced by full path
+- LLVM installer
+- Cppcheck installer
+- Node.js installer
+- Python installer
+- optional local or internal OpenAI-compatible LLM runtime
+
+On the air-gapped machine:
+
+```powershell
+Expand-Archive .\spec2code-vX.Y.Z-source.zip -DestinationPath C:\Work
+cd C:\Work\spec2code-vX.Y.Z
+Copy-Item C:\Transfer\offline .\offline -Recurse
+
+.\scripts\windows\setup-source.ps1 -OfflineRoot offline
+.\scripts\windows\verify-source.ps1
+.\scripts\windows\run-source.ps1
+```
+
+For active frontend work:
+
+```powershell
+.\scripts\windows\run-dev.ps1
+```
+
 ## Air-gapped transfer checklist
 
 Before moving to the final Windows 10 machine, prepare these on a connected machine:
 
 - The Windows release zip, or the source zip from GitHub Releases.
+- The optional `offline\` dependency cache if you will develop from source without internet.
 - Python installer, if using source mode.
 - Node.js installer, if using source mode.
 - LLVM installer.
@@ -171,7 +214,10 @@ After copying into the air-gapped machine:
 
 ## Optional LLM on Windows
 
-LLM is default off. If you run a local or internal OpenAI-compatible endpoint:
+LLM is default off. This is intentional: deterministic descriptor/template codegen and QC work
+without any model.
+
+If you run a local or internal OpenAI-compatible endpoint, point Spec2Code at it:
 
 ```powershell
 $env:SPEC2CODE_LLM_BASE_URL = "http://127.0.0.1:11434/v1"
@@ -179,7 +225,10 @@ $env:SPEC2CODE_LLM_MODEL = "gemma3:12b"
 $env:SPEC2CODE_LLM_API_KEY = ""
 ```
 
-Every LLM-produced file is re-run through the deterministic QC loop before delivery.
+You can use a weaker local model for iteration, including an internal Kimi-compatible endpoint, as
+long as it exposes the OpenAI-compatible `/v1/chat/completions` API. Treat local-model output as an
+assistive pass, not the source of truth. Every LLM-produced file is re-run through the deterministic
+QC loop before delivery.
 
 ## Creating a Windows executable manually
 
