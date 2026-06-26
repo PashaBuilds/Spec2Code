@@ -19,6 +19,9 @@ specs/*/
 !specs/samples/**
 rag/index/
 *.faiss
+release-assets/
+build/
+*.spec
 
 # OS / editor
 .DS_Store

@@ -1,5 +1,9 @@
 # Spec2Code
 
+Spec2Code is a local-first hardware-to-driver generator for Xilinx embedded projects. It
+turns a platform `xparameters.h` plus user-defined external devices into drop-in Vitis
+application-layer C drivers, tests, and a QC report.
+
 Turn a Xilinx embedded project's hardware spec (`xparameters.h` + attached external devices)
 into **drop-in** C driver + test code (`.c`/`.h`) for the Vitis application layer.
 
@@ -11,6 +15,34 @@ chip-select + address width, …). Then it generates deterministic, coding-stand
 
 > Build host: macOS. Final target: air-gapped Windows 10. All code is portable; every
 > platform-specific touch lives in `hostplat/`, and all generated output is CRLF from day one.
+
+## What it gives you
+
+- **Vivado-like schematic UI:** upload `xparameters.h`, inspect PS/PL zones and controllers,
+  then add external devices visually.
+- **Descriptor-driven codegen:** device YAML descriptors drive transport, operations, address
+  width, mux channel selection, and generated tests.
+- **Deterministic QC loop:** generated C is formatted and checked with clang-format,
+  naming-linter/libclang, clang-tidy, and cppcheck.
+- **Optional LLM pass:** an OpenAI-compatible endpoint can optimize or repair output, but every
+  LLM result is re-gated by the deterministic QC loop.
+- **Windows-ready output:** generated `.c`, `.h`, and `.md` files are written through
+  `hostplat.io.write_output()` with CRLF line endings.
+
+## Current PoC status
+
+The current PoC covers the end-to-end path:
+
+```text
+xparameters.h -> schematic -> external devices -> project.spec.json -> codegen -> QC -> files
+```
+
+Verified examples include:
+
+- TCA9548A mux + LTC2991 over I2C, including channel-select injection.
+- MT25Q128 3-byte SPI flash vs MT25QU02G 4-byte SPI flash descriptor divergence.
+- FastAPI + WebSocket generation stream.
+- React/Vite frontend with React Flow schematic and CodeMirror output viewer.
 
 ## Architecture
 
@@ -26,6 +58,36 @@ Frontend (React + Vite + Tailwind + React Flow)  ──REST + WS──►  Backe
 - **Deterministic first.** Driver code is generated from descriptors + templates. The LLM is a
   default-OFF toggle that produces an optimized variant on top; the system is fully usable without it.
 - **`hostplat/`** is the only platform-dependent module (CRLF I/O, tool resolution, subprocess, watch).
+
+## GitHub Releases
+
+Releases are created from `v*` tags. The workflow builds and uploads:
+
+| Asset | Contents | Build host |
+| --- | --- | --- |
+| `spec2code-vX.Y.Z-source.zip` | Curated tracked source archive | Linux runner |
+| `spec2code-vX.Y.Z-source.tar.gz` | Same curated source archive | Linux runner |
+| `spec2code-vX.Y.Z-macos-*.zip` | macOS `Spec2Code` executable + docs | macOS runner |
+| `spec2code-vX.Y.Z-windows-*.zip` | Windows `Spec2Code.exe` executable + docs | Windows runner |
+
+To publish a release after pushing the repository to GitHub:
+
+```bash
+git tag -a v0.1.0 -m "Spec2Code v0.1.0"
+git push origin main --tags
+```
+
+GitHub Actions will attach the source archives and platform executables to the Release.
+
+You can also create the source archives locally:
+
+```bash
+python3 scripts/package_release.py --version v0.1.0
+```
+
+Platform executables must be built on their own OS. See
+[`docs/WINDOWS.md`](docs/WINDOWS.md) for the Windows path and
+`scripts/build_executable.py` for the executable packaging entrypoint.
 
 ## Prerequisites
 
@@ -88,13 +150,31 @@ Every LLM output is re-checked by the QC loop before delivery.
 
 ```bash
 cd frontend && npm run build && cd ..        # emits frontend/dist
-.venv/bin/python -m uvicorn backend.main:app --port 8077
+.venv/bin/python run_spec2code.py
 # open http://127.0.0.1:8077  (backend serves the built SPA + API + WS)
 ```
 
-## Windows 10 (air-gapped) smoke-test — do this EARLY
+Direct uvicorn remains supported:
 
-Before porting the whole app, confirm the environment so there are no surprises:
+```bash
+.venv/bin/python -m uvicorn backend.main:app --port 8077
+```
+
+## Windows 10 / air-gapped target
+
+For a released Windows build, download the Windows zip from GitHub Releases and run:
+
+```powershell
+.\Spec2Code.exe
+```
+
+Open:
+
+```text
+http://127.0.0.1:8077
+```
+
+For full QC on Windows, install LLVM and Cppcheck, then confirm:
 
 - [ ] Python installs; `pip install -r requirements.txt` succeeds (watch `libclang`).
 - [ ] `clang-format`, `clang-tidy`, `cppcheck` are found via `hostplat.tools.resolve()`
@@ -109,6 +189,9 @@ Before porting the whole app, confirm the environment so there are no surprises:
       print(io.detect_line_ending(p))   # -> crlf
       ```
 - [ ] Frontend deps install from your npm mirror (React Flow included); `npm run build` succeeds.
+
+Full Windows instructions are in [`docs/WINDOWS.md`](docs/WINDOWS.md), including `.exe` usage,
+source-mode setup, offline transfer checklist, and manual Windows executable builds.
 
 RAG (`requirements-rag.txt`: torch/faiss/sentence-transformers/docling) is **deferred**; install
 under Python 3.11–3.12 when you implement it (Brief §17).
