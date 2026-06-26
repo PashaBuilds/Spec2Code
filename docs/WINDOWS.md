@@ -30,7 +30,7 @@ cache prepared on a connected Windows machine.
 Download the Windows asset from GitHub Releases:
 
 ```text
-spec2code-vX.Y.Z-windows-amd64.zip
+spec2code-vX.Y.Z-windows-x64.zip
 ```
 
 Unzip it, then run:

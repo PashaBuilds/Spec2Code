@@ -20,8 +20,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 def main(argv: list[str]) -> int:
     spec_path = Path(argv[1]) if len(argv) > 1 else _ROOT / "specs/samples/radar_io_board.spec.json"
-    spec = json.loads(spec_path.read_text())
-    ruleset = json.loads((_ROOT / spec.get("coding_standard_ref", "std/default.ruleset.json")).read_text())
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    ruleset = json.loads(
+        (_ROOT / spec.get("coding_standard_ref", "std/default.ruleset.json")).read_text(encoding="utf-8")
+    )
     out_dir = _ROOT / "outputs" / spec["project"]["name"]
 
     files = codegen.generate(spec, out_dir, emit=lambda e: print("  ", e))

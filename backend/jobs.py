@@ -28,7 +28,7 @@ def _load_ruleset(spec: dict) -> dict:
     path = _ROOT / ref
     if not path.is_file():
         path = _ROOT / "std" / "default.ruleset.json"
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @dataclass
@@ -71,7 +71,7 @@ class JobManager:
         name = spec["project"]["name"]
         spec_path = _SPECS / name / "project.spec.json"
         spec_path.parent.mkdir(parents=True, exist_ok=True)
-        spec_path.write_text(json.dumps(spec, indent=2))
+        spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
 
         asyncio.create_task(self._run(job, max_rounds))
         return job_id

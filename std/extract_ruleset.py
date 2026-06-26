@@ -39,7 +39,7 @@ def build_ruleset(docx_path: Path, *, spec_llm: dict | None = None) -> dict:
     Otherwise returns the default ruleset annotated with the raw text for human review.
     """
     text = extract_text(docx_path)
-    base = json.loads(_DEFAULT.read_text())
+    base = json.loads(_DEFAULT.read_text(encoding="utf-8"))
 
     if spec_llm and spec_llm.get("enabled"):
         from orchestrator.llm.client import LlmClient, LlmConfig

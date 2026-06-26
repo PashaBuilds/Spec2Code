@@ -78,6 +78,8 @@ def _version(explicit: str | None) -> str:
 def _platform_slug() -> str:
     system = platform.system().lower()
     machine = platform.machine().lower()
+    if machine in {"amd64", "x86_64"}:
+        machine = "x64"
     if system == "darwin":
         system = "macos"
     elif system == "windows":

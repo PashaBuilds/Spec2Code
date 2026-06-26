@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from catalog.matcher import scan_folder
+from hostplat import io as hio
 from hostplat import tools
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -20,7 +21,7 @@ _PLATFORMS = _ROOT / "platforms"
 _DESCRIPTORS = _ROOT / "descriptors"
 _CATALOG = _ROOT / "catalog" / "catalog.json"
 _IMPORTED = _ROOT / "catalog" / "imported.json"
-_SPEC_SCHEMA = json.loads((_ROOT / "schemas" / "project.spec.schema.json").read_text())
+_SPEC_SCHEMA = json.loads((_ROOT / "schemas" / "project.spec.schema.json").read_text(encoding="utf-8"))
 
 router = APIRouter(prefix="/api")
 
@@ -58,7 +59,7 @@ def _platform_model(platform_id: str) -> dict:
     path = _PLATFORMS / f"{platform_id}.yaml"
     if not path.is_file():
         raise HTTPException(404, f"unknown platform '{platform_id}'")
-    return yaml.safe_load(path.read_text())
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 # --- endpoints --------------------------------------------------------------------------
@@ -72,7 +73,7 @@ def health() -> dict:
 def list_platforms() -> dict:
     items = []
     for path in sorted(_PLATFORMS.glob("*.yaml")):
-        model = yaml.safe_load(path.read_text())
+        model = yaml.safe_load(path.read_text(encoding="utf-8"))
         items.append({"id": model["platform"], "display_name": model.get("display_name", ""),
                       "summary": model.get("summary", ""),
                       "cores": model.get("cores", []), "zones": model.get("zones", [])})
@@ -99,9 +100,9 @@ def parse(req: ParseRequest) -> dict:
 
 @router.get("/catalog")
 def get_catalog() -> dict:
-    catalog = json.loads(_CATALOG.read_text())
+    catalog = json.loads(_CATALOG.read_text(encoding="utf-8"))
     if _IMPORTED.is_file():
-        catalog["imported"] = json.loads(_IMPORTED.read_text())
+        catalog["imported"] = json.loads(_IMPORTED.read_text(encoding="utf-8"))
     return catalog
 
 
@@ -109,7 +110,7 @@ def get_catalog() -> dict:
 def list_descriptors() -> dict:
     items = []
     for path in sorted(_DESCRIPTORS.glob("*.yaml")):
-        d = yaml.safe_load(path.read_text())
+        d = yaml.safe_load(path.read_text(encoding="utf-8"))
         items.append({"part": d.get("part"), "ref": f"descriptors/{path.name}",
                       "transport": d.get("transport", {}).get("type"),
                       "summary": d.get("summary", ""),
@@ -122,7 +123,7 @@ def get_descriptor(part: str) -> dict:
     path = _DESCRIPTORS / f"{part.lower()}.yaml"
     if not path.is_file():
         raise HTTPException(404, f"no descriptor for '{part}'")
-    return yaml.safe_load(path.read_text())
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 @router.post("/spec/validate")
@@ -154,7 +155,7 @@ def job_result(job_id: str) -> dict:
         for rel in job.result["files"]:
             p = _ROOT / rel
             files.append({"path": rel, "name": Path(rel).name,
-                          "content": p.read_text() if p.is_file() else ""})
+                          "content": hio.read_text(p) if p.is_file() else ""})
     return {"job_id": job_id, "status": job.status, "error": job.error,
             "result": job.result, "files": files}
 
@@ -170,7 +171,7 @@ def drivers_scan(req: ScanRequest) -> dict:
 
 @router.post("/drivers/confirm")
 def drivers_confirm(req: ConfirmRequest) -> dict:
-    imported = json.loads(_IMPORTED.read_text()) if _IMPORTED.is_file() else {}
+    imported = json.loads(_IMPORTED.read_text(encoding="utf-8")) if _IMPORTED.is_file() else {}
     imported[req.part] = {"stem": req.stem, "role": req.role, "files": req.files}
-    _IMPORTED.write_text(json.dumps(imported, indent=2))
+    _IMPORTED.write_text(json.dumps(imported, indent=2), encoding="utf-8")
     return {"ok": True, "imported": imported[req.part]}

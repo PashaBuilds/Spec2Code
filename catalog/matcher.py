@@ -32,7 +32,7 @@ class FileMatch:
 
 
 def _load_catalog() -> dict:
-    return json.loads(_CATALOG.read_text())
+    return json.loads(_CATALOG.read_text(encoding="utf-8"))
 
 
 def _score_text(text: str, part: str, tokens: list[str]) -> tuple[float, list[str]]:

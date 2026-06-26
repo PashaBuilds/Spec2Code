@@ -43,7 +43,7 @@ def make_descriptor_loader(root: Path = _ROOT) -> Callable[[str], dict]:
         if key not in cache:
             if not path.is_file():
                 raise cmodel.CodegenError(f"descriptor not found: {path}")
-            cache[key] = yaml.safe_load(path.read_text())
+            cache[key] = yaml.safe_load(path.read_text(encoding="utf-8"))
         return cache[key]
 
     return get
