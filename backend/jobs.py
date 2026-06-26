@@ -167,7 +167,7 @@ class JobManager:
         codegen.generate(spec, out_dir, emit=job.emit)
         _copy_imported_sources(spec, out_dir, job.emit)
         ruleset = _load_ruleset(spec)
-        fixer = _maybe_llm_fixer(spec, ruleset)
+        fixer = _maybe_llm_fixer(spec, ruleset, emit=job.emit)
         report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer)
         files = _collect_output_files(out_dir)
         job.result = {
@@ -178,14 +178,16 @@ class JobManager:
         job.emit({"event": "result.ready", "files": len(files), "qc_passed": report["passed"]})
 
 
-def _maybe_llm_fixer(spec: dict, ruleset: dict):
+def _maybe_llm_fixer(spec: dict, ruleset: dict, emit=None):
     """Return an LLM-backed QC fixer when llm.enabled, else None (deterministic path)."""
     if not spec.get("llm", {}).get("enabled"):
         return None
     try:
         from orchestrator.llm.tasks import make_qc_fixer
-        return make_qc_fixer(spec, ruleset)
-    except Exception:
+        return make_qc_fixer(spec, ruleset, emit=emit)
+    except Exception as exc:
+        if emit is not None:
+            emit({"event": "llm.error", "task": "setup", "message": str(exc)})
         return None
 
 

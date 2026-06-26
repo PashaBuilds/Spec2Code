@@ -85,6 +85,16 @@ const DEFAULT_PROJECT: ProjectMeta = {
 };
 
 const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";
+const DEFAULT_LLM: LlmConfig = {
+  enabled: false,
+  base_url: "",
+  model: "",
+  api_key: "",
+  timeout_s: 120,
+  max_tokens: 4096,
+  max_response_chars: 120000,
+  retries: 0,
+};
 const slug = (part: string) => part.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 function inferCounter(muxes: Mux[], devices: Device[]): number {
@@ -101,7 +111,7 @@ export const useStore = create<StoreState>((set, get) => ({
   step: "setup",
   project: { ...DEFAULT_PROJECT },
   codingStandardRef: DEFAULT_CODING_STANDARD,
-  llm: { enabled: false, base_url: "", model: "kimi-k2.6", api_key: "" },
+  llm: { ...DEFAULT_LLM },
 
   zones: [],
   cores: [],
@@ -139,8 +149,8 @@ export const useStore = create<StoreState>((set, get) => ({
       project: { ...DEFAULT_PROJECT, ...spec.project },
       codingStandardRef: spec.coding_standard_ref || DEFAULT_CODING_STANDARD,
       llm: spec.llm?.enabled
-        ? { base_url: "", model: "kimi-k2.6", api_key: "", ...spec.llm }
-        : { enabled: false, base_url: "", model: "kimi-k2.6", api_key: "" },
+        ? { ...DEFAULT_LLM, ...spec.llm }
+        : { ...DEFAULT_LLM },
       zones: context?.zones ?? [],
       cores: context?.cores ?? [],
       controllers: spec.controllers ?? [],

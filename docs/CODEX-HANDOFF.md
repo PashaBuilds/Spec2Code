@@ -33,7 +33,9 @@ Full PoC is built end-to-end and was confirmed working on the Mac Mini. Verified
 - **LLM smoke (2026-06-26)**: local Ollama OpenAI-compatible endpoint
   (`http://127.0.0.1:11434/v1`, `gemma3:12b`) verified `make_qc_fixer` live. A temp C file with
   a gate-failing bare `\n` print was fixed to `\r\n`, then QC re-ran clean in round 2. Direct
-  `optimize_code()` also returned non-empty C output.
+  `optimize_code()` also returned non-empty C output. The LLM client now requires the exact model id
+  from the user and reports timeout, HTTP, truncated, empty, and overlong responses as structured
+  `llm.error` events without rewriting files.
 - **Backend** (FastAPI + WS): `generate` → live event stream → result, verified on real uvicorn.
 - **Frontend** (React + Vite + Tailwind + React Flow): full flow verified visually — setup →
   upload xparameters → schematic with zones → add TCA9548A mux + LTC2991 device → set via-mux
@@ -100,7 +102,8 @@ clang-tidy, cppcheck, libclang. Python deps in `.venv` (Python 3.14). Frontend d
   clang can syntax/type-check generated code. This is a QC gate, NOT real BSP compile (Brief §21).
 - Flash demo is attached to **SPI (`XSpiPs`)**, not QSPI, for clean generic codegen.
 - Ports: backend **8077**, frontend dev **5181** (5173 is taken by the user's other project).
-- LLM **default OFF**; config via `SPEC2CODE_LLM_BASE_URL/MODEL/API_KEY` (prod default Kimi K2.6).
+- LLM **default OFF**; config via `SPEC2CODE_LLM_BASE_URL/MODEL/API_KEY` plus timeout/length
+  env vars. The user supplies the exact OpenAI-compatible model id; no Kimi/Qwen default is guessed.
 
 ## 6. Next-up backlog (prioritized)
 

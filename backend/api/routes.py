@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import io
+import os
 import re
 import zipfile
 from pathlib import Path
@@ -120,6 +121,28 @@ def _resolve_job_file(job, file_path: str) -> tuple[Path, str]:
     if not path.is_file():
         raise HTTPException(404, "generated file not found")
     return path, requested
+
+
+def _validate_llm_config(spec: dict) -> list[dict[str, str]]:
+    llm = spec.get("llm") or {}
+    if not llm.get("enabled"):
+        return []
+    issues: list[dict[str, str]] = []
+    base_url = (llm.get("base_url") or os.environ.get("SPEC2CODE_LLM_BASE_URL", "")).strip()
+    model = (llm.get("model") or os.environ.get("SPEC2CODE_LLM_MODEL", "")).strip()
+    if not base_url:
+        issues.append({
+            "severity": "error",
+            "path": "llm/base_url",
+            "message": "LLM is enabled but no OpenAI-compatible base_url is configured",
+        })
+    if not model:
+        issues.append({
+            "severity": "error",
+            "path": "llm/model",
+            "message": "LLM is enabled but no exact model name is configured",
+        })
+    return issues
 
 
 def _driver_module(part: str) -> str:
@@ -294,13 +317,16 @@ def validate_spec(req: ValidateRequest) -> dict:
     schema_errors = sorted(Draft7Validator(_SPEC_SCHEMA).iter_errors(req.spec), key=lambda e: list(e.path))
     schema_result = [{"path": "/".join(map(str, e.path)), "message": e.message} for e in schema_errors]
     wiring = {"valid": False, "errors": [], "warnings": []}
+    llm_errors: list[dict[str, str]] = []
     if not schema_errors:
         wiring = validate_wiring(req.spec)
+        llm_errors = _validate_llm_config(req.spec)
     return {
-        "valid": not schema_errors and wiring["valid"],
-        "errors": [*schema_result, *wiring["errors"]],
+        "valid": not schema_errors and wiring["valid"] and not llm_errors,
+        "errors": [*schema_result, *wiring["errors"], *llm_errors],
         "schema_errors": schema_result,
         "wiring": wiring,
+        "llm_errors": llm_errors,
     }
 
 
@@ -313,6 +339,9 @@ async def generate(req: GenerateRequest) -> dict:
     wiring = validate_wiring(req.spec)
     if wiring["errors"]:
         raise HTTPException(400, {"message": "wiring invalid", "errors": wiring["errors"][:10]})
+    llm_errors = _validate_llm_config(req.spec)
+    if llm_errors:
+        raise HTTPException(400, {"message": "llm invalid", "errors": llm_errors[:10]})
     job_id = await manager.start(req.spec, max_rounds=req.max_rounds)
     return {"job_id": job_id}
 

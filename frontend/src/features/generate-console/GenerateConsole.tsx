@@ -87,6 +87,34 @@ function describe(e: JobEvent): Line {
         prefix: "QC FIX",
         text: `feeding ${field(e, "errors", "0")} violations back to LLM`,
       };
+    case "llm.request":
+      return {
+        tone: "accent",
+        prefix: "LLM",
+        text: `${field(e, "task")} using ${field(e, "model", "model?")} timeout=${field(
+          e,
+          "timeout_s",
+          "?",
+        )}s max_tokens=${field(e, "max_tokens", "?")}`,
+      };
+    case "llm.done":
+      return {
+        tone: "ok",
+        prefix: "LLM",
+        text: `${field(e, "task")} completed with ${field(e, "chars", "0")} chars`,
+      };
+    case "llm.skipped":
+      return {
+        tone: "warn",
+        prefix: "LLM",
+        text: `${field(e, "task")} skipped: ${field(e, "reason", "unknown reason")}`,
+      };
+    case "llm.error":
+      return {
+        tone: "danger",
+        prefix: "LLM",
+        text: `${field(e, "task", "task")} failed: ${field(e, "message", "unknown error")}`,
+      };
     case "qc.done": {
       const passed = Boolean(e.passed);
       const warning = typeof e.warning === "string" ? e.warning : "";

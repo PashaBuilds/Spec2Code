@@ -221,14 +221,19 @@ If you run a local or internal OpenAI-compatible endpoint, point Spec2Code at it
 
 ```powershell
 $env:SPEC2CODE_LLM_BASE_URL = "http://127.0.0.1:11434/v1"
-$env:SPEC2CODE_LLM_MODEL = "gemma3:12b"
+$env:SPEC2CODE_LLM_MODEL = "endpointte_gorunen_tam_model_adi"
 $env:SPEC2CODE_LLM_API_KEY = ""
+$env:SPEC2CODE_LLM_TIMEOUT_S = "120"
+$env:SPEC2CODE_LLM_MAX_TOKENS = "4096"
+$env:SPEC2CODE_LLM_MAX_RESPONSE_CHARS = "120000"
+$env:SPEC2CODE_LLM_RETRIES = "0"
 ```
 
-You can use a weaker local model for iteration, including an internal Kimi-compatible endpoint, as
-long as it exposes the OpenAI-compatible `/v1/chat/completions` API. Treat local-model output as an
-assistive pass, not the source of truth. Every LLM-produced file is re-run through the deterministic
-QC loop before delivery.
+You can use Kimi, Qwen, or a weaker local model for iteration as long as the server exposes the
+OpenAI-compatible `/v1/chat/completions` API. Enter the exact model id shown by that server. Treat
+local-model output as an assistive pass, not the source of truth. Timeout, truncated, empty, or
+overlong responses are reported explicitly in the generate console, and every accepted LLM-produced
+file is re-run through the deterministic QC loop before delivery.
 
 ## Creating a Windows executable manually
 

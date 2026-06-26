@@ -27,8 +27,9 @@ ve devam geliştirme.
 - **Vitis-ready export:** Ayrı Vitis paketi, `src/drivers`, `src/tests`,
   `src/spec2code_selftest_main.c`, `meta/project.spec.json` ve Türkçe entegrasyon
   README'si içerir.
-- **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir; LLM sonucu
-  yine deterministik QC kapısından geçer.
+- **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir. Model adı
+  kullanıcıdan tam olarak alınır; Kimi, Qwen veya başka bir model aynı alandan
+  kullanılabilir. Timeout ve cevap uzunluğu limitleri açıktır.
 
 ## Temel Akış
 
@@ -97,6 +98,44 @@ JSON ruleset'e girmelidir. En sağlıklı model:
 
 - `docs/coding-standard.md`: İnsan tarafından okunacak açıklama ve örnekler.
 - `std/my.ruleset.json`: Spec2Code/QC tarafından uygulanacak makine kuralları.
+
+## LLM Ayarları
+
+LLM varsayılan olarak kapalıdır. Açarsan OpenAI-compatible endpoint ve endpoint'in
+listelediği **tam model adını** vermen gerekir. Spec2Code model ismi tahmin etmez;
+Kimi, Qwen veya başka bir model aynı alanla çalışır.
+
+UI'da veya `project.spec.json` içinde kullanılan alanlar:
+
+```json
+"llm": {
+  "enabled": true,
+  "base_url": "http://127.0.0.1:11434/v1",
+  "model": "endpointte_gorunen_tam_model_adi",
+  "api_key": "",
+  "timeout_s": 120,
+  "max_tokens": 4096,
+  "max_response_chars": 120000,
+  "retries": 0
+}
+```
+
+Ortam değişkenleri de kullanılabilir:
+
+```bash
+export SPEC2CODE_LLM_BASE_URL="http://127.0.0.1:11434/v1"
+export SPEC2CODE_LLM_MODEL="endpointte_gorunen_tam_model_adi"
+export SPEC2CODE_LLM_API_KEY=""
+export SPEC2CODE_LLM_TIMEOUT_S="120"
+export SPEC2CODE_LLM_MAX_TOKENS="4096"
+export SPEC2CODE_LLM_MAX_RESPONSE_CHARS="120000"
+export SPEC2CODE_LLM_RETRIES="0"
+```
+
+Model cevap vermezse timeout hatası generate console'da `LLM` satırında görev adı ve
+hata mesajıyla görünür. Model cevabı `max_tokens` nedeniyle kesilirse veya cevap `max_response_chars`
+limitini aşarsa çıktı kullanılmaz; hata açıkça raporlanır ve deterministic QC
+akışı sonucu teslim etmeye devam eder.
 
 ## Windows'ta Çalıştırma
 

@@ -31,7 +31,11 @@
         "enabled": { "type": "boolean", "default": false },
         "base_url": { "type": "string" },
         "model": { "type": "string" },
-        "api_key": { "type": "string" }
+        "api_key": { "type": "string" },
+        "timeout_s": { "type": "number", "minimum": 1, "default": 120 },
+        "max_tokens": { "type": "integer", "minimum": 128, "default": 4096 },
+        "max_response_chars": { "type": "integer", "minimum": 1024, "default": 120000 },
+        "retries": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 }
       },
       "required": ["enabled"]
     },

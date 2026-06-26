@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from hostplat import io as hio
-from orchestrator.llm.client import LlmClient, LlmConfig
+from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 
 _FENCE_RE = re.compile(r"^\s*```[a-zA-Z]*\s*\n(.*?)\n```\s*$", re.DOTALL)
 
@@ -37,15 +37,27 @@ def system_prompt(ruleset: dict) -> str:
     )
 
 
-def make_qc_fixer(spec: dict, ruleset: dict) -> Callable[[Path, list], None]:
+def make_qc_fixer(
+    spec: dict,
+    ruleset: dict,
+    *,
+    emit: Optional[Callable[[dict], None]] = None,
+) -> Callable[[Path, list], None]:
     """Return a fixer(path, violations) that asks the LLM to repair QC violations in a file.
 
     Wired into the QC loop (Brief §15). The loop re-runs QC on the rewritten file.
     """
+    emit = emit or (lambda _event: None)
     client = LlmClient(LlmConfig.resolve(spec.get("llm")))
+    disabled_reason: str | None = None
 
     def fixer(path: Path, violations: list) -> None:
+        nonlocal disabled_reason
         if not client.available:
+            emit({"event": "llm.skipped", "task": "qc_fix", "reason": "no base_url"})
+            return
+        if disabled_reason is not None:
+            emit({"event": "llm.skipped", "task": "qc_fix", "reason": disabled_reason})
             return
         code = Path(path).read_text(encoding="utf-8", errors="replace")
         viol_text = "\n".join(
@@ -60,9 +72,32 @@ def make_qc_fixer(spec: dict, ruleset: dict) -> Callable[[Path, list], None]:
                 f"{viol_text}\n\n--- FILE ---\n{code}"
             )},
         ]
-        fixed = _strip_fences(client.chat(messages, temperature=0.0))
+        emit({
+            "event": "llm.request",
+            "task": "qc_fix",
+            "model": client.config.model,
+            "timeout_s": client.config.timeout_s,
+            "max_tokens": client.config.max_tokens,
+        })
+        try:
+            fixed = _strip_fences(client.chat(messages, temperature=0.0))
+        except LlmError as exc:
+            disabled_reason = str(exc)
+            emit({
+                "event": "llm.error",
+                "task": "qc_fix",
+                "model": client.config.model,
+                "message": disabled_reason,
+            })
+            return
         if fixed.strip():
             hio.write_output(path, fixed)
+            emit({
+                "event": "llm.done",
+                "task": "qc_fix",
+                "model": client.config.model,
+                "chars": len(fixed),
+            })
 
     return fixer
 

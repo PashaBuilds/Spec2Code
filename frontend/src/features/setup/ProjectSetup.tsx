@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Download, FileJson, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
-import type { PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
+import type { LlmConfig, PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
 import {
   Badge,
   Button,
@@ -38,6 +38,12 @@ export default function ProjectSetup() {
 
   const current = platforms.find((p) => p.id === project.platform);
   const cores = current?.cores ?? [];
+  const setLlmNumber = (
+    key: "timeout_s" | "max_tokens" | "max_response_chars" | "retries",
+    value: string,
+  ) => {
+    setLlm({ [key]: value === "" ? undefined : Number(value) } as Partial<LlmConfig>);
+  };
 
   function downloadSpec() {
     setProjectIoMessage(null);
@@ -185,7 +191,7 @@ export default function ProjectSetup() {
         <div className="rounded-md border border-border bg-inset p-3">
           <label className="flex cursor-pointer items-center justify-between">
             <span className="flex items-center gap-2 text-sm text-text">
-              LLM optimization
+              LLM assist
               <Badge tone={llm.enabled ? "accent" : "neutral"}>{llm.enabled ? "on" : "off"}</Badge>
             </span>
             <input
@@ -196,8 +202,8 @@ export default function ProjectSetup() {
             />
           </label>
           <p className="mt-1 text-xs text-faint">
-            Deterministic by default. When on, an OpenAI-compatible endpoint produces an optimized
-            variant on top (QC still gates it).
+            Deterministic by default. When on, an OpenAI-compatible endpoint can assist QC fixes
+            (QC still gates every accepted change).
           </p>
           {llm.enabled && (
             <div className="mt-3 space-y-2">
@@ -206,15 +212,53 @@ export default function ProjectSetup() {
                 onChange={(e) => setLlm({ base_url: e.target.value })}
                 placeholder="base_url (e.g. http://localhost:1234/v1)"
               />
+              <Input
+                value={llm.model ?? ""}
+                onChange={(e) => setLlm({ model: e.target.value })}
+                placeholder="exact model name exposed by the server"
+              />
               <div className="grid grid-cols-2 gap-2">
-                <Input value={llm.model ?? ""} onChange={(e) => setLlm({ model: e.target.value })} placeholder="model" />
                 <Input
                   value={llm.api_key ?? ""}
                   onChange={(e) => setLlm({ api_key: e.target.value })}
                   placeholder="api_key (optional)"
                   type="password"
                 />
+                <Input
+                  type="number"
+                  min={1}
+                  value={llm.timeout_s ?? ""}
+                  onChange={(e) => setLlmNumber("timeout_s", e.target.value)}
+                  placeholder="timeout seconds"
+                />
               </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Input
+                  type="number"
+                  min={128}
+                  value={llm.max_tokens ?? ""}
+                  onChange={(e) => setLlmNumber("max_tokens", e.target.value)}
+                  placeholder="max_tokens"
+                />
+                <Input
+                  type="number"
+                  min={1024}
+                  value={llm.max_response_chars ?? ""}
+                  onChange={(e) => setLlmNumber("max_response_chars", e.target.value)}
+                  placeholder="max chars"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  max={3}
+                  value={llm.retries ?? ""}
+                  onChange={(e) => setLlmNumber("retries", e.target.value)}
+                  placeholder="retries"
+                />
+              </div>
+              <p className="text-[11px] text-faint">
+                Enter the exact model id from the OpenAI-compatible server, e.g. a Kimi or Qwen model name.
+              </p>
             </div>
           )}
         </div>

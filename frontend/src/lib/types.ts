@@ -63,6 +63,10 @@ export interface LlmConfig {
   base_url?: string;
   model?: string;
   api_key?: string;
+  timeout_s?: number;
+  max_tokens?: number;
+  max_response_chars?: number;
+  retries?: number;
 }
 export interface ProjectSpec {
   schema_version: string;
@@ -139,6 +143,7 @@ export interface SpecValidation {
     errors: ValidationIssue[];
     warnings: ValidationIssue[];
   };
+  llm_errors?: ValidationIssue[];
 }
 export interface GeneratedFile {
   path: string;
