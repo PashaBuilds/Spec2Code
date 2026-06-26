@@ -127,6 +127,7 @@ export interface QcReport {
 }
 export interface GeneratedFile {
   path: string;
+  relative_path?: string;
   name: string;
   content: string;
 }

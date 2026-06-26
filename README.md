@@ -28,6 +28,8 @@ chip-select + address width, …). Then it generates deterministic, coding-stand
   LLM result is re-gated by the deterministic QC loop.
 - **Windows-ready output:** generated `.c`, `.h`, and `.md` files are written through
   `hostplat.io.write_output()` with CRLF line endings.
+- **Downloadable generated tree:** the Generate view shows the output as a folder hierarchy
+  (`drivers/`, `tests/`, reports) and supports downloading one file or the full output zip.
 
 ## Current PoC status
 

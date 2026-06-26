@@ -28,6 +28,10 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export const api = {
   health: () => req<{ status: string; tools: Record<string, string | null> }>("/api/health"),
 
@@ -72,6 +76,11 @@ export const api = {
       result: { out_dir: string; files: string[]; qc: import("./types").QcReport } | null;
       files: GeneratedFile[];
     }>(`/api/jobs/${jobId}/result`),
+
+  jobDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/download`,
+
+  jobFileDownloadUrl: (jobId: string, filePath: string) =>
+    `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 
   scanDrivers: (folder: string) =>
     req<{ matches: DriverMatch[] }>("/api/drivers/scan", {

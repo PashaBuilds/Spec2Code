@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,24 @@ def _load_ruleset(spec: dict) -> dict:
     if not path.is_file():
         path = _ROOT / "std" / "default.ruleset.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _relative_to_root(path: Path) -> str:
+    return path.relative_to(_ROOT).as_posix()
+
+
+def _reset_output_dir(out_dir: Path) -> None:
+    resolved = out_dir.resolve()
+    resolved.relative_to(_OUTPUTS.resolve())
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+
+
+def _collect_output_files(out_dir: Path) -> list[Path]:
+    return sorted(
+        (path for path in out_dir.rglob("*") if path.is_file()),
+        key=lambda path: path.relative_to(out_dir).as_posix(),
+    )
 
 
 @dataclass
@@ -98,13 +117,15 @@ class JobManager:
     def _blocking(self, job: Job, max_rounds: int) -> None:
         spec = job.spec
         out_dir = _OUTPUTS / spec["project"]["name"]
-        files = codegen.generate(spec, out_dir, emit=job.emit)
+        _reset_output_dir(out_dir)
+        codegen.generate(spec, out_dir, emit=job.emit)
         ruleset = _load_ruleset(spec)
         fixer = _maybe_llm_fixer(spec, ruleset)
         report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer)
+        files = _collect_output_files(out_dir)
         job.result = {
-            "out_dir": str(out_dir.relative_to(_ROOT)),
-            "files": [str(Path(f).relative_to(_ROOT)) for f in files],
+            "out_dir": _relative_to_root(out_dir),
+            "files": [_relative_to_root(path) for path in files],
             "qc": report,
         }
         job.emit({"event": "result.ready", "files": len(files), "qc_passed": report["passed"]})

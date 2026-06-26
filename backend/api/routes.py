@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import io
+import re
+import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 
 import yaml
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel
 
@@ -60,6 +65,60 @@ def _platform_model(platform_id: str) -> dict:
     if not path.is_file():
         raise HTTPException(404, f"unknown platform '{platform_id}'")
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _job_or_404(job_id: str):
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown job")
+    return job
+
+
+def _job_with_result(job_id: str):
+    job = _job_or_404(job_id)
+    if not job.result:
+        raise HTTPException(409, "job result is not ready")
+    return job
+
+
+def _posix_path(value: str) -> str:
+    return value.replace("\\", "/")
+
+
+def _archive_name(rel: str, out_dir: str) -> str:
+    rel_posix = _posix_path(rel)
+    out_posix = _posix_path(out_dir).rstrip("/")
+    if out_posix and rel_posix.startswith(f"{out_posix}/"):
+        name = rel_posix[len(out_posix) + 1:]
+    else:
+        name = PurePosixPath(rel_posix).name
+
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts:
+        return PurePosixPath(rel_posix).name
+    return name or PurePosixPath(rel_posix).name
+
+
+def _safe_download_name(value: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    return name or "spec2code"
+
+
+def _resolve_job_file(job, file_path: str) -> tuple[Path, str]:
+    requested = _posix_path(file_path).lstrip("/")
+    allowed = {_posix_path(rel) for rel in job.result.get("files", [])}
+    if requested not in allowed:
+        raise HTTPException(404, "generated file not found")
+
+    path = (_ROOT / requested).resolve()
+    try:
+        path.relative_to(_ROOT.resolve())
+    except ValueError as exc:
+        raise HTTPException(400, "generated file path escaped repository root") from exc
+
+    if not path.is_file():
+        raise HTTPException(404, "generated file not found")
+    return path, requested
 
 
 # --- endpoints --------------------------------------------------------------------------
@@ -147,17 +206,55 @@ async def generate(req: GenerateRequest) -> dict:
 
 @router.get("/jobs/{job_id}/result")
 def job_result(job_id: str) -> dict:
-    job = manager.get(job_id)
-    if job is None:
-        raise HTTPException(404, "unknown job")
+    job = _job_or_404(job_id)
     files = []
     if job.result:
+        out_dir = job.result.get("out_dir", "")
         for rel in job.result["files"]:
             p = _ROOT / rel
-            files.append({"path": rel, "name": Path(rel).name,
-                          "content": hio.read_text(p) if p.is_file() else ""})
+            files.append({
+                "path": rel,
+                "relative_path": _archive_name(rel, out_dir),
+                "name": Path(rel).name,
+                "content": hio.read_text(p) if p.is_file() else "",
+            })
     return {"job_id": job_id, "status": job.status, "error": job.error,
             "result": job.result, "files": files}
+
+
+@router.get("/jobs/{job_id}/download")
+def download_job(job_id: str) -> Response:
+    job = _job_with_result(job_id)
+    out_dir = job.result.get("out_dir", "")
+    buffer = io.BytesIO()
+    written = 0
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for rel in job.result.get("files", []):
+            path, normalized = _resolve_job_file(job, rel)
+            archive.write(path, _archive_name(normalized, out_dir))
+            written += 1
+
+    if written == 0:
+        raise HTTPException(404, "no generated files")
+
+    project = job.spec.get("project", {}).get("name", job_id)
+    filename = f"{_safe_download_name(project)}-generated.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/jobs/{job_id}/files/{file_path:path}")
+def download_job_file(job_id: str, file_path: str) -> FileResponse:
+    job = _job_with_result(job_id)
+    path, normalized = _resolve_job_file(job, file_path)
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=Path(normalized).name,
+    )
 
 
 @router.post("/drivers/scan")
