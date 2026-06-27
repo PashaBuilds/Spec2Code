@@ -46,6 +46,7 @@ export interface KnowledgePinGroup {
 export interface KnowledgePinMap {
   packageName: string;
   view: string;
+  verification: string;
   note: string;
   pins: KnowledgePin[];
   groups: KnowledgePinGroup[];
@@ -183,6 +184,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "MSOP-16",
       view: "Üst görünüm",
+      verification: "Analog Devices LTC2991 datasheet pin configuration bilgisiyle kontrol edildi.",
       note: "V1..V8 analog girişleri pair halinde çalışır; pair mode seçimi init sequence içindeki CONTROL register yazımlarını etkiler.",
       pins: [
         { number: "1", name: "V1", role: "Analog giriş / V1-V2 pair", tone: "analog", side: "left" },
@@ -276,6 +278,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "TSSOP/VSSOP-24",
       view: "Üst görünüm",
+      verification: "Texas Instruments TCA9548A datasheet Table 4-1 pin functions bilgisiyle kontrol edildi.",
       note: "Downstream hatlar SDn/SCn çifti olarak düşünülmelidir; her kanal için ayrı pull-up referansı olabilir.",
       pins: [
         { number: "1", name: "A0", role: "I2C adres strap biti", tone: "control", side: "left" },
@@ -406,20 +409,21 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "8-pin SPI NOR sinyal haritası",
       view: "Fonksiyonel görünüm",
-      note: "MT25Q128 farklı paketlerle gelebilir; burada generated driver açısından gerekli temel SPI/QSPI sinyalleri gösterilir.",
+      verification: "Micron MT25Q 128Mb datasheet signal descriptions ve 8-pin package bilgisiyle kontrol edildi.",
+      note: "Pin numaraları 8-pin SPI NOR package için geçerlidir; farklı orderable/package kodunda datasheet package tablosu esas alınmalıdır.",
       pins: [
         { number: "1", name: "S#", role: "Chip select", tone: "control", side: "left" },
         { number: "2", name: "DQ1", role: "SO / IO1", tone: "memory", side: "left" },
         { number: "3", name: "W#/DQ2", role: "Write protect / IO2", tone: "memory", side: "left" },
         { number: "4", name: "VSS", role: "Toprak", tone: "ground", side: "left" },
         { number: "8", name: "VCC", role: "Besleme", tone: "power", side: "right" },
-        { number: "7", name: "HOLD#/DQ3", role: "Hold / IO3", tone: "memory", side: "right" },
+        { number: "7", name: "DQ3/HOLD#", role: "Hold / IO3", tone: "memory", side: "right" },
         { number: "6", name: "C", role: "SPI clock", tone: "bus", side: "right" },
         { number: "5", name: "DQ0", role: "SI / IO0", tone: "memory", side: "right" },
       ],
       groups: [
         { label: "Single SPI", pins: ["S#", "C", "DQ0", "DQ1"], tone: "bus", description: "Mevcut driver güvenli single-SPI command setini kullanır." },
-        { label: "Quad-ready", pins: ["DQ0", "DQ1", "W#/DQ2", "HOLD#/DQ3"], tone: "memory", description: "Quad mode için controller, pin mux ve flash config ayrıca doğrulanmalıdır." },
+        { label: "Quad-ready", pins: ["DQ0", "DQ1", "W#/DQ2", "DQ3/HOLD#"], tone: "memory", description: "Quad mode için controller, pin mux ve flash config ayrıca doğrulanmalıdır." },
       ],
     },
   },
@@ -523,19 +527,21 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "MT25QU02G sinyal haritası",
       view: "Fonksiyonel görünüm",
-      note: "Bu yoğunlukta package/pinout varyantı önemlidir; burada codegen açısından gerekli QSPI sinyalleri ve 4-byte addressing bağlantısı gösterilir.",
+      verification: "Micron MT25Q 2Gb datasheet signal descriptions bilgisiyle kontrol edildi; burada package ball numarası verilmez.",
+      note: "MT25QU02G package/ball map orderable package koduna bağlıdır; burada yalnızca codegen açısından kullanılan kesin sinyal adları gösterilir.",
       pins: [
         { name: "S#", role: "Chip select", tone: "control", side: "left" },
         { name: "C", role: "SPI/QSPI clock", tone: "bus", side: "left" },
         { name: "DQ0", role: "IO0 / data in", tone: "memory", side: "left" },
         { name: "DQ1", role: "IO1 / data out", tone: "memory", side: "left" },
-        { name: "DQ2", role: "IO2 / write protect function", tone: "memory", side: "right" },
-        { name: "DQ3", role: "IO3 / hold function", tone: "memory", side: "right" },
+        { name: "W#/DQ2", role: "IO2 / write protect function", tone: "memory", side: "right" },
+        { name: "DQ3/HOLD#", role: "IO3 / hold function", tone: "memory", side: "right" },
+        { name: "RESET#", role: "Reset input", tone: "control", side: "right" },
         { name: "VCC", role: "Core/IO besleme", tone: "power", side: "right" },
         { name: "VSS", role: "Toprak", tone: "ground", side: "right" },
       ],
       groups: [
-        { label: "QSPI bus", pins: ["S#", "C", "DQ0", "DQ1", "DQ2", "DQ3"], tone: "memory", description: "Protocol width explicit seçilmeden generated driver single/4-byte command güvenli çizgide kalır." },
+        { label: "QSPI bus", pins: ["S#", "C", "DQ0", "DQ1", "W#/DQ2", "DQ3/HOLD#"], tone: "memory", description: "Protocol width explicit seçilmeden generated driver single/4-byte command güvenli çizgide kalır." },
         { label: "Addressing", pins: ["S#", "C", "DQ0", "DQ1"], tone: "bus", description: "Bu parçada full range access için 32-bit address command gerekir." },
       ],
     },
@@ -631,6 +637,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "AD7414 sinyal haritası",
       view: "Fonksiyonel görünüm",
+      verification: "Analog Devices AD7414/AD7415 datasheet pin function bilgisiyle kontrol edildi; package pin sırası özellikle verilmez.",
       note: "Paket pin sırası seçilen orderable/package'a göre doğrulanmalıdır; bu harita software açısından kullanılan temel sinyalleri gösterir.",
       pins: [
         { name: "SDA", role: "I2C data", tone: "bus", side: "left" },
@@ -638,11 +645,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         { name: "AS", role: "Address select", tone: "control", side: "left" },
         { name: "VDD", role: "Besleme", tone: "power", side: "right" },
         { name: "GND", role: "Toprak", tone: "ground", side: "right" },
-        { name: "OTI", role: "Over-temperature interrupt / alert", tone: "control", side: "right" },
+        { name: "ALERT", role: "Over-temperature interrupt / alert", tone: "control", side: "right" },
       ],
       groups: [
         { label: "I2C", pins: ["SDA", "SCL", "AS"], tone: "bus", description: "Register erişimi ve adres seçimi." },
-        { label: "Alert", pins: ["OTI"], tone: "control", description: "Threshold kullanılıyorsa firmware tarafında açıkça konfigüre edilmeli." },
+        { label: "Alert", pins: ["ALERT"], tone: "control", description: "Threshold kullanılıyorsa firmware tarafında açıkça konfigüre edilmeli." },
       ],
     },
   },
@@ -747,16 +754,19 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Spec2Code config, elapsed time, alarm ve event count için read-oriented operasyonlar üretir.",
     ],
     pinMap: {
-      packageName: "DS1682 sinyal haritası",
-      view: "Fonksiyonel görünüm",
+      packageName: "SO-8",
+      view: "Üst görünüm",
+      verification: "Analog Devices / Maxim DS1682 datasheet pin description ve 8-pin top view bilgisiyle kontrol edildi.",
       note: "Elapsed-time ve event counter davranışı board üzerindeki EVENT/ALARM bağlantılarıyla anlam kazanır.",
       pins: [
-        { name: "SDA", role: "I2C data", tone: "bus", side: "left" },
-        { name: "SCL", role: "I2C clock", tone: "bus", side: "left" },
-        { name: "EVENT", role: "Event count input", tone: "control", side: "left" },
-        { name: "VCC", role: "Besleme", tone: "power", side: "right" },
-        { name: "GND", role: "Toprak", tone: "ground", side: "right" },
-        { name: "ALARM", role: "Alarm output", tone: "control", side: "right" },
+        { number: "1", name: "EVENT", role: "Event count input", tone: "control", side: "left" },
+        { number: "2", name: "N.C.", role: "No connect", tone: "nc", side: "left" },
+        { number: "3", name: "ALARM", role: "Alarm output", tone: "control", side: "left" },
+        { number: "4", name: "GND", role: "Toprak", tone: "ground", side: "left" },
+        { number: "8", name: "VCC", role: "Besleme", tone: "power", side: "right" },
+        { number: "7", name: "N.C.", role: "No connect", tone: "nc", side: "right" },
+        { number: "6", name: "SDA", role: "I2C data", tone: "bus", side: "right" },
+        { number: "5", name: "SCL", role: "I2C clock", tone: "bus", side: "right" },
       ],
       groups: [
         { label: "Counter", pins: ["EVENT", "ALARM"], tone: "control", description: "EVENT sayımı ve alarm çıkışı board amacıyla eşleşmeli." },
@@ -872,21 +882,27 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     pinMap: {
       packageName: "LTC2945 sinyal haritası",
       view: "Fonksiyonel görünüm",
-      note: "Current/power dönüşümü için SENSE hattı, Rsense ve board scaling bilgisi birlikte düşünülmelidir.",
+      verification: "Analog Devices LTC2945 datasheet pin functions bilgisiyle kontrol edildi; package pin sırası özellikle verilmez.",
+      note: "LTC2945 I2C tarafında SDAI/SDAO ayrımı kullanır; normal I2C kullanımında board bağlantısı datasheet tavsiyesine göre yapılmalıdır.",
       pins: [
         { name: "SENSE+", role: "Shunt high-side sense", tone: "analog", side: "left" },
         { name: "SENSE-", role: "Shunt low-side sense", tone: "analog", side: "left" },
-        { name: "VIN", role: "Bus voltage monitor", tone: "analog", side: "left" },
+        { name: "VDD", role: "Supply / bus voltage sense", tone: "power", side: "left" },
         { name: "ADIN", role: "Auxiliary ADC input", tone: "analog", side: "left" },
-        { name: "SDA", role: "I2C data", tone: "bus", side: "right" },
+        { name: "INTVCC", role: "Internal regulator decoupling", tone: "power", side: "left" },
+        { name: "SDAI", role: "I2C data input", tone: "bus", side: "right" },
+        { name: "SDAO", role: "I2C data output", tone: "bus", side: "right" },
         { name: "SCL", role: "I2C clock", tone: "bus", side: "right" },
-        { name: "VDD", role: "Besleme", tone: "power", side: "right" },
+        { name: "ADR0", role: "I2C address select", tone: "control", side: "right" },
+        { name: "ADR1", role: "I2C address select", tone: "control", side: "right" },
+        { name: "ALERT", role: "Alert output", tone: "control", side: "right" },
         { name: "GND", role: "Toprak", tone: "ground", side: "right" },
       ],
       groups: [
-        { label: "Power path", pins: ["SENSE+", "SENSE-", "VIN"], tone: "analog", description: "Raw power/current/voltage okumalarının kaynağı." },
+        { label: "Power path", pins: ["SENSE+", "SENSE-", "VDD"], tone: "analog", description: "Raw power/current/voltage okumalarının kaynağı." },
         { label: "Aux ADC", pins: ["ADIN"], tone: "analog", description: "Board-specific auxiliary ölçüm." },
-        { label: "I2C", pins: ["SDA", "SCL"], tone: "bus", description: "Register erişimi." },
+        { label: "I2C", pins: ["SDAI", "SDAO", "SCL", "ADR0", "ADR1"], tone: "bus", description: "Register erişimi ve adres seçimi." },
+        { label: "Alert", pins: ["ALERT"], tone: "control", description: "Fault/alert limitleri kullanılacaksa board hattı doğrulanmalıdır." },
       ],
     },
   },
