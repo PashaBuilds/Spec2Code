@@ -27,9 +27,9 @@ function BulletList({ items }: { items: string[] }) {
 
 function RegisterTable({ registers }: { registers: KnowledgeRegister[] }) {
   return (
-    <div className="max-h-64 overflow-auto rounded-md border border-border">
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="min-w-[620px] border-collapse text-left text-xs">
-        <thead className="sticky top-0 bg-inset text-[10px] uppercase tracking-wide text-faint">
+        <thead className="bg-inset text-[10px] uppercase tracking-wide text-faint">
           <tr>
             <th className="border-b border-border px-2 py-2 font-semibold">Ad</th>
             <th className="border-b border-border px-2 py-2 font-semibold">Adres/op</th>
