@@ -1,7 +1,7 @@
-"""LLM tasks (Brief §14): test generation, optimize pass, descriptor extraction, QC fixer.
+"""LLM tasks (Brief 14): test generation, optimize pass, descriptor extraction, QC fixer.
 
 All of these run ONLY when the LLM is enabled and an endpoint is configured. Every LLM output
-is re-checked by the QC loop (Brief §15), so a bad generation can't bypass the quality gate.
+is re-checked by the QC loop (Brief 15), so a bad generation can't bypass the quality gate.
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ def _check_candidate(path: Path, original: str, candidate: str, ruleset: dict) -
 
 
 def system_prompt(ruleset: dict) -> str:
-    """Deterministic context: the coding standard the model must obey (Brief §16)."""
+    """Deterministic context: the coding standard the model must obey (Brief 16)."""
     fmt = ruleset.get("formatting", {})
     naming = ruleset.get("naming", {})
     prefixes = naming.get("hungarian_prefixes", {})
@@ -181,7 +181,7 @@ def make_qc_fixer(
 ) -> Callable[[Path, list], None]:
     """Return a fixer(path, violations) that asks the LLM to repair QC violations in a file.
 
-    Wired into the QC loop (Brief §15). The loop re-runs QC on the rewritten file.
+    Wired into the QC loop (Brief 15). The loop re-runs QC on the rewritten file.
     """
     emit = emit or (lambda _event: None)
     client = LlmClient(LlmConfig.resolve(spec.get("llm")))
@@ -263,7 +263,7 @@ def make_qc_fixer(
 
 
 def generate_tests(spec: dict, ruleset: dict, descriptor: dict, runtime: str) -> str:
-    """Richer, edge-case test scenarios beyond the deterministic skeleton (Brief §14.1)."""
+    """Richer, edge-case test scenarios beyond the deterministic skeleton (Brief 14.1)."""
     client = LlmClient(LlmConfig.resolve(spec.get("llm")))
     messages = [
         {"role": "system", "content": system_prompt(ruleset)},
@@ -277,7 +277,7 @@ def generate_tests(spec: dict, ruleset: dict, descriptor: dict, runtime: str) ->
 
 
 def optimize_code(spec: dict, ruleset: dict, code: str, exemplar: str = "") -> str:
-    """Produce a more optimal variant of deterministic code, on top of it (Brief §14.3)."""
+    """Produce a more optimal variant of deterministic code, on top of it (Brief 14.3)."""
     client = LlmClient(LlmConfig.resolve(spec.get("llm")))
     user = "Improve this driver (clarity, robustness, error handling) while keeping the API and " \
            "the coding standard. Return only the C source.\n\n--- CODE ---\n" + code
@@ -290,8 +290,8 @@ def optimize_code(spec: dict, ruleset: dict, code: str, exemplar: str = "") -> s
 
 
 def extract_descriptor(spec: dict, ruleset: dict, part: str, datasheet_chunks: list[str]) -> dict:
-    """Build a descriptor from datasheet RAG chunks (Brief §14.2 + §17). RAG is deferred."""
+    """Build a descriptor from datasheet RAG chunks (Brief 14.2 + 17). RAG is deferred."""
     raise NotImplementedError(
-        "Descriptor extraction depends on the RAG corpus (Brief §17), deferred this phase. "
-        "Use a hand-authored descriptor or the .c/.h import flow (Brief §12) instead."
+        "Descriptor extraction depends on the RAG corpus (Brief 17), deferred this phase. "
+        "Use a hand-authored descriptor or the .c/.h import flow (Brief 12) instead."
     )

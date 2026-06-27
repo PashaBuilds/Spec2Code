@@ -1,4 +1,4 @@
-"""xparameters.h parser (Brief §7).
+"""xparameters.h parser (Brief 7).
 
 Extracts a controller inventory from a Vivado/Vitis ``xparameters.h``. Recognizes the
 two common Xilinx naming conventions:
@@ -8,10 +8,10 @@ two common Xilinx naming conventions:
 
 Each ``*_BASEADDR`` macro is a controller candidate. A candidate is treated as a real
 *peripheral* (vs. a memory region like DDR/OCM, which also has BASEADDR) only if it has a
-companion ``*_DEVICE_ID`` macro — the discriminator Xilinx headers give us for free.
+companion ``*_DEVICE_ID`` macro - the discriminator Xilinx headers give us for free.
 
 The parser is pure (text in, dicts out). Zone assignment is delegated to the platform
-topology model (Brief §9.2) so the same parser serves all four platforms.
+topology model (Brief 9.2) so the same parser serves all four platforms.
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ _RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"AXI_DMA|AXIDMA"), "dma", "pl", "XAxiDma"),
 ]
 
-# Recognized but non-attachable peripherals — skipped silently (kept out of `unmatched`).
+# Recognized but non-attachable peripherals - skipped silently (kept out of `unmatched`).
 _IGNORE_RE = re.compile(
     r"TTC|SCUGIC|SCUTIMER|SCUWDT|^WDT|DEVCFG|XADC|SYSMON|IPI|CSUDMA|RTC|DDRC|DEVC"
 )
@@ -173,7 +173,7 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
     """Parse *text* (xparameters.h contents) into a controller inventory.
 
     Returns a :class:`ParseResult` with ``controllers`` (project.spec format) and
-    ``unmatched`` (controller-like macros whose driver we don't recognize — UI can show).
+    ``unmatched`` (controller-like macros whose driver we don't recognize - UI can show).
     """
     defines: dict[str, str] = {m.group("name"): m.group("value") for m in _DEFINE_RE.finditer(text)}
     result = ParseResult()

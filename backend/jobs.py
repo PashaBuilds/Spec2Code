@@ -1,4 +1,4 @@
-"""Generate-job manager (Brief §18).
+"""Generate-job manager (Brief 18).
 
 A generate job writes the spec, runs deterministic codegen + the QC loop in a worker thread,
 and streams structured pipeline events to any number of WebSocket subscribers. Events are
@@ -151,7 +151,7 @@ class JobManager:
         try:
             await asyncio.to_thread(self._blocking, job, max_rounds)
             job.status = "done"
-        except Exception as exc:  # noqa: BLE001 — surface any failure to the console
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the console
             job.status = "error"
             job.error = str(exc)
             job.emit({"event": "error", "message": str(exc),

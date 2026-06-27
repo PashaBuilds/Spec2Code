@@ -57,7 +57,7 @@ export default function XparametersUpload() {
         value={text}
         onChange={(e) => setText(e.target.value)}
         spellCheck={false}
-        placeholder="…or paste #define XPAR_XIICPS_0_BASEADDR 0xFF020000 …"
+        placeholder="...or paste #define XPAR_XIICPS_0_BASEADDR 0xFF020000 ..."
         className="h-48 w-full resize-none rounded-md border border-border bg-inset p-3 font-mono text-xs text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
       />
 

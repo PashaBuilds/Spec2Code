@@ -1,4 +1,4 @@
-"""REST API routes (Brief §18). Thin orchestration over the existing modules."""
+"""REST API routes (Brief 18). Thin orchestration over the existing modules."""
 
 from __future__ import annotations
 

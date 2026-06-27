@@ -1,5 +1,5 @@
 /******************************************************************************
-* Sample xparameters.h  —  Zynq UltraScale+ MPSoC  (Spec2Code demo fixture)
+* Sample xparameters.h  -  Zynq UltraScale+ MPSoC  (Spec2Code demo fixture)
 * Hand-crafted to resemble Vivado/Vitis BSP output. Exercises the parser:
 *   - PS hardened peripherals (I2C/SPI/QSPI/GPIO/UART)  -> controllers (PS zone)
 *   - one PL soft AXI GPIO                              -> controller (PL zone)

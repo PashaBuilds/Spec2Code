@@ -1,4 +1,4 @@
-"""Pluggable OpenAI-compatible LLM client (Brief §14).
+"""Pluggable OpenAI-compatible LLM client (Brief 14).
 
 Default OFF. When enabled, talks to any OpenAI-compatible /chat/completions endpoint via
 httpx. Config resolves from the spec's `llm` block first, then env. The model name is not

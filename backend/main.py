@@ -1,4 +1,4 @@
-"""Spec2Code backend entrypoint (Brief §18).
+"""Spec2Code backend entrypoint (Brief 18).
 
 Thin orchestration shell. Serves the REST API + WebSocket and, when the frontend has been
 built, the static SPA. Run: ``uvicorn backend.main:app --reload`` from the repo root.

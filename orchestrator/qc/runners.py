@@ -1,8 +1,8 @@
-"""QC tool runners (Brief §15, §16): clang-format, clang-tidy, cppcheck.
+"""QC tool runners (Brief 15, 16): clang-format, clang-tidy, cppcheck.
 
 Each runner resolves its tool through hostplat.tools (cross-platform) and shells out through
 hostplat.proc. When a tool is missing, the runner returns a structured "skipped" marker
-instead of raising — the QC loop degrades gracefully (Brief decision #3). clang-format output
+instead of raising - the QC loop degrades gracefully (Brief decision #3). clang-format output
 is captured and re-written through hostplat.io so the CRLF guarantee stays centralized.
 """
 

@@ -1,4 +1,4 @@
-"""WebSocket job stream (Brief §18). Replays buffered events then streams live ones."""
+"""WebSocket job stream (Brief 18). Replays buffered events then streams live ones."""
 
 from __future__ import annotations
 

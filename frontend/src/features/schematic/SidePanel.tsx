@@ -68,7 +68,7 @@ export default function SidePanel() {
         </dl>
         <p className="mt-3 text-xs text-faint">
           Add a device to this mux by selecting its controller, adding the device, then setting its
-          “via mux” + channel in the device panel.
+          "via mux" + channel in the device panel.
         </p>
         <Button variant="danger" size="sm" className="mt-3" onClick={() => removeNode(mux.id)}>
           <Trash2 className="h-4 w-4" /> Remove mux

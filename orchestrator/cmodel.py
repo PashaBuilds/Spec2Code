@@ -1,18 +1,18 @@
-"""C render-model builder (Brief §13).
+"""C render-model builder (Brief 13).
 
 Turns a validated project.spec + device descriptors + ruleset into a structured model of
 C functions with fully-rendered, coding-standard-compliant bodies. The Jinja templates
 (codegen.py) only assemble the file skeletons around this model.
 
 Design notes:
-  * Codegen targets the descriptor's NAMED OPERATIONS, not raw registers (Brief §6.2).
+  * Codegen targets the descriptor's NAMED OPERATIONS, not raw registers (Brief 6.2).
   * Function names are camelCase: ``tca9548aChannelSelect(...)`` rather than
     underscore-separated names.
   * A mux-attached device gets a ``<mux>ChannelSelect(...)`` call injected before every
-    device access (Brief §10, §13).
+    device access (Brief 10, 13).
   * SPI flash address width (3 vs 4 bytes) flows from each descriptor command's
-    ``address_bytes`` straight into the generated transfers — proving MT25QU02G differs
-    from MT25Q128 (acceptance §20.3).
+    ``address_bytes`` straight into the generated transfers - proving MT25QU02G differs
+    from MT25Q128 (acceptance 20.3).
 
 This module returns pure data; only codegen.py writes it out (through hostplat.io, CRLF).
 """

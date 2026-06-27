@@ -92,7 +92,7 @@ export default function SchematicCanvas() {
       const sub =
         transport === "spi" || transport === "qspi"
           ? `CS ${d.attach.spi_chip_select ?? 0}`
-          : String(d.attach.i2c_address ?? "—");
+          : String(d.attach.i2c_address ?? "-");
       nodes.push({
         id: d.id,
         type: "device",

@@ -1,4 +1,4 @@
-"""Naming / convention linter via libclang AST (Brief §15, §16).
+"""Naming / convention linter via libclang AST (Brief 15, 16).
 
 Enforces the *meaning* that clang-format can't: function naming pattern, Hungarian variable
 prefixes, and print line terminators. Spec2Code uses the fixed default ruleset, and this linter

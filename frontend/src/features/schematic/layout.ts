@@ -1,9 +1,9 @@
 import type { Controller, Device, Mux, Zone } from "@/lib/types";
 
-// Auto-layout for the schematic (Brief §9). A deterministic 3-column layered layout
-// (controllers → muxes/direct-devices → mux-devices). Chosen over dagre because dagre's
+// Auto-layout for the schematic (Brief 9). A deterministic 3-column layered layout
+// (controllers -> muxes/direct-devices -> mux-devices). Chosen over dagre because dagre's
 // browser bundle produced invalid (NaN) positions via CJS/ESM interop; a manual layered
-// layout is portable, dependency-free, and fully deterministic — the user never hand-arranges.
+// layout is portable, dependency-free, and fully deterministic - the user never hand-arranges.
 
 export interface Pos {
   x: number;
@@ -160,7 +160,7 @@ export function computeLayout(
   return pos;
 }
 
-// Bounding boxes for the platform zones, sized to enclose their controllers (Brief §9.2).
+// Bounding boxes for the platform zones, sized to enclose their controllers (Brief 9.2).
 export function computeZoneRects(
   zones: Zone[],
   controllers: Controller[],

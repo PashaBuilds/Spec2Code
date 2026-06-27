@@ -20,7 +20,7 @@ commands:
   - { name: SUBSECTOR_ERASE, opcode: 0x20, address_bytes: 3, description: "SSE (4KB)" }
 operations:
   - name: device_init
-    description: "3-byte (24-bit) addressing — no address-mode switch required."
+    description: "3-byte (24-bit) addressing - no address-mode switch required."
     steps:
       - { op: comment, note: "Default 3-byte addressing; no mode switch needed." }
   - name: id_read

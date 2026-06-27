@@ -66,7 +66,7 @@ export default function Ltc2991Editor({
                     min={0}
                     step={0.1}
                     value={item.shunt_milliohm ?? ""}
-                    placeholder="mΩ"
+                    placeholder="mOhm"
                     onChange={(e) =>
                       updatePair(pair.key, {
                         shunt_milliohm: e.target.value === "" ? null : Number(e.target.value),

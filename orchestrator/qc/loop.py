@@ -1,14 +1,14 @@
-"""QC loop (Brief §15).
+"""QC loop (Brief 15).
 
 generate -> clang-format -> naming-linter -> clang-tidy + cppcheck -> collect structured
 violations -> (if a fixer is wired and round < N) feed back -> repeat. N default 3.
 
 Gate policy: a run PASSES when there are no `error`-severity violations. Warnings/style/info
 are reported but advisory. If N rounds can't clear the errors, the loop stops, keeps the best
-attempt, and emits a clear warning (Brief §15). Every round is streamed via `emit`; a full
+attempt, and emits a clear warning (Brief 15). Every round is streamed via `emit`; a full
 dump is written to qc_report.json.
 
-The optional `fixer(file_path, violations)` callback is how the LLM plugs in later (Brief §14);
+The optional `fixer(file_path, violations)` callback is how the LLM plugs in later (Brief 14);
 with no fixer the loop is fully deterministic.
 """
 
@@ -115,7 +115,7 @@ def run_qc(
     warning = None
     if not passed:
         warning = (f"QC did not fully clean in {max_rounds} round(s): "
-                   f"{best[0]} error-level violation(s) remain. Output delivered anyway — "
+                   f"{best[0]} error-level violation(s) remain. Output delivered anyway - "
                    f"review qc_report.json and fix by hand.")
 
     report = {

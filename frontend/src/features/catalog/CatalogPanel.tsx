@@ -35,7 +35,7 @@ function transportIcon(transport: string): React.ReactNode {
 
 /**
  * Whether a device transport is compatible with the given controller type.
- * i2c controller ↔ i2c / i2c_mux devices; spi/qspi controller ↔ spi devices.
+ * i2c controller <-> i2c / i2c_mux devices; spi/qspi controller <-> spi devices.
  * Unknown pairings are treated as compatible (no de-emphasis).
  */
 function isCompatible(controllerType: string | undefined, transport: string): boolean {
@@ -77,7 +77,7 @@ export default function CatalogPanel({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by part, summary, or transport…"
+          placeholder="Filter by part, summary, or transport..."
           aria-label="Filter catalog devices"
           className="pl-9"
         />

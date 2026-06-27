@@ -1,10 +1,10 @@
-"""Content-aware driver-source matcher (Brief §12, step 1).
+"""Content-aware driver-source matcher (Brief 12, step 1).
 
 Scans a folder of .c/.h driver sources and, for each .c/.h pair (grouped by file stem),
-proposes which catalog part it implements — by CONTENT, not just filename. Signals:
+proposes which catalog part it implements - by CONTENT, not just filename. Signals:
   * part-number / token hits from the catalog's ``match_tokens`` (in comments, #defines, code)
   * function-prefix pattern (e.g. ``ltc2991_*``)
-Each proposal carries a 0..1 confidence so the UI can show "X → PART (94%)" for the user to
+Each proposal carries a 0..1 confidence so the UI can show "X -> PART (94%)" for the user to
 confirm or correct (step 2). Pure read-only; no persistence here.
 """
 

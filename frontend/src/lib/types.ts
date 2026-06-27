@@ -1,4 +1,4 @@
-// Shared types mirroring the backend project.spec contract (Brief §6.1).
+// Shared types mirroring the backend project.spec contract (Brief 6.1).
 
 export type PlatformId = "zynq_7000" | "zynq_ultrascale" | "versal" | "microblaze_7series";
 export type Runtime = "bare_metal" | "freertos";

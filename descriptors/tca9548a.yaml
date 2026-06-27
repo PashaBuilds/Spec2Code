@@ -4,7 +4,7 @@ manufacturer: "Texas Instruments"
 summary: "8-channel I2C switch/multiplexer."
 transport:
   type: i2c_mux
-  address_width: 8           # informational; the mux has no register address — a single
+  address_width: 8           # informational; the mux has no register address - a single
   default_address: 0x70      # control byte is written directly (1 bit enables 1 channel).
   byte_order: big
   channels: 8

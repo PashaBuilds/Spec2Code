@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spec2code/descriptors/_schema/descriptor.schema.json",
   "title": "Spec2Code device descriptor",
-  "description": "Custom YAML descriptor for non-memory-mapped external devices (I2C/SPI/GPIO/mux). Codegen targets the named 'operations', not raw registers (Brief §6.2).",
+  "description": "Custom YAML descriptor for non-memory-mapped external devices (I2C/SPI/GPIO/mux). Codegen targets the named 'operations', not raw registers (Brief 6.2).",
   "type": "object",
   "additionalProperties": false,
   "required": ["descriptor_version", "part", "transport", "operations"],

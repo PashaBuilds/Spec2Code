@@ -1,4 +1,4 @@
-/* Minimal Xilinx BSP stub for Spec2Code QC (syntax/type check only — NOT the real BSP). */
+/* Minimal Xilinx BSP stub for Spec2Code QC (syntax/type check only - NOT the real BSP). */
 #ifndef XIL_TYPES_H
 #define XIL_TYPES_H
 #include <stdint.h>

@@ -1,4 +1,4 @@
-"""Static (deterministic) codegen orchestration (Brief §13).
+"""Static (deterministic) codegen orchestration (Brief 13).
 
 Loads a validated project.spec, builds the C render-model (cmodel), renders the Jinja
 templates, and writes drop-in output through hostplat.io (always CRLF). No LLM involved.

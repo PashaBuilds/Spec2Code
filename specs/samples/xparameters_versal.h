@@ -1,5 +1,5 @@
 /******************************************************************************
-* Sample xparameters.h  —  Versal ACAP  (Spec2Code demo fixture)
+* Sample xparameters.h  -  Versal ACAP  (Spec2Code demo fixture)
 ******************************************************************************/
 #ifndef XPARAMETERS_H
 #define XPARAMETERS_H

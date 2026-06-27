@@ -1,4 +1,4 @@
-// Typed API client for the Spec2Code backend (Brief §18). Paths are relative so the Vite
+// Typed API client for the Spec2Code backend (Brief 18). Paths are relative so the Vite
 // dev proxy (and production same-origin serving) both work.
 
 import type {

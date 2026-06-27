@@ -1,5 +1,5 @@
 /******************************************************************************
-* Sample xparameters.h  —  Zynq-7000 SoC  (Spec2Code demo fixture)
+* Sample xparameters.h  -  Zynq-7000 SoC  (Spec2Code demo fixture)
 ******************************************************************************/
 #ifndef XPARAMETERS_H
 #define XPARAMETERS_H

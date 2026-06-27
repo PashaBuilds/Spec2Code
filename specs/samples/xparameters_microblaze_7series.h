@@ -1,5 +1,5 @@
 /******************************************************************************
-* Sample xparameters.h  —  MicroBlaze (7-series)  (Spec2Code demo fixture)
+* Sample xparameters.h  -  MicroBlaze (7-series)  (Spec2Code demo fixture)
 * All peripherals are soft AXI IP in the PL.
 ******************************************************************************/
 #ifndef XPARAMETERS_H

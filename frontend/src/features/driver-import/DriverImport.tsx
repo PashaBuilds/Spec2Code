@@ -1,4 +1,4 @@
-// Driver source import — the 3-step .c/.h feeding flow (Brief §12).
+// Driver source import - the 3-step .c/.h feeding flow (Brief 12).
 // 1) scan a folder for driver source pairs, 2) review/correct the proposed part,
 // 3) pick a role and persist the confirmation back to the backend.
 import * as React from "react";
@@ -128,7 +128,7 @@ export default function DriverImport() {
 
   return (
     <div className="space-y-6 text-text">
-      {/* STEP 1 — scan */}
+      {/* STEP 1 - scan */}
       <Card className="bg-elev p-4">
         <StepLabel n={1} title="Scan folder" />
         <p className="mt-2 text-xs text-faint">
@@ -149,7 +149,7 @@ export default function DriverImport() {
             />
           </div>
           <Button onClick={() => void handleScan()} disabled={scanning || !folder.trim()}>
-            {scanning ? "Scanning…" : "Scan folder"}
+            {scanning ? "Scanning..." : "Scan folder"}
           </Button>
         </div>
         {scanError && (
@@ -159,7 +159,7 @@ export default function DriverImport() {
         )}
       </Card>
 
-      {/* STEP 2 + 3 — review/confirm + role/persist */}
+      {/* STEP 2 + 3 - review/confirm + role/persist */}
       <Card className="bg-elev p-4">
         <div className="flex items-center justify-between">
           <StepLabel n={2} title="Review & confirm" />
@@ -193,7 +193,7 @@ export default function DriverImport() {
                   </div>
 
                   <div className="mt-1 font-mono text-xs text-faint">
-                    {m.files.map((f) => basename(f)).join(" + ") || "—"}
+                    {m.files.map((f) => basename(f)).join(" + ") || "-"}
                   </div>
 
                   {m.signals.length > 0 && (
@@ -209,7 +209,7 @@ export default function DriverImport() {
                     </div>
                   )}
 
-                  {/* STEP 2 — correct part / STEP 3 — pick role */}
+                  {/* STEP 2 - correct part / STEP 3 - pick role */}
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label>Part</Label>
@@ -224,7 +224,7 @@ export default function DriverImport() {
                         }
                       >
                         <SelectTrigger className="font-mono">
-                          <SelectValue placeholder="Select part…" />
+                          <SelectValue placeholder="Select part..." />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value={NONE} className="font-mono text-faint">
@@ -265,7 +265,7 @@ export default function DriverImport() {
                     <div className="min-w-0 text-[11px] text-faint">
                       {row.saved ? (
                         <span className="font-mono text-ok">
-                          {m.files.map((f) => basename(f)).join(" + ")} → {row.part} (
+                          {m.files.map((f) => basename(f)).join(" + ")} {"->"} {row.part} (
                           {pct(m.confidence)})
                         </span>
                       ) : row.error ? (
@@ -274,7 +274,7 @@ export default function DriverImport() {
                         <span className="text-faint">
                           {row.part ? (
                             <>
-                              will save as <span className="font-mono text-muted">{row.part}</span> ·{" "}
+                              will save as <span className="font-mono text-muted">{row.part}</span> -{" "}
                               {roleLabel}
                             </>
                           ) : (
@@ -289,7 +289,7 @@ export default function DriverImport() {
                       onClick={() => void handleConfirm(m)}
                       disabled={row.saving || !row.part}
                     >
-                      {row.saving ? "Saving…" : row.saved ? "Re-save" : "Confirm & save"}
+                      {row.saving ? "Saving..." : row.saved ? "Re-save" : "Confirm & save"}
                     </Button>
                   </div>
                 </Card>

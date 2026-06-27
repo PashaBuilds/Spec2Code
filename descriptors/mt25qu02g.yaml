@@ -4,7 +4,7 @@ manufacturer: "Micron"
 summary: "2 Gbit (256 MB) SPI NOR flash, 4-byte (32-bit) addressing (stacked die)."
 transport:
   type: spi
-  address_width: 32          # 4-byte addressing REQUIRED — drives different codegen than MT25Q128
+  address_width: 32          # 4-byte addressing REQUIRED - drives different codegen than MT25Q128
   byte_order: big
 access_primitives:
   read_command:  { pattern: opcode_then_read }
@@ -22,10 +22,10 @@ commands:
   - { name: SUBSECTOR_ERASE, opcode: 0x21, address_bytes: 4, description: "4-byte SSE (4KB)" }
 operations:
   - name: device_init
-    description: "Enter 4-byte (32-bit) address mode — REQUIRED for this 2Gbit stacked-die part."
+    description: "Enter 4-byte (32-bit) address mode - REQUIRED for this 2Gbit stacked-die part."
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
-      - { op: send_command, cmd: ENTER_4BYTE, note: "0xB7 — switch to 32-bit addressing" }
+      - { op: send_command, cmd: ENTER_4BYTE, note: "0xB7 - switch to 32-bit addressing" }
   - name: id_read
     description: "Read the 3-byte JEDEC device ID (RDID)."
     steps:

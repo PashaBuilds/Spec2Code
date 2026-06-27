@@ -12,7 +12,7 @@ interface Line {
   tone: Tone;
   prefix: string;
   text: React.ReactNode;
-  /** Faint divider line (job.end) — rendered without a badge. */
+  /** Faint divider line (job.end) - rendered without a badge. */
   divider?: boolean;
 }
 
@@ -37,7 +37,7 @@ function extrasJson(e: JobEvent): string {
   }
 }
 
-/** Map a raw job event to a renderable console line (Brief §6 / §19). */
+/** Map a raw job event to a renderable console line (Brief 6 / 19). */
 function describe(e: JobEvent): Line {
   switch (e.event) {
     case "job.start":
@@ -50,7 +50,7 @@ function describe(e: JobEvent): Line {
       return {
         tone: "neutral",
         prefix: "CODEGEN",
-        text: `${field(e, "part")} (${field(e, "transport")}) → ${field(e, "module")}.c/.h`,
+        text: `${field(e, "part")} (${field(e, "transport")}) -> ${field(e, "module")}.c/.h`,
       };
     case "codegen.done":
       return {
@@ -142,7 +142,7 @@ function describe(e: JobEvent): Line {
       const passed = Boolean(e.passed);
       const warning = typeof e.warning === "string" ? e.warning : "";
       const base = passed
-        ? "passed — 0 errors"
+        ? "passed - 0 errors"
         : `stopped with ${field(e, "errors", "0")} error(s)`;
       return {
         tone: passed ? "ok" : "danger",
@@ -166,7 +166,7 @@ function describe(e: JobEvent): Line {
       return {
         tone: "neutral",
         prefix: "",
-        text: `— job ${field(e, "status")} —`,
+        text: `- job ${field(e, "status")} -`,
         divider: true,
       };
     default: {

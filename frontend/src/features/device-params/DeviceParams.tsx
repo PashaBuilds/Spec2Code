@@ -1,4 +1,4 @@
-// Protocol-aware device parameter editor (Brief §10).
+// Protocol-aware device parameter editor (Brief 10).
 // Edits the selected device's attach/operations/tests; fields shown depend on
 // the resolved controller's transport type (i2c | spi | qspi | gpio).
 import * as React from "react";
@@ -113,7 +113,7 @@ export default function DeviceParams() {
     });
   };
 
-  const transportLabel = controller?.type ? controller.type.toUpperCase() : "—";
+  const transportLabel = controller?.type ? controller.type.toUpperCase() : "-";
 
   return (
     <Card className="overflow-hidden">
@@ -220,7 +220,7 @@ export default function DeviceParams() {
               <Input
                 readOnly
                 disabled
-                value={attach.address_width == null ? "—" : String(attach.address_width)}
+                value={attach.address_width == null ? "-" : String(attach.address_width)}
                 className="text-faint"
               />
             </Field>
