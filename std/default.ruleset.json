@@ -4,21 +4,51 @@
     "brace_style": "allman",
     "indent": "spaces_4",
     "line_ending": "crlf",
-    "max_line_length": 100
+    "max_line_length": 100,
+    "space_after_control_keyword": true,
+    "control_braces_on_new_line": true
   },
   "naming": {
+    "identifier_case": "camelCase",
     "hungarian_prefixes": {
+      "unsigned char": "uc",
+      "char": "c",
+      "unsigned short": "us",
+      "short": "s",
+      "unsigned int": "ui",
+      "int": "i",
+      "unsigned long": "ul",
+      "unsigned long long": "ull",
       "uint8_t": "uc",
+      "int8_t": "c",
       "uint16_t": "us",
+      "int16_t": "s",
       "uint32_t": "ui",
-      "uint64_t": "ull",
       "int32_t": "i",
+      "uint64_t": "ull",
+      "struct": "s",
       "struct_pointer": "sp",
-      "static_var": "S_",
-      "pointer": "p"
+      "pointer_suffix": "p",
+      "array_suffix": "Arr",
+      "global_prefix": "G_",
+      "static_prefix": "S_"
+    },
+    "typedef_prefixes": {
+      "struct": "S",
+      "union": "S",
+      "enum": "E"
     },
     "function_pattern": "module_object_action",
     "function_regex": "^[a-z][a-z0-9]*_[a-z][a-z0-9]*_[a-z][a-z0-9]*$"
+  },
+  "declarations": {
+    "struct_typedef_prefix": "S",
+    "union_typedef_prefix": "S",
+    "enum_typedef_prefix": "E",
+    "bitfield_member_prefix": "",
+    "struct_brace_style": "typedef struct newline braces",
+    "union_brace_style": "typedef union newline braces",
+    "enum_brace_style": "typedef enum newline braces"
   },
   "print_conventions": {
     "line_terminator_in_prints": "\\r\\n"

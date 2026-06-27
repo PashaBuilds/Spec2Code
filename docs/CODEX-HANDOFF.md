@@ -42,10 +42,9 @@ Full PoC is built end-to-end and was confirmed working on the Mac Mini. Verified
 - **Frontend** (React + Vite + Tailwind + React Flow): full flow verified visually — setup →
   upload xparameters → schematic with zones → add TCA9548A mux + LTC2991 device → set via-mux
   channel 3 → generate → live console + CodeMirror code view with QC pass.
-- **Coding Standard Studio**: Setup-integrated ruleset builder. Backend endpoints
-  `/api/rulesets/default|extract|validate|save` normalize LLM candidates against
-  `schemas/ruleset.schema.json`, show diff/checks/issues, and persist approved refs as
-  `std/user/<name>.ruleset.json`.
+- **Fixed Coding Standard**: Codegen, LLM assist, and QC always use
+  `std/default.ruleset.json`. Setup shows the active standard as information only;
+  there is no Word/Markdown/JSON ruleset import or save flow.
 - **Device profiles**: `devices[].config` is the board-specific layer above descriptor
   behavior. `orchestrator/device_profiles/` currently implements LTC2991 pair-mode config,
   backend preflight validation, and profile-generated init write arrays.
@@ -64,7 +63,7 @@ orchestrator/    codegen.py · cmodel.py (C render-model: Emit class + i2c/spi/m
 descriptors/     ltc2991/tca9548a/mt25q128/mt25qu02g/ad7414/ds1682/ltc2945 .yaml + _schema/descriptor.schema.json
 platforms/       4 topology models (zones/cores)
 catalog/         catalog.json + matcher.py (content-aware .c/.h matching, verified 100%)
-std/             default.ruleset.json + extract_ruleset.py (Word→ruleset)
+std/             default.ruleset.json (fixed coding standard)
 schemas/         project.spec.schema.json (canonical handoff artifact)
 specs/samples/   xparameters_*.h (4) + radar_io_board.spec.json
 frontend/src/    lib/{types,api,utils} · store/useStore.ts · components/ui.tsx · theme/tokens.css
@@ -125,7 +124,8 @@ clang-tidy, cppcheck, libclang. Python deps in `.venv` (Python 3.14). Frontend d
    BGE-M3 → FAISS, two indices) and wire `orchestrator/llm/tasks.extract_descriptor`. Install
    `requirements-rag.txt` under Python 3.11–3.12 (torch/faiss may lack 3.14 wheels).
 4. **More codegen transports** — `cmodel.py` covers i2c (+mux) and spi; add gpio / native qspi.
-5. **`extract_ruleset.py`** — point it at the real coding-standard Word doc when provided (Brief §16).
+5. **Coding standard is fixed** — do not reintroduce user ruleset import unless the product
+   decision changes; update `std/default.ruleset.json` directly for standard changes.
 6. **Schematic polish** — optional: per-channel mux handles (currently single handle + channel edge label).
 7. Deferred per Brief §21: real compile-in-the-loop, git integration, multi-core, full Vitis scaffold.
 

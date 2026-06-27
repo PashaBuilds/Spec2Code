@@ -50,7 +50,6 @@ interface StoreState {
   // actions
   setStep: (s: Step) => void;
   setProject: (p: Partial<ProjectMeta>) => void;
-  setCodingStandardRef: (ref: string) => void;
   setLlm: (p: Partial<LlmConfig>) => void;
   applyParse: (r: {
     controllers: Controller[];
@@ -129,7 +128,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setStep: (step) => set({ step }),
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),
-  setCodingStandardRef: (codingStandardRef) => set({ codingStandardRef }),
   setLlm: (p) => set((s) => ({ llm: { ...s.llm, ...p } })),
 
   applyParse: (r) =>
@@ -147,7 +145,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set({
       step: spec.controllers?.length ? "schematic" : "setup",
       project: { ...DEFAULT_PROJECT, ...spec.project },
-      codingStandardRef: spec.coding_standard_ref || DEFAULT_CODING_STANDARD,
+      codingStandardRef: DEFAULT_CODING_STANDARD,
       llm: spec.llm?.enabled
         ? { ...DEFAULT_LLM, ...spec.llm }
         : { ...DEFAULT_LLM },
@@ -209,7 +207,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return {
       schema_version: "1.0",
       project: s.project,
-      coding_standard_ref: s.codingStandardRef || DEFAULT_CODING_STANDARD,
+      coding_standard_ref: DEFAULT_CODING_STANDARD,
       llm: s.llm.enabled
         ? s.llm
         : { enabled: false },

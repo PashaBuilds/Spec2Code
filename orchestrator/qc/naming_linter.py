@@ -1,8 +1,8 @@
 """Naming / convention linter via libclang AST (Brief §15, §16).
 
 Enforces the *meaning* that clang-format can't: function naming pattern, Hungarian variable
-prefixes, and print line terminators. All rules are READ FROM THE RULESET — never hardcoded —
-so changing the standard does not require editing this linter (Brief §16).
+prefixes, and print line terminators. Spec2Code uses the fixed default ruleset, and this linter
+reads the rule values from that ruleset while keeping the supported C type surface explicit.
 
 Severity policy:
   * function-name pattern mismatch  -> error   (gate-failing)
@@ -20,6 +20,23 @@ from hostplat import tools
 from orchestrator.qc.runners import BSP_STUBS, Violation
 
 _LIB_READY = False
+_SCALAR_KEYS = (
+    "unsigned char",
+    "char",
+    "unsigned short",
+    "short",
+    "unsigned int",
+    "int",
+    "unsigned long",
+    "unsigned long long",
+    "uint8_t",
+    "int8_t",
+    "uint16_t",
+    "int16_t",
+    "uint32_t",
+    "int32_t",
+    "uint64_t",
+)
 
 
 def _ensure_libclang() -> bool:
@@ -46,14 +63,14 @@ def _expected_prefix(written_type: str, prefixes: dict) -> Optional[str]:
     """
     t = written_type.replace("const", "").replace("volatile", "").strip()
     is_ptr = "*" in t
-    base = t.replace("*", "").strip()
+    base = re.sub(r"\s+", " ", t.replace("*", " ").strip())
     if base == "void":
         return None  # void* names (e.g. FreeRTOS pv_parameters) aren't covered by the map
-    scalar = {k: v for k, v in prefixes.items()
-              if k in ("uint8_t", "uint16_t", "uint32_t", "uint64_t", "int32_t")}
+    scalar = {k: v for k, v in prefixes.items() if k in _SCALAR_KEYS}
     if is_ptr:
         if base in scalar:
-            return prefixes.get("pointer", "p") + scalar[base]  # e.g. uint8_t* -> puc
+            suffix = prefixes.get("pointer_suffix", prefixes.get("pointer", "p"))
+            return scalar[base] + suffix
         return prefixes.get("struct_pointer", "sp")             # struct*    -> sp
     return scalar.get(base)
 

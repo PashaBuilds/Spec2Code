@@ -237,23 +237,20 @@ candidate first, rejected if it removes existing C functions or fails the availa
 checks, and only then written to the real file. Every accepted LLM-produced file is re-run through
 the deterministic QC loop before delivery.
 
-## Coding Standard Studio on Windows
+## Coding Standard on Windows
 
-In the Setup screen, use **Coding standard -> Studio** to build a ruleset from a Word,
-Markdown, text, or existing JSON standard file. With LLM enabled, the local
-OpenAI-compatible model produces only a candidate JSON. Spec2Code then normalizes it to the
-versioned ruleset schema, shows unsupported fields, runs regex/sample QC checks, and blocks Save
-when the ruleset is invalid.
-
-Saved rulesets use refs like:
+Spec2Code uses the fixed default coding standard in `std/default.ruleset.json`.
+The Windows `.exe` does not import Word, Markdown, text, or custom JSON coding-standard files.
+Older project specs that contain another `coding_standard_ref` are normalized back to:
 
 ```text
-std/user/company.ruleset.json
+std/default.ruleset.json
 ```
 
-When running from the Windows `.exe`, this file is written under the folder where you start
-`Spec2Code.exe`, so keep that folder with the project files if you want the same standard to be
-available after restart or on another air-gapped machine.
+The Setup screen shows the active standard as information only: camelCase identifiers,
+Hungarian prefixes, Allman braces, CRLF line endings, `S` struct typedefs, `E` enum typedefs,
+`sp` structure pointers, type-prefix + `p` pointers, type-prefix + `Arr` arrays, `G_` globals,
+and `S_` static variables.
 
 ## Creating a Windows executable manually
 

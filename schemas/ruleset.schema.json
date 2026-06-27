@@ -3,7 +3,7 @@
   "title": "Spec2Code coding ruleset",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ruleset_version", "formatting", "naming", "print_conventions", "doxygen"],
+  "required": ["ruleset_version", "formatting", "naming", "declarations", "print_conventions", "doxygen"],
   "properties": {
     "ruleset_version": { "type": "string", "default": "1.0" },
     "formatting": {
@@ -14,21 +14,76 @@
         "brace_style": { "type": "string", "enum": ["allman", "attach", "k&r"] },
         "indent": { "type": "string", "enum": ["spaces_4"] },
         "line_ending": { "type": "string", "enum": ["crlf"] },
-        "max_line_length": { "type": "integer", "minimum": 60, "maximum": 180 }
+        "max_line_length": { "type": "integer", "minimum": 60, "maximum": 180 },
+        "space_after_control_keyword": { "type": "boolean" },
+        "control_braces_on_new_line": { "type": "boolean" }
       }
     },
     "naming": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hungarian_prefixes", "function_pattern", "function_regex"],
+      "required": ["identifier_case", "hungarian_prefixes", "typedef_prefixes", "function_pattern", "function_regex"],
       "properties": {
+        "identifier_case": { "type": "string", "enum": ["camelCase"] },
         "hungarian_prefixes": {
           "type": "object",
           "additionalProperties": { "type": "string" },
-          "required": ["uint8_t", "uint16_t", "uint32_t", "uint64_t", "int32_t", "struct_pointer", "static_var", "pointer"]
+          "required": [
+            "unsigned char",
+            "char",
+            "unsigned short",
+            "short",
+            "unsigned int",
+            "int",
+            "unsigned long",
+            "unsigned long long",
+            "uint8_t",
+            "uint16_t",
+            "uint32_t",
+            "uint64_t",
+            "int32_t",
+            "struct",
+            "struct_pointer",
+            "pointer_suffix",
+            "array_suffix",
+            "global_prefix",
+            "static_prefix"
+          ]
+        },
+        "typedef_prefixes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["struct", "union", "enum"],
+          "properties": {
+            "struct": { "type": "string" },
+            "union": { "type": "string" },
+            "enum": { "type": "string" }
+          }
         },
         "function_pattern": { "type": "string" },
         "function_regex": { "type": "string" }
+      }
+    },
+    "declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "struct_typedef_prefix",
+        "union_typedef_prefix",
+        "enum_typedef_prefix",
+        "bitfield_member_prefix",
+        "struct_brace_style",
+        "union_brace_style",
+        "enum_brace_style"
+      ],
+      "properties": {
+        "struct_typedef_prefix": { "type": "string" },
+        "union_typedef_prefix": { "type": "string" },
+        "enum_typedef_prefix": { "type": "string" },
+        "bitfield_member_prefix": { "type": "string" },
+        "struct_brace_style": { "type": "string" },
+        "union_brace_style": { "type": "string" },
+        "enum_brace_style": { "type": "string" }
       }
     },
     "print_conventions": {

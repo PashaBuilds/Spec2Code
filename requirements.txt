@@ -9,5 +9,4 @@ jinja2
 watchdog
 httpx
 pyyaml
-python-docx
 libclang

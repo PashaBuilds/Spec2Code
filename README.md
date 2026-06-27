@@ -21,8 +21,8 @@ ve devam geliştirme.
   kod formatı ve statik kontroller yapılır.
 - **Project save/load:** UI'daki proje `project.spec.json` olarak indirilebilir ve
   daha sonra aynı dosyadan geri yüklenebilir.
-- **Coding Standard Studio:** Setup ekranında Word/Markdown/text/JSON standardından
-  ruleset adayı üretir; schema validation, diff ve örnek QC check'leri gösterir.
+- **Sabit kodlama standardı:** Generate ve QC her zaman `std/default.ruleset.json`
+  ile çalışır; kullanıcıdan Word/JSON standard dosyası alınmaz.
 - **Cihaz konfigürasyon profilleri:** `device.config` üzerinden karttaki kullanım
   şeklini toplar; LTC2991 için pair/mode seçimi init register array'ine çevrilir.
 - **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, raporlar ve
@@ -96,8 +96,9 @@ Bu model generic altyapı + cihaz özel profile/editor şeklinde ilerler. Şu an
 
 ## Kodlama Standardı Nasıl Çalışır?
 
-Kodlama standardı `project.spec.json` içindeki `coding_standard_ref` alanıyla
-seçilir. Varsayılan:
+Spec2Code sabit bir default kodlama standardı kullanır. `project.spec.json`
+içinde eski sürümlerden kalan farklı bir `coding_standard_ref` görülse bile
+generate/QC aşamasında şu ref'e normalize edilir:
 
 ```json
 "coding_standard_ref": "std/default.ruleset.json"
@@ -111,45 +112,23 @@ Bu ruleset iki aşamada devreye girer:
    print terminator ve fonksiyon isimlendirme gibi makinece kontrol edilebilir
    kuralları JSON ruleset'ten okur.
 
-Makinece uygulanacak kurallar için JSON gerekir. Word veya Markdown dosyası iyi
-bir insan dokümanıdır ama QC'nin otomatik karar vermesi için nihayetinde JSON
-ruleset'e çevrilmesi gerekir.
+Default standard özet olarak şunları içerir:
 
-En temiz akış UI içindedir:
+- `camelCase` identifier yaklaşımı ve Hungarian prefix kullanımı.
+- Tip prefixleri: `unsigned char -> uc`, `char -> c`, `unsigned short -> us`,
+  `short -> s`, `unsigned int -> ui`, `int -> i`, `unsigned long -> ul`,
+  `unsigned long long -> ull`.
+- Structure typedef prefix'i `S`, enum typedef prefix'i `E`.
+- Structure pointer prefix'i `sp`; diğer pointer'lar tip prefix'i + `p`.
+- Array'ler tip prefix'i + `Arr`; örnek `ucArr`.
+- Global değişkenler `G_` + tip prefix'i, static değişkenler `S_` + tip prefix'i.
+- `if`, `for`, `while` sonrasında bir boşluk ve Allman brace stili kullanılır.
+- Bitfield üyelerinde Hungarian prefix kullanılmaz.
 
-1. Setup ekranında **Coding standard → Studio** aç.
-2. Word (`.docx`), Markdown, text veya mevcut JSON ruleset yükle ya da metni paste et.
-3. LLM açıksa lokal OpenAI-compatible model aday JSON üretir. LLM kapalıysa default
-   ruleset üzerinden manuel review/edit yapılır.
-4. Form alanlarında formatting, function regex, prefix map, print terminator ve
-   Doxygen kuralını gözden geçir.
-5. Schema validation, default diff ve örnek QC check sonuçları temizse kaydet.
-6. Kaydedilen ref otomatik olarak `std/user/<ad>.ruleset.json` biçiminde
-   **Coding standard** alanına yazılır.
-
-CLI ile Word standardından ham başlangıç almak istersen:
-
-```bash
-.venv/bin/python -m std.extract_ruleset path/to/standard.docx > std/my.ruleset.json
-```
-
-Sonra UI'daki **Coding standard** alanına şunu yaz:
-
-```text
-std/my.ruleset.json
-```
-
-Markdown kullanmak; açıklama, örnek, gerekçe ve insan review'u için iyidir.
-Ama “bit field'lar şöyle yazılır”, “fonksiyon isimleri şu regex'e uyar”,
-“print içinde satır sonu `\r\n` olmalı” gibi otomatik kontrol edilecek kurallar
-JSON ruleset'e girmelidir. En sağlıklı model:
-
-- `docs/coding-standard.md`: İnsan tarafından okunacak açıklama ve örnekler.
-- `std/my.ruleset.json`: Spec2Code/QC tarafından uygulanacak makine kuralları.
-
-`std/user/` altındaki ruleset'ler kullanıcı tarafından üretilen lokal çalışma
-dosyalarıdır; Git'e alınmaz. Windows executable ile çalışırken aynı ref, uygulamayı
-çalıştırdığın klasördeki `std/user/` altında saklanır.
+Setup ekranındaki **Sabit kodlama standardı** paneli bu kuralları bilgi amaçlı
+gösterir. Kullanıcıdan kodlama standardı dokümanı alınmaz; LLM açıksa bile bu
+standard sadece context olarak modele verilir ve deterministic QC yine bu ruleset
+üzerinden çalışır.
 
 ## LLM Ayarları
 

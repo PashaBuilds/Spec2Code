@@ -18,6 +18,7 @@ from orchestrator import cmodel
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 _TEMPLATES = _HERE / "templates"
+_DEFAULT_RULESET_REF = "std/default.ruleset.json"
 
 
 def _env() -> Environment:
@@ -61,13 +62,14 @@ def generate(
     ``emit`` (optional) receives structured progress events for WebSocket streaming.
     """
     emit = emit or (lambda _e: None)
+    spec = {**spec, "coding_standard_ref": _DEFAULT_RULESET_REF}
     env = _env()
     get_descriptor = make_descriptor_loader(root)
     units = cmodel.build_units(spec, get_descriptor)
 
     gen_opts = spec.get("generation_options", {})
     include_doxygen = gen_opts.get("include_doxygen", True)
-    ruleset_ref = spec.get("coding_standard_ref", "std/default.ruleset.json")
+    ruleset_ref = _DEFAULT_RULESET_REF
 
     drivers_dir = out_dir / "drivers"
     tests_dir = out_dir / "tests"

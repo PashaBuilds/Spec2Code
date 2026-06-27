@@ -157,14 +157,18 @@ def _first_bit(bits: str) -> int:
     return int(bits.split(":")[-1]) if ":" in bits else int(bits)
 
 
+def _pascal_suffix(name: str) -> str:
+    return "".join(part[:1].upper() + part[1:] for part in name.split("_") if part)
+
+
 def _return_param(op_name: str, returns: str) -> tuple[str, str]:
     obj = op_name.split("_")[0]
     ret = returns.lower()
     if "uint8" in ret:
-        return "uint8_t", f"puc_{obj}"
+        return "uint8_t", f"ucp{_pascal_suffix(obj)}"
     if "uint32" in ret:
-        return "uint32_t", f"pui_{obj}"
-    return "uint16_t", f"pus_{obj}"
+        return "uint32_t", f"uip{_pascal_suffix(obj)}"
+    return "uint16_t", f"usp{_pascal_suffix(obj)}"
 
 
 def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
@@ -286,25 +290,25 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     r.ln("int i_status;").blank()
     r.ln(f"i_status = XIicPs_MasterSendPolled({hvar}, &uc_reg, 1, {addr_def});").check_status()
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    r.ln(f"i_status = XIicPs_MasterRecvPolled({hvar}, puc_value, 1, {addr_def});").check_status()
+    r.ln(f"i_status = XIicPs_MasterRecvPolled({hvar}, ucpValue, 1, {addr_def});").check_status()
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     r.ln("return XST_SUCCESS;")
     read = CFunc(f"{module}_register_read", "int",
-                 [f"{htype} *{hvar}", "uint8_t uc_reg", "uint8_t *puc_value"], r.out(), static=True)
+                 [f"{htype} *{hvar}", "uint8_t uc_reg", "uint8_t *ucpValue"], r.out(), static=True)
 
     rb = Emit()
     rb.ln("int i_status;").blank()
-    rb.open("if ((puc_buffer == NULL) || (ui_length == 0U))")
+    rb.open("if ((ucpBuffer == NULL) || (ui_length == 0U))")
     rb.ln("return XST_FAILURE;")
     rb.close()
     rb.ln(f"i_status = XIicPs_MasterSendPolled({hvar}, &uc_reg, 1, {addr_def});").check_status()
     rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    rb.ln(f"i_status = XIicPs_MasterRecvPolled({hvar}, puc_buffer, (int)ui_length, {addr_def});").check_status()
+    rb.ln(f"i_status = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)ui_length, {addr_def});").check_status()
     rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     rb.ln("return XST_SUCCESS;")
     read_block = CFunc(f"{module}_registers_read", "int",
                        [f"{htype} *{hvar}", "uint8_t uc_reg",
-                        "uint8_t *puc_buffer", "uint32_t ui_length"],
+                        "uint8_t *ucpBuffer", "uint32_t ui_length"],
                        rb.out(), static=True)
     return [write, read, read_block]
 
@@ -489,11 +493,11 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     rd.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("uc_tx[ui_header + ui_index] = 0x00U;").close()
     rd.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
     rd.ln(f"i_status = XSpiPs_PolledTransfer({hvar}, uc_tx, uc_rx, ui_header + ui_length);").check_status()
-    rd.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("puc_buffer[ui_index] = uc_rx[ui_header + ui_index];").close()
+    rd.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("ucpBuffer[ui_index] = uc_rx[ui_header + ui_index];").close()
     rd.ln("return XST_SUCCESS;")
     f_read = CFunc(f"{module}_command_read", "int",
                    [f"{htype} *{hvar}", "uint8_t uc_opcode", "uint32_t ui_address",
-                    "uint8_t uc_addr_bytes", "uint8_t *puc_buffer", "uint32_t ui_length"],
+                    "uint8_t uc_addr_bytes", "uint8_t *ucpBuffer", "uint32_t ui_length"],
                    rd.out(), static=True)
 
     wr = Emit()
@@ -505,12 +509,12 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     wr.open("for (ui_index = 0U; ui_index < (uint32_t)uc_addr_bytes; ui_index++)")
     wr.ln("uc_tx[1U + ui_index] = (uint8_t)((ui_address >> (8U * ((uint32_t)uc_addr_bytes - 1U - ui_index))) & 0xFFU);")
     wr.close()
-    wr.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("uc_tx[ui_header + ui_index] = puc_data[ui_index];").close()
+    wr.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("uc_tx[ui_header + ui_index] = ucpData[ui_index];").close()
     wr.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
     wr.ln(f"return XSpiPs_PolledTransfer({hvar}, uc_tx, NULL, ui_header + ui_length);")
     f_write = CFunc(f"{module}_command_write", "int",
                     [f"{htype} *{hvar}", "uint8_t uc_opcode", "uint32_t ui_address",
-                     "uint8_t uc_addr_bytes", "const uint8_t *puc_data", "uint32_t ui_length"],
+                     "uint8_t uc_addr_bytes", "const uint8_t *ucpData", "uint32_t ui_length"],
                     wr.out(), static=True)
     return [f_send, f_read, f_write]
 
@@ -554,11 +558,11 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
                 addr_param = "ui_address"
                 params.append("uint32_t ui_address")
             if "length" in rca:                       # fixed-length read (e.g. RDID)
-                buf_param = f"puc_{out_obj}"
+                buf_param = f"ucp{_pascal_suffix(out_obj)}"
                 params.append(f"uint8_t *{buf_param}")
             else:
-                buf_param, len_param = "puc_buffer", "ui_length"
-                params += ["uint8_t *puc_buffer", "uint32_t ui_length"]
+                buf_param, len_param = "ucpBuffer", "ui_length"
+                params += ["uint8_t *ucpBuffer", "uint32_t ui_length"]
         elif wca is not None:
             cmd = cmds[wca["cmd"]]
             addr_param = "ui_address"
@@ -566,8 +570,8 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
             if wca.get("length") == 0:                # no data payload (erase)
                 pass
             else:
-                data_param, len_param = "puc_data", "ui_length"
-                params += ["const uint8_t *puc_data", "uint32_t ui_length"]
+                data_param, len_param = "ucpData", "ui_length"
+                params += ["const uint8_t *ucpData", "uint32_t ui_length"]
 
         e = Emit()
         e.ln("int i_status;")
@@ -607,9 +611,9 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
 
         _desc = {
             "ui_address": "Byte address within the flash.",
-            "puc_buffer": "Out: receive buffer (ui_length bytes).",
+            "ucpBuffer": "Out: receive buffer (ui_length bytes).",
             "ui_length": "Number of data bytes to transfer.",
-            "puc_data": "Source data buffer to program.",
+            "ucpData": "Source data buffer to program.",
             buf_param or "": f"Out: {out_obj} bytes.",
         }
         doxy_params = [(hvar, "Initialized SPI controller handle.")]

@@ -146,30 +146,6 @@ export interface SpecValidation {
   };
   llm_errors?: ValidationIssue[];
 }
-export interface RulesetCheck {
-  name: string;
-  passed: boolean;
-  detail: string;
-}
-export interface RulesetDiff {
-  path: string;
-  default: unknown;
-  candidate: unknown;
-}
-export interface RulesetResult {
-  ruleset: Record<string, unknown>;
-  valid: boolean;
-  issues: ValidationIssue[];
-  diff: RulesetDiff[];
-  checks: RulesetCheck[];
-  source_text?: string;
-  llm_used?: boolean;
-  llm_error?: string;
-  needs_human_review?: boolean;
-  ok?: boolean;
-  ref?: string;
-  path?: string;
-}
 export interface GeneratedFile {
   path: string;
   relative_path?: string;

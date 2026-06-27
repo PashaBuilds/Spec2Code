@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, FileJson, Upload, Wand2 } from "lucide-react";
+import { Download, FileJson, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
 import type { LlmConfig, PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
-import RulesetStudio from "./RulesetStudio";
 import {
   Badge,
   Button,
@@ -17,11 +16,21 @@ import {
   SelectValue,
 } from "@/components/ui";
 
+const PREFIXES = [
+  ["unsigned char", "uc"],
+  ["char", "c"],
+  ["unsigned short", "us"],
+  ["short", "s"],
+  ["unsigned int", "ui"],
+  ["int", "i"],
+  ["unsigned long", "ul"],
+  ["unsigned long long", "ull"],
+];
+
 export default function ProjectSetup() {
   const project = useStore((s) => s.project);
   const setProject = useStore((s) => s.setProject);
   const codingStandardRef = useStore((s) => s.codingStandardRef);
-  const setCodingStandardRef = useStore((s) => s.setCodingStandardRef);
   const llm = useStore((s) => s.llm);
   const setLlm = useStore((s) => s.setLlm);
   const buildSpec = useStore((s) => s.buildSpec);
@@ -30,7 +39,6 @@ export default function ProjectSetup() {
   const [tools, setTools] = useState<Record<string, string | null>>({});
   const [projectIoMessage, setProjectIoMessage] = useState<string | null>(null);
   const [projectIoError, setProjectIoError] = useState<string | null>(null);
-  const [showRulesetStudio, setShowRulesetStudio] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -181,32 +189,33 @@ export default function ProjectSetup() {
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label>Coding standard</Label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowRulesetStudio((value) => !value)}
-            >
-              <Wand2 className="h-4 w-4" /> Studio
-            </Button>
+        <div className="rounded-md border border-border bg-inset p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm text-text">
+              <FileJson className="h-4 w-4 text-accent" />
+              Sabit kodlama standardi
+            </div>
+            <Badge tone="neutral">{codingStandardRef}</Badge>
           </div>
-          <Input
-            value={codingStandardRef}
-            onChange={(e) => setCodingStandardRef(e.target.value)}
-            placeholder="std/default.ruleset.json"
-          />
-          {showRulesetStudio && (
-            <RulesetStudio
-              llm={llm}
-              onSaved={(ref) => {
-                setCodingStandardRef(ref);
-                setProjectIoError(null);
-                setProjectIoMessage(`${ref} saved`);
-              }}
-            />
-          )}
+          <div className="space-y-2 text-xs text-muted">
+            <p>
+              Generate ve QC her zaman default ruleset ile calisir; Word/JSON standard import
+              akisi kullanilmaz.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {PREFIXES.map(([type, prefix]) => (
+                <div key={type} className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono text-faint">{type}</span>
+                  <span className="font-mono text-text">{prefix}</span>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-1 font-mono text-[11px] text-faint">
+              <span>camelCase identifiers, Allman braces, 4 spaces, CRLF</span>
+              <span>struct S*, enum E*, struct pointer sp, arrays prefix+Arr</span>
+              <span>global G_ + prefix, static S_ + prefix</span>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

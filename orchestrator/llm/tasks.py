@@ -144,13 +144,22 @@ def system_prompt(ruleset: dict) -> str:
     """Deterministic context: the coding standard the model must obey (Brief §16)."""
     fmt = ruleset.get("formatting", {})
     naming = ruleset.get("naming", {})
+    prefixes = naming.get("hungarian_prefixes", {})
+    declarations = ruleset.get("declarations", {})
     return (
         "You are an embedded C driver engineer generating Xilinx Vitis (bare-metal/FreeRTOS) "
         "drop-in code. Obey this coding standard exactly:\n"
         f"- Brace style: {fmt.get('brace_style', 'allman')}; indent {fmt.get('indent', 'spaces_4')}; "
         f"max line {fmt.get('max_line_length', 100)}; line endings CRLF.\n"
+        "- Put one space after if/for/while and place braces on the following line.\n"
         f"- Function names MUST match: {naming.get('function_regex')} (module_object_action).\n"
-        f"- Hungarian prefixes: {naming.get('hungarian_prefixes')}.\n"
+        f"- Identifiers use {naming.get('identifier_case', 'camelCase')} with Hungarian prefixes: {prefixes}.\n"
+        "- Pointers use the type prefix plus the pointer suffix; struct pointers use sp. "
+        "Arrays use the type prefix plus Arr. Globals use G_ plus the type prefix; static variables "
+        "use S_ plus the type prefix.\n"
+        f"- Typedef prefixes: struct {declarations.get('struct_typedef_prefix', 'S')}, "
+        f"union {declarations.get('union_typedef_prefix', 'S')}, "
+        f"enum {declarations.get('enum_typedef_prefix', 'E')}; bitfield members have no prefix.\n"
         "- All printed strings end with \\r\\n. Public functions get Doxygen comments.\n"
         "- Return ONLY the C source, with no markdown fences or commentary."
     )

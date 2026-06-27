@@ -18,7 +18,7 @@ from typing import Optional
 
 from orchestrator import codegen
 from orchestrator.qc import loop as qc_loop
-from backend.rulesets import resolve_ruleset_ref
+from backend.rulesets import DEFAULT_RULESET_REF, resolve_ruleset_ref
 
 _ROOT = Path(__file__).resolve().parent.parent
 _OUTPUTS = _ROOT / "outputs"
@@ -27,11 +27,13 @@ _IMPORTED = _ROOT / "catalog" / "imported.json"
 
 
 def _load_ruleset(spec: dict) -> dict:
-    ref = spec.get("coding_standard_ref", "std/default.ruleset.json")
-    path = resolve_ruleset_ref(ref)
-    if path is None:
-        path = _ROOT / "std" / "default.ruleset.json"
+    spec["coding_standard_ref"] = DEFAULT_RULESET_REF
+    path = resolve_ruleset_ref(DEFAULT_RULESET_REF)
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_spec(spec: dict) -> dict:
+    return {**spec, "coding_standard_ref": DEFAULT_RULESET_REF}
 
 
 def _relative_to_root(path: Path) -> str:
@@ -130,6 +132,7 @@ class JobManager:
     async def start(self, spec: dict, *, max_rounds: int = 3) -> str:
         self._counter += 1
         job_id = f"job_{self._counter:04d}"
+        spec = _normalize_spec(spec)
         job = Job(id=job_id, spec=spec, _loop=asyncio.get_running_loop())
         self._jobs[job_id] = job
 
