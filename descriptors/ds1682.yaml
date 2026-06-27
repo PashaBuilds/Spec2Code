@@ -34,7 +34,7 @@ registers:
   - { name: USER_10,        offset: 0x14, width: 8, access: rw, reset: 0x00 }
   - { name: RESET_COMMAND,  offset: 0x1D, width: 8, access: wo }
   - { name: WRITE_DISABLE,  offset: 0x1E, width: 8, access: wo }
-  - { name: MEMORY_DISABLE, offset: 0x1F, width: 8, access: wo }
+  - { name: WRITE_MEMORY_DISABLE, offset: 0x1F, width: 8, access: wo }
 operations:
   - name: device_init
     description: "Initialize the I2C controller; DS1682 counting behavior is controlled by the EVENT pin."

@@ -12,10 +12,20 @@ access_primitives:
   write_register: { pattern: write_addr_then_data, width_bytes: 1 }
 registers:
   - { name: STATUS_LOW,  offset: 0x00, width: 8, access: ro, reset: 0x00,
-      fields: [ { name: V1_V2_BUSY, bits: "0" } ] }
+      fields: [
+        { name: V1_READY, bits: "0" },
+        { name: V2_READY, bits: "1" },
+        { name: V3_READY, bits: "2" },
+        { name: V4_READY, bits: "3" },
+        { name: V5_READY, bits: "4" },
+        { name: V6_READY, bits: "5" },
+        { name: V7_READY, bits: "6" },
+        { name: V8_READY, bits: "7" } ] }
   - { name: STATUS_HIGH, offset: 0x01, width: 8, access: rw, reset: 0x00,
       fields: [
-        { name: T_INTERNAL_BUSY, bits: "0" },
+        { name: VCC_READY, bits: "0" },
+        { name: T_INTERNAL_READY, bits: "1" },
+        { name: BUSY, bits: "2" },
         { name: T_INTERNAL_VCC_ENABLE, bits: "3" },
         { name: V1_V2_ENABLE, bits: "4" },
         { name: V3_V4_ENABLE, bits: "5" },
@@ -51,6 +61,8 @@ registers:
   - { name: V8_LSB, offset: 0x19, width: 8, access: ro, reset: 0x00 }
   - { name: T_INTERNAL_MSB, offset: 0x1A, width: 8, access: ro, reset: 0x00 }
   - { name: T_INTERNAL_LSB, offset: 0x1B, width: 8, access: ro, reset: 0x00 }
+  - { name: VCC_MSB, offset: 0x1C, width: 8, access: ro, reset: 0x00 }
+  - { name: VCC_LSB, offset: 0x1D, width: 8, access: ro, reset: 0x00 }
 operations:
   - name: device_init
     description: "Initialize from device.config using the LTC2991 profile-generated register write sequence."
@@ -60,15 +72,22 @@ operations:
     returns: "voltages[8]"
     description: "Read all eight voltage channels as raw 14-bit codes."
     steps:
-      - { op: poll, reg: STATUS_LOW, field: V1_V2_BUSY, until: 0, timeout_ms: 10 }
+      - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_channels, reg: V1_MSB, count: 8 }
   - name: temperature_read
     returns: "uint16"
     description: "Read the internal temperature as a raw code."
     steps:
-      - { op: poll, reg: STATUS_HIGH, field: T_INTERNAL_BUSY, until: 0, timeout_ms: 10 }
+      - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_register, reg: T_INTERNAL_MSB }
       - { op: read_register, reg: T_INTERNAL_LSB }
+  - name: vcc_read
+    returns: "uint16"
+    description: "Read VCC as a raw code."
+    steps:
+      - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
+      - { op: read_register, reg: VCC_MSB }
+      - { op: read_register, reg: VCC_LSB }
 test_hints:
   self_test:     { description: "Read STATUS_LOW, verify reset value 0x00." }
   read_loopback: { description: "Read all voltages, verify codes are within plausible range." }

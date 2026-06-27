@@ -20,6 +20,20 @@ export interface KnowledgeRegister {
   fields?: KnowledgeRegisterField[];
 }
 
+export type KnowledgeTransferTone = "neutral" | "warn" | "danger";
+
+export interface KnowledgeRegisterTransfer {
+  title: string;
+  access: string;
+  txBytes: string;
+  rxBytes: string;
+  tx: string[];
+  rx: string[];
+  code: string[];
+  note?: string;
+  tone?: KnowledgeTransferTone;
+}
+
 export interface KnowledgeRecipe {
   title: string;
   goal: string;
@@ -133,6 +147,188 @@ const singleEndedDifferentialValues = [
 ];
 const signValues = ["0: pozitif veya non-negative code", "1: negatif code"];
 const unusedValues = ["x: kullanılmaz; conversion hesabına dahil edilmez"];
+
+function cModule(part: string) {
+  return part.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function cPrefix(part: string) {
+  return part.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function pascalSuffix(name: string) {
+  return name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1).toLowerCase())
+    .join("");
+}
+
+function cFunc(part: string, action: string) {
+  return `${cModule(part)}${pascalSuffix(action)}`;
+}
+
+function regMacro(part: string, reg: string) {
+  return `${cPrefix(part)}_REG_${reg}`;
+}
+
+function cmdMacro(part: string, cmd: string) {
+  return `${cPrefix(part)}_CMD_${cmd}`;
+}
+
+function readonlyTransfer(
+  part: string,
+  reg: string,
+  address: string,
+  rxBytes: string,
+  rx: string[],
+  code: string[],
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return {
+    title: options.title ?? "Read",
+    access: "READ",
+    txBytes: "1 byte",
+    rxBytes,
+    tx: [`${regMacro(part, reg)} (${address})`],
+    rx,
+    code,
+    note: options.note,
+    tone: options.tone,
+  };
+}
+
+function writeonlyTransfer(
+  part: string,
+  reg: string,
+  address: string,
+  value: string,
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return {
+    title: options.title ?? "Write",
+    access: "WRITE",
+    txBytes: "2 byte",
+    rxBytes: "0 byte",
+    tx: [`${regMacro(part, reg)} (${address})`, value],
+    rx: ["-"],
+    code: options.code ?? [`${cFunc(part, "register_write")}(spIic, ${regMacro(part, reg)}, ${value});`],
+    note: options.note,
+    tone: options.tone,
+  };
+}
+
+function i2cRegisterTransfers(
+  part: string,
+  reg: string,
+  address: string,
+  access: string,
+  valueName = "ucValue",
+): KnowledgeRegisterTransfer[] {
+  const normalized = access.toUpperCase();
+  const transfers: KnowledgeRegisterTransfer[] = [];
+
+  if (normalized === "RO" || normalized === "RW" || normalized === "COR") {
+    transfers.push(
+      readonlyTransfer(part, reg, address, "1 byte", [valueName], [
+        `${cFunc(part, "register_read")}(spIic, ${regMacro(part, reg)}, &${valueName});`,
+      ], {
+        title: normalized === "COR" ? "Read + clear" : "Read",
+        note: normalized === "COR" ? "Okuma sonrası latched clear davranışı vardır." : undefined,
+      }),
+    );
+  }
+
+  if (normalized === "WO" || normalized === "RW") {
+    transfers.push(writeonlyTransfer(part, reg, address, valueName));
+  }
+
+  return transfers;
+}
+
+function i2cBlockReadTransfer(
+  part: string,
+  reg: string,
+  address: string,
+  length: number,
+  bufferName: string,
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return readonlyTransfer(part, reg, address, `${length} byte`, [`${bufferName}[0..${length - 1}]`], [
+    `${cFunc(part, "registers_read")}(spIic, ${regMacro(part, reg)}, ${bufferName}, ${length}U);`,
+  ], options);
+}
+
+function i2cGroupedWriteTransfer(
+  part: string,
+  reg: string,
+  address: string,
+  length: number,
+  bufferName: string,
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return {
+    title: options.title ?? "Write bytes",
+    access: "WRITE",
+    txBytes: `${length * 2} byte toplam (${length} x register+data)`,
+    rxBytes: "0 byte",
+    tx: [`${regMacro(part, reg)} (${address}) + uiIndex`, `${bufferName}[uiIndex]`],
+    rx: ["-"],
+    code: options.code ?? [
+      `for (uiIndex = 0U; uiIndex < ${length}U; uiIndex++)`,
+      `{`,
+      `    ${cFunc(part, "register_write")}(spIic, (unsigned char)(${regMacro(part, reg)} + uiIndex), ${bufferName}[uiIndex]);`,
+      `}`,
+    ],
+    note: options.note,
+    tone: options.tone,
+  };
+}
+
+function flashReadTransfer(
+  part: string,
+  cmd: string,
+  opcode: string,
+  addressBytes: number,
+  rxBytes: string,
+  rx: string[],
+  code: string[],
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return {
+    title: options.title ?? "Read",
+    access: "READ",
+    txBytes: options.txBytes ?? `${1 + addressBytes} byte${addressBytes > 0 ? " + read clock" : ""}`,
+    rxBytes: options.rxBytes ?? rxBytes,
+    tx: [`${cmdMacro(part, cmd)} (${opcode})`, ...(addressBytes > 0 ? [`A${addressBytes * 8 - 1}:A0`] : [])],
+    rx,
+    code,
+    note: options.note,
+    tone: options.tone,
+  };
+}
+
+function flashWriteTransfer(
+  part: string,
+  cmd: string,
+  opcode: string,
+  addressBytes: number,
+  txPayload: string,
+  code: string[],
+  options: Partial<KnowledgeRegisterTransfer> = {},
+): KnowledgeRegisterTransfer {
+  return {
+    title: options.title ?? "Write",
+    access: "WRITE",
+    txBytes: options.txBytes ?? `${1 + addressBytes} byte${txPayload ? " + payload" : ""}`,
+    rxBytes: options.rxBytes ?? "0 byte",
+    tx: [`${cmdMacro(part, cmd)} (${opcode})`, ...(addressBytes > 0 ? [`A${addressBytes * 8 - 1}:A0`] : []), ...(txPayload ? [txPayload] : [])],
+    rx: ["-"],
+    code,
+    note: options.note,
+    tone: options.tone,
+  };
+}
 
 const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): KnowledgeRegisterField[] => {
   const verb =
@@ -1269,6 +1465,359 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     },
   },
 };
+
+export function getRegisterTransfers(part: string, reg: KnowledgeRegister): KnowledgeRegisterTransfer[] {
+  const normalizedPart = part.toUpperCase();
+
+  if (normalizedPart === "TCA9548A") {
+    return [
+      {
+        title: "Select channel",
+        access: "WRITE",
+        txBytes: "1 byte",
+        rxBytes: "0 byte",
+        tx: ["(unsigned char)(1U << ucChannel)"],
+        rx: ["-"],
+        code: ["tca9548aChannelSelect(spIic, ucChannel);"],
+        note: "Bu cihazda register address yok; gönderilen tek byte control byte'tır.",
+      },
+      {
+        title: "Disable all",
+        access: "WRITE",
+        txBytes: "1 byte",
+        rxBytes: "0 byte",
+        tx: ["0x00U"],
+        rx: ["-"],
+        code: ["tca9548aChannelDisable(spIic);"],
+      },
+    ];
+  }
+
+  if (normalizedPart === "LTC2991") {
+    switch (reg.name) {
+      case "V1_MSB..V8_LSB":
+        return [
+          {
+            title: "Read all channels",
+            access: "READ",
+            txBytes: "16 x 1 byte register pointer",
+            rxBytes: "16 byte toplam (8 x MSB+LSB)",
+            tx: ["LTC2991_REG_V1_MSB + (ucIndex * 2U)", "LTC2991_REG_V1_MSB + (ucIndex * 2U) + 1U"],
+            rx: ["ucMsb", "ucLsb", "usArrVoltages[ucIndex]"],
+            code: ["ltc2991VoltageRead(spIic, usArrVoltages);"],
+          },
+        ];
+      case "T_INTERNAL":
+        return [
+          {
+            title: "Read internal temperature",
+            access: "READ",
+            txBytes: "2 x 1 byte register pointer",
+            rxBytes: "2 byte",
+            tx: ["LTC2991_REG_T_INTERNAL_MSB", "LTC2991_REG_T_INTERNAL_LSB"],
+            rx: ["ucArrBytes[0]", "ucArrBytes[1]", "usTemperature"],
+            code: ["ltc2991TemperatureRead(spIic, &usTemperature);"],
+          },
+        ];
+      case "VCC":
+        return [
+          {
+            title: "Read VCC",
+            access: "READ",
+            txBytes: "2 x 1 byte register pointer",
+            rxBytes: "2 byte",
+            tx: ["LTC2991_REG_VCC_MSB", "LTC2991_REG_VCC_LSB"],
+            rx: ["ucArrBytes[0]", "ucArrBytes[1]", "usVcc"],
+            code: ["ltc2991VccRead(spIic, &usVcc);"],
+          },
+        ];
+      default:
+        return i2cRegisterTransfers("LTC2991", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "AD7414") {
+    switch (reg.name) {
+      case "TEMPERATURE":
+        return [
+          {
+            title: "Read temperature",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: ["AD7414_REG_TEMPERATURE (0x00)"],
+            rx: ["ucArrBytes[0]", "ucArrBytes[1]", "usTemperature"],
+            code: ["ad7414TemperatureRead(spIic, &usTemperature);"],
+          },
+        ];
+      case "CONFIGURATION":
+        return [
+          readonlyTransfer("AD7414", "CONFIGURATION", reg.address, "1 byte", ["ucConfig"], [
+            "ad7414ConfigRead(spIic, &ucConfig);",
+          ]),
+          writeonlyTransfer("AD7414", "CONFIGURATION", reg.address, "ucConfig"),
+        ];
+      default:
+        return i2cRegisterTransfers("AD7414", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "DS1682") {
+    switch (reg.name) {
+      case "CONFIGURATION":
+        return [
+          readonlyTransfer("DS1682", "CONFIGURATION", reg.address, "1 byte", ["ucConfig"], [
+            "ds1682ConfigRead(spIic, &ucConfig);",
+          ]),
+          writeonlyTransfer("DS1682", "CONFIGURATION", reg.address, "ucConfig"),
+        ];
+      case "ALARM":
+        return [
+          {
+            title: "Read alarm",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "4 byte",
+            tx: ["DS1682_REG_ALARM_LOW (0x01)"],
+            rx: ["ucArrBytes[0..3]", "uiAlarm"],
+            code: ["ds1682AlarmRead(spIic, &uiAlarm);"],
+          },
+          i2cGroupedWriteTransfer("DS1682", "ALARM_LOW", "0x01", 4, "ucArrAlarm", {
+            title: "Write alarm",
+            note: "Alarm değeri little-endian byte sırasıyla ALARM_LOW..ALARM_HIGH alanlarına yazılır.",
+          }),
+        ];
+      case "ETC":
+        return [
+          {
+            title: "Read elapsed time",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "4 byte",
+            tx: ["DS1682_REG_ETC_LOW (0x05)"],
+            rx: ["ucArrBytes[0..3]", "uiElapsed"],
+            code: ["ds1682ElapsedRead(spIic, &uiElapsed);"],
+          },
+        ];
+      case "EVENT":
+        return [
+          {
+            title: "Read event counter",
+            access: "READ",
+            txBytes: "3 x 1 byte register pointer",
+            rxBytes: "3 byte",
+            tx: ["DS1682_REG_CONFIGURATION", "DS1682_REG_EVENT_LOW", "DS1682_REG_EVENT_HIGH"],
+            rx: ["CONFIGURATION[0]", "EVENT_LOW", "EVENT_HIGH", "uiEvent"],
+            code: ["ds1682EventRead(spIic, &uiEvent);"],
+          },
+        ];
+      case "USER EEPROM":
+        return [
+          i2cBlockReadTransfer("DS1682", "USER_1", "0x0B", 10, "ucArrUser"),
+          i2cGroupedWriteTransfer("DS1682", "USER_1", "0x0B", 10, "ucArrUser", {
+            note: "EEPROM endurance ve write timing uygulama seviyesinde yönetilmelidir.",
+          }),
+        ];
+      case "RESET_COMMAND":
+        return [
+          {
+            title: "Reset command",
+            access: "WRITE",
+            txBytes: "2 x 2 byte",
+            rxBytes: "0 byte",
+            tx: ["DS1682_REG_RESET_COMMAND (0x1D)", "0x55U", "tekrar: 0x55U"],
+            rx: ["-"],
+            code: [
+              "ds1682RegisterWrite(spIic, DS1682_REG_RESET_COMMAND, 0x55U);",
+              "ds1682RegisterWrite(spIic, DS1682_REG_RESET_COMMAND, 0x55U);",
+            ],
+            note: "CONFIGURATION.RE=1 olmadan kabul edilmez; normal smoke test içinde çalıştırılmamalıdır.",
+            tone: "danger",
+          },
+        ];
+      case "WRITE_DISABLE":
+        return [
+          {
+            title: "Write-disable command",
+            access: "WRITE",
+            txBytes: "2 x 2 byte",
+            rxBytes: "0 byte",
+            tx: ["DS1682_REG_WRITE_DISABLE (0x1E)", "0xAAU", "tekrar: 0xAAU"],
+            rx: ["-"],
+            code: [
+              "ds1682RegisterWrite(spIic, DS1682_REG_WRITE_DISABLE, 0xAAU);",
+              "ds1682RegisterWrite(spIic, DS1682_REG_WRITE_DISABLE, 0xAAU);",
+            ],
+            note: "WDF set eder; production-only işlem gibi ele alınmalıdır.",
+            tone: "danger",
+          },
+        ];
+      case "WRITE_MEMORY_DISABLE":
+        return [
+          {
+            title: "Write-memory-disable command",
+            access: "WRITE",
+            txBytes: "2 x 2 byte",
+            rxBytes: "0 byte",
+            tx: ["DS1682_REG_WRITE_MEMORY_DISABLE (0x1F)", "0xF0U", "tekrar: 0xF0U"],
+            rx: ["-"],
+            code: [
+              "ds1682RegisterWrite(spIic, DS1682_REG_WRITE_MEMORY_DISABLE, 0xF0U);",
+              "ds1682RegisterWrite(spIic, DS1682_REG_WRITE_MEMORY_DISABLE, 0xF0U);",
+            ],
+            note: "WMDF set eder; user EEPROM alanını read-only hale getirir.",
+            tone: "danger",
+          },
+        ];
+      default:
+        return i2cRegisterTransfers("DS1682", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "LTC2945") {
+    switch (reg.name) {
+      case "STATUS":
+        return [
+          readonlyTransfer("LTC2945", "STATUS", reg.address, "1 byte", ["ucStatus"], [
+            "ltc2945StatusRead(spIic, &ucStatus);",
+          ]),
+        ];
+      case "POWER":
+        return [
+          {
+            title: "Read power",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "3 byte",
+            tx: ["LTC2945_REG_POWER_MSB2 (0x05)"],
+            rx: ["ucArrBytes[0..2]", "uiPower"],
+            code: ["ltc2945PowerRead(spIic, &uiPower);"],
+          },
+        ];
+      case "SENSE":
+        return [
+          {
+            title: "Read sense",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: ["LTC2945_REG_SENSE_MSB (0x14)"],
+            rx: ["ucArrBytes[0..1]", "usSense"],
+            code: ["ltc2945SenseRead(spIic, &usSense);"],
+          },
+        ];
+      case "VIN":
+        return [
+          {
+            title: "Read VIN",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: ["LTC2945_REG_VIN_MSB (0x1E)"],
+            rx: ["ucArrBytes[0..1]", "usVoltage"],
+            code: ["ltc2945VoltageRead(spIic, &usVoltage);"],
+          },
+        ];
+      case "ADIN":
+        return [
+          {
+            title: "Read ADIN",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: ["LTC2945_REG_ADIN_MSB (0x28)"],
+            rx: ["ucArrBytes[0..1]", "usAdin"],
+            code: ["ltc2945AdinRead(spIic, &usAdin);"],
+          },
+        ];
+      default:
+        return i2cRegisterTransfers("LTC2945", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "MT25Q128" || normalizedPart === "MT25QU02G") {
+    const isLargeFlash = normalizedPart === "MT25QU02G";
+    const handle = isLargeFlash ? "spQspi" : "spSpi";
+    const addrBytes = isLargeFlash ? 4 : 3;
+    const addrLabel = isLargeFlash ? "A31:A0" : "A23:A0";
+
+    switch (reg.name) {
+      case "READ_ID":
+        return [
+          flashReadTransfer(part, "READ_ID", "0x9F", 0, "3 byte", ["ucArrId[0..2]"], [
+            `${cFunc(part, "id_read")}(${handle}, ucArrId);`,
+          ]),
+        ];
+      case "READ_STATUS":
+        return [
+          flashReadTransfer(part, "READ_STATUS", "0x05", 0, "1 byte", ["ucStatus"], [
+            `${cFunc(part, "command_read")}(${handle}, ${cmdMacro(part, "READ_STATUS")}, 0U, 0U, &ucStatus, 1U);`,
+          ]),
+        ];
+      case "WRITE_ENABLE":
+        return [
+          flashWriteTransfer(part, "WRITE_ENABLE", "0x06", 0, "", [
+            `${cFunc(part, "command_send")}(${handle}, ${cmdMacro(part, "WRITE_ENABLE")});`,
+          ], {
+            title: "Send command",
+            note: "Program/erase/config write öncesinde WEL bitini set eder.",
+          }),
+        ];
+      case "ENTER_4BYTE":
+        return [
+          flashWriteTransfer(part, "ENTER_4BYTE", "0xB7", 0, "", [
+            `${cFunc(part, "command_send")}(${handle}, ${cmdMacro(part, "ENTER_4BYTE")});`,
+          ], {
+            title: "Send command",
+            note: "MT25QU02G device_init akışı önce WRITE_ENABLE, sonra ENTER_4BYTE gönderir.",
+          }),
+        ];
+      case "READ_DATA_4B":
+      case "READ_DATA":
+        return [
+          flashReadTransfer(part, "READ_DATA", isLargeFlash ? "0x13" : "0x03", addrBytes, "uiLength byte", ["ucpBuffer[0..uiLength-1]"], [
+            `${cFunc(part, "data_read")}(${handle}, uiAddress, ucpBuffer, uiLength);`,
+          ], {
+            txBytes: `${1 + addrBytes} byte (${addrLabel})`,
+          }),
+        ];
+      case "PAGE_PROGRAM_4B":
+      case "PAGE_PROGRAM":
+        return [
+          flashWriteTransfer(part, "PAGE_PROGRAM", isLargeFlash ? "0x12" : "0x02", addrBytes, "ucpData[0..uiLength-1]", [
+            `${cFunc(part, "page_program")}(${handle}, uiAddress, ucpData, uiLength);`,
+          ], {
+            txBytes: `${1 + addrBytes} byte (${addrLabel}) + uiLength byte payload`,
+            note: "Public function program öncesinde WRITE_ENABLE gönderir; page boundary uygulama tarafından korunmalıdır.",
+          }),
+        ];
+      case "ERASE_4B":
+      case "SUBSECTOR/SECTOR_ERASE":
+        return [
+          flashWriteTransfer(part, "SECTOR_ERASE", isLargeFlash ? "0xDC" : "0xD8", addrBytes, "", [
+            `${cFunc(part, "sector_erase")}(${handle}, uiAddress);`,
+          ], {
+            title: "Erase 64 KB sector",
+            txBytes: `${1 + addrBytes} byte (${addrLabel})`,
+            note: "Public function erase öncesinde WRITE_ENABLE gönderir.",
+            tone: "warn",
+          }),
+          flashWriteTransfer(part, "SUBSECTOR_ERASE", isLargeFlash ? "0x21" : "0x20", addrBytes, "", [
+            `${cFunc(part, "command_write")}(${handle}, ${cmdMacro(part, "SUBSECTOR_ERASE")}, uiAddress, ${addrBytes}U, NULL, 0U);`,
+          ], {
+            title: "Erase 4 KB subsector",
+            txBytes: `${1 + addrBytes} byte (${addrLabel})`,
+            note: "Bu raw helper formatıdır; mevcut public operation yalnızca 64 KB sector erase üretir.",
+            tone: "warn",
+          }),
+        ];
+      default:
+        return [];
+    }
+  }
+
+  return [];
+}
 
 export function getDeviceKnowledge(part: string): DeviceKnowledgePack | undefined {
   return PACKS[part.toUpperCase()];

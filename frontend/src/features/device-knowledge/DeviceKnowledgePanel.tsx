@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BookOpen, ExternalLink, ListChecks, Settings2 } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, BookOpen, Code2, ExternalLink, ListChecks, Settings2 } from "lucide-react";
 import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { getDeviceKnowledge, type KnowledgeRegister, type KnowledgeRecipe } from "./knowledge";
+import {
+  getDeviceKnowledge,
+  getRegisterTransfers,
+  type KnowledgeRegister,
+  type KnowledgeRecipe,
+  type KnowledgeRegisterTransfer,
+} from "./knowledge";
 import DevicePinMap from "./DevicePinMap";
 
 function EmptyKnowledge({ part }: { part: string }) {
@@ -30,11 +36,102 @@ function registerKey(reg: KnowledgeRegister) {
   return `${reg.name}-${reg.address}`;
 }
 
-function RegisterExplorer({ registers }: { registers: KnowledgeRegister[] }) {
+function transferToneClass(tone: KnowledgeRegisterTransfer["tone"]) {
+  if (tone === "danger") return "border-danger/40 bg-danger/10";
+  if (tone === "warn") return "border-warn/40 bg-warn/10";
+  return "border-border bg-elev";
+}
+
+function transferBadgeTone(tone: KnowledgeRegisterTransfer["tone"]) {
+  if (tone === "danger") return "danger" as const;
+  if (tone === "warn") return "warn" as const;
+  return "neutral" as const;
+}
+
+function TransferRow({
+  icon,
+  label,
+  bytes,
+  values,
+}: {
+  icon: ReactNode;
+  label: string;
+  bytes: string;
+  values: string[];
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[82px_minmax(0,1fr)]">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase text-muted">
+        {icon}
+        <span>{label}</span>
+        <span className="rounded bg-inset px-1.5 py-0.5 font-mono normal-case text-faint">{bytes}</span>
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        {values.map((value) => (
+          <span key={value} className="max-w-full truncate rounded border border-border bg-inset px-1.5 py-0.5 font-mono text-[10px] text-text">
+            {value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[] }) {
+  if (!transfers.length) return null;
+
+  return (
+    <div className="mb-3 space-y-2">
+      <div className="flex items-center gap-2 text-xs font-semibold text-text">
+        <Code2 className="h-3.5 w-3.5 text-accent" aria-hidden />
+        Driver view
+      </div>
+      <div className="grid gap-2 xl:grid-cols-2">
+        {transfers.map((transfer) => (
+          <div
+            key={`${transfer.title}-${transfer.tx.join("|")}-${transfer.rx.join("|")}`}
+            className={cn("rounded-md border px-3 py-2", transferToneClass(transfer.tone))}
+          >
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-text">{transfer.title}</span>
+              <Badge tone={transferBadgeTone(transfer.tone)} className="font-mono">
+                {transfer.access}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              <TransferRow
+                icon={<ArrowUpFromLine className="h-3 w-3 text-accent" aria-hidden />}
+                label="TX"
+                bytes={transfer.txBytes}
+                values={transfer.tx}
+              />
+              <TransferRow
+                icon={<ArrowDownToLine className="h-3 w-3 text-accent" aria-hidden />}
+                label="RX"
+                bytes={transfer.rxBytes}
+                values={transfer.rx}
+              />
+              <pre className="overflow-x-auto rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] leading-relaxed text-muted">
+                {transfer.code.join("\n")}
+              </pre>
+              {transfer.note && <p className="text-[11px] leading-relaxed text-faint">{transfer.note}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RegisterExplorer({ part, registers }: { part: string; registers: KnowledgeRegister[] }) {
   const [selectedKey, setSelectedKey] = useState(() => (registers[0] ? registerKey(registers[0]) : ""));
   const selectedRegister = useMemo(
     () => registers.find((reg) => registerKey(reg) === selectedKey) ?? registers[0],
     [registers, selectedKey],
+  );
+  const transfers = useMemo(
+    () => (selectedRegister ? getRegisterTransfers(part, selectedRegister) : []),
+    [part, selectedRegister],
   );
 
   useEffect(() => {
@@ -117,6 +214,8 @@ function RegisterExplorer({ registers }: { registers: KnowledgeRegister[] }) {
             )}
           </div>
         </div>
+
+        <TransferPreview transfers={transfers} />
 
         {selectedRegister.fields && selectedRegister.fields.length > 0 ? (
           <div className="space-y-2">
@@ -242,7 +341,7 @@ export default function DeviceKnowledgePanel({
         )}
 
         <TabsContent value="registers">
-          <RegisterExplorer registers={pack.registers} />
+          <RegisterExplorer part={pack.part} registers={pack.registers} />
         </TabsContent>
 
         <TabsContent value="recipes">
