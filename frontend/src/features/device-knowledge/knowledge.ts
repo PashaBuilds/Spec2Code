@@ -3,6 +3,13 @@ export interface KnowledgeSource {
   url: string;
 }
 
+export interface KnowledgeRegisterField {
+  bits: string;
+  name: string;
+  meaning: string;
+  values?: string[];
+}
+
 export interface KnowledgeRegister {
   name: string;
   address: string;
@@ -10,7 +17,7 @@ export interface KnowledgeRegister {
   access: string;
   reset?: string;
   purpose: string;
-  fields?: string[];
+  fields?: KnowledgeRegisterField[];
 }
 
 export interface KnowledgeRecipe {
@@ -67,10 +74,73 @@ export interface DeviceKnowledgePack {
   pinMap?: KnowledgePinMap;
 }
 
+const flashStatusFields: KnowledgeRegisterField[] = [
+  {
+    bits: "B7",
+    name: "SRWD",
+    meaning: "Status register write-protect biti; WP# kullanımıyla birlikte protection/config yazımlarını kilitlemek için kullanılır.",
+  },
+  {
+    bits: "B6",
+    name: "BP3",
+    meaning: "Block protect alanının üst biti; BP[3:0] ve TB ile protected alanın boyutunu belirler.",
+  },
+  {
+    bits: "B5",
+    name: "TB",
+    meaning: "Protected alanın flash adres uzayının üstünden mi altından mı başladığını seçer.",
+  },
+  {
+    bits: "B4:B2",
+    name: "BP[2:0]",
+    meaning: "Block protect kodunun alt bitleri; hangi sector/block aralığının write-protected olduğunu belirler.",
+  },
+  {
+    bits: "B1",
+    name: "WEL",
+    meaning: "Write Enable Latch; 1 ise program/erase/write-status operasyonu kabul edilebilir.",
+    values: ["0: write-enable latch kapalı", "1: write-enable latch açık"],
+  },
+  {
+    bits: "B0",
+    name: "WIP",
+    meaning: "Write In Progress; program, erase veya status-write sürerken 1 olur.",
+    values: ["0: cihaz hazır", "1: operasyon devam ediyor"],
+  },
+];
+
+const flashReadIdFields: KnowledgeRegisterField[] = [
+  { bits: "Opcode", name: "0x9F", meaning: "JEDEC ID read komutu." },
+  { bits: "Response byte 0", name: "Manufacturer ID", meaning: "Üretici kimliği." },
+  { bits: "Response byte 1..2", name: "Device ID", meaning: "Memory type ve capacity bilgisini taşıyan device ID byte'ları." },
+];
+
+const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): KnowledgeRegisterField[] => {
+  const verb =
+    kind === "enable"
+      ? "Bu koşul için ALERT üretimini enable eder."
+      : kind === "clear"
+        ? "Karşılık gelen latched fault durumunun clear/read yolunu temsil eder."
+        : kind === "fault"
+          ? "Bu limit koşulunun latched fault olarak görüldüğünü gösterir."
+          : "Bu limit koşulunun o anda aktif olduğunu gösterir.";
+
+  return [
+    { bits: "B7", name: "Max POWER", meaning: verb },
+    { bits: "B6", name: "Min POWER", meaning: verb },
+    { bits: "B5", name: "Max SENSE", meaning: verb },
+    { bits: "B4", name: "Min SENSE", meaning: verb },
+    { bits: "B3", name: "Max VIN", meaning: verb },
+    { bits: "B2", name: "Min VIN", meaning: verb },
+    { bits: "B1", name: "Max ADIN", meaning: verb },
+    { bits: "B0", name: "Min ADIN", meaning: verb },
+  ];
+};
+
 const PACKS: Record<string, DeviceKnowledgePack> = {
   LTC2991: {
     part: "LTC2991",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Gerilim, akım, iç sıcaklık ve VCC izleme kullanım senaryoları.",
     sources: [
       {
@@ -99,7 +169,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         reset: "0x00",
         purpose: "Harici kanal dönüşümleri için busy/status bitleri.",
-        fields: ["V1/V2 busy biti"],
+        fields: [
+          { bits: "B7", name: "V8 ready", meaning: "V8 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B6", name: "V7 ready", meaning: "V7 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B5", name: "V6 ready", meaning: "V6 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B4", name: "V5 ready", meaning: "V5 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B3", name: "V4 ready", meaning: "V4 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B2", name: "V3 ready", meaning: "V3 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B1", name: "V2 ready", meaning: "V2 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B0", name: "V1 ready", meaning: "V1 sonucunda yeni data hazır olduğunu gösterir." },
+        ],
       },
       {
         name: "STATUS_HIGH",
@@ -108,7 +187,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00",
         purpose: "V1/V2, V3/V4, V5/V6, V7/V8, iç sıcaklık ve VCC ölçümlerini enable eder.",
-        fields: ["iç sıcaklık/VCC enable", "pair enable bitleri"],
+        fields: [
+          { bits: "B7", name: "V7/V8/TR4 enable", meaning: "V7/V8 pair veya TR4 ölçüm grubunu enable eder." },
+          { bits: "B6", name: "V5/V6/TR3 enable", meaning: "V5/V6 pair veya TR3 ölçüm grubunu enable eder." },
+          { bits: "B5", name: "V3/V4/TR2 enable", meaning: "V3/V4 pair veya TR2 ölçüm grubunu enable eder." },
+          { bits: "B4", name: "V1/V2/TR1 enable", meaning: "V1/V2 pair veya TR1 ölçüm grubunu enable eder." },
+          { bits: "B3", name: "T_INT/VCC enable", meaning: "İç sıcaklık ve VCC dönüşümlerini enable eder." },
+          { bits: "B2", name: "Busy", meaning: "Conversion devam ederken set olan read-only busy biti." },
+          { bits: "B1", name: "T_INT ready", meaning: "İç sıcaklık sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B0", name: "VCC ready", meaning: "VCC sonucunda yeni data hazır olduğunu gösterir." },
+        ],
       },
       {
         name: "CONTROL_V1V4",
@@ -117,7 +205,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00",
         purpose: "V1/V2 ve V3/V4 pair mode bitleri.",
-        fields: ["V1/V2 differential", "V1/V2 temperature", "V3/V4 differential", "V3/V4 temperature"],
+        fields: [
+          { bits: "B7", name: "V3/V4 filter", meaning: "V3/V4 ölçüm grubunda dijital filter ayarını belirler." },
+          { bits: "B6", name: "V3/V4 Kelvin voltage", meaning: "V3/V4 pair'i için Kelvin voltage measurement seçimini belirler." },
+          { bits: "B5", name: "V3/V4 temperature", meaning: "V3/V4 pair'ini remote temperature ölçümü için kullanır." },
+          { bits: "B4", name: "V3/V4 differential", meaning: "V3/V4 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+          { bits: "B3", name: "V1/V2 filter", meaning: "V1/V2 ölçüm grubunda dijital filter ayarını belirler." },
+          { bits: "B2", name: "V1/V2 Kelvin voltage", meaning: "V1/V2 pair'i için Kelvin voltage measurement seçimini belirler." },
+          { bits: "B1", name: "V1/V2 temperature", meaning: "V1/V2 pair'ini remote temperature ölçümü için kullanır." },
+          { bits: "B0", name: "V1/V2 differential", meaning: "V1/V2 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+        ],
       },
       {
         name: "CONTROL_V5V8",
@@ -126,7 +223,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00",
         purpose: "V5/V6 ve V7/V8 pair mode bitleri.",
-        fields: ["V5/V6 differential", "V5/V6 temperature", "V7/V8 differential", "V7/V8 temperature"],
+        fields: [
+          { bits: "B7", name: "V7/V8 filter", meaning: "V7/V8 ölçüm grubunda dijital filter ayarını belirler." },
+          { bits: "B6", name: "V7/V8 Kelvin voltage", meaning: "V7/V8 pair'i için Kelvin voltage measurement seçimini belirler." },
+          { bits: "B5", name: "V7/V8 temperature", meaning: "V7/V8 pair'ini remote temperature ölçümü için kullanır." },
+          { bits: "B4", name: "V7/V8 differential", meaning: "V7/V8 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+          { bits: "B3", name: "V5/V6 filter", meaning: "V5/V6 ölçüm grubunda dijital filter ayarını belirler." },
+          { bits: "B2", name: "V5/V6 Kelvin voltage", meaning: "V5/V6 pair'i için Kelvin voltage measurement seçimini belirler." },
+          { bits: "B1", name: "V5/V6 temperature", meaning: "V5/V6 pair'ini remote temperature ölçümü için kullanır." },
+          { bits: "B0", name: "V5/V6 differential", meaning: "V5/V6 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+        ],
       },
       {
         name: "V1_MSB..V8_LSB",
@@ -134,6 +240,12 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "her biri 16",
         access: "RO",
         purpose: "Harici girişler için raw ölçüm sonuç register'ları.",
+        fields: [
+          { bits: "MSB B7", name: "Data valid", meaning: "İlgili conversion sonucunda yeni data hazır olduğunda set olur." },
+          { bits: "MSB B6", name: "Sign", meaning: "Signed ölçüm formatlarında işaret bitidir." },
+          { bits: "MSB B5:B0", name: "D13:D8", meaning: "Raw conversion sonucunun üst data bitleri." },
+          { bits: "LSB B7:B0", name: "D7:D0", meaning: "Raw conversion sonucunun alt data bitleri." },
+        ],
       },
       {
         name: "T_INTERNAL",
@@ -141,6 +253,22 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "16",
         access: "RO",
         purpose: "Raw iç sıcaklık sonucu.",
+        fields: [
+          { bits: "MSB B7", name: "Data valid", meaning: "İç sıcaklık conversion sonucunda yeni data hazır olduğunda set olur." },
+          { bits: "MSB B6", name: "Sign", meaning: "Signed sıcaklık kodunun işaret bitidir." },
+          { bits: "MSB/LSB data", name: "Temperature code", meaning: "İç sıcaklık için raw conversion code; mühendislik birimine çeviri datasheet formülüne bırakılır." },
+        ],
+      },
+      {
+        name: "VCC",
+        address: "0x1C..0x1D",
+        width: "16",
+        access: "RO",
+        purpose: "Raw VCC ölçüm sonucu.",
+        fields: [
+          { bits: "MSB B7", name: "Data valid", meaning: "VCC conversion sonucunda yeni data hazır olduğunda set olur." },
+          { bits: "MSB/LSB data", name: "VCC code", meaning: "VCC için raw conversion code; mühendislik birimine çeviri datasheet formülüne bırakılır." },
+        ],
       },
     ],
     recipes: [
@@ -216,7 +344,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   TCA9548A: {
     part: "TCA9548A",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Tek upstream hat üzerinden 8 downstream I2C kanal anahtarlama.",
     sources: [
       {
@@ -244,7 +372,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00",
         purpose: "Spec2Code içindeki pseudo register; gerçek cihaz erişimi tek control byte yazımıdır.",
-        fields: ["CH0_EN bit 0", "CH1_EN bit 1", "CH2_EN bit 2", "CH3_EN bit 3", "CH4..CH7 bit 4..7"],
+        fields: [
+          { bits: "B7", name: "CH7_EN", meaning: "SC7/SD7 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B6", name: "CH6_EN", meaning: "SC6/SD6 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B5", name: "CH5_EN", meaning: "SC5/SD5 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B4", name: "CH4_EN", meaning: "SC4/SD4 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B3", name: "CH3_EN", meaning: "SC3/SD3 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B2", name: "CH2_EN", meaning: "SC2/SD2 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B1", name: "CH1_EN", meaning: "SC1/SD1 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+          { bits: "B0", name: "CH0_EN", meaning: "SC0/SD0 downstream kanalını enable eder.", values: ["0: kanal kapalı", "1: kanal açık"] },
+        ],
       },
     ],
     recipes: [
@@ -316,12 +453,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   MT25Q128: {
     part: "MT25Q128",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Güvenli single-SPI NOR flash read, program, erase ve JEDEC ID akışları.",
     sources: [
       {
         label: "Micron MT25Q serial NOR product page",
         url: "https://www.micron.com/products/storage/nor-flash/serial-nor",
+      },
+      {
+        label: "Micron MT25Q family datasheet copy",
+        url: "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8880/557_mt25q-qlkt-l-512-abb-0.pdf",
       },
     ],
     overview:
@@ -344,6 +485,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "RO",
         purpose: "JEDEC manufacturer/device identification bilgisini okumak.",
+        fields: flashReadIdFields,
       },
       {
         name: "READ_STATUS",
@@ -351,6 +493,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "RO",
         purpose: "Status register okumak; özellikle WIP/busy durumunu takip etmek.",
+        fields: flashStatusFields,
       },
       {
         name: "WRITE_ENABLE",
@@ -358,6 +501,10 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "WO",
         purpose: "Program/erase operasyonlarından önce write enable latch etmek.",
+        fields: [
+          { bits: "Opcode", name: "0x06", meaning: "Write Enable komutu." },
+          { bits: "Yan etki", name: "WEL=1", meaning: "Başarılı komut sonrası status register içindeki WEL biti set olur." },
+        ],
       },
       {
         name: "READ_DATA",
@@ -365,6 +512,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 24-bit address",
         access: "RO",
         purpose: "Konservatif array read command.",
+        fields: [
+          { bits: "Opcode", name: "0x03", meaning: "Single-SPI normal read komutu." },
+          { bits: "A23:A0", name: "24-bit address", meaning: "Okumanın başlayacağı byte adresi." },
+          { bits: "Data stream", name: "MISO bytes", meaning: "Adres sonrası ardışık memory byte'ları okunur." },
+        ],
       },
       {
         name: "PAGE_PROGRAM",
@@ -372,6 +524,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 24-bit address",
         access: "WO",
         purpose: "Write enable sonrası en fazla bir page programlamak.",
+        fields: [
+          { bits: "Opcode", name: "0x02", meaning: "Page Program komutu." },
+          { bits: "A23:A0", name: "24-bit address", meaning: "Programlamanın başlayacağı page içi adres." },
+          { bits: "Payload", name: "1..256 byte", meaning: "Tek page sınırı içinde programlanacak data byte'ları." },
+        ],
       },
       {
         name: "SUBSECTOR/SECTOR_ERASE",
@@ -379,6 +536,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 24-bit address",
         access: "WO",
         purpose: "4 KB subsector veya 64 KB sector erase yapmak.",
+        fields: [
+          { bits: "Opcode", name: "0x20", meaning: "4 KB subsector erase komutu." },
+          { bits: "Opcode", name: "0xD8", meaning: "64 KB sector erase komutu." },
+          { bits: "A23:A0", name: "24-bit address", meaning: "Erase edilecek subsector/sector içinde herhangi bir adres." },
+        ],
       },
     ],
     recipes: [
@@ -430,12 +592,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   MT25QU02G: {
     part: "MT25QU02G",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "4-byte address command akışına sahip 2 Gbit SPI NOR flash.",
     sources: [
       {
         label: "Micron MT25Q serial NOR product page",
         url: "https://www.micron.com/products/storage/nor-flash/serial-nor",
+      },
+      {
+        label: "Micron MT25Q family datasheet copy",
+        url: "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8880/557_mt25q-qlkt-l-512-abb-0.pdf",
       },
     ],
     overview:
@@ -458,6 +624,15 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "RO",
         purpose: "JEDEC ID okumak ve cihazın erişilebilir olduğunu doğrulamak.",
+        fields: flashReadIdFields,
+      },
+      {
+        name: "READ_STATUS",
+        address: "0x05",
+        width: "opcode",
+        access: "RO",
+        purpose: "Status register okumak; özellikle WIP/busy ve WEL durumlarını takip etmek.",
+        fields: flashStatusFields,
       },
       {
         name: "WRITE_ENABLE",
@@ -465,6 +640,10 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "WO",
         purpose: "Mode enter, program ve erase akışlarından önce gereklidir.",
+        fields: [
+          { bits: "Opcode", name: "0x06", meaning: "Write Enable komutu." },
+          { bits: "Yan etki", name: "WEL=1", meaning: "Başarılı komut sonrası status register içindeki WEL biti set olur." },
+        ],
       },
       {
         name: "ENTER_4BYTE",
@@ -472,6 +651,10 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode",
         access: "WO",
         purpose: "Yüksek adres aralığı için 4-byte address mode'a geçmek.",
+        fields: [
+          { bits: "Opcode", name: "0xB7", meaning: "4-byte address mode'a geçiş komutu." },
+          { bits: "Yan etki", name: "32-bit addressing", meaning: "Sonraki full-range erişimler 4-byte adres komutlarıyla uyumlu hale gelir." },
+        ],
       },
       {
         name: "READ_DATA_4B",
@@ -479,6 +662,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 32-bit address",
         access: "RO",
         purpose: "4-byte address ile array data okumak.",
+        fields: [
+          { bits: "Opcode", name: "0x13", meaning: "4-byte address normal read komutu." },
+          { bits: "A31:A0", name: "32-bit address", meaning: "Okumanın başlayacağı byte adresi." },
+          { bits: "Data stream", name: "MISO bytes", meaning: "Adres sonrası ardışık memory byte'ları okunur." },
+        ],
       },
       {
         name: "PAGE_PROGRAM_4B",
@@ -486,6 +674,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 32-bit address",
         access: "WO",
         purpose: "4-byte address kullanarak bir page programlamak.",
+        fields: [
+          { bits: "Opcode", name: "0x12", meaning: "4-byte address page program komutu." },
+          { bits: "A31:A0", name: "32-bit address", meaning: "Programlamanın başlayacağı page içi adres." },
+          { bits: "Payload", name: "1..256 byte", meaning: "Tek page sınırı içinde programlanacak data byte'ları." },
+        ],
       },
       {
         name: "ERASE_4B",
@@ -493,6 +686,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "opcode + 32-bit address",
         access: "WO",
         purpose: "4-byte address ile 4 KB subsector veya 64 KB sector erase yapmak.",
+        fields: [
+          { bits: "Opcode", name: "0x21", meaning: "4-byte address 4 KB subsector erase komutu." },
+          { bits: "Opcode", name: "0xDC", meaning: "4-byte address 64 KB sector erase komutu." },
+          { bits: "A31:A0", name: "32-bit address", meaning: "Erase edilecek subsector/sector içinde herhangi bir adres." },
+        ],
       },
     ],
     recipes: [
@@ -549,7 +747,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   AD7414: {
     part: "AD7414",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Sıcaklık okuma ve alert threshold konfigürasyonu.",
     sources: [
       {
@@ -578,7 +776,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         reset: "0x0000",
         purpose: "Raw sıcaklık transfer image.",
-        fields: ["TEMP_CODE bits 15:6"],
+        fields: [
+          { bits: "Byte1 D7:D0", name: "TEMP[9:2]", meaning: "10-bit two's-complement sıcaklık kodunun üst sekiz biti." },
+          { bits: "Byte2 D7:D6", name: "TEMP[1:0]", meaning: "10-bit sıcaklık kodunun en düşük iki biti." },
+          { bits: "Byte2 D5", name: "ALERT flag", meaning: "ALERT koşulu oluştuğunu gösteren status flag." },
+          { bits: "Byte2 D4", name: "THIGH flag", meaning: "Sıcaklık THIGH eşiğini geçtiğinde set olan flag." },
+          { bits: "Byte2 D3", name: "TLOW flag", meaning: "Sıcaklık TLOW eşiğinin altına indiğinde set olan flag." },
+          { bits: "Byte2 D2:D0", name: "Reserved", meaning: "Temperature conversion data için kullanılmaz; okunan değer uygulama hesabına dahil edilmemelidir." },
+        ],
       },
       {
         name: "CONFIGURATION",
@@ -587,23 +792,39 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x40",
         purpose: "Power, alert, polarity, reset ve one-shot kontrolleri.",
-        fields: ["POWER_DOWN", "FILTER_BYPASS", "ALERT_ENABLE", "ALERT_POLARITY", "ALERT_RESET", "ONE_SHOT"],
+        fields: [
+          { bits: "D7", name: "Power-down", meaning: "Cihazı low-power shutdown moduna alır.", values: ["0: normal çalışma", "1: power-down"] },
+          { bits: "D6", name: "Filter", meaning: "Temperature filtering davranışını seçer.", values: ["0: filtering bypass", "1: filtering aktif"] },
+          { bits: "D5", name: "ALERT disable", meaning: "ALERT output davranışını kapatır/açar.", values: ["0: ALERT aktif", "1: ALERT disabled"] },
+          { bits: "D4", name: "ALERT polarity", meaning: "ALERT pininin aktif seviyesini seçer.", values: ["0: active low", "1: active high"] },
+          { bits: "D3", name: "ALERT reset", meaning: "Interrupt/latch modunda ALERT durumunu resetlemek için kullanılır." },
+          { bits: "D2", name: "One-shot", meaning: "Power-down modundayken tek conversion başlatır." },
+          { bits: "D1:D0", name: "Reserved", meaning: "Normal kullanımda 0 tutulmalıdır." },
+        ],
       },
       {
         name: "THIGH",
         address: "0x02",
         width: "8",
         access: "RW",
-        reset: "0x50",
+        reset: "0x7F",
         purpose: "High temperature alert threshold değeri.",
+        fields: [
+          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir." },
+          { bits: "D6:D0", name: "Threshold code", meaning: "High threshold için 1 derece C adımlı signed sıcaklık kodu." },
+        ],
       },
       {
         name: "TLOW",
         address: "0x03",
         width: "8",
         access: "RW",
-        reset: "0x4B",
+        reset: "0x80",
         purpose: "Low temperature alert threshold değeri.",
+        fields: [
+          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir." },
+          { bits: "D6:D0", name: "Threshold code", meaning: "Low threshold için 1 derece C adımlı signed sıcaklık kodu." },
+        ],
       },
     ],
     recipes: [
@@ -656,7 +877,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   DS1682: {
     part: "DS1682",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Elapsed-time counter, alarm değeri ve event counter okumaları.",
     sources: [
       {
@@ -685,6 +906,16 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00",
         purpose: "Alarm flag, write-disable flag'leri, alarm output seçimi, reset enable ve event MSB.",
+        fields: [
+          { bits: "B7", name: "Reserved", meaning: "Normal kullanımda 0 olarak bırakılır." },
+          { bits: "B6", name: "AF", meaning: "Alarm flag; elapsed-time counter alarm değerine ulaştığında set olur." },
+          { bits: "B5", name: "WDF", meaning: "Write-disable flag; write-disable komutu sonrası set olur." },
+          { bits: "B4", name: "WMDF", meaning: "Write-memory-disable flag; user EEPROM alanı için disable durumunu gösterir." },
+          { bits: "B3", name: "AOS", meaning: "Alarm output select; ALARM pininin output davranışını seçer." },
+          { bits: "B2", name: "RE", meaning: "Reset enable; reset komutu kabul edilmeden önce 1 yapılmalıdır." },
+          { bits: "B1", name: "AP", meaning: "Alarm polarity; ALARM pininin aktif seviyesini seçer." },
+          { bits: "B0", name: "ECMSB", meaning: "17-bit event counter değerinin en üst bitidir." },
+        ],
       },
       {
         name: "ALARM",
@@ -693,6 +924,12 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x00000000",
         purpose: "Quarter-second tick cinsinden alarm trip point.",
+        fields: [
+          { bits: "0x01", name: "ALRM0", meaning: "Alarm değerinin en düşük byte'ı." },
+          { bits: "0x02", name: "ALRM1", meaning: "Alarm değerinin ikinci byte'ı." },
+          { bits: "0x03", name: "ALRM2", meaning: "Alarm değerinin üçüncü byte'ı." },
+          { bits: "0x04", name: "ALRM3", meaning: "Alarm değerinin en yüksek byte'ı." },
+        ],
       },
       {
         name: "ETC",
@@ -701,6 +938,12 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         reset: "0x00000000",
         purpose: "Quarter-second tick cinsinden elapsed-time counter.",
+        fields: [
+          { bits: "0x05", name: "ETC0", meaning: "Elapsed-time counter değerinin en düşük byte'ı." },
+          { bits: "0x06", name: "ETC1", meaning: "Elapsed-time counter değerinin ikinci byte'ı." },
+          { bits: "0x07", name: "ETC2", meaning: "Elapsed-time counter değerinin üçüncü byte'ı." },
+          { bits: "0x08", name: "ETC3", meaning: "Elapsed-time counter değerinin en yüksek byte'ı." },
+        ],
       },
       {
         name: "EVENT",
@@ -709,6 +952,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         reset: "0x00000",
         purpose: "Event count değeri.",
+        fields: [
+          { bits: "0x09", name: "ECNT0", meaning: "Event counter değerinin düşük byte'ı." },
+          { bits: "0x0A", name: "ECNT1", meaning: "Event counter değerinin yüksek byte'ı." },
+          { bits: "CONFIG B0", name: "ECMSB", meaning: "17-bit event counter değerinin bit16 alanı." },
+        ],
       },
       {
         name: "USER EEPROM",
@@ -716,13 +964,41 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "10 bytes",
         access: "RW",
         purpose: "Küçük nonvolatile user field.",
+        fields: [
+          { bits: "0x0B..0x14", name: "User bytes", meaning: "Uygulama tarafından kullanılabilen 10 byte nonvolatile alan." },
+        ],
       },
       {
-        name: "CONTROL COMMANDS",
-        address: "0x1D..0x1F",
-        width: "8 each",
+        name: "EVENT_INPUT_DISABLE",
+        address: "0x1D",
+        width: "command byte",
         access: "WO",
-        purpose: "Reset, write disable ve memory disable command'ları.",
+        purpose: "Event input disable komutu; production flow dışında kullanılmamalıdır.",
+        fields: [
+          { bits: "Command address", name: "0x1D", meaning: "Event input disable işlemi için ayrılmış command adresi." },
+        ],
+      },
+      {
+        name: "RESET_COMMAND",
+        address: "0x1E",
+        width: "command byte",
+        access: "WO",
+        purpose: "Reset komutu; RE biti set edilmeden kabul edilmemelidir.",
+        fields: [
+          { bits: "Ön koşul", name: "CONFIG.RE=1", meaning: "Reset command kabulü için CONFIGURATION içindeki RE biti enable edilmelidir." },
+          { bits: "Command address", name: "0x1E", meaning: "Reset işlemi için ayrılmış command adresi; normal smoke test içinde kullanılmaz." },
+        ],
+      },
+      {
+        name: "WRITE_DISABLE",
+        address: "0x1F",
+        width: "command byte",
+        access: "WO",
+        purpose: "Write-disable komutu; kalıcı/production-only işlem olarak ele alınmalıdır.",
+        fields: [
+          { bits: "Command address", name: "0x1F", meaning: "Write-disable işlemi için ayrılmış command adresi." },
+          { bits: "Yan etki", name: "WDF", meaning: "Komut sonrası CONFIGURATION içindeki write-disable flag set olur." },
+        ],
       },
     ],
     recipes: [
@@ -777,7 +1053,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
 
   LTC2945: {
     part: "LTC2945",
-    reviewedAt: "2026-06-27",
+    reviewedAt: "2026-06-28",
     scope: "Raw power, sense/current, VIN, ADIN, status ve fault monitor okumaları.",
     sources: [
       {
@@ -806,14 +1082,42 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RW",
         reset: "0x05",
         purpose: "ADC mode, snapshot, VIN monitor, shutdown ve multiplier selection.",
-        fields: ["SNAPSHOT_ENABLE", "ADC_BUSY", "VIN_MONITOR", "SHUTDOWN", "MULTIPLIER_SELECT"],
+        fields: [
+          { bits: "B7", name: "Shutdown", meaning: "ADC ölçüm bloklarını shutdown moduna alır.", values: ["0: normal çalışma", "1: shutdown"] },
+          { bits: "B6:B5", name: "Snapshot mode", meaning: "Snapshot conversion davranışını seçer; normal continuous read akışında reset/default profil korunur." },
+          { bits: "B4", name: "ADC busy", meaning: "ADC conversion devam ederken set olan status bitidir." },
+          { bits: "B3", name: "Test mode", meaning: "Normal uygulama kodunda kullanılmaması gereken test mode bitidir." },
+          { bits: "B2", name: "Enable measurements", meaning: "SENSE/VIN/ADIN measurement engine davranışını belirleyen enable/config bitidir." },
+          { bits: "B1", name: "Channel config", meaning: "Measurement input/config seçimine ait control bitidir." },
+          { bits: "B0", name: "SENSE+ full-scale", meaning: "SENSE+ ölçüm full-scale seçimini belirler." },
+        ],
       },
       {
-        name: "ALERT/STATUS/FAULT",
-        address: "0x01..0x03",
-        width: "her biri 8",
-        access: "RW/RO",
-        purpose: "Alert enable/status ve fault reporting.",
+        name: "ALERT_ENABLE",
+        address: "0x01",
+        width: "8",
+        access: "RW",
+        reset: "0x00",
+        purpose: "Power, SENSE, VIN ve ADIN limitleri için ALERT enable maskesi.",
+        fields: ltc2945LimitFields("enable"),
+      },
+      {
+        name: "STATUS",
+        address: "0x02",
+        width: "8",
+        access: "RO",
+        reset: "0x00",
+        purpose: "Power, SENSE, VIN ve ADIN limit koşullarının anlık status bitleri.",
+        fields: ltc2945LimitFields("status"),
+      },
+      {
+        name: "FAULT",
+        address: "0x03",
+        width: "8",
+        access: "RW",
+        reset: "0x00",
+        purpose: "Power, SENSE, VIN ve ADIN limit koşulları için latched fault bitleri.",
+        fields: ltc2945LimitFields("fault"),
       },
       {
         name: "FAULT_CLEAR",
@@ -821,6 +1125,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "8",
         access: "RW",
         purpose: "Fault clear yolu.",
+        fields: ltc2945LimitFields("clear"),
       },
       {
         name: "POWER",
@@ -828,6 +1133,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "24",
         access: "RO",
         purpose: "Raw calculated power register.",
+        fields: [
+          { bits: "0x05", name: "POWER_MSB2", meaning: "24-bit raw power code değerinin bit23..bit16 alanı." },
+          { bits: "0x06", name: "POWER_MSB1", meaning: "24-bit raw power code değerinin bit15..bit8 alanı." },
+          { bits: "0x07", name: "POWER_LSB", meaning: "24-bit raw power code değerinin bit7..bit0 alanı." },
+        ],
       },
       {
         name: "SENSE",
@@ -835,6 +1145,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "16 transfer",
         access: "RO",
         purpose: "Raw 12-bit shunt/sense ADC image.",
+        fields: [
+          { bits: "MSB B7:B0", name: "SENSE[11:4]", meaning: "12-bit raw sense ADC code değerinin üst sekiz biti." },
+          { bits: "LSB B7:B4", name: "SENSE[3:0]", meaning: "12-bit raw sense ADC code değerinin alt dört biti." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+        ],
       },
       {
         name: "VIN",
@@ -842,6 +1157,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "16 transfer",
         access: "RO",
         purpose: "Raw 12-bit VIN ADC image.",
+        fields: [
+          { bits: "MSB B7:B0", name: "VIN[11:4]", meaning: "12-bit raw VIN ADC code değerinin üst sekiz biti." },
+          { bits: "LSB B7:B4", name: "VIN[3:0]", meaning: "12-bit raw VIN ADC code değerinin alt dört biti." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+        ],
       },
       {
         name: "ADIN",
@@ -849,6 +1169,11 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "16 transfer",
         access: "RO",
         purpose: "Raw 12-bit auxiliary ADC image.",
+        fields: [
+          { bits: "MSB B7:B0", name: "ADIN[11:4]", meaning: "12-bit raw ADIN ADC code değerinin üst sekiz biti." },
+          { bits: "LSB B7:B4", name: "ADIN[3:0]", meaning: "12-bit raw ADIN ADC code değerinin alt dört biti." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+        ],
       },
     ],
     recipes: [
