@@ -19,13 +19,6 @@
       "int": "i",
       "unsigned long": "ul",
       "unsigned long long": "ull",
-      "uint8_t": "uc",
-      "int8_t": "c",
-      "uint16_t": "us",
-      "int16_t": "s",
-      "uint32_t": "ui",
-      "int32_t": "i",
-      "uint64_t": "ull",
       "struct": "s",
       "struct_pointer": "sp",
       "pointer_suffix": "p",
@@ -38,8 +31,9 @@
       "union": "S",
       "enum": "E"
     },
-    "function_pattern": "module_object_action",
-    "function_regex": "^[a-z][a-z0-9]*_[a-z][a-z0-9]*_[a-z][a-z0-9]*$"
+    "function_pattern": "camelCase",
+    "function_regex": "^[a-z][A-Za-z0-9]*$",
+    "disallowed_types": ["uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "int32_t", "uint64_t", "int64_t"]
   },
   "declarations": {
     "struct_typedef_prefix": "S",

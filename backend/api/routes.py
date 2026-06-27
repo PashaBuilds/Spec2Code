@@ -150,6 +150,14 @@ def _driver_module(part: str) -> str:
     return re.sub(r"[^a-z0-9]", "", part.lower())
 
 
+def _pascal_identifier(value: str) -> str:
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", value) if part)
+
+
+def _driver_function(module: str, action: str) -> str:
+    return f"{module}{_pascal_identifier(action)}"
+
+
 def _controller_handle_type(controller: dict) -> str | None:
     driver = controller.get("driver")
     if driver:
@@ -190,7 +198,7 @@ def _vitis_readme(job, files: list[str]) -> str:
         "2. Self-test kullanacaksan `src/tests` ve `src/spec2code_selftest_main.c` dosyalarini da ekle.\n"
         "3. Include path'e `src/drivers` klasorunu ekle.\n"
         "4. BSP tarafinda `xparameters.h` ayni donanim platformundan gelmeli.\n"
-        "5. `spec2code_run_self_tests()` fonksiyonunu kendi `main.c` veya FreeRTOS task akisin icinden cagir.\n\n"
+        "5. `spec2codeRunSelfTests()` fonksiyonunu kendi `main.c` veya FreeRTOS task akisin icinden cagir.\n\n"
         f"Runtime: `{runtime}`\n\n"
         f"QC: `passed={str(qc.get('passed')).lower()}`\n\n"
         "## Paket dosyalari\n\n"
@@ -202,6 +210,7 @@ def _vitis_selftest_main(spec: dict) -> str:
     controllers = {c["id"]: c for c in spec.get("controllers", [])}
     devices = spec.get("devices", [])
     declarations: list[str] = []
+    declaration_keys: set[tuple[str, str]] = set()
     calls: list[str] = []
     includes = {
         "xstatus.h",
@@ -219,15 +228,20 @@ def _vitis_selftest_main(spec: dict) -> str:
         if handle_type is None:
             continue
         module = _driver_module(device.get("part", ""))
-        handle_name = f"s{''.join(part[:1].upper() + part[1:] for part in module.split('_') if part)}Handle"
+        handle_base = _pascal_identifier(device.get("id") or module)
+        handle_name = f"s{handle_base}Handle"
         header = _controller_header(handle_type)
         if header:
             includes.add(header)
         includes.add(f"{module}.h")
-        declarations.append(f"int {module}_self_test({handle_type} *spHandle);")
+        self_test = _driver_function(module, "self_test")
+        declaration_key = (self_test, handle_type)
+        if declaration_key not in declaration_keys:
+            declaration_keys.add(declaration_key)
+            declarations.append(f"int {self_test}({handle_type}* spHandle);")
         calls.extend([
             f"    {handle_type} {handle_name};",
-            f"    iStatus = {module}_self_test(&{handle_name});",
+            f"    iStatus = {self_test}(&{handle_name});",
             "    if (iStatus != XST_SUCCESS)",
             "    {",
             f'        xil_printf("{device.get("part", module)} self-test FAILED: %d\\r\\n", iStatus);',
@@ -249,7 +263,7 @@ def _vitis_selftest_main(spec: dict) -> str:
         + "\n\n"
         + declaration_block
         + "\n\n"
-        "int spec2code_run_self_tests(void)\n"
+        "int spec2codeRunSelfTests(void)\n"
         "{\n"
         "    int iStatus;\n\n"
         + call_block

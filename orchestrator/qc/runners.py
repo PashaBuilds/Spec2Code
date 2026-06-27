@@ -62,6 +62,7 @@ def clang_format_config(ruleset: dict) -> str:
         f"ColumnLimit: {column}\n"
         f"UseCRLF: {use_crlf}\n"
         "DeriveLineEnding: false\n"
+        "PointerAlignment: Left\n"
         "AllowShortFunctionsOnASingleLine: None\n"
         "AllowShortIfStatementsOnASingleLine: false\n"
         "AllowShortLoopsOnASingleLine: false\n"

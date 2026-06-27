@@ -92,7 +92,7 @@
           "name": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9]*_[a-z][a-z0-9]*$",
-            "description": "object_action form (two tokens). Codegen prepends the module to yield a strict module_object_action function name per the ruleset regex."
+            "description": "object_action form (two tokens). Codegen prepends the module and renders a camelCase function name such as ltc2991VoltageRead."
           },
           "returns": { "type": "string" },
           "description": { "type": "string" },

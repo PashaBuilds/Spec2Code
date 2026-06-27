@@ -93,8 +93,9 @@ clang-tidy, cppcheck, libclang. Python deps in `.venv` (Python 3.14). Frontend d
 2. **All generated `.c/.h/.md` output goes through `hostplat.io.write_output()`** (CRLF, binary mode).
    clang-format output is captured via stdout and re-written through it — keep that pattern.
 3. **No platform-specific code outside `hostplat/`**; no `subprocess` outside `hostplat.proc`.
-4. **Function names are strict `module_object_action` (3 tokens)** — the ruleset regex is
-   authoritative; the brief's 4-token `ltc2991_voltage_read_all` example is intentionally NOT followed.
+4. **Function names are camelCase** — examples: `tca9548aChannelSelect(...)`,
+   `ltc2991VoltageRead(...)`, `spec2codeRunSelfTests(...)`. Pointer stars attach to the type
+   (`XIicPs* spIic`) and generated code uses primitive C types, not `uint8_t`/`uint32_t`.
 5. **`cmodel.py` `Emit` class manages Allman braces + indentation** — don't hand-write `{`/`}`.
 6. **`naming_linter.py` reads rules from the ruleset** — never hardcode them.
 7. Frontend: the **zustand store (`useStore.ts`) is the contract** between features; React Flow
@@ -135,5 +136,5 @@ clang-tidy, cppcheck, libclang. Python deps in `.venv` (Python 3.14). Frontend d
 `project.spec.json` (validated by `schemas/project.spec.schema.json`) → `POST /api/generate` →
 `JobManager` runs `codegen.generate` (Jinja over `cmodel.build_units`) then `qc.run_qc`, streaming
 events over `/ws/jobs/{id}` → result = generated files + `qc_report.json`. Descriptors drive the
-named operations; a mux-attached device gets `<mux>_channel_select(...)` injected before each access.
+named operations; a mux-attached device gets `<mux>ChannelSelect(...)` injected before each access.
 ```

@@ -65,6 +65,17 @@ _IDENTIFIER_REPLACEMENTS = {
     "pv_parameters": "vpParameters",
 }
 
+_TYPE_REPLACEMENTS = {
+    "uint8_t": "unsigned char",
+    "int8_t": "char",
+    "uint16_t": "unsigned short",
+    "int16_t": "short",
+    "uint32_t": "unsigned int",
+    "int32_t": "int",
+    "uint64_t": "unsigned long long",
+    "int64_t": "long long",
+}
+
 
 def _pascal_identifier(value: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", value) if part)
@@ -72,6 +83,8 @@ def _pascal_identifier(value: str) -> str:
 
 def _apply_default_identifier_style(text: str) -> str:
     """Apply the fixed camelCase + Hungarian identifier surface to generated C files."""
+    for old, new in _TYPE_REPLACEMENTS.items():
+        text = re.sub(rf"\b{re.escape(old)}\b", new, text)
     for old, new in _IDENTIFIER_REPLACEMENTS.items():
         text = re.sub(rf"\b{re.escape(old)}\b", new, text)
     text = re.sub(

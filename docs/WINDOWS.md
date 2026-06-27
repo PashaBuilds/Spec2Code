@@ -247,11 +247,13 @@ Older project specs that contain another `coding_standard_ref` are normalized ba
 std/default.ruleset.json
 ```
 
-The Setup screen shows the active standard as information only: camelCase identifiers,
-Hungarian prefixes, Allman braces, CRLF line endings, `SOrnekStruct`-style struct typedefs,
-`sMyStruct`-style struct variables, `spMyStruct`-style structure pointers,
-`EOrnekEnum`-style enum typedefs, type-prefix + `p` pointers, type-prefix + `Arr` arrays,
-`G_` globals, and `S_` static variables.
+The Setup screen shows the active standard as information only: camelCase identifiers and
+function names such as `tca9548aChannelSelect`, Hungarian prefixes, Allman braces, CRLF line
+endings, `SOrnekStruct`-style struct typedefs, `sMyStruct`-style struct variables,
+`spMyStruct`-style structure pointers, `EOrnekEnum`-style enum typedefs, type-prefix + `p`
+pointers, type-prefix + `Arr` arrays, `G_` globals, and `S_` static variables. Pointer stars
+attach to the type (`XIicPs* spIic`), and generated code uses primitive C types such as
+`unsigned char`/`unsigned int` instead of `uint8_t`/`uint32_t`.
 
 ## Creating a Windows executable manually
 

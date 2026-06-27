@@ -29,13 +29,13 @@ _SCALAR_KEYS = (
     "int",
     "unsigned long",
     "unsigned long long",
-    "uint8_t",
-    "int8_t",
-    "uint16_t",
-    "int16_t",
-    "uint32_t",
-    "int32_t",
-    "uint64_t",
+)
+
+_POINTER_STAR_RE = re.compile(
+    r"\b(?:const\s+|volatile\s+|static\s+)*"
+    r"(?:(?:unsigned\s+)?(?:char|short|int|long(?:\s+long)?)|"
+    r"[A-Z][A-Za-z0-9_]*|struct\s+[A-Za-z_][A-Za-z0-9_]*)"
+    r"\s+\*\s*[A-Za-z_]"
 )
 
 
@@ -61,7 +61,37 @@ def _base_type(written_type: str) -> str:
 
 
 def _is_structish_type(base: str) -> bool:
-    return base.startswith("S") or base.startswith("struct ")
+    return base.startswith("S") or base.startswith("X") or base.startswith("struct ")
+
+
+def _source_line_checks(path: Path, src: str, ruleset: dict) -> list[Violation]:
+    violations: list[Violation] = []
+    disallowed = ruleset.get("naming", {}).get("disallowed_types", [])
+    disallowed_re = re.compile(r"\b(" + "|".join(re.escape(t) for t in disallowed) + r")\b") if disallowed else None
+
+    for i, line in enumerate(src.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*", "#")):
+            continue
+
+        if disallowed_re:
+            m = disallowed_re.search(line)
+            if m:
+                violations.append(Violation(
+                    file=str(path), line=i, column=m.start(1) + 1, rule="naming.disallowed_type",
+                    severity="error",
+                    message=f"type '{m.group(1)}' is not allowed; use primitive C types instead",
+                    source="naming-linter"))
+
+        m = _POINTER_STAR_RE.search(line)
+        if m:
+            violations.append(Violation(
+                file=str(path), line=i, column=line.find("*") + 1, rule="naming.pointer_star",
+                severity="error",
+                message="pointer '*' must attach to the type, for example 'XIicPs* spIic'",
+                source="naming-linter"))
+
+    return violations
 
 
 # Hungarian prefix expected for a (pointer?, array?, base-type) pair, derived from the ruleset.
@@ -113,6 +143,7 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
 
     # --- print line-terminator check (source scan, no AST needed) ---
     src = Path(path).read_text(encoding="utf-8", errors="replace")
+    violations.extend(_source_line_checks(path, src, ruleset))
     for i, line in enumerate(src.splitlines(), start=1):
         if "printf" not in line:
             continue

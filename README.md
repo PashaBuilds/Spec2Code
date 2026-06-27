@@ -115,15 +115,20 @@ Bu ruleset iki aşamada devreye girer:
 Default standard özet olarak şunları içerir:
 
 - `camelCase` identifier yaklaşımı ve Hungarian prefix kullanımı.
+- Fonksiyon adları camelCase yazılır; örnek
+  `int tca9548aChannelSelect(XIicPs* spIic, unsigned char ucChannel)`.
 - Tip prefixleri: `unsigned char -> uc`, `char -> c`, `unsigned short -> us`,
   `short -> s`, `unsigned int -> ui`, `int -> i`, `unsigned long -> ul`,
   `unsigned long long -> ull`.
+- Fixed-width typedef kullanılmaz: `uint8_t`, `uint16_t`, `uint32_t` yerine
+  `unsigned char`, `unsigned short`, `unsigned int` gibi primitive C tipleri kullanılır.
 - Structure typedef adları büyük `S` ile başlar; örnek `SOrnekStruct`.
 - Structure değişkenleri küçük `s` prefix'iyle yazılır; örnek
   `SOrnekStruct sMyStruct; sMyStruct.uiVal = 0;`.
 - Enum typedef adları büyük `E` ile başlar; örnek `EOrnekEnum`.
 - Structure pointer değişkenleri `sp` prefix'iyle yazılır; diğer pointer'lar
-  tip prefix'i + `p`.
+  tip prefix'i + `p`. Pointer yıldızı tipe bitişik yazılır: `XIicPs* spIic`,
+  `unsigned char* ucpValue`.
 - Array'ler tip prefix'i + `Arr`; örnek `ucArr`.
 - Global değişkenler `G_` + tip prefix'i, static değişkenler `S_` + tip prefix'i.
 - `if`, `for`, `while` sonrasında bir boşluk ve Allman brace stili kullanılır.
