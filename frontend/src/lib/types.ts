@@ -40,6 +40,7 @@ export interface Device {
   id: string;
   part: string;
   descriptor_ref?: string | null;
+  config?: Record<string, unknown>;
   attach: DeviceAttach;
   operations_requested?: string[];
   tests_requested?: string[];

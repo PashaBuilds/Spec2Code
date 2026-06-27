@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from orchestrator.device_profiles import registry as device_profiles
+
 _IND = "    "  # 4 spaces
 
 
@@ -111,6 +113,7 @@ class CUnit:
     defines: list[tuple[str, str, str]]   # (name, value, trailing comment)
     funcs: list[CFunc]
     public_names: list[str]
+    private_decls: list[str] = field(default_factory=list)
     test: Optional[CTest] = None
 
 
@@ -188,6 +191,36 @@ def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
             terms.append(term)
 
     return " | ".join(terms) if terms else "0U"
+
+
+def _private_i2c_init_sequence(module: str, mod: str, writes: list[dict]) -> list[str]:
+    if not writes:
+        return []
+
+    type_name = f"{module}_init_write_t"
+    seq_name = f"S_{module}_init_sequence"
+    count_name = f"{mod}_INIT_SEQUENCE_COUNT"
+    lines = [
+        "typedef struct",
+        "{",
+        "    uint8_t uc_reg;",
+        "    uint8_t uc_value;",
+        f"}} {type_name};",
+        "",
+        f"#define {count_name} {len(writes)}U",
+        "",
+        f"static const {type_name} {seq_name}[{count_name}] =",
+        "{",
+    ]
+    for write in writes:
+        note = str(write.get("note", "")).strip()
+        comment = f"  /* {note} */" if note else ""
+        lines.append(f"    {{ {mod}_REG_{write['reg']}, {_hexu8(int(write['value']))} }},{comment}")
+    lines.extend([
+        "};",
+        "",
+    ])
+    return lines
 
 
 def _doxy(func: CFunc) -> CFunc:
@@ -286,6 +319,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     regs = {rg["name"]: rg for rg in descriptor.get("registers", [])}
     instance = controller["instance"]
     byte_order = descriptor.get("transport", {}).get("byte_order", "big")
+    profile_writes = device_profiles.i2c_init_writes(device)
 
     defines = [
         (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
@@ -293,6 +327,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         (to_def, "100000U", "polling loop budget"),
     ]
     defines += [(f"{MOD}_REG_{n}", _hexu8(rg["offset"]), "") for n, rg in regs.items()]
+    private_decls = _private_i2c_init_sequence(module, MOD, profile_writes)
 
     funcs = _i2c_low_level(module, htype, hvar, addr_def)
     public: list[str] = []
@@ -332,6 +367,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         e.ln("int i_status;")
         if is_init:
             e.ln(f"{htype}_Config *sp_config;")
+            if profile_writes:
+                e.ln("uint32_t ui_index;")
         if has_channels:
             e.ln("uint8_t uc_index;")
         if has_channels:
@@ -350,54 +387,61 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
         read_seen = 0
         scalar_pieces: list[dict[str, int]] = []
-        for step in op["steps"]:
-            sop = step["op"]
-            if sop == "comment":
-                e.ln(f"/* {step.get('note', '')} */")
-            elif sop == "write_register":
-                e.ln(f"i_status = {module}_register_write({hvar}, {MOD}_REG_{step['reg']}, "
-                     f"{_hexu8(step.get('value', 0))});").check_status()
-            elif sop == "poll":
-                rg = regs.get(step["reg"], {})
-                bit = next((_first_bit(f["bits"]) for f in rg.get("fields", [])
-                            if f["name"] == step.get("field")), 0)
-                mask_expr = "(uc_poll & 0x1U)" if bit == 0 else f"((uc_poll >> {bit}) & 0x1U)"
-                e.open_scope()
-                e.ln("uint8_t uc_poll;")
-                e.ln(f"uint32_t ui_timeout = {to_def};  /* ~{step.get('timeout_ms', 0)} ms budget */")
-                e.open("do")
-                e.ln(f"i_status = {module}_register_read({hvar}, {MOD}_REG_{step['reg']}, &uc_poll);").check_status()
-                e.open("if (ui_timeout == 0U)").ln("return XST_FAILURE;").close()
-                e.ln("ui_timeout--;")
-                e.close(f" while ({mask_expr} != {step.get('until', 0)}U);")
-                e.close()
-            elif sop == "read_register":
-                if scalar_combine:
-                    target = f"uc_bytes[{read_seen}U]"
-                    piece = {"index": read_seen}
-                    if "mask" in step:
-                        piece["mask"] = int(step["mask"])
-                    if "shift" in step:
-                        piece["shift"] = int(step["shift"])
-                    scalar_pieces.append(piece)
-                else:
-                    target = "uc_msb" if read_seen == 0 else "uc_lsb"
-                read_seen += 1
-                e.ln(f"i_status = {module}_register_read({hvar}, {MOD}_REG_{step['reg']}, &{target});").check_status()
-            elif sop == "read_registers":
-                length = int(step.get("length", 1))
-                if not scalar_combine:
-                    raise CodegenError(f"{device['id']} {op_name}: read_registers needs a scalar return")
-                e.ln(f"i_status = {module}_registers_read({hvar}, {MOD}_REG_{step['reg']}, "
-                     f"&uc_bytes[{read_seen}U], {length}U);").check_status()
-                read_seen += length
-            elif sop == "read_channels":
-                base, count = f"{MOD}_REG_{step['reg']}", step.get("count", 8)
-                e.open(f"for (uc_index = 0U; uc_index < {count}U; uc_index++)")
-                e.ln(f"i_status = {module}_register_read({hvar}, (uint8_t)({base} + (uc_index * 2U)), &uc_msb);").check_status()
-                e.ln(f"i_status = {module}_register_read({hvar}, (uint8_t)({base} + (uc_index * 2U) + 1U), &uc_lsb);").check_status()
-                e.ln(f"{out_param}[uc_index] = (uint16_t)(((uint16_t)uc_msb << 8) | (uint16_t)uc_lsb);")
-                e.close()
+        if is_init and profile_writes:
+            e.open(f"for (ui_index = 0U; ui_index < {MOD}_INIT_SEQUENCE_COUNT; ui_index++)")
+            e.ln(f"i_status = {module}_register_write({hvar}, S_{module}_init_sequence[ui_index].uc_reg,")
+            e.ln(f"                                  S_{module}_init_sequence[ui_index].uc_value);")
+            e.check_status()
+            e.close()
+        else:
+            for step in op["steps"]:
+                sop = step["op"]
+                if sop == "comment":
+                    e.ln(f"/* {step.get('note', '')} */")
+                elif sop == "write_register":
+                    e.ln(f"i_status = {module}_register_write({hvar}, {MOD}_REG_{step['reg']}, "
+                         f"{_hexu8(step.get('value', 0))});").check_status()
+                elif sop == "poll":
+                    rg = regs.get(step["reg"], {})
+                    bit = next((_first_bit(f["bits"]) for f in rg.get("fields", [])
+                                if f["name"] == step.get("field")), 0)
+                    mask_expr = "(uc_poll & 0x1U)" if bit == 0 else f"((uc_poll >> {bit}) & 0x1U)"
+                    e.open_scope()
+                    e.ln("uint8_t uc_poll;")
+                    e.ln(f"uint32_t ui_timeout = {to_def};  /* ~{step.get('timeout_ms', 0)} ms budget */")
+                    e.open("do")
+                    e.ln(f"i_status = {module}_register_read({hvar}, {MOD}_REG_{step['reg']}, &uc_poll);").check_status()
+                    e.open("if (ui_timeout == 0U)").ln("return XST_FAILURE;").close()
+                    e.ln("ui_timeout--;")
+                    e.close(f" while ({mask_expr} != {step.get('until', 0)}U);")
+                    e.close()
+                elif sop == "read_register":
+                    if scalar_combine:
+                        target = f"uc_bytes[{read_seen}U]"
+                        piece = {"index": read_seen}
+                        if "mask" in step:
+                            piece["mask"] = int(step["mask"])
+                        if "shift" in step:
+                            piece["shift"] = int(step["shift"])
+                        scalar_pieces.append(piece)
+                    else:
+                        target = "uc_msb" if read_seen == 0 else "uc_lsb"
+                    read_seen += 1
+                    e.ln(f"i_status = {module}_register_read({hvar}, {MOD}_REG_{step['reg']}, &{target});").check_status()
+                elif sop == "read_registers":
+                    length = int(step.get("length", 1))
+                    if not scalar_combine:
+                        raise CodegenError(f"{device['id']} {op_name}: read_registers needs a scalar return")
+                    e.ln(f"i_status = {module}_registers_read({hvar}, {MOD}_REG_{step['reg']}, "
+                         f"&uc_bytes[{read_seen}U], {length}U);").check_status()
+                    read_seen += length
+                elif sop == "read_channels":
+                    base, count = f"{MOD}_REG_{step['reg']}", step.get("count", 8)
+                    e.open(f"for (uc_index = 0U; uc_index < {count}U; uc_index++)")
+                    e.ln(f"i_status = {module}_register_read({hvar}, (uint8_t)({base} + (uc_index * 2U)), &uc_msb);").check_status()
+                    e.ln(f"i_status = {module}_register_read({hvar}, (uint8_t)({base} + (uc_index * 2U) + 1U), &uc_lsb);").check_status()
+                    e.ln(f"{out_param}[uc_index] = (uint16_t)(((uint16_t)uc_msb << 8) | (uint16_t)uc_lsb);")
+                    e.close()
 
         if scalar_combine and out_param:
             expr = _scalar_assign_expr(read_seen, out_c_type, byte_order, scalar_pieces)
@@ -419,7 +463,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c",
         header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
-        defines=defines, funcs=funcs, public_names=public)
+        defines=defines, funcs=funcs, public_names=public, private_decls=private_decls)
 
 
 # --- SPI device unit (NOR flash) --------------------------------------------------------

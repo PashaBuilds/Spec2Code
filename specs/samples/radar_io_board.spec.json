@@ -31,6 +31,16 @@
         "via_mux": { "mux_id": "u7_tca9548a", "channel": 3 },
         "reset_gpio": null, "irq_line": null
       },
+      "config": {
+        "pairs": {
+          "v1_v2": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v3_v4": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v5_v6": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v7_v8": { "mode": "single_ended_voltage", "shunt_milliohm": null }
+        },
+        "internal_temperature": true,
+        "vcc_read": false
+      },
       "operations_requested": ["device_init", "voltage_read", "temperature_read"],
       "tests_requested": ["self_test"]
     },

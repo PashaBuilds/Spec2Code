@@ -8,6 +8,9 @@
 {% for inc in driver_includes %}#include "{{ inc }}"
 {% endfor %}
 
+{% if private_decls %}{% for line in private_decls %}{{ line }}
+{% endfor %}
+{% endif %}
 {% for func in funcs %}
 {{ m.render_func(func, include_doxygen) }}
 {% endfor %}

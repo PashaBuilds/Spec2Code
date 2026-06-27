@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import DeviceConfigEditor from "@/features/device-config/DeviceConfigEditor";
 
 const NONE = "__none__";
 
@@ -238,6 +239,10 @@ export default function DeviceParams() {
           </Field>
         </Section>
       )}
+
+      <Section title="Configuration">
+        <DeviceConfigEditor device={device} />
+      </Section>
 
       {/* Operations */}
       <Section title="Operations">

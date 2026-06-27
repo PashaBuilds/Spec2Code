@@ -70,6 +70,11 @@
           "id": { "type": "string", "minLength": 1 },
           "part": { "type": "string", "minLength": 1 },
           "descriptor_ref": { "type": ["string", "null"] },
+          "config": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Board-specific device configuration consumed by optional device profiles."
+          },
           "attach": {
             "type": "object",
             "description": "Connection metadata only (address/cs/mux/channel/gpio). Behaviour lives in the descriptor. Versioned + extensible (Brief §10).",

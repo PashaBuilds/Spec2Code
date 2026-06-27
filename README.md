@@ -23,6 +23,8 @@ ve devam geliştirme.
   daha sonra aynı dosyadan geri yüklenebilir.
 - **Coding Standard Studio:** Setup ekranında Word/Markdown/text/JSON standardından
   ruleset adayı üretir; schema validation, diff ve örnek QC check'leri gösterir.
+- **Cihaz konfigürasyon profilleri:** `device.config` üzerinden karttaki kullanım
+  şeklini toplar; LTC2991 için pair/mode seçimi init register array'ine çevrilir.
 - **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, raporlar ve
   varsa `reference_sources/` hiyerarşik gösterilir; tek dosya veya tüm çıktı zip
   olarak indirilebilir.
@@ -60,6 +62,37 @@ deterministik üretimi doğrudan değiştirmez; ilgili part projede kullanıldı
 Vitis paketinde hem Spec2Code üretimi hem de senin verdiğin orijinal kaynaklar
 birlikte taşınır. Sonraki adım, bu kaynaklardan descriptor taslağı üretme akışını
 daha otomatik hale getirmektir.
+
+## Cihaz Konfigürasyonu
+
+Bağlantı bilgisi `attach` altında, karttaki kullanım/mode bilgisi `config` altında
+saklanır. LTC2991 eklediğinde sağ panelde **Configuration** bölümü görünür:
+
+- `V1/V2`, `V3/V4`, `V5/V6`, `V7/V8` çiftleri için `Off`, `SE V`, `Diff V`,
+  `Current`, `Temp` modu seçilir.
+- `Current` seçilirse shunt değeri mΩ cinsinden zorunlu olur.
+- Internal temperature ve VCC read enable seçenekleri aynı config içine yazılır.
+- UI'daki init preview, generate sırasında C dosyasına `S_ltc2991_init_sequence`
+  static array'i olarak girer.
+
+Örnek `project.spec.json` parçası:
+
+```json
+"config": {
+  "pairs": {
+    "v1_v2": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+    "v3_v4": { "mode": "differential_voltage", "shunt_milliohm": null },
+    "v5_v6": { "mode": "current_shunt", "shunt_milliohm": 10 },
+    "v7_v8": { "mode": "disabled", "shunt_milliohm": null }
+  },
+  "internal_temperature": true,
+  "vcc_read": false
+}
+```
+
+Bu model generic altyapı + cihaz özel profile/editor şeklinde ilerler. Şu anda
+özel profile LTC2991 için aktiftir; diğer cihazlar descriptor default'larıyla
+çalışmaya devam eder.
 
 ## Kodlama Standardı Nasıl Çalışır?
 

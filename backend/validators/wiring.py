@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from orchestrator.device_profiles import registry as device_profiles
+
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _DESCRIPTORS = _ROOT / "descriptors"
 
@@ -166,5 +168,10 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
         if unknown_ops:
             add("warning", f"{path}/operations_requested",
                 f"{owner}: requested operations are not in descriptor: {', '.join(unknown_ops)}")
+
+        for issue in device_profiles.validate_config(device):
+            severity = issue.get("severity", "error")
+            rel = issue.get("path", "config")
+            add(severity, f"{path}/{rel}", f"{owner}: {issue.get('message', 'invalid device config')}")
 
     return {"valid": not errors, "errors": errors, "warnings": warnings}

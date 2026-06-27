@@ -5,6 +5,7 @@ import type { CatalogDevice } from "@/lib/types";
 import { Badge, Button, Card } from "@/components/ui";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DeviceParams from "@/features/device-params/DeviceParams";
+import { defaultDeviceConfig } from "@/features/device-config/DeviceConfigEditor";
 
 export default function SidePanel() {
   const selectedId = useStore((s) => s.selectedId);
@@ -42,6 +43,7 @@ export default function SidePanel() {
     addDevice({
       part: dev.part,
       descriptor_ref: dev.descriptor ?? null,
+      config: defaultDeviceConfig(dev.part),
       attach,
       operations_requested: full?.operations?.map((o) => o.name),
       tests_requested: ["self_test"],

@@ -46,6 +46,9 @@ Full PoC is built end-to-end and was confirmed working on the Mac Mini. Verified
   `/api/rulesets/default|extract|validate|save` normalize LLM candidates against
   `schemas/ruleset.schema.json`, show diff/checks/issues, and persist approved refs as
   `std/user/<name>.ruleset.json`.
+- **Device profiles**: `devices[].config` is the board-specific layer above descriptor
+  behavior. `orchestrator/device_profiles/` currently implements LTC2991 pair-mode config,
+  backend preflight validation, and profile-generated init write arrays.
 - **Portability static audit**: no platform-specific code, no `shell=True`, no manual path joins,
   no non-CRLF output outside `hostplat/`.
 
@@ -56,7 +59,7 @@ hostplat/        ONLY platform module: io.write_output()=CRLF, tools.resolve(), 
 backend/         main.py · jobs.py (JobManager + WS event buffering) · api/routes.py · ws/jobs.py
                  parsers/xparameters.py
 orchestrator/    codegen.py · cmodel.py (C render-model: Emit class + i2c/spi/mux/test builders)
-                 templates/*.j2 · qc/{loop,runners,naming_linter}.py + bsp_stubs/ · llm/{client,tasks}.py
+                 templates/*.j2 · device_profiles/ · qc/{loop,runners,naming_linter}.py + bsp_stubs/ · llm/{client,tasks}.py
                  selftest.py
 descriptors/     ltc2991/tca9548a/mt25q128/mt25qu02g/ad7414/ds1682/ltc2945 .yaml + _schema/descriptor.schema.json
 platforms/       4 topology models (zones/cores)

@@ -91,7 +91,8 @@ def generate(
 
         driver = driver_t.render(
             module=unit.module, part=unit.part, summary=unit.summary,
-            driver_includes=unit.driver_includes, funcs=unit.funcs,
+            driver_includes=unit.driver_includes, private_decls=unit.private_decls,
+            funcs=unit.funcs,
             include_doxygen=include_doxygen)
         written.append(str(hio.write_output(drivers_dir / f"{unit.module}.c", driver)))
 
