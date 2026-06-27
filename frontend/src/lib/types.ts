@@ -40,10 +40,19 @@ export interface Device {
   id: string;
   part: string;
   descriptor_ref?: string | null;
-  config?: Record<string, unknown>;
+  config?: DeviceConfig;
   attach: DeviceAttach;
   operations_requested?: string[];
   tests_requested?: string[];
+}
+export interface InitSequenceWrite {
+  reg: string;
+  value: number;
+  note?: string;
+}
+export interface DeviceConfig {
+  init_sequence?: InitSequenceWrite[];
+  [key: string]: unknown;
 }
 export interface Mux {
   id: string;
@@ -98,6 +107,40 @@ export interface DescriptorMeta {
   transport: string;
   summary: string;
   operations: string[];
+}
+export interface DescriptorField {
+  name: string;
+  bits: string;
+  description?: string;
+  values?: Record<string, string>;
+}
+export interface DescriptorRegister {
+  name: string;
+  offset: number;
+  width: number;
+  access?: string;
+  reset?: number;
+  fields?: DescriptorField[];
+}
+export interface DescriptorCommand {
+  name: string;
+  opcode: number;
+  address_bytes?: number;
+  description?: string;
+}
+export interface DescriptorOperation {
+  name: string;
+  description?: string;
+  returns?: string;
+  steps?: Array<Record<string, unknown>>;
+}
+export interface DeviceDescriptor {
+  part: string;
+  transport: { type: string; address_width?: number; default_address?: number; byte_order?: string };
+  summary?: string;
+  registers?: DescriptorRegister[];
+  commands?: DescriptorCommand[];
+  operations: DescriptorOperation[];
 }
 export interface PlatformInfo {
   id: PlatformId;

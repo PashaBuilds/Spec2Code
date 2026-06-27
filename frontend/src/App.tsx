@@ -12,6 +12,7 @@ import GenerateConsole from "@/features/generate-console/GenerateConsole";
 import CodeViewer from "@/features/code-view/CodeViewer";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DriverImport from "@/features/driver-import/DriverImport";
+import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 
 type View = "flow" | "catalog" | "import";
 
@@ -46,6 +47,8 @@ export default function App() {
   async function runGenerate() {
     setGenError(null);
     const spec = buildSpec();
+    setView("flow");
+    setStep("generate");
     try {
       const v = await api.validate(spec);
       if (!v.valid) {
@@ -53,8 +56,6 @@ export default function App() {
         return;
       }
       resetJob();
-      setView("flow");
-      setStep("generate");
       setJob({ status: "running" });
       const { job_id } = await api.generate(spec);
       setJob({ id: job_id });
@@ -167,8 +168,11 @@ export default function App() {
           </div>
         ) : (
           <div className="grid h-full grid-cols-1 lg:grid-cols-2">
-            <div className="min-h-0 overflow-auto border-r border-border p-4">
-              <GenerateConsole />
+            <div className="flex min-h-0 flex-col gap-4 overflow-auto border-r border-border p-4">
+              <DesignReviewPanel />
+              <div className="min-h-[320px] flex-1">
+                <GenerateConsole />
+              </div>
             </div>
             <div className="min-h-0 overflow-auto p-4">
               <CodeViewer />

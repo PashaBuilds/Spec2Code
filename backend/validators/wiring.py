@@ -48,6 +48,19 @@ def _hex_int(value: Any) -> int | None:
         return None
 
 
+def _int_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return None
+    return None
+
+
 def validate_wiring(spec: dict) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
@@ -137,6 +150,13 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
                         record_i2c(("mux", mux["id"], str(channel)), addr, owner, f"{path}/attach/i2c_address")
             elif addr is not None:
                 record_i2c(("controller", attach["controller_id"]), addr, owner, f"{path}/attach/i2c_address")
+            _validate_i2c_init_sequence(
+                device=device,
+                descriptor=desc,
+                path=path,
+                owner=owner,
+                add=add,
+            )
         elif transport == "spi":
             if controller_type not in {"spi", "qspi"}:
                 add("error", f"{path}/attach/controller_id", f"{owner}: SPI descriptor is attached to {controller_type}")
@@ -151,12 +171,17 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
                 seen_spi[key] = owner
             expected_width = desc.get("transport", {}).get("address_width")
             actual_width = attach.get("address_width")
+            is_flash = str(device.get("part", "")).upper().startswith("MT25Q")
             if expected_width is not None and actual_width not in {None, expected_width}:
-                add("warning", f"{path}/attach/address_width",
+                severity = "error" if is_flash else "warning"
+                add(severity, f"{path}/attach/address_width",
                     f"{owner}: address width {actual_width} differs from descriptor value {expected_width}")
             elif expected_width is not None and actual_width is None:
                 add("warning", f"{path}/attach/address_width",
                     f"{owner}: address width is not set; descriptor value is {expected_width}")
+            if _has_manual_init_sequence(device):
+                add("warning", f"{path}/config/init_sequence",
+                    f"{owner}: manual register init sequence is only applied to I2C register devices")
         elif transport == "i2c_mux":
             add("error", f"{path}/part", f"{owner}: I2C mux parts must be added as muxes, not devices")
         else:
@@ -175,3 +200,69 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
             add(severity, f"{path}/{rel}", f"{owner}: {issue.get('message', 'invalid device config')}")
 
     return {"valid": not errors, "errors": errors, "warnings": warnings}
+
+
+def _has_manual_init_sequence(device: dict[str, Any]) -> bool:
+    config = device.get("config")
+    return isinstance(config, dict) and bool(config.get("init_sequence"))
+
+
+def _validate_i2c_init_sequence(
+    *,
+    device: dict[str, Any],
+    descriptor: dict[str, Any],
+    path: str,
+    owner: str,
+    add,
+) -> None:
+    config = device.get("config")
+    if not isinstance(config, dict) or "init_sequence" not in config:
+        return
+
+    sequence = config.get("init_sequence")
+    seq_path = f"{path}/config/init_sequence"
+    if sequence in (None, []):
+        return
+    if not isinstance(sequence, list):
+        add("error", seq_path, f"{owner}: init_sequence must be a list of register writes")
+        return
+
+    requested_ops = set(device.get("operations_requested") or [])
+    if requested_ops and "device_init" not in requested_ops:
+        add("warning", seq_path, f"{owner}: init_sequence is ignored unless device_init is selected")
+
+    registers = {r.get("name"): r for r in descriptor.get("registers", [])}
+    seen: set[str] = set()
+    profile_regs = {w.get("reg") for w in device_profiles.i2c_init_writes(device)}
+    for idx, item in enumerate(sequence):
+        item_path = f"{seq_path}/{idx}"
+        if not isinstance(item, dict):
+            add("error", item_path, f"{owner}: init write must be an object")
+            continue
+        reg_name = item.get("reg")
+        if not isinstance(reg_name, str):
+            add("error", f"{item_path}/reg", f"{owner}: init write reg must be a register name")
+            continue
+        reg = registers.get(reg_name)
+        if reg is None:
+            add("error", f"{item_path}/reg", f"{owner}: unknown register '{reg_name}'")
+            continue
+        access = str(reg.get("access", "rw")).lower()
+        if "w" not in access:
+            add("error", f"{item_path}/reg", f"{owner}: register '{reg_name}' is not writable")
+        if reg_name in seen:
+            add("warning", f"{item_path}/reg", f"{owner}: register '{reg_name}' is written more than once")
+        if reg_name in profile_regs:
+            add("warning", f"{item_path}/reg",
+                f"{owner}: register '{reg_name}' is also written by the device profile; later writes override earlier ones")
+        seen.add(reg_name)
+
+        value = _int_value(item.get("value"))
+        width = int(reg.get("width", 8) or 8)
+        if value is None:
+            add("error", f"{item_path}/value", f"{owner}: init write value must be an integer or hex string")
+        elif width <= 0 or width > 8:
+            add("error", f"{item_path}/value", f"{owner}: init builder currently supports 8-bit registers only")
+        elif not 0 <= value <= ((1 << width) - 1):
+            add("error", f"{item_path}/value",
+                f"{owner}: value 0x{value:X} does not fit in {width}-bit register '{reg_name}'")

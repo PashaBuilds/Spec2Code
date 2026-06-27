@@ -253,6 +253,38 @@ def _private_i2c_init_sequence(module: str, mod: str, writes: list[dict]) -> lis
     return lines
 
 
+def _int_value(value) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value, 0)
+    return int(value)
+
+
+def _generic_i2c_init_writes(device: dict, regs: dict[str, dict]) -> list[dict]:
+    config = device.get("config")
+    if not isinstance(config, dict):
+        return []
+    sequence = config.get("init_sequence")
+    if not isinstance(sequence, list):
+        return []
+
+    writes: list[dict] = []
+    for item in sequence:
+        if not isinstance(item, dict):
+            continue
+        reg = item.get("reg")
+        if not isinstance(reg, str) or reg not in regs:
+            continue
+        access = str(regs[reg].get("access", "rw")).lower()
+        if "w" not in access:
+            continue
+        value = _int_value(item.get("value", 0)) & 0xFF
+        note = str(item.get("note") or "manual init builder write")
+        writes.append({"reg": reg, "value": value, "note": note})
+    return writes
+
+
 def _doxy(func: CFunc) -> CFunc:
     return func
 
@@ -349,7 +381,10 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     regs = {rg["name"]: rg for rg in descriptor.get("registers", [])}
     instance = controller["instance"]
     byte_order = descriptor.get("transport", {}).get("byte_order", "big")
-    profile_writes = device_profiles.i2c_init_writes(device)
+    profile_writes = [
+        *device_profiles.i2c_init_writes(device),
+        *_generic_i2c_init_writes(device, regs),
+    ]
 
     defines = [
         (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),

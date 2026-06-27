@@ -26,6 +26,13 @@ type FolderNode = {
 };
 
 type TreeNode = FileNode | FolderNode;
+type DiffStatus = "added" | "changed" | "removed" | "unchanged";
+type FileDiff = {
+  path: string;
+  status: DiffStatus;
+  addedLines: number;
+  removedLines: number;
+};
 
 function severityTone(severity: string): Tone {
   const s = severity.toLowerCase();
@@ -84,6 +91,71 @@ function buildTree(files: GeneratedFile[]): TreeNode[] {
   }
 
   return sortTree(root);
+}
+
+function buildDiff(previous: GeneratedFile[], current: GeneratedFile[]): FileDiff[] {
+  const prev = new Map(previous.map((file) => [generatedPath(file), file.content]));
+  const next = new Map(current.map((file) => [generatedPath(file), file.content]));
+  const paths = [...new Set([...prev.keys(), ...next.keys()])].sort((a, b) => a.localeCompare(b));
+  return paths.map((path) => {
+    const before = prev.get(path);
+    const after = next.get(path);
+    if (before == null && after != null) {
+      return { path, status: "added", addedLines: lineCount(after), removedLines: 0 };
+    }
+    if (before != null && after == null) {
+      return { path, status: "removed", addedLines: 0, removedLines: lineCount(before) };
+    }
+    if (before === after) {
+      return { path, status: "unchanged", addedLines: 0, removedLines: 0 };
+    }
+    const beforeLines = splitLines(before ?? "");
+    const afterLines = splitLines(after ?? "");
+    return {
+      path,
+      status: "changed",
+      addedLines: Math.max(0, afterLines.length - commonLineCount(beforeLines, afterLines)),
+      removedLines: Math.max(0, beforeLines.length - commonLineCount(beforeLines, afterLines)),
+    };
+  });
+}
+
+function splitLines(value: string): string[] {
+  return value.length ? value.split(/\r?\n/) : [];
+}
+
+function lineCount(value: string): number {
+  return splitLines(value).length;
+}
+
+function commonLineCount(left: string[], right: string[]): number {
+  const counts = new Map<string, number>();
+  for (const line of left) counts.set(line, (counts.get(line) ?? 0) + 1);
+  let common = 0;
+  for (const line of right) {
+    const count = counts.get(line) ?? 0;
+    if (count > 0) {
+      common += 1;
+      counts.set(line, count - 1);
+    }
+  }
+  return common;
+}
+
+function diffTone(status: DiffStatus): Tone {
+  if (status === "added") return "ok";
+  if (status === "changed") return "warn";
+  if (status === "removed") return "danger";
+  return "neutral";
+}
+
+function diffLabel(status: DiffStatus): string {
+  return {
+    added: "added",
+    changed: "changed",
+    removed: "removed",
+    unchanged: "unchanged",
+  }[status];
 }
 
 function fileIcon(name: string) {
@@ -198,9 +270,11 @@ function ViolationRow({ v }: { v: QcViolation }) {
 export default function CodeViewer() {
   const jobId = useStore((s) => s.job.id);
   const files = useStore((s) => s.job.files);
+  const previousFiles = useStore((s) => s.previousFiles);
   const qc = useStore((s) => s.job.qc);
   const [active, setActive] = useState<string>(() => files[0]?.path ?? "");
   const tree = useMemo(() => buildTree(files), [files]);
+  const diffs = useMemo(() => buildDiff(previousFiles, files), [previousFiles, files]);
 
   if (files.length === 0) {
     return (
@@ -221,6 +295,7 @@ export default function CodeViewer() {
   const activePath = files.some((f) => f.path === active) ? active : files[0].path;
   const activeFile = files.find((f) => f.path === activePath) ?? files[0];
   const activeDisplayPath = generatedPath(activeFile);
+  const activeDiff = diffs.find((diff) => diff.path === activeDisplayPath);
   const activeDownloadUrl = jobId ? api.jobFileDownloadUrl(jobId, activeFile.path) : null;
   const allDownloadUrl = jobId ? api.jobDownloadUrl(jobId) : null;
   const vitisDownloadUrl = jobId ? api.jobVitisDownloadUrl(jobId) : null;
@@ -249,6 +324,7 @@ export default function CodeViewer() {
           <Badge tone="neutral">QC pending</Badge>
         )}
         <Badge tone="neutral">{files.length} files</Badge>
+        {previousFiles.length > 0 ? <DiffBadges diffs={diffs} /> : <Badge tone="neutral">baseline</Badge>}
         {qc?.warning ? (
           <span className="text-xs text-warn">{qc.warning}</span>
         ) : null}
@@ -268,6 +344,8 @@ export default function CodeViewer() {
         </div>
       </div>
 
+      {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
+
       <div className="grid min-h-0 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-elev">
           <div className="flex h-10 items-center justify-between border-b border-border px-3">
@@ -284,6 +362,12 @@ export default function CodeViewer() {
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
               {activeDisplayPath}
             </span>
+            {previousFiles.length > 0 && activeDiff ? (
+              <Badge tone={diffTone(activeDiff.status)} className="font-mono">
+                {diffLabel(activeDiff.status)}
+                {activeDiff.status === "changed" ? ` +${activeDiff.addedLines}/-${activeDiff.removedLines}` : ""}
+              </Badge>
+            ) : null}
             {activeDownloadUrl ? (
               <DownloadLink href={activeDownloadUrl} download={activeFile.name}>
                 <Download className="h-4 w-4" />
@@ -328,6 +412,57 @@ export default function CodeViewer() {
             )}
           </Card>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function DiffBadges({ diffs }: { diffs: FileDiff[] }) {
+  const counts = diffs.reduce<Record<DiffStatus, number>>(
+    (acc, diff) => {
+      acc[diff.status] += 1;
+      return acc;
+    },
+    { added: 0, changed: 0, removed: 0, unchanged: 0 },
+  );
+  return (
+    <>
+      <Badge tone="ok">+{counts.added}</Badge>
+      <Badge tone="warn">~{counts.changed}</Badge>
+      <Badge tone="danger">-{counts.removed}</Badge>
+      <Badge tone="neutral">={counts.unchanged}</Badge>
+    </>
+  );
+}
+
+function DiffPanel({ diffs }: { diffs: FileDiff[] }) {
+  const changed = diffs.filter((diff) => diff.status !== "unchanged");
+  if (changed.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-elev px-3 py-2">
+        <Badge tone="ok">No file changes from previous run</Badge>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-border bg-elev">
+      <div className="border-b border-border px-3 py-2 text-xs font-medium text-muted">
+        Changes from previous run
+      </div>
+      <div className="grid gap-1 p-2 md:grid-cols-2">
+        {changed.slice(0, 8).map((diff) => (
+          <div key={diff.path} className="flex items-center gap-2 rounded bg-inset px-2 py-1.5">
+            <Badge tone={diffTone(diff.status)} className="shrink-0 font-mono">
+              {diffLabel(diff.status)}
+            </Badge>
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">{diff.path}</span>
+            {diff.status === "changed" ? (
+              <span className="font-mono text-xs text-faint">
+                +{diff.addedLines}/-{diff.removedLines}
+              </span>
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   );

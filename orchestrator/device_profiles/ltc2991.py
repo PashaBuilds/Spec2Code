@@ -107,6 +107,18 @@ def validate_config(raw: Any) -> list[dict[str, str]]:
             issues.append(_issue("warning", f"{pair_path}/shunt_milliohm",
                                  "shunt_milliohm is only used when mode is current_shunt"))
 
+    config = normalize_config(raw)
+    enabled_pairs = [
+        key for key in PAIR_KEYS
+        if config["pairs"][key]["mode"] != "disabled"
+    ]
+    if not enabled_pairs and not config["internal_temperature"] and not config["vcc_read"]:
+        issues.append(_issue(
+            "warning",
+            "config",
+            "all LTC2991 measurements are disabled; device_init will only write disabled controls",
+        ))
+
     return issues
 
 
@@ -165,4 +177,3 @@ def _number_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-

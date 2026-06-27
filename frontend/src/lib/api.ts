@@ -4,6 +4,7 @@
 import type {
   CatalogDevice,
   DescriptorMeta,
+  DeviceDescriptor,
   GeneratedFile,
   ParseResult,
   PlatformInfo,
@@ -57,11 +58,7 @@ export const api = {
     req<{ descriptors: DescriptorMeta[] }>("/api/descriptors").then((r) => r.descriptors),
 
   descriptor: (part: string) =>
-    req<{
-      part: string;
-      transport: { type: string; address_width?: number; default_address?: number };
-      operations: { name: string }[];
-    }>(`/api/descriptors/${part}`),
+    req<DeviceDescriptor>(`/api/descriptors/${part}`),
 
   validate: (spec: ProjectSpec) =>
     req<SpecValidation>("/api/spec/validate", {

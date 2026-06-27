@@ -45,6 +45,7 @@ interface StoreState {
 
   selectedId: string | null;
   job: JobState;
+  previousFiles: GeneratedFile[];
   counter: number;
 
   // actions
@@ -124,6 +125,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   selectedId: null,
   job: { id: null, status: "idle", events: [], files: [], qc: null },
+  previousFiles: [],
   counter: 0,
 
   setStep: (step) => set({ step }),
@@ -158,6 +160,7 @@ export const useStore = create<StoreState>((set, get) => ({
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
       job: { id: null, status: "idle", events: [], files: [], qc: null },
+      previousFiles: [],
     }),
 
   setCatalog: (catalog) => set({ catalog }),
@@ -220,7 +223,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setJob: (patch) => set((s) => ({ job: { ...s.job, ...patch } })),
   pushEvent: (e) => set((s) => ({ job: { ...s.job, events: [...s.job.events, e] } })),
-  resetJob: () => set({ job: { id: null, status: "idle", events: [], files: [], qc: null } }),
+  resetJob: () =>
+    set((s) => ({
+      previousFiles: s.job.files.length > 0 ? s.job.files : s.previousFiles,
+      job: { id: null, status: "idle", events: [], files: [], qc: null },
+    })),
 }));
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {

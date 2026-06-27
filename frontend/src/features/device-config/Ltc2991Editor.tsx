@@ -22,7 +22,7 @@ export default function Ltc2991Editor({
   onChange: (config: Record<string, unknown>) => void;
 }) {
   const cfg = normalizeLtc2991Config(config);
-  const preview = initPreview(cfg);
+  const preview = ltc2991InitPreview(cfg);
 
   const updatePair = (key: Ltc2991PairKey, patch: Partial<Ltc2991PairConfig>) => {
     onChange({
@@ -133,7 +133,7 @@ function Toggle({
   );
 }
 
-function initPreview(cfg: Ltc2991Config): Array<{ reg: string; value: string }> {
+export function ltc2991InitPreview(cfg: Ltc2991Config): Array<{ reg: string; value: string; numericValue: number }> {
   let enable = cfg.internal_temperature || cfg.vcc_read ? 0x08 : 0x00;
   const controls = { CONTROL_V1V4: 0, CONTROL_V5V8: 0 };
   for (const pair of LTC2991_PAIRS) {
@@ -142,9 +142,9 @@ function initPreview(cfg: Ltc2991Config): Array<{ reg: string; value: string }> 
     controls[pair.reg] |= mode.bits << pair.shift;
   }
   return [
-    { reg: "STATUS_HIGH", value: hex(enable) },
-    { reg: "CONTROL_V1V4", value: hex(controls.CONTROL_V1V4) },
-    { reg: "CONTROL_V5V8", value: hex(controls.CONTROL_V5V8) },
+    { reg: "STATUS_HIGH", value: hex(enable), numericValue: enable },
+    { reg: "CONTROL_V1V4", value: hex(controls.CONTROL_V1V4), numericValue: controls.CONTROL_V1V4 },
+    { reg: "CONTROL_V5V8", value: hex(controls.CONTROL_V5V8), numericValue: controls.CONTROL_V5V8 },
   ];
 }
 
