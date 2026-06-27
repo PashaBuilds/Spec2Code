@@ -54,9 +54,27 @@
   stroke: var(--accent);
 }
 .react-flow__edge-text {
-  fill: var(--muted);
+  fill: var(--text);
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--bg) 86%, transparent);
+  stroke-width: 2px;
+}
+.react-flow__edge-textbg {
+  fill: color-mix(in srgb, var(--elev) 94%, black);
+  stroke: color-mix(in srgb, var(--accent) 34%, var(--border));
+  stroke-width: 1px;
+}
+.react-flow__edge.selected .react-flow__edge-text,
+.react-flow__edge:hover .react-flow__edge-text {
+  fill: #ffffff;
+}
+.react-flow__edge.selected .react-flow__edge-textbg,
+.react-flow__edge:hover .react-flow__edge-textbg {
+  fill: color-mix(in srgb, var(--accent-dim) 62%, var(--elev));
+  stroke: var(--accent);
 }
 .react-flow__handle {
   background: var(--accent);
