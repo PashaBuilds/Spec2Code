@@ -23,6 +23,7 @@ import { useStore } from "@/store/useStore";
 import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
 import { zoneColor } from "@/lib/utils";
+import { VisualBackdrop } from "@/components/visuals";
 
 export default function SchematicCanvas() {
   const zones = useStore((s) => s.zones);
@@ -126,30 +127,36 @@ export default function SchematicCanvas() {
 
   if (!controllers.length) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center text-sm text-faint">
-        Upload an <span className="mx-1 font-mono text-muted">xparameters.h</span> to render the schematic.
+      <div className="absolute inset-0 overflow-hidden bg-bg">
+        <VisualBackdrop asset="schematic" opacity={0.3} position="center" size="720px 720px" mask="canvas" />
+        <div className="relative z-10 flex h-full items-center justify-center px-6 text-center text-sm text-faint">
+          <p className="rounded-md border border-border/70 bg-bg/70 px-3 py-2 backdrop-blur-sm">
+            Upload an <span className="mx-1 font-mono text-muted">xparameters.h</span> to render the schematic.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="absolute inset-0">
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      onNodeClick={(_, n) => select(n.id.startsWith("zone-") ? null : n.id)}
-      onPaneClick={() => select(null)}
-      onInit={(inst) => inst.fitView({ padding: 0.18 })}
-      nodesDraggable={false}
-      fitView
-      minZoom={0.2}
-      proOptions={{ hideAttribution: true }}
-    >
-      <FitView signature={`${controllers.length}-${muxes.length}-${devices.length}`} />
-      <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
-      <Controls showInteractive={false} className="!bg-elev !border-border" />
-    </ReactFlow>
+    <div className="absolute inset-0 overflow-hidden bg-bg">
+      <VisualBackdrop asset="schematic" opacity={0.13} position="center" size="640px 640px" />
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodeClick={(_, n) => select(n.id.startsWith("zone-") ? null : n.id)}
+        onPaneClick={() => select(null)}
+        onInit={(inst) => inst.fitView({ padding: 0.18 })}
+        nodesDraggable={false}
+        fitView
+        minZoom={0.2}
+        proOptions={{ hideAttribution: true }}
+      >
+        <FitView signature={`${controllers.length}-${muxes.length}-${devices.length}`} />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
+        <Controls showInteractive={false} className="!bg-elev !border-border" />
+      </ReactFlow>
     </div>
   );
 }

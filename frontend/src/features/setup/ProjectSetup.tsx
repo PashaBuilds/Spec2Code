@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui";
+import { VisualBackdrop } from "@/components/visuals";
 
 const PREFIXES = [
   ["unsigned char", "uc"],
@@ -92,7 +93,9 @@ export default function ProjectSetup() {
   }
 
   return (
-    <Card className="p-5">
+    <Card className="relative overflow-hidden p-5">
+      <VisualBackdrop asset="setup" className="h-32" opacity={0.42} position="right top" mask="header" />
+      <div className="relative z-10">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-text">Project</h2>
         <div className="flex items-center gap-2">
@@ -307,6 +310,7 @@ export default function ProjectSetup() {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </Card>
   );

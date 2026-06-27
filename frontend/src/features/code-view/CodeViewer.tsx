@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import type { GeneratedFile, QcViolation } from "@/lib/types";
 import { Card, Badge } from "@/components/ui";
+import { VisualBackdrop } from "@/components/visuals";
 
 type Tone = "neutral" | "accent" | "ok" | "warn" | "danger";
 
@@ -203,10 +204,15 @@ export default function CodeViewer() {
 
   if (files.length === 0) {
     return (
-      <Card className="flex items-center justify-center px-6 py-12">
-        <p className="text-sm text-muted">
-          Generated code will appear here after a run.
-        </p>
+      <Card className="relative flex min-h-[260px] items-center overflow-hidden px-6 py-12">
+        <VisualBackdrop asset="generate" opacity={0.28} position="left bottom" mask="empty" />
+        <div className="relative z-10 max-w-sm">
+          <FileCode2 className="h-5 w-5 text-accent" />
+          <p className="mt-3 text-sm text-text">Generated code will appear here after a run.</p>
+          <p className="mt-1 text-xs text-muted">
+            The file tree, QC result, and per-file downloads stay grouped in this panel.
+          </p>
+        </div>
       </Card>
     );
   }

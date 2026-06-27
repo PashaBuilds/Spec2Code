@@ -43,7 +43,7 @@
 
 /* React Flow theming to match the dark engineering aesthetic */
 .react-flow {
-  background: var(--bg);
+  background: transparent;
 }
 .react-flow__edge-path {
   stroke: var(--faint);

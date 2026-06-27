@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Card, Badge } from "@/components/ui";
+import { VisualBackdrop } from "@/components/visuals";
 import { cn } from "@/lib/utils";
 import type { JobEvent } from "@/lib/types";
 import { useStore } from "@/store/useStore";
@@ -229,9 +230,18 @@ export default function GenerateConsole() {
         className="min-h-0 flex-1 overflow-y-auto bg-bg p-3 font-mono text-xs leading-relaxed"
       >
         {eventCount === 0 ? (
-          <p className="text-muted">
-            No run yet. Configure devices and click Generate.
-          </p>
+          <div className="relative min-h-full overflow-hidden rounded-md border border-border/70 bg-inset px-4 py-10">
+            <VisualBackdrop asset="generate" opacity={0.3} position="left bottom" mask="empty" />
+            <div className="relative z-10 max-w-sm">
+              <Badge tone="neutral" className="font-mono">
+                READY
+              </Badge>
+              <p className="mt-3 text-sm text-text">No run yet.</p>
+              <p className="mt-1 text-xs text-muted">
+                Configure the schematic, then Generate will stream codegen, LLM, and QC events here.
+              </p>
+            </div>
+          </div>
         ) : (
           <ul className="space-y-1">
             {job.events.map((e, i) => {

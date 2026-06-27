@@ -3,6 +3,7 @@ import { Upload, FileCode, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { Badge, Button, Card } from "@/components/ui";
+import { VisualBackdrop } from "@/components/visuals";
 
 export default function XparametersUpload() {
   const project = useStore((s) => s.project);
@@ -35,7 +36,9 @@ export default function XparametersUpload() {
   }
 
   return (
-    <Card className="flex flex-col p-5">
+    <Card className="relative flex flex-col overflow-hidden p-5">
+      <VisualBackdrop asset="setup" opacity={0.2} position="right center" mask="side" />
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
       <h2 className="mb-1 text-sm font-semibold text-text">xparameters.h</h2>
       <p className="mb-4 text-xs text-faint">
         Upload the Vivado/Vitis BSP header. Controllers are extracted automatically and placed into
@@ -65,6 +68,7 @@ export default function XparametersUpload() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode className="h-4 w-4" />}
           Parse &amp; build schematic
         </Button>
+      </div>
       </div>
     </Card>
   );
