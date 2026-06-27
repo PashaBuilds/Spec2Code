@@ -33,12 +33,6 @@
     { "part": "LTC2945", "transport": "i2c", "status": "builtin",
       "descriptor": "descriptors/ltc2945.yaml",
       "summary": "Wide range I2C power monitor for current, voltage, power, and ADIN",
-      "match_tokens": ["LTC2945", "ltc2945_", "POWER_MSB2", "SENSE_MSB"] },
-    { "part": "ADXL345", "transport": "spi", "status": "needs_source",
-      "summary": "3-axis accelerometer (provide sources to enable)",
-      "match_tokens": ["ADXL345", "adxl345_"] },
-    { "part": "BME280", "transport": "i2c", "status": "from_datasheet",
-      "summary": "Humidity/pressure/temperature sensor (datasheet extraction)",
-      "match_tokens": ["BME280", "bme280_"] }
+      "match_tokens": ["LTC2945", "ltc2945_", "POWER_MSB2", "SENSE_MSB"] }
   ]
 }
