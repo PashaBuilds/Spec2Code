@@ -24,6 +24,7 @@ import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
 import { zoneColor } from "@/lib/utils";
 import { VisualBackdrop } from "@/components/visuals";
+import { ltc2991NodeSummary } from "@/features/device-config/ltc2991Model";
 
 export default function SchematicCanvas() {
   const zones = useStore((s) => s.zones);
@@ -40,7 +41,7 @@ export default function SchematicCanvas() {
     const ctrlById = Object.fromEntries(controllers.map((c) => [c.id, c]));
     const hasDescriptor = (part: string) =>
       descriptors.some((d) => d.part === part) ||
-      ["LTC2991", "TCA9548A", "MT25Q128", "MT25QU02G"].includes(part);
+      ["LTC2991", "TCA9548A", "MT25Q128", "MT25QU02G", "AD7414", "DS1682", "LTC2945"].includes(part);
 
     const nodes: Node[] = [];
     for (const z of zoneRects) {
@@ -96,7 +97,13 @@ export default function SchematicCanvas() {
         id: d.id,
         type: "device",
         position: { x: p.x, y: p.y },
-        data: { part: d.part, sub, transport, hasDescriptor: hasDescriptor(d.part) },
+        data: {
+          part: d.part,
+          sub,
+          transport,
+          hasDescriptor: hasDescriptor(d.part),
+          configSummary: d.part.toUpperCase() === "LTC2991" ? ltc2991NodeSummary(d.config) : [],
+        },
         selected: d.id === selectedId,
         draggable: false,
         zIndex: 1,

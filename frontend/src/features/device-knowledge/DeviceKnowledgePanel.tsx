@@ -2,6 +2,7 @@ import { AlertTriangle, BookOpen, ExternalLink, ListChecks, Settings2 } from "lu
 import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { getDeviceKnowledge, type KnowledgeRegister, type KnowledgeRecipe } from "./knowledge";
+import Ltc2991PinMap from "./Ltc2991PinMap";
 
 function EmptyKnowledge({ part }: { part: string }) {
   return (
@@ -92,15 +93,18 @@ function RecipeList({ recipes }: { recipes: KnowledgeRecipe[] }) {
 
 export default function DeviceKnowledgePanel({
   part,
+  config,
   compact = false,
   className,
 }: {
   part: string;
+  config?: Record<string, unknown>;
   compact?: boolean;
   className?: string;
 }) {
   const pack = getDeviceKnowledge(part);
   if (!pack) return <EmptyKnowledge part={part} />;
+  const hasPinMap = pack.part.toUpperCase() === "LTC2991";
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -123,6 +127,7 @@ export default function DeviceKnowledgePanel({
       <Tabs defaultValue="overview" className="space-y-3">
         <TabsList className="flex w-full overflow-x-auto">
           <TabsTrigger value="overview">Ozet</TabsTrigger>
+          {hasPinMap && <TabsTrigger value="pinmap">Pin Map</TabsTrigger>}
           <TabsTrigger value="registers">Register</TabsTrigger>
           <TabsTrigger value="recipes">Recete</TabsTrigger>
           <TabsTrigger value="notes">Dikkat</TabsTrigger>
@@ -143,6 +148,12 @@ export default function DeviceKnowledgePanel({
             </div>
           )}
         </TabsContent>
+
+        {hasPinMap && (
+          <TabsContent value="pinmap">
+            <Ltc2991PinMap config={config} />
+          </TabsContent>
+        )}
 
         <TabsContent value="registers">
           <RegisterTable registers={pack.registers} />
@@ -184,4 +195,3 @@ export default function DeviceKnowledgePanel({
     </div>
   );
 }
-

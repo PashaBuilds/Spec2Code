@@ -246,7 +246,7 @@ export default function DeviceParams() {
       </Section>
 
       <Section title="Datasheet Knowledge">
-        <DeviceKnowledgePanel part={device.part} />
+        <DeviceKnowledgePanel part={device.part} config={device.config} />
       </Section>
 
       {/* Operations */}

@@ -23,7 +23,7 @@ export interface ZoneRect {
 const SIZE = {
   controller: { w: 200, h: 78 },
   mux: { w: 168, h: 70 },
-  device: { w: 210, h: 84 },
+  device: { w: 230, h: 126 },
 };
 const COL_X = [60, 430, 800];
 const GAP = 34;

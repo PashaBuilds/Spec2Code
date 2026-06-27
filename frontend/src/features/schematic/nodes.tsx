@@ -11,6 +11,7 @@ import {
   ToggleRight,
 } from "lucide-react";
 import { cn, zoneColor } from "@/lib/utils";
+import type { Ltc2991ModeTone } from "@/features/device-config/ltc2991Model";
 
 const CTRL_ICON: Record<string, typeof Cpu> = {
   i2c: Share2,
@@ -110,12 +111,13 @@ export function DeviceNode({ data, selected }: NodeProps) {
     sub: string;
     transport: string;
     hasDescriptor: boolean;
+    configSummary?: Array<{ key: string; label: string; tone: Ltc2991ModeTone }>;
   };
   const Icon = d.transport === "spi" ? HardDrive : Box;
   return (
     <div
       className={cn(
-        "relative w-[210px] rounded-lg border bg-elev px-3 py-2.5",
+        "relative w-[230px] rounded-lg border bg-elev px-3 py-2.5",
         selected ? "border-accent shadow-[0_0_0_1px_var(--accent)]" : "border-border",
       )}
     >
@@ -136,9 +138,43 @@ export function DeviceNode({ data, selected }: NodeProps) {
         </span>
         <span className="font-mono text-[11px] text-accent">{d.sub}</span>
       </div>
+      {d.configSummary && d.configSummary.length > 0 && (
+        <div className="mt-2 grid grid-cols-2 gap-1">
+          {d.configSummary.map((item) => (
+            <span
+              key={item.key}
+              className={cn(
+                "min-w-0 truncate rounded border px-1.5 py-0.5 text-center font-mono text-[9px] font-semibold",
+                summaryToneClass(item.tone),
+              )}
+              title={item.label}
+            >
+              {item.label}
+            </span>
+          ))}
+        </div>
+      )}
       <Handle type="target" position={Position.Left} />
     </div>
   );
+}
+
+function summaryToneClass(tone: Ltc2991ModeTone): string {
+  switch (tone) {
+    case "off":
+      return "border-border bg-inset text-faint";
+    case "diff":
+      return "border-ok/30 bg-ok/10 text-ok";
+    case "current":
+      return "border-warn/30 bg-warn/10 text-warn";
+    case "temp":
+      return "border-danger/30 bg-danger/10 text-danger";
+    case "aux":
+      return "border-muted/25 bg-inset text-muted";
+    case "se":
+    default:
+      return "border-accent/30 bg-accent/10 text-accent";
+  }
 }
 
 export const nodeTypes = {
