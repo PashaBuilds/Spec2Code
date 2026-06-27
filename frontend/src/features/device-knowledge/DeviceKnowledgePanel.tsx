@@ -7,7 +7,7 @@ import Ltc2991PinMap from "./Ltc2991PinMap";
 function EmptyKnowledge({ part }: { part: string }) {
   return (
     <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
-      {part} icin statik knowledge pack henuz eklenmemis.
+      {part} için statik bilgi paketi henüz eklenmemiş.
     </div>
   );
 }
@@ -31,11 +31,11 @@ function RegisterTable({ registers }: { registers: KnowledgeRegister[] }) {
       <table className="min-w-[620px] border-collapse text-left text-xs">
         <thead className="sticky top-0 bg-inset text-[10px] uppercase tracking-wide text-faint">
           <tr>
-            <th className="border-b border-border px-2 py-2 font-semibold">Name</th>
-            <th className="border-b border-border px-2 py-2 font-semibold">Addr/op</th>
-            <th className="border-b border-border px-2 py-2 font-semibold">Width</th>
-            <th className="border-b border-border px-2 py-2 font-semibold">Access</th>
-            <th className="border-b border-border px-2 py-2 font-semibold">Purpose</th>
+            <th className="border-b border-border px-2 py-2 font-semibold">Ad</th>
+            <th className="border-b border-border px-2 py-2 font-semibold">Adres/op</th>
+            <th className="border-b border-border px-2 py-2 font-semibold">Genişlik</th>
+            <th className="border-b border-border px-2 py-2 font-semibold">Erişim</th>
+            <th className="border-b border-border px-2 py-2 font-semibold">Amaç</th>
           </tr>
         </thead>
         <tbody>
@@ -113,12 +113,12 @@ export default function DeviceKnowledgePanel({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-accent" aria-hidden />
-              <h3 className="truncate text-sm font-semibold text-text">{pack.part} knowledge pack</h3>
+              <h3 className="truncate text-sm font-semibold text-text">{pack.part} bilgi paketi</h3>
             </div>
             <p className="mt-1 text-xs text-faint">{pack.scope}</p>
           </div>
           <Badge tone="neutral" className="shrink-0">
-            reviewed {pack.reviewedAt}
+            gözden geçirildi {pack.reviewedAt}
           </Badge>
         </div>
         <p className="text-xs leading-relaxed text-muted">{pack.overview}</p>
@@ -126,10 +126,10 @@ export default function DeviceKnowledgePanel({
 
       <Tabs defaultValue="overview" className="space-y-3">
         <TabsList className="flex w-full overflow-x-auto">
-          <TabsTrigger value="overview">Ozet</TabsTrigger>
-          {hasPinMap && <TabsTrigger value="pinmap">Pin Map</TabsTrigger>}
+          <TabsTrigger value="overview">Özet</TabsTrigger>
+          {hasPinMap && <TabsTrigger value="pinmap">Pin haritası</TabsTrigger>}
           <TabsTrigger value="registers">Register</TabsTrigger>
-          <TabsTrigger value="recipes">Recete</TabsTrigger>
+          <TabsTrigger value="recipes">Reçete</TabsTrigger>
           <TabsTrigger value="notes">Dikkat</TabsTrigger>
         </TabsList>
 
@@ -137,13 +137,13 @@ export default function DeviceKnowledgePanel({
           <div className="space-y-2">
             <h4 className="flex items-center gap-2 text-xs font-semibold text-text">
               <Settings2 className="h-3.5 w-3.5 text-accent" aria-hidden />
-              Kullanima dair karar noktasi
+              Kullanıma dair karar noktaları
             </h4>
             <BulletList items={pack.keyFacts} />
           </div>
           {!compact && (
             <div className="space-y-2">
-              <h4 className="text-xs font-semibold text-text">Konfigurasyon</h4>
+              <h4 className="text-xs font-semibold text-text">Konfigürasyon</h4>
               <BulletList items={pack.configuration} />
             </div>
           )}
@@ -172,7 +172,7 @@ export default function DeviceKnowledgePanel({
             <BulletList items={pack.gotchas} />
           </div>
           <div className="space-y-2">
-            <h4 className="text-xs font-semibold text-text">Codegen notlari</h4>
+            <h4 className="text-xs font-semibold text-text">Codegen notları</h4>
             <BulletList items={pack.codegenNotes} />
           </div>
           <div className="space-y-1">

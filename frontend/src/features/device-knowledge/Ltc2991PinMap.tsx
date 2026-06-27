@@ -70,8 +70,8 @@ export default function Ltc2991PinMap({ config }: { config?: Record<string, unkn
       <div className="rounded-md border border-border bg-inset p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div>
-            <h4 className="text-xs font-semibold text-text">Pinout & measurement map</h4>
-            <p className="mt-1 text-[11px] text-faint">MSOP-16 top view, pair colors follow current config.</p>
+            <h4 className="text-xs font-semibold text-text">Pinout ve ölçüm haritası</h4>
+            <p className="mt-1 text-[11px] text-faint">MSOP-16 üst görünüm; pair renkleri güncel config değerini izler.</p>
           </div>
           <div className="rounded border border-border bg-elev px-2 py-1 font-mono text-[10px] text-muted">
             V1..V8
@@ -81,7 +81,7 @@ export default function Ltc2991PinMap({ config }: { config?: Record<string, unkn
         <svg
           viewBox="0 0 420 310"
           role="img"
-          aria-label="LTC2991 MSOP-16 pin and measurement pair map"
+          aria-label="LTC2991 MSOP-16 pin ve ölçüm pair haritası"
           className="h-auto w-full"
         >
           <rect x="146" y="38" width="100" height="236" rx="12" fill="var(--elev)" stroke="var(--border)" />
@@ -163,7 +163,7 @@ export default function Ltc2991PinMap({ config }: { config?: Record<string, unkn
                 </span>
               </div>
               <p className="mt-1 text-[11px] text-faint">
-                Pins {pair.pins[0]} and {pair.pins[1]} share one pair-level measurement mode.
+                Pin {pair.pins[0]} ve {pair.pins[1]} aynı pair-level measurement mode değerini paylaşır.
               </p>
             </div>
           );
@@ -172,4 +172,3 @@ export default function Ltc2991PinMap({ config }: { config?: Record<string, unkn
     </div>
   );
 }
-

@@ -19,9 +19,9 @@ const STATUS_META: Record<
   DeviceStatus,
   { tone: "ok" | "warn" | "accent"; label: string }
 > = {
-  builtin: { tone: "ok", label: "built-in" },
-  needs_source: { tone: "warn", label: "needs source" },
-  from_datasheet: { tone: "accent", label: "from datasheet" },
+  builtin: { tone: "ok", label: "hazır" },
+  needs_source: { tone: "warn", label: "kaynak gerekli" },
+  from_datasheet: { tone: "accent", label: "datasheet kaynaklı" },
 };
 
 /** Icon hint keyed off the device transport. */
@@ -77,8 +77,8 @@ export default function CatalogPanel({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by part, summary, or transport..."
-          aria-label="Filter catalog devices"
+          placeholder="Part, özet veya transport ile filtrele..."
+          aria-label="Katalog cihazlarını filtrele"
           className="pl-9"
         />
       </div>
@@ -87,9 +87,9 @@ export default function CatalogPanel({
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
             <Search className="h-5 w-5 text-faint" aria-hidden />
-            <p className="text-sm text-muted">No devices match your filter.</p>
+            <p className="text-sm text-muted">Filtreyle eşleşen cihaz yok.</p>
             <p className="text-xs text-faint">
-              {catalog.length === 0 ? "The catalog is empty." : "Try a different term."}
+              {catalog.length === 0 ? "Katalog boş." : "Farklı bir ifade dene."}
             </p>
           </div>
         ) : (
@@ -150,7 +150,7 @@ function DeviceCard({
       <p className="mt-1.5 text-xs text-muted">{dev.summary}</p>
       {mode === "pick" && !isBuiltin && (
         <p className="mt-2 text-[11px] text-faint">
-          provide .c/.h or datasheet (see Driver Import)
+          .c/.h veya datasheet verilmeli (Driver Import ekranına bak)
         </p>
       )}
       {mode === "browse" && hasKnowledge && (
@@ -164,7 +164,7 @@ function DeviceCard({
             aria-expanded={expanded}
           >
             <BookOpen className="h-3.5 w-3.5" />
-            {expanded ? "Hide knowledge" : "Open knowledge"}
+            {expanded ? "Bilgiyi gizle" : "Bilgiyi aç"}
           </Button>
         </div>
       )}
@@ -185,7 +185,7 @@ function DeviceCard({
           "w-full rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           dimmed && "opacity-50",
         )}
-        aria-label={`Pick ${dev.part}`}
+        aria-label={`${dev.part} seç`}
       >
         <Card className="border-border bg-elev px-3 py-2.5 transition-colors hover:border-accent/60 hover:bg-inset">
           {body}
