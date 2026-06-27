@@ -216,9 +216,6 @@ function SelectedPinPanel({
         </div>
       )}
 
-      <p className="mt-3 border-t border-border pt-2 text-[10px] leading-relaxed text-faint">
-        {pinMap.verification}
-      </p>
     </div>
   );
 }
@@ -245,7 +242,6 @@ export default function DevicePinMap({
   const chipH = (rowCount - 1) * PIN_STEP + 36;
   const viewH = PIN_TOP + (rowCount - 1) * PIN_STEP + 48;
   const chipSubtitle = pinMap.packageName.length > 18 ? "sinyal haritası" : pinMap.packageName;
-  const selectedStyle = selectedPin ? TONE_STYLE[selectedPin.tone] : TONE_STYLE.bus;
 
   return (
     <div className="space-y-3">
@@ -257,6 +253,7 @@ export default function DevicePinMap({
               {pinMap.packageName} - {pinMap.view}
             </p>
             <p className="mt-1 text-[10px] text-faint">{pinMap.verification}</p>
+            <p className="mt-1 max-w-2xl text-[10px] leading-relaxed text-faint">{pinMap.note}</p>
           </div>
           <div className="rounded border border-border bg-elev px-2 py-1 font-mono text-[10px] text-muted">
             {part}
@@ -283,16 +280,6 @@ export default function DevicePinMap({
           </svg>
 
           {selectedPin && <SelectedPinPanel part={part} pin={selectedPin} pinMap={pinMap} config={config} />}
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span
-            className="rounded border px-1.5 py-0.5 font-mono text-[10px]"
-            style={{ borderColor: selectedStyle.stroke, color: selectedStyle.text, background: selectedStyle.fill }}
-          >
-            seçili: {selectedPin?.name ?? "-"}
-          </span>
-          <p className="text-[11px] leading-relaxed text-faint">{pinMap.note}</p>
         </div>
       </div>
     </div>
