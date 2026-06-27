@@ -113,8 +113,8 @@ karar verebilmesi için işlenmiş kısa bilgi setidir:
 
 Bu katman runtime'da lokal modele tekrar yazdırılmaz. Bilgi bir kez doğrulanıp
 repo'ya girdikten sonra UI ve ileride codegen kararları aynı statik kaynaktan
-beslenir. Katalog ekranında **Open knowledge**, şemada seçili cihaz panelinde
-**Datasheet Knowledge** bölümü üzerinden okunabilir.
+beslenir. Bilgi paketleri Catalog ekranındaki **Open knowledge** bölümü üzerinden
+okunabilir; schematic ekranı bağlantı ve cihaz konfigürasyonu için sade tutulur.
 
 LTC2991 knowledge panelinde ayrıca deterministik **Pin Map** sekmesi bulunur. Bu
 sekme MSOP-16 top-view pin haritasını, V1/V2..V7/V8 measurement pair gruplarını
