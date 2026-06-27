@@ -79,21 +79,28 @@ const flashStatusFields: KnowledgeRegisterField[] = [
     bits: "B7",
     name: "SRWD",
     meaning: "Status register write-protect biti; WP# kullanımıyla birlikte protection/config yazımlarını kilitlemek için kullanılır.",
+    values: ["0: status register yazımı enable", "1: WP# low iken status register nonvolatile bitleri read-only"],
   },
   {
     bits: "B6",
     name: "BP3",
     meaning: "Block protect alanının üst biti; BP[3:0] ve TB ile protected alanın boyutunu belirler.",
+    values: ["0: BP[3:0] koduna 0 katkısı", "1: BP[3:0] koduna 1 katkısı"],
   },
   {
     bits: "B5",
     name: "TB",
     meaning: "Protected alanın flash adres uzayının üstünden mi altından mı başladığını seçer.",
+    values: ["0: protection alanı top tarafından başlar", "1: protection alanı bottom tarafından başlar"],
   },
   {
     bits: "B4:B2",
     name: "BP[2:0]",
     meaning: "Block protect kodunun alt bitleri; hangi sector/block aralığının write-protected olduğunu belirler.",
+    values: [
+      "000: BP3=0 iken protected alan yok",
+      "001..111: BP3 ve TB ile birlikte protected sector aralığını seçer",
+    ],
   },
   {
     bits: "B1",
@@ -115,6 +122,18 @@ const flashReadIdFields: KnowledgeRegisterField[] = [
   { bits: "Response byte 1..2", name: "Device ID", meaning: "Memory type ve capacity bilgisini taşıyan device ID byte'ları." },
 ];
 
+const oldNewDataValues = ["0: register datası eski / yeni conversion yok", "1: register yeni conversion datası içerir"];
+const disabledEnabledValues = ["0: disabled / varsayılan kapalı", "1: enabled"];
+const filterValues = ["0: filter disabled / varsayılan", "1: filter enabled"];
+const celsiusKelvinValues = ["0: Celsius / varsayılan", "1: Kelvin"];
+const voltageTemperatureValues = ["0: voltage mode / varsayılan", "1: temperature mode"];
+const singleEndedDifferentialValues = [
+  "0: single-ended voltage / varsayılan",
+  "1: differential pair; çiftin ilk pini single-ended olarak da okunur",
+];
+const signValues = ["0: pozitif veya non-negative code", "1: negatif code"];
+const unusedValues = ["x: kullanılmaz; conversion hesabına dahil edilmez"];
+
 const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): KnowledgeRegisterField[] => {
   const verb =
     kind === "enable"
@@ -124,16 +143,24 @@ const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): Know
         : kind === "fault"
           ? "Bu limit koşulunun latched fault olarak görüldüğünü gösterir."
           : "Bu limit koşulunun o anda aktif olduğunu gösterir.";
+  const values =
+    kind === "enable"
+      ? ["0: alert disabled", "1: alert enabled"]
+      : kind === "status"
+        ? ["0: koşul aktif değil", "1: koşul aktif"]
+        : kind === "clear"
+          ? ["0: latched fault yok", "1: latched fault vardı; CoR read sonrası clear edilir"]
+          : ["0: latched fault yok", "1: latched fault oluştu"];
 
   return [
-    { bits: "B7", name: "Max POWER", meaning: verb },
-    { bits: "B6", name: "Min POWER", meaning: verb },
-    { bits: "B5", name: "Max SENSE", meaning: verb },
-    { bits: "B4", name: "Min SENSE", meaning: verb },
-    { bits: "B3", name: "Max VIN", meaning: verb },
-    { bits: "B2", name: "Min VIN", meaning: verb },
-    { bits: "B1", name: "Max ADIN", meaning: verb },
-    { bits: "B0", name: "Min ADIN", meaning: verb },
+    { bits: "B7", name: "Max POWER", meaning: verb, values },
+    { bits: "B6", name: "Min POWER", meaning: verb, values },
+    { bits: "B5", name: "Max SENSE", meaning: verb, values },
+    { bits: "B4", name: "Min SENSE", meaning: verb, values },
+    { bits: "B3", name: "Max VIN", meaning: verb, values },
+    { bits: "B2", name: "Min VIN", meaning: verb, values },
+    { bits: "B1", name: "Max ADIN", meaning: verb, values },
+    { bits: "B0", name: "Min ADIN", meaning: verb, values },
   ];
 };
 
@@ -170,14 +197,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x00",
         purpose: "Harici kanal dönüşümleri için busy/status bitleri.",
         fields: [
-          { bits: "B7", name: "V8 ready", meaning: "V8 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B6", name: "V7 ready", meaning: "V7 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B5", name: "V6 ready", meaning: "V6 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B4", name: "V5 ready", meaning: "V5 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B3", name: "V4 ready", meaning: "V4 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B2", name: "V3 ready", meaning: "V3 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B1", name: "V2 ready", meaning: "V2 sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B0", name: "V1 ready", meaning: "V1 sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B7", name: "V8 ready", meaning: "V8 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B6", name: "V7 ready", meaning: "V7 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B5", name: "V6 ready", meaning: "V6 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B4", name: "V5 ready", meaning: "V5 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B3", name: "V4 ready", meaning: "V4 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B2", name: "V3 ready", meaning: "V3 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B1", name: "V2 ready", meaning: "V2 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B0", name: "V1 ready", meaning: "V1 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
         ],
       },
       {
@@ -188,14 +215,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x00",
         purpose: "V1/V2, V3/V4, V5/V6, V7/V8, iç sıcaklık ve VCC ölçümlerini enable eder.",
         fields: [
-          { bits: "B7", name: "V7/V8/TR4 enable", meaning: "V7/V8 pair veya TR4 ölçüm grubunu enable eder." },
-          { bits: "B6", name: "V5/V6/TR3 enable", meaning: "V5/V6 pair veya TR3 ölçüm grubunu enable eder." },
-          { bits: "B5", name: "V3/V4/TR2 enable", meaning: "V3/V4 pair veya TR2 ölçüm grubunu enable eder." },
-          { bits: "B4", name: "V1/V2/TR1 enable", meaning: "V1/V2 pair veya TR1 ölçüm grubunu enable eder." },
-          { bits: "B3", name: "T_INT/VCC enable", meaning: "İç sıcaklık ve VCC dönüşümlerini enable eder." },
-          { bits: "B2", name: "Busy", meaning: "Conversion devam ederken set olan read-only busy biti." },
-          { bits: "B1", name: "T_INT ready", meaning: "İç sıcaklık sonucunda yeni data hazır olduğunu gösterir." },
-          { bits: "B0", name: "VCC ready", meaning: "VCC sonucunda yeni data hazır olduğunu gösterir." },
+          { bits: "B7", name: "V7/V8/TR4 enable", meaning: "V7/V8 pair veya TR4 ölçüm grubunu enable eder.", values: disabledEnabledValues },
+          { bits: "B6", name: "V5/V6/TR3 enable", meaning: "V5/V6 pair veya TR3 ölçüm grubunu enable eder.", values: disabledEnabledValues },
+          { bits: "B5", name: "V3/V4/TR2 enable", meaning: "V3/V4 pair veya TR2 ölçüm grubunu enable eder.", values: disabledEnabledValues },
+          { bits: "B4", name: "V1/V2/TR1 enable", meaning: "V1/V2 pair veya TR1 ölçüm grubunu enable eder.", values: disabledEnabledValues },
+          { bits: "B3", name: "T_INT/VCC enable", meaning: "İç sıcaklık ve VCC dönüşümlerini enable eder.", values: disabledEnabledValues },
+          { bits: "B2", name: "Busy", meaning: "Conversion devam ederken set olan read-only busy biti.", values: ["0: sleep/idle / varsayılan", "1: conversion devam ediyor"] },
+          { bits: "B1", name: "T_INT ready", meaning: "İç sıcaklık sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
+          { bits: "B0", name: "VCC ready", meaning: "VCC sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
         ],
       },
       {
@@ -206,14 +233,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x00",
         purpose: "V1/V2 ve V3/V4 pair mode bitleri.",
         fields: [
-          { bits: "B7", name: "V3/V4 filter", meaning: "V3/V4 ölçüm grubunda dijital filter ayarını belirler." },
-          { bits: "B6", name: "V3/V4 Kelvin voltage", meaning: "V3/V4 pair'i için Kelvin voltage measurement seçimini belirler." },
-          { bits: "B5", name: "V3/V4 temperature", meaning: "V3/V4 pair'ini remote temperature ölçümü için kullanır." },
-          { bits: "B4", name: "V3/V4 differential", meaning: "V3/V4 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
-          { bits: "B3", name: "V1/V2 filter", meaning: "V1/V2 ölçüm grubunda dijital filter ayarını belirler." },
-          { bits: "B2", name: "V1/V2 Kelvin voltage", meaning: "V1/V2 pair'i için Kelvin voltage measurement seçimini belirler." },
-          { bits: "B1", name: "V1/V2 temperature", meaning: "V1/V2 pair'ini remote temperature ölçümü için kullanır." },
-          { bits: "B0", name: "V1/V2 differential", meaning: "V1/V2 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+          { bits: "B7", name: "V3/V4 filter", meaning: "V3/V4 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
+          { bits: "B6", name: "TR2 Kelvin", meaning: "TR2 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
+          { bits: "B5", name: "V3/V4 temperature", meaning: "V3/V4 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
+          { bits: "B4", name: "V3/V4 differential", meaning: "V3/V4 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
+          { bits: "B3", name: "V1/V2 filter", meaning: "V1/V2 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
+          { bits: "B2", name: "TR1 Kelvin", meaning: "TR1 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
+          { bits: "B1", name: "V1/V2 temperature", meaning: "V1/V2 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
+          { bits: "B0", name: "V1/V2 differential", meaning: "V1/V2 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
         ],
       },
       {
@@ -224,14 +251,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x00",
         purpose: "V5/V6 ve V7/V8 pair mode bitleri.",
         fields: [
-          { bits: "B7", name: "V7/V8 filter", meaning: "V7/V8 ölçüm grubunda dijital filter ayarını belirler." },
-          { bits: "B6", name: "V7/V8 Kelvin voltage", meaning: "V7/V8 pair'i için Kelvin voltage measurement seçimini belirler." },
-          { bits: "B5", name: "V7/V8 temperature", meaning: "V7/V8 pair'ini remote temperature ölçümü için kullanır." },
-          { bits: "B4", name: "V7/V8 differential", meaning: "V7/V8 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
-          { bits: "B3", name: "V5/V6 filter", meaning: "V5/V6 ölçüm grubunda dijital filter ayarını belirler." },
-          { bits: "B2", name: "V5/V6 Kelvin voltage", meaning: "V5/V6 pair'i için Kelvin voltage measurement seçimini belirler." },
-          { bits: "B1", name: "V5/V6 temperature", meaning: "V5/V6 pair'ini remote temperature ölçümü için kullanır." },
-          { bits: "B0", name: "V5/V6 differential", meaning: "V5/V6 pair'ini differential voltage/current ölçüm yolu olarak kullanır." },
+          { bits: "B7", name: "V7/V8 filter", meaning: "V7/V8 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
+          { bits: "B6", name: "TR4 Kelvin", meaning: "TR4 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
+          { bits: "B5", name: "V7/V8 temperature", meaning: "V7/V8 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
+          { bits: "B4", name: "V7/V8 differential", meaning: "V7/V8 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
+          { bits: "B3", name: "V5/V6 filter", meaning: "V5/V6 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
+          { bits: "B2", name: "TR3 Kelvin", meaning: "TR3 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
+          { bits: "B1", name: "V5/V6 temperature", meaning: "V5/V6 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
+          { bits: "B0", name: "V5/V6 differential", meaning: "V5/V6 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
         ],
       },
       {
@@ -241,9 +268,12 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         purpose: "Harici girişler için raw ölçüm sonuç register'ları.",
         fields: [
-          { bits: "MSB B7", name: "Data valid", meaning: "İlgili conversion sonucunda yeni data hazır olduğunda set olur." },
-          { bits: "MSB B6", name: "Sign", meaning: "Signed ölçüm formatlarında işaret bitidir." },
-          { bits: "MSB B5:B0", name: "D13:D8", meaning: "Raw conversion sonucunun üst data bitleri." },
+          { bits: "Voltage/current MSB B7", name: "Data valid", meaning: "İlgili conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
+          { bits: "Voltage/current MSB B6", name: "Sign", meaning: "Signed voltage/current ölçüm formatlarında işaret bitidir.", values: signValues },
+          { bits: "Voltage/current MSB B5:B0", name: "D13:D8", meaning: "14-bit raw conversion sonucunun üst data bitleri." },
+          { bits: "Temperature/diode MSB B7", name: "Data valid", meaning: "Remote temperature veya diode-voltage sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
+          { bits: "Temperature/diode MSB B6:B5", name: "Unused", meaning: "13-bit temperature/diode-voltage formatında kullanılmaz.", values: unusedValues },
+          { bits: "Temperature/diode MSB B4:B0", name: "D12:D8", meaning: "13-bit raw temperature veya diode-voltage sonucunun üst data bitleri." },
           { bits: "LSB B7:B0", name: "D7:D0", meaning: "Raw conversion sonucunun alt data bitleri." },
         ],
       },
@@ -254,9 +284,10 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         purpose: "Raw iç sıcaklık sonucu.",
         fields: [
-          { bits: "MSB B7", name: "Data valid", meaning: "İç sıcaklık conversion sonucunda yeni data hazır olduğunda set olur." },
-          { bits: "MSB B6", name: "Sign", meaning: "Signed sıcaklık kodunun işaret bitidir." },
-          { bits: "MSB/LSB data", name: "Temperature code", meaning: "İç sıcaklık için raw conversion code; mühendislik birimine çeviri datasheet formülüne bırakılır." },
+          { bits: "MSB B7", name: "Data valid", meaning: "İç sıcaklık conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
+          { bits: "MSB B6:B5", name: "Unused", meaning: "13-bit temperature formatında kullanılmaz.", values: unusedValues },
+          { bits: "MSB B4:B0", name: "D12:D8", meaning: "İç sıcaklık için raw conversion code üst data bitleri." },
+          { bits: "LSB B7:B0", name: "D7:D0", meaning: "İç sıcaklık için raw conversion code alt data bitleri." },
         ],
       },
       {
@@ -266,7 +297,8 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         access: "RO",
         purpose: "Raw VCC ölçüm sonucu.",
         fields: [
-          { bits: "MSB B7", name: "Data valid", meaning: "VCC conversion sonucunda yeni data hazır olduğunda set olur." },
+          { bits: "MSB B7", name: "Data valid", meaning: "VCC conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
+          { bits: "MSB B6", name: "Sign", meaning: "VCC measurement formatındaki sign bitidir; datasheet formatında VCC = result + 2.5V olarak yorumlanır.", values: signValues },
           { bits: "MSB/LSB data", name: "VCC code", meaning: "VCC için raw conversion code; mühendislik birimine çeviri datasheet formülüne bırakılır." },
         ],
       },
@@ -779,10 +811,10 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         fields: [
           { bits: "Byte1 D7:D0", name: "TEMP[9:2]", meaning: "10-bit two's-complement sıcaklık kodunun üst sekiz biti." },
           { bits: "Byte2 D7:D6", name: "TEMP[1:0]", meaning: "10-bit sıcaklık kodunun en düşük iki biti." },
-          { bits: "Byte2 D5", name: "ALERT flag", meaning: "ALERT koşulu oluştuğunu gösteren status flag." },
-          { bits: "Byte2 D4", name: "THIGH flag", meaning: "Sıcaklık THIGH eşiğini geçtiğinde set olan flag." },
-          { bits: "Byte2 D3", name: "TLOW flag", meaning: "Sıcaklık TLOW eşiğinin altına indiğinde set olan flag." },
-          { bits: "Byte2 D2:D0", name: "Reserved", meaning: "Temperature conversion data için kullanılmaz; okunan değer uygulama hesabına dahil edilmemelidir." },
+          { bits: "Byte2 D5", name: "ALERT flag", meaning: "ALERT pininin okunan mantık seviyesini taşır.", values: ["0: ALERT pini low", "1: ALERT pini high"] },
+          { bits: "Byte2 D4", name: "THIGH flag", meaning: "Sıcaklık THIGH eşiğini geçtiğinde set olan flag.", values: ["0: flag clear", "1: sıcaklık THIGH üstünde"] },
+          { bits: "Byte2 D3", name: "TLOW flag", meaning: "Sıcaklık TLOW eşiğinin altına indiğinde set olan flag.", values: ["0: flag clear", "1: sıcaklık TLOW altında"] },
+          { bits: "Byte2 D2:D0", name: "Reserved", meaning: "Temperature conversion data için kullanılmaz; okunan değer uygulama hesabına dahil edilmemelidir.", values: ["000: read as zero / ignore", "diğer: reserved; application hesabına dahil etme"] },
         ],
       },
       {
@@ -797,9 +829,9 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
           { bits: "D6", name: "Filter", meaning: "Temperature filtering davranışını seçer.", values: ["0: filtering bypass", "1: filtering aktif"] },
           { bits: "D5", name: "ALERT disable", meaning: "ALERT output davranışını kapatır/açar.", values: ["0: ALERT aktif", "1: ALERT disabled"] },
           { bits: "D4", name: "ALERT polarity", meaning: "ALERT pininin aktif seviyesini seçer.", values: ["0: active low", "1: active high"] },
-          { bits: "D3", name: "ALERT reset", meaning: "Interrupt/latch modunda ALERT durumunu resetlemek için kullanılır." },
-          { bits: "D2", name: "One-shot", meaning: "Power-down modundayken tek conversion başlatır." },
-          { bits: "D1:D0", name: "Reserved", meaning: "Normal kullanımda 0 tutulmalıdır." },
+          { bits: "D3", name: "ALERT reset", meaning: "Interrupt/latch modunda ALERT durumunu resetlemek için kullanılır.", values: ["0: reset komutu yok / readback 0", "1: ALERT latch reset edilir; bit saklanmaz"] },
+          { bits: "D2", name: "One-shot", meaning: "Power-down modundayken tek conversion başlatır.", values: ["0: one-shot başlatma yok / readback 0", "1: tek conversion başlatılır; bit saklanmaz"] },
+          { bits: "D1:D0", name: "Factory settings", meaning: "Normal kullanımda 0 tutulmalıdır.", values: ["00: normal kullanım", "diğer: factory/reserved; kullanma"] },
         ],
       },
       {
@@ -810,7 +842,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x7F",
         purpose: "High temperature alert threshold değeri.",
         fields: [
-          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir." },
+          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir.", values: signValues },
           { bits: "D6:D0", name: "Threshold code", meaning: "High threshold için 1 derece C adımlı signed sıcaklık kodu." },
         ],
       },
@@ -822,7 +854,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x80",
         purpose: "Low temperature alert threshold değeri.",
         fields: [
-          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir." },
+          { bits: "D7", name: "Sign/MSB", meaning: "8-bit signed threshold kodunun üst bitidir.", values: signValues },
           { bits: "D6:D0", name: "Threshold code", meaning: "Low threshold için 1 derece C adımlı signed sıcaklık kodu." },
         ],
       },
@@ -907,14 +939,14 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         reset: "0x00",
         purpose: "Alarm flag, write-disable flag'leri, alarm output seçimi, reset enable ve event MSB.",
         fields: [
-          { bits: "B7", name: "Reserved", meaning: "Normal kullanımda 0 olarak bırakılır." },
-          { bits: "B6", name: "AF", meaning: "Alarm flag; elapsed-time counter alarm değerine ulaştığında set olur." },
-          { bits: "B5", name: "WDF", meaning: "Write-disable flag; write-disable komutu sonrası set olur." },
-          { bits: "B4", name: "WMDF", meaning: "Write-memory-disable flag; user EEPROM alanı için disable durumunu gösterir." },
-          { bits: "B3", name: "AOS", meaning: "Alarm output select; ALARM pininin output davranışını seçer." },
-          { bits: "B2", name: "RE", meaning: "Reset enable; reset komutu kabul edilmeden önce 1 yapılmalıdır." },
-          { bits: "B1", name: "AP", meaning: "Alarm polarity; ALARM pininin aktif seviyesini seçer." },
-          { bits: "B0", name: "ECMSB", meaning: "17-bit event counter değerinin en üst bitidir." },
+          { bits: "B7", name: "Reserved", meaning: "Normal kullanımda 0 olarak bırakılır.", values: ["0: normal kullanım", "1: reserved; kullanma"] },
+          { bits: "B6", name: "AF", meaning: "Alarm flag; elapsed-time counter alarm değerine ulaştığında set olur.", values: ["0: alarm match yok", "1: alarm match oldu; reset command dışında clear edilemez"] },
+          { bits: "B5", name: "WDF", meaning: "Write-disable flag; write-disable komutu sonrası set olur.", values: ["0: alarm/event/ETC yazımları disable değil", "1: alarm/event/ETC read-only; clear edilemez"] },
+          { bits: "B4", name: "WMDF", meaning: "Write-memory-disable flag; user EEPROM alanı için disable durumunu gösterir.", values: ["0: user EEPROM yazımı disable değil", "1: user EEPROM read-only; clear edilemez"] },
+          { bits: "B3", name: "AOS", meaning: "Alarm output select; ALARM pininin pulse veya constant alarm output davranışını seçer.", values: ["0: pulse/flash output mode; AP etkisiz", "1: alarm aktifken constant output; AP polarity belirler"] },
+          { bits: "B2", name: "RE", meaning: "Reset enable; reset komutu kabul edilmeden önce 1 yapılmalıdır.", values: ["0: reset command disabled", "1: reset command enabled"] },
+          { bits: "B1", name: "AP", meaning: "Alarm polarity; yalnızca AOS=1 constant output modunda etkilidir.", values: ["0: alarm öncesi high-Z, match sonrası low", "1: alarm öncesi low, match sonrası high-Z"] },
+          { bits: "B0", name: "ECMSB", meaning: "17-bit event counter değerinin en üst bitidir.", values: ["0: event counter bit16 = 0", "1: event counter bit16 = 1"] },
         ],
       },
       {
@@ -955,7 +987,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         fields: [
           { bits: "0x09", name: "ECNT0", meaning: "Event counter değerinin düşük byte'ı." },
           { bits: "0x0A", name: "ECNT1", meaning: "Event counter değerinin yüksek byte'ı." },
-          { bits: "CONFIG B0", name: "ECMSB", meaning: "17-bit event counter değerinin bit16 alanı." },
+          { bits: "CONFIG B0", name: "ECMSB", meaning: "17-bit event counter değerinin bit16 alanı.", values: ["0: event counter bit16 = 0", "1: event counter bit16 = 1"] },
         ],
       },
       {
@@ -969,35 +1001,39 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         ],
       },
       {
-        name: "EVENT_INPUT_DISABLE",
-        address: "0x1D",
-        width: "command byte",
-        access: "WO",
-        purpose: "Event input disable komutu; production flow dışında kullanılmamalıdır.",
-        fields: [
-          { bits: "Command address", name: "0x1D", meaning: "Event input disable işlemi için ayrılmış command adresi." },
-        ],
-      },
-      {
         name: "RESET_COMMAND",
-        address: "0x1E",
+        address: "0x1D",
         width: "command byte",
         access: "WO",
         purpose: "Reset komutu; RE biti set edilmeden kabul edilmemelidir.",
         fields: [
-          { bits: "Ön koşul", name: "CONFIG.RE=1", meaning: "Reset command kabulü için CONFIGURATION içindeki RE biti enable edilmelidir." },
-          { bits: "Command address", name: "0x1E", meaning: "Reset işlemi için ayrılmış command adresi; normal smoke test içinde kullanılmaz." },
+          { bits: "Ön koşul", name: "CONFIG.RE", meaning: "Reset command kabulü için CONFIGURATION içindeki RE biti enable edilmelidir.", values: ["0: reset command kabul edilmez", "1: reset command kabul edilebilir"] },
+          { bits: "Command address", name: "0x1D", meaning: "Reset işlemi için ayrılmış command adresi; normal smoke test içinde kullanılmaz." },
+          { bits: "Command payload", name: "0x55, 0x55", meaning: "Reset için aynı command byte iki kez yazılmalıdır.", values: ["0x55 iki kez: reset sequence", "diğer: reset sequence değil"] },
         ],
       },
       {
         name: "WRITE_DISABLE",
-        address: "0x1F",
+        address: "0x1E",
         width: "command byte",
         access: "WO",
         purpose: "Write-disable komutu; kalıcı/production-only işlem olarak ele alınmalıdır.",
         fields: [
-          { bits: "Command address", name: "0x1F", meaning: "Write-disable işlemi için ayrılmış command adresi." },
-          { bits: "Yan etki", name: "WDF", meaning: "Komut sonrası CONFIGURATION içindeki write-disable flag set olur." },
+          { bits: "Command address", name: "0x1E", meaning: "Write-disable işlemi için ayrılmış command adresi." },
+          { bits: "Command payload", name: "0xAA, 0xAA", meaning: "Write-disable için aynı command byte iki kez yazılmalıdır.", values: ["0xAA iki kez: WDF set edilir", "diğer: write-disable sequence değil"] },
+          { bits: "Yan etki", name: "WDF", meaning: "Komut sonrası CONFIGURATION içindeki write-disable flag set olur.", values: ["0: komut uygulanmamış veya flag set değil", "1: alarm/event/ETC read-only"] },
+        ],
+      },
+      {
+        name: "WRITE_MEMORY_DISABLE",
+        address: "0x1F",
+        width: "command byte",
+        access: "WO",
+        purpose: "User EEPROM write-memory-disable komutu; production-only işlem olarak ele alınmalıdır.",
+        fields: [
+          { bits: "Command address", name: "0x1F", meaning: "Write-memory-disable işlemi için ayrılmış command adresi." },
+          { bits: "Command payload", name: "0xF0, 0xF0", meaning: "Write-memory-disable için aynı command byte iki kez yazılmalıdır.", values: ["0xF0 iki kez: WMDF set edilir", "diğer: write-memory-disable sequence değil"] },
+          { bits: "Yan etki", name: "WMDF", meaning: "Komut sonrası CONFIGURATION içindeki write-memory-disable flag set olur.", values: ["0: komut uygulanmamış veya flag set değil", "1: user EEPROM read-only"] },
         ],
       },
     ],
@@ -1022,7 +1058,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       },
     ],
     gotchas: [
-      "Reset/write-disable command'ları smoke test içine konulmamalıdır.",
+      "Reset/write-disable/write-memory-disable command'ları smoke test içine konulmamalıdır.",
       "EEPROM-backed write işlemlerinde timing ve endurance etkileri olabilir.",
       "Multi-byte counter okumaları tutarlı yapılmalıdır; application atomicity istiyorsa rollover window çevresine retry logic eklenmelidir.",
     ],
@@ -1081,15 +1117,15 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         width: "8",
         access: "RW",
         reset: "0x05",
-        purpose: "ADC mode, snapshot, VIN monitor, shutdown ve multiplier selection.",
+        purpose: "Snapshot mode/channel, test mode, ADC busy, VIN monitor, shutdown ve multiplier selection.",
         fields: [
-          { bits: "B7", name: "Shutdown", meaning: "ADC ölçüm bloklarını shutdown moduna alır.", values: ["0: normal çalışma", "1: shutdown"] },
-          { bits: "B6:B5", name: "Snapshot mode", meaning: "Snapshot conversion davranışını seçer; normal continuous read akışında reset/default profil korunur." },
-          { bits: "B4", name: "ADC busy", meaning: "ADC conversion devam ederken set olan status bitidir." },
-          { bits: "B3", name: "Test mode", meaning: "Normal uygulama kodunda kullanılmaması gereken test mode bitidir." },
-          { bits: "B2", name: "Enable measurements", meaning: "SENSE/VIN/ADIN measurement engine davranışını belirleyen enable/config bitidir." },
-          { bits: "B1", name: "Channel config", meaning: "Measurement input/config seçimine ait control bitidir." },
-          { bits: "B0", name: "SENSE+ full-scale", meaning: "SENSE+ ölçüm full-scale seçimini belirler." },
+          { bits: "B7", name: "Snapshot mode", meaning: "Conversion akışını continuous veya snapshot olarak seçer.", values: ["0: continuous conversion / varsayılan", "1: snapshot mode"] },
+          { bits: "B6:B5", name: "Snapshot ADC channel", meaning: "Snapshot mode kullanıldığında hangi ADC kanalının yakalanacağını seçer.", values: ["00: SENSE", "01: VIN", "10: ADIN", "11: reserved / kullanma"] },
+          { bits: "B4", name: "Test mode enable", meaning: "Normal uygulama kodunda kullanılmaması gereken test mode bitidir.", values: ["0: disabled / varsayılan", "1: enabled"] },
+          { bits: "B3", name: "ADC busy", meaning: "ADC conversion devam ederken set olan status bitidir.", values: ["0: ADC idle", "1: ADC busy"] },
+          { bits: "B2", name: "VIN monitor", meaning: "VIN ölçümünün VDD pininden mi SENSE+ pininden mi yapılacağını seçer.", values: ["0: VDD pinini monitor et", "1: SENSE+ pinini monitor et / varsayılan"] },
+          { bits: "B1", name: "Shutdown enable", meaning: "ADC ölçüm bloklarını shutdown moduna alır.", values: ["0: disabled / varsayılan", "1: shutdown enabled"] },
+          { bits: "B0", name: "Multiplier select", meaning: "Power multiplier için ADIN veya SENSE+ girişini seçer.", values: ["0: ADIN", "1: SENSE+ / varsayılan"] },
         ],
       },
       {
@@ -1123,7 +1159,8 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         name: "FAULT_CLEAR",
         address: "0x04",
         width: "8",
-        access: "RW",
+        access: "CoR",
+        reset: "0x00",
         purpose: "Fault clear yolu.",
         fields: ltc2945LimitFields("clear"),
       },
@@ -1148,7 +1185,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         fields: [
           { bits: "MSB B7:B0", name: "SENSE[11:4]", meaning: "12-bit raw sense ADC code değerinin üst sekiz biti." },
           { bits: "LSB B7:B4", name: "SENSE[3:0]", meaning: "12-bit raw sense ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
         ],
       },
       {
@@ -1160,7 +1197,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         fields: [
           { bits: "MSB B7:B0", name: "VIN[11:4]", meaning: "12-bit raw VIN ADC code değerinin üst sekiz biti." },
           { bits: "LSB B7:B4", name: "VIN[3:0]", meaning: "12-bit raw VIN ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
         ],
       },
       {
@@ -1172,7 +1209,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         fields: [
           { bits: "MSB B7:B0", name: "ADIN[11:4]", meaning: "12-bit raw ADIN ADC code değerinin üst sekiz biti." },
           { bits: "LSB B7:B4", name: "ADIN[3:0]", meaning: "12-bit raw ADIN ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez." },
+          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
         ],
       },
     ],
