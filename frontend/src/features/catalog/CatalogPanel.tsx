@@ -1,6 +1,6 @@
 import * as React from "react";
 import { BookOpen, Cpu, HardDrive, Network, Search } from "lucide-react";
-import { Card, Badge, Button, Input } from "@/components/ui";
+import { Card, Badge, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { CatalogDevice, DeviceStatus } from "@/lib/types";
 import { useStore } from "@/store/useStore";
@@ -54,7 +54,7 @@ export default function CatalogPanel({
 }: CatalogPanelProps) {
   const catalog = useStore((s) => s.catalog);
   const [query, setQuery] = React.useState("");
-  const [expandedPart, setExpandedPart] = React.useState<string | null>(null);
+  const [selectedPart, setSelectedPart] = React.useState<string | null>(null);
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,6 +65,63 @@ export default function CatalogPanel({
         .some((field) => field.toLowerCase().includes(q)),
     );
   }, [catalog, query]);
+
+  const selected = React.useMemo(() => {
+    if (mode !== "browse") return null;
+    return filtered.find((dev) => dev.part === selectedPart) ?? filtered[0] ?? null;
+  }, [filtered, mode, selectedPart]);
+
+  if (mode === "browse") {
+    return (
+      <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-elev">
+          <div className="border-b border-border p-3">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
+                aria-hidden
+              />
+              <Input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Entegre ara..."
+                aria-label="Katalog entegrelerini filtrele"
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
+                <Search className="h-5 w-5 text-faint" aria-hidden />
+                <p className="text-sm text-muted">Filtreyle eşleşen entegre yok.</p>
+                <p className="text-xs text-faint">
+                  {catalog.length === 0 ? "Katalog boş." : "Farklı bir ifade dene."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filtered.map((dev) => (
+                  <CatalogListItem
+                    key={dev.part}
+                    dev={dev}
+                    selected={selected?.part === dev.part}
+                    onSelect={() => setSelectedPart(dev.part)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
+          {selected ? <CatalogDetail dev={selected} /> : <EmptyCatalogDetail />}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -100,10 +157,6 @@ export default function CatalogPanel({
               mode={mode}
               onPick={onPick}
               controllerType={controllerType}
-              expanded={expandedPart === dev.part}
-              onToggleKnowledge={() =>
-                setExpandedPart((part) => (part === dev.part ? null : dev.part))
-              }
             />
           ))
         )}
@@ -117,8 +170,6 @@ interface DeviceCardProps {
   mode: Mode;
   onPick?: (dev: CatalogDevice) => void;
   controllerType?: string;
-  expanded: boolean;
-  onToggleKnowledge: () => void;
 }
 
 function DeviceCard({
@@ -126,8 +177,6 @@ function DeviceCard({
   mode,
   onPick,
   controllerType,
-  expanded,
-  onToggleKnowledge,
 }: DeviceCardProps) {
   const status = STATUS_META[dev.status];
   const isBuiltin = dev.status === "builtin";
@@ -153,26 +202,7 @@ function DeviceCard({
           .c/.h veya datasheet verilmeli (Driver Import ekranına bak)
         </p>
       )}
-      {mode === "browse" && hasKnowledge && (
-        <div className="mt-3">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={onToggleKnowledge}
-            aria-expanded={expanded}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            {expanded ? "Bilgiyi gizle" : "Bilgiyi aç"}
-          </Button>
-        </div>
-      )}
-      {mode === "browse" && expanded && (
-        <div className="mt-3 border-t border-border pt-3">
-          <DeviceKnowledgePanel part={dev.part} compact />
-        </div>
-      )}
+      {mode === "browse" && hasKnowledge && <Badge tone="accent">bilgi paketi</Badge>}
     </>
   );
 
@@ -198,5 +228,88 @@ function DeviceCard({
     <Card className="px-3 py-2.5">
       {body}
     </Card>
+  );
+}
+
+function CatalogListItem({
+  dev,
+  selected,
+  onSelect,
+}: {
+  dev: CatalogDevice;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const status = STATUS_META[dev.status];
+  const hasKnowledge = hasDeviceKnowledge(dev.part);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "w-full rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        selected
+          ? "border-accent/60 bg-accent/15 text-text"
+          : "border-transparent text-muted hover:border-border hover:bg-inset hover:text-text",
+      )}
+      aria-pressed={selected}
+    >
+      <div className="flex items-center gap-2">
+        {transportIcon(dev.transport)}
+        <span className="min-w-0 flex-1 truncate font-mono text-sm">{dev.part}</span>
+        <Badge tone={status.tone} className="shrink-0">
+          {status.label}
+        </Badge>
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <Badge tone="neutral">{dev.transport}</Badge>
+        {hasKnowledge && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-accent">
+            <BookOpen className="h-3 w-3" aria-hidden />
+            bilgi
+          </span>
+        )}
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-faint">{dev.summary}</p>
+    </button>
+  );
+}
+
+function CatalogDetail({ dev }: { dev: CatalogDevice }) {
+  const status = STATUS_META[dev.status];
+
+  return (
+    <div className="min-h-full p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {transportIcon(dev.transport)}
+            <h2 className="font-mono text-xl font-semibold text-text">{dev.part}</h2>
+            <Badge tone="neutral">{dev.transport}</Badge>
+            <Badge tone={status.tone}>{status.label}</Badge>
+          </div>
+          <p className="max-w-3xl text-sm leading-relaxed text-muted">{dev.summary}</p>
+        </div>
+        {dev.descriptor && (
+          <div className="rounded-md border border-border bg-inset px-3 py-2 text-right">
+            <div className="text-[10px] uppercase tracking-wide text-faint">Descriptor</div>
+            <div className="mt-1 font-mono text-xs text-muted">{dev.descriptor}</div>
+          </div>
+        )}
+      </div>
+
+      <DeviceKnowledgePanel part={dev.part} />
+    </div>
+  );
+}
+
+function EmptyCatalogDetail() {
+  return (
+    <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 p-6 text-center">
+      <Search className="h-5 w-5 text-faint" aria-hidden />
+      <p className="text-sm text-muted">Bir entegre seç.</p>
+      <p className="text-xs text-faint">Seçilen entegrenin pin, register, reçete ve dikkat notları burada açılır.</p>
+    </div>
   );
 }

@@ -142,8 +142,8 @@ export default function App() {
       {/* body */}
       <main className="min-h-0 flex-1">
         {view === "catalog" ? (
-          <div className="mx-auto h-full max-w-3xl p-6">
-            <h2 className="mb-4 text-sm font-semibold">Device catalog</h2>
+          <div className="h-full p-4">
+            <h2 className="mb-3 text-sm font-semibold">Entegre kataloğu</h2>
             <CatalogPanel mode="browse" />
           </div>
         ) : view === "import" ? (

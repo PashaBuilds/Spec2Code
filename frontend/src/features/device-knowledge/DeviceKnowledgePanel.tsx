@@ -2,7 +2,7 @@ import { AlertTriangle, BookOpen, ExternalLink, ListChecks, Settings2 } from "lu
 import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { getDeviceKnowledge, type KnowledgeRegister, type KnowledgeRecipe } from "./knowledge";
-import Ltc2991PinMap from "./Ltc2991PinMap";
+import DevicePinMap from "./DevicePinMap";
 
 function EmptyKnowledge({ part }: { part: string }) {
   return (
@@ -104,7 +104,7 @@ export default function DeviceKnowledgePanel({
 }) {
   const pack = getDeviceKnowledge(part);
   if (!pack) return <EmptyKnowledge part={part} />;
-  const hasPinMap = pack.part.toUpperCase() === "LTC2991";
+  const hasPinMap = Boolean(pack.pinMap);
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -151,7 +151,7 @@ export default function DeviceKnowledgePanel({
 
         {hasPinMap && (
           <TabsContent value="pinmap">
-            <Ltc2991PinMap config={config} />
+            <DevicePinMap part={pack.part} pinMap={pack.pinMap!} config={config} />
           </TabsContent>
         )}
 
