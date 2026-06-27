@@ -25,6 +25,9 @@ ve devam geliştirme.
   ile çalışır; kullanıcıdan Word/JSON standard dosyası alınmaz.
 - **Cihaz konfigürasyon profilleri:** `device.config` üzerinden karttaki kullanım
   şeklini toplar; LTC2991 için pair/mode seçimi init register array'ine çevrilir.
+- **Statik cihaz bilgi paketleri:** Desteklenen entegreler için datasheet'ten
+  süzülmüş register map, tipik kullanım reçeteleri, kritik uyarılar ve codegen
+  notları arayüzde gösterilir; bu bilgiler LLM ile runtime'da tekrar üretilmez.
 - **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, raporlar ve
   varsa `reference_sources/` hiyerarşik gösterilir; tek dosya veya tüm çıktı zip
   olarak indirilebilir.
@@ -93,6 +96,23 @@ saklanır. LTC2991 eklediğinde sağ panelde **Configuration** bölümü görün
 Bu model generic altyapı + cihaz özel profile/editor şeklinde ilerler. Şu anda
 özel profile LTC2991 için aktiftir; diğer cihazlar descriptor default'larıyla
 çalışmaya devam eder.
+
+## Cihaz Bilgi Paketleri
+
+Spec2Code, desteklenen entegreler için statik ve versiyonlanan knowledge pack'ler
+içerir. Bunlar datasheet'in birebir kopyası değildir; gömülü yazılımcının hızlı
+karar verebilmesi için işlenmiş kısa bilgi setidir:
+
+- Register/command map: adres, access tipi, reset değeri ve amaç.
+- Tipik kullanım reçeteleri: init, okuma, program/erase, mux seçimi gibi akışlar.
+- Kritik uyarılar: busy polling, address width, destructive command, alert/fault
+  davranışları.
+- Codegen notları: mevcut descriptor'ın hangi güvenli davranışı ürettiği.
+
+Bu katman runtime'da lokal modele tekrar yazdırılmaz. Bilgi bir kez doğrulanıp
+repo'ya girdikten sonra UI ve ileride codegen kararları aynı statik kaynaktan
+beslenir. Katalog ekranında **Open knowledge**, şemada seçili cihaz panelinde
+**Datasheet Knowledge** bölümü üzerinden okunabilir.
 
 ## Kodlama Standardı Nasıl Çalışır?
 

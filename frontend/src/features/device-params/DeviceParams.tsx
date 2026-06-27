@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import DeviceConfigEditor from "@/features/device-config/DeviceConfigEditor";
+import DeviceKnowledgePanel from "@/features/device-knowledge/DeviceKnowledgePanel";
 
 const NONE = "__none__";
 
@@ -242,6 +243,10 @@ export default function DeviceParams() {
 
       <Section title="Configuration">
         <DeviceConfigEditor device={device} />
+      </Section>
+
+      <Section title="Datasheet Knowledge">
+        <DeviceKnowledgePanel part={device.part} />
       </Section>
 
       {/* Operations */}

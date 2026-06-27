@@ -1,9 +1,11 @@
 import * as React from "react";
-import { Cpu, HardDrive, Network, Search } from "lucide-react";
-import { Card, Badge, Input } from "@/components/ui";
+import { BookOpen, Cpu, HardDrive, Network, Search } from "lucide-react";
+import { Card, Badge, Button, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { CatalogDevice, DeviceStatus } from "@/lib/types";
 import { useStore } from "@/store/useStore";
+import DeviceKnowledgePanel from "@/features/device-knowledge/DeviceKnowledgePanel";
+import { hasDeviceKnowledge } from "@/features/device-knowledge/knowledge";
 
 type Mode = "browse" | "pick";
 
@@ -52,6 +54,7 @@ export default function CatalogPanel({
 }: CatalogPanelProps) {
   const catalog = useStore((s) => s.catalog);
   const [query, setQuery] = React.useState("");
+  const [expandedPart, setExpandedPart] = React.useState<string | null>(null);
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,6 +100,10 @@ export default function CatalogPanel({
               mode={mode}
               onPick={onPick}
               controllerType={controllerType}
+              expanded={expandedPart === dev.part}
+              onToggleKnowledge={() =>
+                setExpandedPart((part) => (part === dev.part ? null : dev.part))
+              }
             />
           ))
         )}
@@ -110,13 +117,23 @@ interface DeviceCardProps {
   mode: Mode;
   onPick?: (dev: CatalogDevice) => void;
   controllerType?: string;
+  expanded: boolean;
+  onToggleKnowledge: () => void;
 }
 
-function DeviceCard({ dev, mode, onPick, controllerType }: DeviceCardProps) {
+function DeviceCard({
+  dev,
+  mode,
+  onPick,
+  controllerType,
+  expanded,
+  onToggleKnowledge,
+}: DeviceCardProps) {
   const status = STATUS_META[dev.status];
   const isBuiltin = dev.status === "builtin";
   const clickable = mode === "pick" && isBuiltin;
   const dimmed = clickable && !isCompatible(controllerType, dev.transport);
+  const hasKnowledge = hasDeviceKnowledge(dev.part);
 
   const body = (
     <>
@@ -135,6 +152,26 @@ function DeviceCard({ dev, mode, onPick, controllerType }: DeviceCardProps) {
         <p className="mt-2 text-[11px] text-faint">
           provide .c/.h or datasheet (see Driver Import)
         </p>
+      )}
+      {mode === "browse" && hasKnowledge && (
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onToggleKnowledge}
+            aria-expanded={expanded}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            {expanded ? "Hide knowledge" : "Open knowledge"}
+          </Button>
+        </div>
+      )}
+      {mode === "browse" && expanded && (
+        <div className="mt-3 border-t border-border pt-3">
+          <DeviceKnowledgePanel part={dev.part} compact />
+        </div>
       )}
     </>
   );
