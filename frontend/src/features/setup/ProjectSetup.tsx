@@ -215,8 +215,9 @@ export default function ProjectSetup() {
             </div>
             <div className="grid gap-1 font-mono text-[11px] text-faint">
               <span>camelCase identifiers, Allman braces, 4 spaces, CRLF</span>
-              <span>struct S*, enum E*, struct pointer sp, arrays prefix+Arr</span>
-              <span>global G_ + prefix, static S_ + prefix</span>
+              <span>typedef: SOrnekStruct; enum: EOrnekEnum</span>
+              <span>struct variable: sMyStruct; pointer: spMyStruct</span>
+              <span>array: prefix+Arr; global G_; static S_</span>
             </div>
           </div>
         </div>

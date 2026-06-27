@@ -248,9 +248,10 @@ std/default.ruleset.json
 ```
 
 The Setup screen shows the active standard as information only: camelCase identifiers,
-Hungarian prefixes, Allman braces, CRLF line endings, `S` struct typedefs, `E` enum typedefs,
-`sp` structure pointers, type-prefix + `p` pointers, type-prefix + `Arr` arrays, `G_` globals,
-and `S_` static variables.
+Hungarian prefixes, Allman braces, CRLF line endings, `SOrnekStruct`-style struct typedefs,
+`sMyStruct`-style struct variables, `spMyStruct`-style structure pointers,
+`EOrnekEnum`-style enum typedefs, type-prefix + `p` pointers, type-prefix + `Arr` arrays,
+`G_` globals, and `S_` static variables.
 
 ## Creating a Windows executable manually
 

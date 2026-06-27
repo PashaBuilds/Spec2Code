@@ -118,8 +118,12 @@ Default standard özet olarak şunları içerir:
 - Tip prefixleri: `unsigned char -> uc`, `char -> c`, `unsigned short -> us`,
   `short -> s`, `unsigned int -> ui`, `int -> i`, `unsigned long -> ul`,
   `unsigned long long -> ull`.
-- Structure typedef prefix'i `S`, enum typedef prefix'i `E`.
-- Structure pointer prefix'i `sp`; diğer pointer'lar tip prefix'i + `p`.
+- Structure typedef adları büyük `S` ile başlar; örnek `SOrnekStruct`.
+- Structure değişkenleri küçük `s` prefix'iyle yazılır; örnek
+  `SOrnekStruct sMyStruct; sMyStruct.uiVal = 0;`.
+- Enum typedef adları büyük `E` ile başlar; örnek `EOrnekEnum`.
+- Structure pointer değişkenleri `sp` prefix'iyle yazılır; diğer pointer'lar
+  tip prefix'i + `p`.
 - Array'ler tip prefix'i + `Arr`; örnek `ucArr`.
 - Global değişkenler `G_` + tip prefix'i, static değişkenler `S_` + tip prefix'i.
 - `if`, `for`, `while` sonrasında bir boşluk ve Allman brace stili kullanılır.
