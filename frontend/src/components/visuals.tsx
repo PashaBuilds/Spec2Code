@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
 type VisualAsset = "setup" | "generate" | "schematic";
-type VisualMask = "header" | "side" | "empty" | "canvas" | "none";
+type VisualMask = "header" | "side" | "empty" | "canvas" | "canvasWide" | "none";
 
 const VISUAL_ASSETS: Record<VisualAsset, string> = {
   setup: "/visuals/setup-board.webp",
@@ -15,6 +15,8 @@ const MASKS: Record<VisualMask, string | undefined> = {
   side: "linear-gradient(105deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.72) 46%, rgba(0,0,0,1) 100%)",
   empty: "linear-gradient(105deg, rgba(0,0,0,0.18), rgba(0,0,0,0.9) 58%, rgba(0,0,0,0.96))",
   canvas: "radial-gradient(circle at 50% 50%, rgba(0,0,0,0.82), rgba(0,0,0,0.18) 58%, rgba(0,0,0,0))",
+  canvasWide:
+    "linear-gradient(90deg, rgba(0,0,0,0.86), rgba(0,0,0,0.76) 42%, rgba(0,0,0,0.6) 72%, rgba(0,0,0,0.38))",
   none: undefined,
 };
 

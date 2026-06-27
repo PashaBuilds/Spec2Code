@@ -135,7 +135,7 @@ export default function SchematicCanvas() {
   if (!controllers.length) {
     return (
       <div className="absolute inset-0 overflow-hidden bg-bg">
-        <VisualBackdrop asset="schematic" opacity={0.3} position="center" size="720px 720px" mask="canvas" />
+        <VisualBackdrop asset="schematic" opacity={0.18} position="center" size="cover" mask="canvasWide" />
         <div className="relative z-10 flex h-full items-center justify-center px-6 text-center text-sm text-faint">
           <p className="rounded-md border border-border/70 bg-bg/70 px-3 py-2 backdrop-blur-sm">
             Upload an <span className="mx-1 font-mono text-muted">xparameters.h</span> to render the schematic.
@@ -147,7 +147,7 @@ export default function SchematicCanvas() {
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-bg">
-      <VisualBackdrop asset="schematic" opacity={0.13} position="center" size="640px 640px" />
+      <VisualBackdrop asset="schematic" opacity={0.11} position="center" size="cover" mask="canvasWide" />
       <ReactFlow
         nodes={nodes}
         edges={edges}
