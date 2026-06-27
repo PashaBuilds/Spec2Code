@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BookOpen, Cpu, HardDrive, Network, Search } from "lucide-react";
+import { BookOpen, Check, Cpu, HardDrive, Network, Search, type LucideIcon } from "lucide-react";
 import { Card, Badge, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { CatalogDevice, DeviceStatus } from "@/lib/types";
@@ -8,6 +8,7 @@ import DeviceKnowledgePanel from "@/features/device-knowledge/DeviceKnowledgePan
 import { hasDeviceKnowledge } from "@/features/device-knowledge/knowledge";
 
 type Mode = "browse" | "pick";
+type ProtocolFilter = "i2c" | "spi";
 
 interface CatalogPanelProps {
   mode?: Mode;
@@ -24,6 +25,15 @@ const STATUS_META: Record<
   from_datasheet: { tone: "accent", label: "datasheet kaynaklı" },
 };
 
+const PROTOCOL_FILTERS: Array<{
+  id: ProtocolFilter;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { id: "i2c", label: "I2C", icon: Network },
+  { id: "spi", label: "SPI", icon: HardDrive },
+];
+
 /** Icon hint keyed off the device transport. */
 function transportIcon(transport: string): React.ReactNode {
   const t = transport.toLowerCase();
@@ -31,6 +41,13 @@ function transportIcon(transport: string): React.ReactNode {
   if (t.startsWith("i2c")) return <Network className={cls} aria-hidden />;
   if (t === "spi" || t === "qspi") return <HardDrive className={cls} aria-hidden />;
   return <Cpu className={cls} aria-hidden />;
+}
+
+function protocolForTransport(transport: string): ProtocolFilter | null {
+  const t = transport.toLowerCase();
+  if (t.startsWith("i2c")) return "i2c";
+  if (t === "spi" || t === "qspi") return "spi";
+  return null;
 }
 
 /**
@@ -54,17 +71,33 @@ export default function CatalogPanel({
 }: CatalogPanelProps) {
   const catalog = useStore((s) => s.catalog);
   const [query, setQuery] = React.useState("");
+  const [protocols, setProtocols] = React.useState<ProtocolFilter[]>(["i2c", "spi"]);
   const [selectedPart, setSelectedPart] = React.useState<string | null>(null);
+
+  function toggleProtocol(protocol: ProtocolFilter) {
+    setProtocols((current) => {
+      if (current.includes(protocol)) {
+        return current.length === 1 ? current : current.filter((item) => item !== protocol);
+      }
+      return [...current, protocol];
+    });
+  }
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return catalog;
-    return catalog.filter((d) =>
-      [d.part, d.summary, d.transport]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(q)),
-    );
-  }, [catalog, query]);
+    return catalog.filter((d) => {
+      const protocol = protocolForTransport(d.transport);
+      const protocolMatches = protocol == null
+        ? protocols.length === PROTOCOL_FILTERS.length
+        : protocols.includes(protocol);
+      const textMatches =
+        !q ||
+        [d.part, d.summary, d.transport]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(q));
+      return protocolMatches && textMatches;
+    });
+  }, [catalog, protocols, query]);
 
   const selected = React.useMemo(() => {
     if (mode !== "browse") return null;
@@ -76,20 +109,12 @@ export default function CatalogPanel({
       <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-elev">
           <div className="border-b border-border p-3">
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
-                aria-hidden
-              />
-              <Input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Entegre ara..."
-                aria-label="Katalog entegrelerini filtrele"
-                className="pl-9"
-              />
-            </div>
+            <CatalogFilters
+              query={query}
+              protocols={protocols}
+              onQueryChange={setQuery}
+              onToggleProtocol={toggleProtocol}
+            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -98,7 +123,7 @@ export default function CatalogPanel({
                 <Search className="h-5 w-5 text-faint" aria-hidden />
                 <p className="text-sm text-muted">Filtreyle eşleşen entegre yok.</p>
                 <p className="text-xs text-faint">
-                  {catalog.length === 0 ? "Katalog boş." : "Farklı bir ifade dene."}
+                  {catalog.length === 0 ? "Katalog boş." : "Farklı bir filtre dene."}
                 </p>
               </div>
             ) : (
@@ -125,20 +150,13 @@ export default function CatalogPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
-          aria-hidden
-        />
-        <Input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Part, özet veya transport ile filtrele..."
-          aria-label="Katalog cihazlarını filtrele"
-          className="pl-9"
-        />
-      </div>
+      <CatalogFilters
+        query={query}
+        protocols={protocols}
+        onQueryChange={setQuery}
+        onToggleProtocol={toggleProtocol}
+        compact
+      />
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {filtered.length === 0 ? (
@@ -146,7 +164,7 @@ export default function CatalogPanel({
             <Search className="h-5 w-5 text-faint" aria-hidden />
             <p className="text-sm text-muted">Filtreyle eşleşen cihaz yok.</p>
             <p className="text-xs text-faint">
-              {catalog.length === 0 ? "Katalog boş." : "Farklı bir ifade dene."}
+              {catalog.length === 0 ? "Katalog boş." : "Farklı bir filtre dene."}
             </p>
           </div>
         ) : (
@@ -160,6 +178,68 @@ export default function CatalogPanel({
             />
           ))
         )}
+      </div>
+    </div>
+  );
+}
+
+function CatalogFilters({
+  query,
+  protocols,
+  onQueryChange,
+  onToggleProtocol,
+  compact = false,
+}: {
+  query: string;
+  protocols: ProtocolFilter[];
+  onQueryChange: (value: string) => void;
+  onToggleProtocol: (protocol: ProtocolFilter) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn("space-y-2", compact && "rounded-lg border border-border bg-elev p-3")}>
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Entegre ara..."
+          aria-label="Katalog entegrelerini filtrele"
+          className="pl-9"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-faint">Protokol</span>
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          {PROTOCOL_FILTERS.map((option) => {
+            const active = protocols.includes(option.id);
+            const Icon = option.icon;
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => onToggleProtocol(option.id)}
+                aria-pressed={active}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  active
+                    ? "border-accent/60 bg-accent/15 text-text"
+                    : "border-border bg-inset text-faint hover:text-text",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden />
+                <span>{option.label}</span>
+                {active && <Check className="h-3.5 w-3.5 text-accent" aria-hidden />}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
