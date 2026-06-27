@@ -42,6 +42,19 @@ def _to_int(raw: str) -> Optional[int]:
         return None
 
 
+def _resolve_int(raw: str | None, defines: dict[str, str], depth: int = 0) -> Optional[int]:
+    """Resolve numeric macro values, including one macro aliasing another."""
+    if raw is None or depth > 8:
+        return None
+    value = _to_int(raw)
+    if value is not None:
+        return value
+    key = _clean_value(raw)
+    if key == raw and key not in defines:
+        return None
+    return _resolve_int(defines.get(key), defines, depth + 1)
+
+
 # --- driver classification --------------------------------------------------------------
 # Ordered rules: first regex (searched against the captured middle name) wins.
 # More specific PS-hardened driver names are listed before the looser PL/AXI tokens so that
@@ -64,6 +77,7 @@ _RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"^(PS7|PSU)_.*SPI"), "spi", "ps", "XSpiPs"),
     (re.compile(r"^(PS7|PSU)_.*GPIO"), "gpio", "ps", "XGpioPs"),
     (re.compile(r"^(PS7|PSU)_.*UART"), "uart", "ps", "XUartPs"),
+    (re.compile(r"^(PS7|PSU)_.*CAN"), "can", "ps", "XCanPs"),
     (re.compile(r"^(PS7|PSU)_.*(ENET|ETHERNET|GEM)"), "eth", "ps", "XEmacPs"),
     (re.compile(r"^(PS7|PSU)_.*SD"), "sdio", "ps", "XSdPs"),
     # --- PL / AXI soft IP ---
@@ -113,6 +127,24 @@ class ParseResult:
     unmatched: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class _Candidate:
+    middle: str
+    idx: str
+    type: str
+    driver: str
+    zone: str
+    base_address: str
+    base_addr_int: Optional[int]
+    instance: str
+    device_id: Optional[object]
+
+
+_DRIVER_ALIAS_RE = re.compile(
+    r"^(XQSPIPSU|XQSPIPS|XIICPS|XSPIPS|XGPIOPS|XUARTPS|XCANPS|XEMACPS|XSDPS|XIIC|XSPI|XGPIO)(?:_|$)"
+)
+
+
 def _classify(middle: str) -> Optional[tuple[str, str, str]]:
     for pattern, ctype, family, driver in _RULES:
         if pattern.search(middle):
@@ -128,6 +160,13 @@ def _zone_for(family: str, platform_model: Optional[dict]) -> str:
     return family
 
 
+def _candidate_preference(candidate: _Candidate) -> tuple[int, int, str]:
+    """Prefer BSP driver aliases over peripheral aliases for generated C compatibility."""
+    driver_alias_rank = 0 if _DRIVER_ALIAS_RE.search(candidate.middle) else 1
+    unresolved_device_id_rank = 1 if candidate.device_id is None else 0
+    return driver_alias_rank, unresolved_device_id_rank, candidate.instance
+
+
 def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> ParseResult:
     """Parse *text* (xparameters.h contents) into a controller inventory.
 
@@ -136,7 +175,7 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
     """
     defines: dict[str, str] = {m.group("name"): m.group("value") for m in _DEFINE_RE.finditer(text)}
     result = ParseResult()
-    seen_ids: set[str] = set()
+    candidates: list[_Candidate] = []
 
     for name, raw_value in defines.items():
         if not name.endswith(_BASEADDR_SUFFIX):
@@ -152,9 +191,12 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
         if not has_device_id:
             continue
 
-        addr_int = _to_int(raw_value)
+        addr_int = _resolve_int(raw_value, defines)
         base_address = f"0x{addr_int:08X}" if addr_int is not None else _clean_value(raw_value)
-        device_id_val = _to_int(defines.get(f"{base_key}_DEVICE_ID", "")) if has_device_id else None
+        device_id_raw = defines.get(f"{base_key}_DEVICE_ID") if has_device_id else None
+        device_id_val: Optional[object] = _resolve_int(device_id_raw, defines)
+        if device_id_val is None and device_id_raw is not None:
+            device_id_val = _clean_value(device_id_raw)
 
         if _IGNORE_RE.search(middle):
             continue
@@ -168,9 +210,40 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
 
         ctype, family, driver = classified
         zone = _zone_for(family, platform_model)
+        candidates.append(
+            _Candidate(
+                middle=middle,
+                idx=idx,
+                type=ctype,
+                driver=driver,
+                zone=zone,
+                base_address=base_address,
+                base_addr_int=addr_int,
+                instance=base_key,
+                device_id=device_id_val,
+            )
+        )
 
-        ctrl_id = f"{zone}_{ctype}_{idx}"
-        # Guarantee uniqueness if two drivers collapse to the same id.
+    # Vitis often emits both physical peripheral names and BSP-driver aliases for the
+    # same controller, e.g. XPAR_PSU_I2C_0 and XPAR_XIICPS_0 at the same BASEADDR.
+    # Keep one logical controller per address/type/driver and prefer the BSP alias,
+    # because generated C uses <instance>_DEVICE_ID in LookupConfig calls.
+    deduped: dict[tuple[str, str, str, str], _Candidate] = {}
+    for candidate in candidates:
+        addr_key = (
+            f"0x{candidate.base_addr_int:X}"
+            if candidate.base_addr_int is not None
+            else candidate.base_address.upper()
+        )
+        key = (candidate.zone, candidate.type, candidate.driver, addr_key)
+        previous = deduped.get(key)
+        if previous is None or _candidate_preference(candidate) < _candidate_preference(previous):
+            deduped[key] = candidate
+
+    seen_ids: set[str] = set()
+    for candidate in sorted(deduped.values(), key=lambda c: (c.zone, c.type, c.instance)):
+        ctrl_id = f"{candidate.zone}_{candidate.type}_{candidate.idx}"
+        # Guarantee uniqueness for real same-type controllers whose macro indexes collide.
         unique_id, bump = ctrl_id, 0
         while unique_id in seen_ids:
             bump += 1
@@ -180,12 +253,12 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
         result.controllers.append(
             Controller(
                 id=unique_id,
-                type=ctype,
-                instance=base_key,
-                base_address=base_address,
-                device_id=device_id_val,
-                driver=driver,
-                zone=zone,
+                type=candidate.type,
+                instance=candidate.instance,
+                base_address=candidate.base_address,
+                device_id=candidate.device_id,
+                driver=candidate.driver,
+                zone=candidate.zone,
             ).to_spec()
         )
 
