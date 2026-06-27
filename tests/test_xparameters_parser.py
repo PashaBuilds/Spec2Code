@@ -44,6 +44,23 @@ class XparametersParserTests(unittest.TestCase):
         self.assertEqual([c["instance"] for c in parsed.controllers], ["XPAR_XIICPS_0", "XPAR_XIICPS_1"])
         self.assertEqual([c["id"] for c in parsed.controllers], ["ps_i2c_0", "ps_i2c_1"])
 
+    def test_zynqmp_qspi_psu_alias_uses_qspipsu_driver(self) -> None:
+        text = """
+        #define XPAR_PSU_QSPI_0_DEVICE_ID 0
+        #define XPAR_PSU_QSPI_0_BASEADDR 0xFF0F0000
+        #define XPAR_XQSPIPSU_0_DEVICE_ID XPAR_PSU_QSPI_0_DEVICE_ID
+        #define XPAR_XQSPIPSU_0_BASEADDR 0xFF0F0000
+        """
+
+        parsed = parse_xparameters(text, PLATFORM)
+
+        self.assertEqual(len(parsed.controllers), 1)
+        controller = parsed.controllers[0]
+        self.assertEqual(controller["id"], "ps_qspi_0")
+        self.assertEqual(controller["type"], "qspi")
+        self.assertEqual(controller["instance"], "XPAR_XQSPIPSU_0")
+        self.assertEqual(controller["driver"], "XQspiPsu")
+
 
 if __name__ == "__main__":
     unittest.main()

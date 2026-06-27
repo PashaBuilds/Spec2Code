@@ -63,6 +63,7 @@ def _resolve_int(raw: str | None, defines: dict[str, str], depth: int = 0) -> Op
 
 _RULES: list[tuple[re.Pattern, str, str, str]] = [
     # --- PS hardened drivers (driver-indexed) ---
+    (re.compile(r"XQSPIPSU"), "qspi", "ps", "XQspiPsu"),
     (re.compile(r"XQSPIPS"), "qspi", "ps", "XQspiPs"),
     (re.compile(r"XIICPS"), "i2c", "ps", "XIicPs"),
     (re.compile(r"XSPIPS"), "spi", "ps", "XSpiPs"),
@@ -72,7 +73,8 @@ _RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"XEMACPS"), "eth", "ps", "XEmacPs"),
     (re.compile(r"XSDPS"), "sdio", "ps", "XSdPs"),
     # --- PS hardened (canonical PS7_/PSU_ instance names) ---
-    (re.compile(r"^(PS7|PSU)_.*QSPI"), "qspi", "ps", "XQspiPs"),
+    (re.compile(r"^PSU_.*QSPI"), "qspi", "ps", "XQspiPsu"),
+    (re.compile(r"^PS7_.*QSPI"), "qspi", "ps", "XQspiPs"),
     (re.compile(r"^(PS7|PSU)_.*(I2C|IIC)"), "i2c", "ps", "XIicPs"),
     (re.compile(r"^(PS7|PSU)_.*SPI"), "spi", "ps", "XSpiPs"),
     (re.compile(r"^(PS7|PSU)_.*GPIO"), "gpio", "ps", "XGpioPs"),

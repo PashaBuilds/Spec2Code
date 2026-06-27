@@ -144,6 +144,17 @@ def _handle_for(controller: dict) -> tuple[str, str]:
     return htype, var
 
 
+def _spi_header_for(htype: str) -> str:
+    return {
+        "XQspiPsu": "xqspipsu.h",
+        "XQspiPs": "xqspips.h",
+    }.get(htype, "xspips.h")
+
+
+def _is_qspipsu(htype: str) -> bool:
+    return htype == "XQspiPsu"
+
+
 def _hexu8(value: int) -> str:
     return f"0x{value & 0xFF:02X}U"
 
@@ -474,15 +485,30 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
 def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: str) -> list[CFunc]:
     send = Emit()
-    send.ln("uint8_t uc_tx[1];").ln("int i_status;").blank()
+    send.ln("uint8_t uc_tx[1];")
+    if _is_qspipsu(htype):
+        send.ln("XQspiPsu_Msg s_message[1];")
+    else:
+        send.ln("int i_status;")
+    send.blank()
     send.ln("uc_tx[0] = uc_opcode;")
-    send.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-    send.ln(f"return XSpiPs_PolledTransfer({hvar}, uc_tx, NULL, 1);")
+    if _is_qspipsu(htype):
+        send.ln("s_message[0].TxBfrPtr = uc_tx;")
+        send.ln("s_message[0].RxBfrPtr = NULL;")
+        send.ln("s_message[0].ByteCount = 1U;")
+        send.ln("s_message[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        send.ln("s_message[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
+        send.ln(f"return XQspiPsu_PolledTransfer({hvar}, s_message, 1U);")
+    else:
+        send.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+        send.ln(f"return XSpiPs_PolledTransfer({hvar}, uc_tx, NULL, 1);")
     f_send = CFunc(f"{module}_command_send", "int",
                    [f"{htype} *{hvar}", "uint8_t uc_opcode"], send.out(), static=True)
 
     rd = Emit()
     rd.ln("uint8_t uc_tx[" + max_def + "];").ln("uint8_t uc_rx[" + max_def + "];")
+    if _is_qspipsu(htype):
+        rd.ln("XQspiPsu_Msg s_message[1];")
     rd.ln("uint32_t ui_index;").ln("uint32_t ui_header;").ln("int i_status;").blank()
     rd.ln("ui_header = 1U + (uint32_t)uc_addr_bytes;")
     rd.open(f"if ((ui_header + ui_length) > (uint32_t){max_def})").ln("return XST_FAILURE;").close()
@@ -491,8 +517,16 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     rd.ln("uc_tx[1U + ui_index] = (uint8_t)((ui_address >> (8U * ((uint32_t)uc_addr_bytes - 1U - ui_index))) & 0xFFU);")
     rd.close()
     rd.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("uc_tx[ui_header + ui_index] = 0x00U;").close()
-    rd.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-    rd.ln(f"i_status = XSpiPs_PolledTransfer({hvar}, uc_tx, uc_rx, ui_header + ui_length);").check_status()
+    if _is_qspipsu(htype):
+        rd.ln("s_message[0].TxBfrPtr = uc_tx;")
+        rd.ln("s_message[0].RxBfrPtr = uc_rx;")
+        rd.ln("s_message[0].ByteCount = ui_header + ui_length;")
+        rd.ln("s_message[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        rd.ln("s_message[0].Flags = XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX;")
+        rd.ln(f"i_status = XQspiPsu_PolledTransfer({hvar}, s_message, 1U);").check_status()
+    else:
+        rd.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+        rd.ln(f"i_status = XSpiPs_PolledTransfer({hvar}, uc_tx, uc_rx, ui_header + ui_length);").check_status()
     rd.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("ucpBuffer[ui_index] = uc_rx[ui_header + ui_index];").close()
     rd.ln("return XST_SUCCESS;")
     f_read = CFunc(f"{module}_command_read", "int",
@@ -502,7 +536,12 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
 
     wr = Emit()
     wr.ln("uint8_t uc_tx[" + max_def + "];")
-    wr.ln("uint32_t ui_index;").ln("uint32_t ui_header;").ln("int i_status;").blank()
+    if _is_qspipsu(htype):
+        wr.ln("XQspiPsu_Msg s_message[1];")
+    wr.ln("uint32_t ui_index;").ln("uint32_t ui_header;")
+    if not _is_qspipsu(htype):
+        wr.ln("int i_status;")
+    wr.blank()
     wr.ln("ui_header = 1U + (uint32_t)uc_addr_bytes;")
     wr.open(f"if ((ui_header + ui_length) > (uint32_t){max_def})").ln("return XST_FAILURE;").close()
     wr.ln("uc_tx[0] = uc_opcode;")
@@ -510,8 +549,16 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     wr.ln("uc_tx[1U + ui_index] = (uint8_t)((ui_address >> (8U * ((uint32_t)uc_addr_bytes - 1U - ui_index))) & 0xFFU);")
     wr.close()
     wr.open("for (ui_index = 0U; ui_index < ui_length; ui_index++)").ln("uc_tx[ui_header + ui_index] = ucpData[ui_index];").close()
-    wr.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-    wr.ln(f"return XSpiPs_PolledTransfer({hvar}, uc_tx, NULL, ui_header + ui_length);")
+    if _is_qspipsu(htype):
+        wr.ln("s_message[0].TxBfrPtr = uc_tx;")
+        wr.ln("s_message[0].RxBfrPtr = NULL;")
+        wr.ln("s_message[0].ByteCount = ui_header + ui_length;")
+        wr.ln("s_message[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        wr.ln("s_message[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
+        wr.ln(f"return XQspiPsu_PolledTransfer({hvar}, s_message, 1U);")
+    else:
+        wr.ln(f"i_status = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+        wr.ln(f"return XSpiPs_PolledTransfer({hvar}, uc_tx, NULL, ui_header + ui_length);")
     f_write = CFunc(f"{module}_command_write", "int",
                     [f"{htype} *{hvar}", "uint8_t uc_opcode", "uint32_t ui_address",
                      "uint8_t uc_addr_bytes", "const uint8_t *ucpData", "uint32_t ui_length"],
@@ -580,11 +627,20 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
         e.blank()
 
         if is_init:
-            e.ln(f"sp_config = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
+            if _is_qspipsu(htype):
+                e.ln(f"sp_config = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
+            else:
+                e.ln(f"sp_config = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (sp_config == NULL)").ln("return XST_FAILURE;").close()
-            e.ln(f"i_status = XSpiPs_CfgInitialize({hvar}, sp_config, sp_config->BaseAddress);").check_status()
-            e.ln(f"i_status = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
-            e.ln(f"i_status = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+            if _is_qspipsu(htype):
+                e.ln(f"i_status = XQspiPsu_CfgInitialize({hvar}, sp_config, sp_config->BaseAddress);").check_status()
+                e.ln(f"i_status = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
+                e.ln(f"i_status = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
+                e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
+            else:
+                e.ln(f"i_status = XSpiPs_CfgInitialize({hvar}, sp_config, sp_config->BaseAddress);").check_status()
+                e.ln(f"i_status = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
+                e.ln(f"i_status = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
 
         for step in op["steps"]:
             sop = step["op"]
@@ -628,7 +684,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
 
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="spi",
-        header_includes=["xil_types.h", "xspips.h"],
+        header_includes=["xil_types.h", _spi_header_for(htype)],
         driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
         defines=defines, funcs=funcs, public_names=public)
 

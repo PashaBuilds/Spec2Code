@@ -7,7 +7,7 @@ reads the rule values from that ruleset while keeping the supported C type surfa
 Severity policy:
   * function-name pattern mismatch  -> error   (gate-failing)
   * print line-terminator mismatch  -> error   (gate-failing)
-  * Hungarian prefix mismatch       -> warning  (advisory, best-effort)
+  * Hungarian / camelCase mismatch  -> error   (gate-failing)
 """
 
 from __future__ import annotations
@@ -55,24 +55,52 @@ def _ensure_libclang() -> bool:
     return True
 
 
-# Hungarian prefix expected for a (pointer?, base-type) pair, derived from the ruleset map.
-def _expected_prefix(written_type: str, prefixes: dict) -> Optional[str]:
+def _base_type(written_type: str) -> str:
+    t = re.sub(r"\b(static|const|volatile)\b", "", written_type).strip()
+    return re.sub(r"\s+", " ", t.replace("*", " ").strip())
+
+
+def _is_structish_type(base: str) -> bool:
+    return base.startswith("S") or base.startswith("struct ")
+
+
+# Hungarian prefix expected for a (pointer?, array?, base-type) pair, derived from the ruleset.
+def _expected_prefix(written_type: str, prefixes: dict, *, is_array: bool = False) -> Optional[str]:
     """Expected Hungarian prefix for a *written* (source-token) type, or None to skip.
 
     Uses the type as the programmer wrote it (immune to libclang header-resolution gaps).
     """
-    t = written_type.replace("const", "").replace("volatile", "").strip()
+    t = re.sub(r"\b(static|const|volatile)\b", "", written_type).strip()
     is_ptr = "*" in t
-    base = re.sub(r"\s+", " ", t.replace("*", " ").strip())
+    base = _base_type(written_type)
     if base == "void":
         return None  # void* names (e.g. FreeRTOS pv_parameters) aren't covered by the map
     scalar = {k: v for k, v in prefixes.items() if k in _SCALAR_KEYS}
+    if is_array:
+        suffix = prefixes.get("array_suffix", "Arr")
+        if base in scalar:
+            return scalar[base] + suffix
+        if _is_structish_type(base):
+            return prefixes.get("struct", "s") + suffix
+        return None
     if is_ptr:
         if base in scalar:
             suffix = prefixes.get("pointer_suffix", prefixes.get("pointer", "p"))
             return scalar[base] + suffix
         return prefixes.get("struct_pointer", "sp")             # struct*    -> sp
+    if _is_structish_type(base):
+        return prefixes.get("struct", "s")
     return scalar.get(base)
+
+
+def _name_parts_for_storage(name: str, storage_prefix: str) -> tuple[str, str]:
+    if storage_prefix and name.startswith(storage_prefix):
+        return storage_prefix, name[len(storage_prefix):]
+    return "", name
+
+
+def _is_camel_case_name(name: str) -> bool:
+    return "_" not in name and bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", name))
 
 
 def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = None) -> list[Violation]:
@@ -80,6 +108,7 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
     naming = ruleset.get("naming", {})
     func_regex = naming.get("function_regex")
     prefixes = naming.get("hungarian_prefixes", {})
+    identifier_case = naming.get("identifier_case")
     term = ruleset.get("print_conventions", {}).get("line_terminator_in_prints", "\\r\\n")
 
     # --- print line-terminator check (source scan, no AST needed) ---
@@ -129,11 +158,35 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
             # Read the WRITTEN type from source tokens (robust to header-resolution gaps).
             toks = [t.spelling for t in cursor.get_tokens()]
             written_type = " ".join(toks[:toks.index(name)]) if name in toks else cursor.type.spelling
-            expected = _expected_prefix(written_type, prefixes)
-            if expected and not name.startswith(expected):
+            name_idx = toks.index(name) if name in toks else -1
+            is_array = name_idx >= 0 and "[" in toks[name_idx + 1:]
+            storage_prefix = ""
+            try:
+                if cursor.storage_class == cindex.StorageClass.STATIC:
+                    storage_prefix = prefixes.get("static_prefix", "S_")
+            except Exception:
+                storage_prefix = ""
+            if storage_prefix == "" and cursor.semantic_parent.kind == cindex.CursorKind.TRANSLATION_UNIT:
+                storage_prefix = prefixes.get("global_prefix", "G_")
+            actual_storage, local_name = _name_parts_for_storage(name, storage_prefix)
+            expected = _expected_prefix(written_type, prefixes, is_array=is_array)
+            if expected and storage_prefix and actual_storage != storage_prefix:
+                violations.append(Violation(
+                    file=str(path), line=loc.line, column=loc.column, rule="naming.storage_prefix",
+                    severity="error",
+                    message=f"'{name}' ({cursor.type.spelling}) should start with storage prefix '{storage_prefix}'",
+                    source="naming-linter"))
+            elif expected and not local_name.startswith(expected):
+                expected_name = f"{storage_prefix}{expected}" if storage_prefix else expected
                 violations.append(Violation(
                     file=str(path), line=loc.line, column=loc.column, rule="naming.hungarian_prefix",
-                    severity="warning",
-                    message=f"'{name}' ({cursor.type.spelling}) should start with '{expected}'",
+                    severity="error",
+                    message=f"'{name}' ({cursor.type.spelling}) should start with '{expected_name}'",
+                    source="naming-linter"))
+            elif identifier_case == "camelCase" and local_name and not _is_camel_case_name(local_name):
+                violations.append(Violation(
+                    file=str(path), line=loc.line, column=loc.column, rule="naming.identifier_case",
+                    severity="error",
+                    message=f"'{name}' should use camelCase after its Hungarian/storage prefix",
                     source="naming-linter"))
     return violations

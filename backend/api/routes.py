@@ -150,12 +150,24 @@ def _driver_module(part: str) -> str:
     return re.sub(r"[^a-z0-9]", "", part.lower())
 
 
-def _controller_handle_type(controller_type: str) -> str | None:
+def _controller_handle_type(controller: dict) -> str | None:
+    driver = controller.get("driver")
+    if driver:
+        return driver
     return {
         "i2c": "XIicPs",
         "spi": "XSpiPs",
-        "qspi": "XQspiPs",
-    }.get(controller_type)
+        "qspi": "XQspiPsu",
+    }.get(controller.get("type", ""))
+
+
+def _controller_header(handle_type: str) -> str | None:
+    return {
+        "XIicPs": "xiicps.h",
+        "XSpiPs": "xspips.h",
+        "XQspiPs": "xqspips.h",
+        "XQspiPsu": "xqspipsu.h",
+    }.get(handle_type)
 
 
 def _vitis_readme(job, files: list[str]) -> str:
@@ -203,32 +215,29 @@ def _vitis_selftest_main(spec: dict) -> str:
         controller = controllers.get(device.get("attach", {}).get("controller_id"))
         if not controller:
             continue
-        handle_type = _controller_handle_type(controller.get("type", ""))
+        handle_type = _controller_handle_type(controller)
         if handle_type is None:
             continue
         module = _driver_module(device.get("part", ""))
-        handle_name = f"{module}_handle"
+        handle_name = f"s{''.join(part[:1].upper() + part[1:] for part in module.split('_') if part)}Handle"
+        header = _controller_header(handle_type)
+        if header:
+            includes.add(header)
         includes.add(f"{module}.h")
-        declarations.append(f"int {module}_self_test({handle_type} *sp_handle);")
+        declarations.append(f"int {module}_self_test({handle_type} *spHandle);")
         calls.extend([
             f"    {handle_type} {handle_name};",
-            f"    i_status = {module}_self_test(&{handle_name});",
-            "    if (i_status != XST_SUCCESS)",
+            f"    iStatus = {module}_self_test(&{handle_name});",
+            "    if (iStatus != XST_SUCCESS)",
             "    {",
-            f'        xil_printf("{device.get("part", module)} self-test FAILED: %d\\r\\n", i_status);',
-            "        return i_status;",
+            f'        xil_printf("{device.get("part", module)} self-test FAILED: %d\\r\\n", iStatus);',
+            "        return iStatus;",
             "    }",
             f'    xil_printf("{device.get("part", module)} self-test PASSED\\r\\n");',
             "",
         ])
 
     include_lines = [f'#include "{name}"' for name in sorted(includes) if name.endswith(".h")]
-    if "xiicps.h" not in includes:
-        include_lines.append('#include "xiicps.h"')
-    if "xspips.h" not in includes:
-        include_lines.append('#include "xspips.h"')
-    if "xqspips.h" not in includes:
-        include_lines.append('#include "xqspips.h"')
     declaration_block = "\n".join(declarations) or "/* No self-test functions were selected. */"
     call_block = "\n".join(calls) if calls else "    xil_printf(\"No Spec2Code self-tests selected.\\r\\n\");\n"
     return (
@@ -242,7 +251,7 @@ def _vitis_selftest_main(spec: dict) -> str:
         + "\n\n"
         "int spec2code_run_self_tests(void)\n"
         "{\n"
-        "    int i_status;\n\n"
+        "    int iStatus;\n\n"
         + call_block
         + "    return XST_SUCCESS;\n"
         "}\n"
