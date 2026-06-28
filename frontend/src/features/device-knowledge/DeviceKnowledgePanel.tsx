@@ -155,7 +155,7 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
 
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-      <div className="min-h-0 space-y-1 rounded-md border border-border bg-inset/40 p-1.5">
+      <div className="max-h-[620px] min-h-0 space-y-1 overflow-y-auto rounded-md border border-border bg-inset/40 p-1.5">
         {registers.map((reg) => {
           const key = registerKey(reg);
           const active = key === registerKey(selectedRegister);

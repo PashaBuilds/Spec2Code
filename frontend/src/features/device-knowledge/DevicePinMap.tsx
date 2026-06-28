@@ -9,8 +9,11 @@ import type { KnowledgePin, KnowledgePinMap, KnowledgePinTone } from "./knowledg
 
 const PIN_TOP = 44;
 const PIN_STEP = 25;
-const CHIP_X = 196;
+const SVG_W = 640;
+const CHIP_X = 264;
 const CHIP_W = 112;
+const PIN_LABEL_MIN_W = 76;
+const PIN_LABEL_MAX_W = 178;
 
 type PositionedPin = KnowledgePin & {
   key: string;
@@ -84,10 +87,10 @@ function PinRow({
   const isLeft = pin.side === "left";
   const lineStart = isLeft ? CHIP_X - 42 : CHIP_X + CHIP_W + 42;
   const lineEnd = isLeft ? CHIP_X : CHIP_X + CHIP_W;
-  const textX = isLeft ? 78 : 442;
+  const textX = isLeft ? lineStart - 12 : lineStart + 12;
   const numberX = isLeft ? CHIP_X - 8 : CHIP_X + CHIP_W + 8;
-  const targetX = isLeft ? textX - 8 : textX - 88;
-  const targetW = 96;
+  const targetW = Math.min(PIN_LABEL_MAX_W, Math.max(PIN_LABEL_MIN_W, pin.name.length * 8 + 22));
+  const targetX = isLeft ? textX - targetW + 8 : textX - 8;
 
   function handleKeyDown(event: KeyboardEvent<SVGGElement>) {
     if (event.key === "Enter" || event.key === " ") {
@@ -128,7 +131,7 @@ function PinRow({
       <text
         x={textX}
         y={y + 4}
-        textAnchor={isLeft ? "start" : "end"}
+        textAnchor={isLeft ? "end" : "start"}
         fill={selected ? style.text : "var(--text)"}
         className="font-mono text-[11px] font-bold"
       >
@@ -261,7 +264,7 @@ export default function DevicePinMap({
         </div>
 
         <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
-          <svg viewBox={`0 0 520 ${viewH}`} role="img" aria-label={`${part} pin haritası`} className="mx-auto h-auto w-full max-w-[560px]">
+          <svg viewBox={`0 0 ${SVG_W} ${viewH}`} role="img" aria-label={`${part} pin haritası`} className="mx-auto h-auto w-full max-w-[680px]">
             <rect x={CHIP_X} y="36" width={CHIP_W} height={chipH} rx="12" fill="var(--elev)" stroke="var(--border)" />
             <path d={`M${CHIP_X + 44} 36a18 9 0 0 0 36 0`} fill="var(--bg)" stroke="var(--border)" />
             <text x={CHIP_X + CHIP_W / 2} y={36 + chipH / 2 - 6} textAnchor="middle" className="fill-text font-mono text-[14px] font-bold">

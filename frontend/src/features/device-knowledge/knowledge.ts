@@ -401,6 +401,206 @@ function ticsRegisterTransfer(part: string, reg: KnowledgeRegister): KnowledgeRe
   ];
 }
 
+function hexAddress(address: number, digits = 2): string {
+  return `0x${address.toString(16).toUpperCase().padStart(digits, "0")}`;
+}
+
+function ticsFrameRegister(): KnowledgeRegister {
+  return {
+    name: "TICS_24BIT_WORD",
+    address: "word",
+    width: "24",
+    access: "WO",
+    purpose: "TICS Pro export satırındaki tek SPI register write frame'i.",
+    fields: tics24Fields,
+  };
+}
+
+const LMK04832_REGISTER_ROWS: Array<[number, string]> = [
+  [0x000, "RESET / SPI_3WIRE_DIS"], [0x002, "POWERDOWN"], [0x003, "ID_DEVICE_TYPE"],
+  [0x004, "ID_PROD[15:8]"], [0x005, "ID_PROD[7:0]"], [0x006, "ID_MASKREV"],
+  [0x00C, "ID_VNDR[15:8]"], [0x00D, "ID_VNDR[7:0]"],
+  [0x100, "DCLK0_1_DIV[7:0]"], [0x101, "DCLK0_1_DDLY[7:0]"],
+  [0x102, "CLKout0_1/DCLK0_1 control"], [0x103, "DCLK0_1 source/control"],
+  [0x104, "SCLK0_1 source/control"], [0x105, "SCLK0_1 analog delay"],
+  [0x106, "SCLK0_1 digital delay"], [0x107, "CLKout1/CLKout0 format"],
+  [0x108, "DCLK2_3_DIV[7:0]"], [0x109, "DCLK2_3_DDLY[7:0]"],
+  [0x10A, "CLKout2_3/DCLK2_3 control"], [0x10B, "DCLK2_3 source/control"],
+  [0x10C, "SCLK2_3 source/control"], [0x10D, "SCLK2_3 analog delay"],
+  [0x10E, "SCLK2_3 digital delay"], [0x10F, "CLKout3/CLKout2 format"],
+  [0x110, "DCLK4_5_DIV[7:0]"], [0x111, "DCLK4_5_DDLY[7:0]"],
+  [0x112, "CLKout4_5/DCLK4_5 control"], [0x113, "DCLK4_5 source/control"],
+  [0x114, "SCLK4_5 source/control"], [0x115, "SCLK4_5 analog delay"],
+  [0x116, "SCLK4_5 digital delay"], [0x117, "CLKout5/CLKout4 format"],
+  [0x118, "DCLK6_7_DIV[7:0]"], [0x119, "DCLK6_7_DDLY[7:0]"],
+  [0x11A, "CLKout6_7/DCLK6_7 control"], [0x11B, "DCLK6_7 source/control"],
+  [0x11C, "SCLK6_7 source/control"], [0x11D, "SCLK6_7 analog delay"],
+  [0x11E, "SCLK6_7 digital delay"], [0x11F, "CLKout7/CLKout6 format"],
+  [0x120, "DCLK8_9_DIV[7:0]"], [0x121, "DCLK8_9_DDLY[7:0]"],
+  [0x122, "CLKout8_9/DCLK8_9 control"], [0x123, "DCLK8_9 source/control"],
+  [0x124, "SCLK8_9 source/control"], [0x125, "SCLK8_9 analog delay"],
+  [0x126, "SCLK8_9 digital delay"], [0x127, "CLKout9/CLKout8 format"],
+  [0x128, "DCLK10_11_DIV[7:0]"], [0x129, "DCLK10_11_DDLY[7:0]"],
+  [0x12A, "CLKout10_11/DCLK10_11 control"], [0x12B, "DCLK10_11 source/control"],
+  [0x12C, "SCLK10_11 source/control"], [0x12D, "SCLK10_11 analog delay"],
+  [0x12E, "SCLK10_11 digital delay"], [0x12F, "CLKout11/CLKout10 format"],
+  [0x130, "DCLK12_13_DIV[7:0]"], [0x131, "DCLK12_13_DDLY[7:0]"],
+  [0x132, "CLKout12_13/DCLK12_13 control"], [0x133, "DCLK12_13 source/control"],
+  [0x134, "SCLK12_13 source/control"], [0x135, "SCLK12_13 analog delay"],
+  [0x136, "SCLK12_13 digital delay"], [0x137, "CLKout13/CLKout12 format"],
+  [0x138, "VCO_MUX / OSCout_MUX / OSCout_FMT"], [0x139, "SYSREF_REQ_EN / SYNC_BYPASS / SYSREF_MUX"],
+  [0x13A, "SYSREF_DIV[12:8]"], [0x13B, "SYSREF_DIV[7:0]"],
+  [0x13C, "SYSREF_DDLY[12:8]"], [0x13D, "SYSREF_DDLY[7:0]"],
+  [0x13E, "SYSREF_PULSE_CNT"], [0x13F, "PLL2_RCLK_MUX / PLL2_NCLK_MUX / feedback mux"],
+  [0x140, "PLL1/VCO/OSCin/SYSREF power-down"], [0x141, "SYSREF DDLY enable mask"],
+  [0x142, "DDLYd_STEP_CNT"], [0x143, "SYSREF_CLR / SYNC control"],
+  [0x144, "SYNC disable mask"], [0x145, "PLL1R/PLL2R sync source"],
+  [0x146, "CLKin enable/type"], [0x147, "CLKin selection/demux"],
+  [0x148, "CLKin_SEL0 mux/type"], [0x149, "CLKin_SEL1 mux/type"],
+  [0x14A, "RESET_MUX / RESET_TYPE"], [0x14B, "LOS/HOLDOVER/MAN_DAC control"],
+  [0x14C, "MAN_DAC[7:0]"], [0x14D, "DAC_TRIP_LOW"], [0x14E, "DAC_TRIP_HIGH"],
+  [0x14F, "DAC_CLK_CNTR"], [0x150, "Holdover and CLKin switching control"],
+  [0x151, "HOLDOVER_DLD_CNT[13:8]"], [0x152, "HOLDOVER_DLD_CNT[7:0]"],
+  [0x153, "CLKin0_R[13:8]"], [0x154, "CLKin0_R[7:0]"],
+  [0x155, "CLKin1_R[13:8]"], [0x156, "CLKin1_R[7:0]"],
+  [0x157, "CLKin2_R[13:8]"], [0x158, "CLKin2_R[7:0]"],
+  [0x159, "PLL1_N[13:8]"], [0x15A, "PLL1_N[7:0]"],
+  [0x15B, "PLL1 window / charge-pump control"], [0x15C, "PLL1_DLD_CNT[13:8]"],
+  [0x15D, "PLL1_DLD_CNT[7:0]"], [0x15E, "HOLDOVER_EXIT_NADJ"],
+  [0x15F, "PLL1_LD_MUX / PLL1_LD_TYPE"], [0x160, "PLL2_R[11:8]"],
+  [0x161, "PLL2_R[7:0]"], [0x162, "PLL2_P / OSCin_FREQ / PLL2_XTAL_EN"],
+  [0x163, "PLL2_N_CAL[17:16]"], [0x164, "PLL2_N_CAL[15:8]"], [0x165, "PLL2_N_CAL[7:0]"],
+  [0x166, "PLL2_N[17:16]"], [0x167, "PLL2_N[15:8]"], [0x168, "PLL2_N[7:0]"],
+  [0x169, "PLL2 window / charge-pump / DLD control"], [0x16A, "PLL2_DLD_CNT[13:8]"],
+  [0x16B, "PLL2_DLD_CNT[7:0]"], [0x16C, "Reserved"], [0x173, "PLL2_PRE_PD / PLL2_PD"],
+  [0x177, "PLL1R_RST"], [0x182, "Clear PLL lock-lost flags"],
+  [0x183, "PLL DLD/readback status"], [0x184, "CLKin select/LOS readback + DAC[9:8]"],
+  [0x185, "RB_DAC_VALUE[7:0]"], [0x188, "Holdover/DAC rail readback"], [0x555, "SPI_LOCK"],
+];
+
+function lmk04832Registers(): KnowledgeRegister[] {
+  return [
+    ticsFrameRegister(),
+    ...LMK04832_REGISTER_ROWS.map(([address, summary]) => ({
+      name: `REG_${hexAddress(address, 3).slice(2)}`,
+      address: hexAddress(address, 3),
+      width: "8",
+      access: address >= 0x182 && address !== 0x555 ? "RO/RW status" : "RW",
+      purpose: `LMK04832 Table 5 register map girdisi: ${summary}.`,
+      fields: [
+        {
+          bits: "DATA[7:0]",
+          name: summary,
+          meaning: "Bit-level anlam için TI Table 5/8.6.2 açıklamaları esas alınır; TICS Pro export bu byte değerini üretir.",
+        },
+      ],
+    })),
+  ];
+}
+
+const LMX1204_REGISTER_ROWS = [
+  { address: 0x00, name: "R0", reset: "0x0000", feature: "Powerdown, Reset, Multiplier Mode Calibration" },
+  { address: 0x02, name: "R2", reset: "0x0223", feature: "Multiplier Mode state-machine clock" },
+  { address: 0x03, name: "R3", reset: "0xFF86", feature: "Multiplier Mode state-machine clock, output enables" },
+  { address: 0x04, name: "R4", reset: "0x360F", feature: "Output enables, CLKOUT power" },
+  { address: 0x05, name: "R5", reset: "0x4936", feature: "CLKOUT power, SYSREFOUT power" },
+  { address: 0x06, name: "R6", reset: "0x36D6", feature: "LOGICLK enable, SYSREFOUT power/VCM" },
+  { address: 0x07, name: "R7", reset: "0x0000", feature: "LOGICLK and LOGISYSREF" },
+  { address: 0x08, name: "R8", reset: "0x0120", feature: "LOGICLK and LOGISYSREF" },
+  { address: 0x09, name: "R9", reset: "0x001E", feature: "LOGICLK divider, SYNC, SYSREFREQ" },
+  { address: 0x0B, name: "R11", reset: "0xFFFF", feature: "SYSREFREQ windowing readback" },
+  { address: 0x0C, name: "R12", reset: "0xFFFF", feature: "SYSREFREQ windowing readback" },
+  { address: 0x0D, name: "R13", reset: "0x0003", feature: "SYSREFREQ windowing" },
+  { address: 0x0E, name: "R14", reset: "0x0002", feature: "SYSREFREQ windowing, SYNC, SYSREF" },
+  { address: 0x0F, name: "R15", reset: "0x0901", feature: "SYSREFREQ windowing, SYNC, SYSREF" },
+  { address: 0x10, name: "R16", reset: "0x1003", feature: "SYSREF" },
+  { address: 0x11, name: "R17", reset: "0x07F0", feature: "SYSREF, SYSREFOUT0 delay" },
+  { address: 0x12, name: "R18", reset: "0xFE00", feature: "SYSREFOUT delay" },
+  { address: 0x13, name: "R19", reset: "0xFE00", feature: "SYSREFOUT delay" },
+  { address: 0x14, name: "R20", reset: "0xFE00", feature: "SYSREFOUT delay" },
+  { address: 0x15, name: "R21", reset: "0xFE00", feature: "SYSREFOUT delay" },
+  { address: 0x16, name: "R22", reset: "0x0800", feature: "SYSREFOUT delay" },
+  { address: 0x17, name: "R23", reset: "0x4000", feature: "Temperature sensor, MUXOUT, SYSREFOUT delay" },
+  { address: 0x18, name: "R24", reset: "0x0FFE", feature: "Temperature sensor" },
+  { address: 0x19, name: "R25", reset: "0x0211", feature: "Multiplier Mode, Divider Mode" },
+  { address: 0x1C, name: "R28", reset: "0x0A08", feature: "Multiplier Mode optional partial-assist calibration" },
+  { address: 0x1D, name: "R29", reset: "0x05FF", feature: "Multiplier Mode optional partial-assist calibration" },
+  { address: 0x21, name: "R33", reset: "0x7777", feature: "Multiplier Mode reserved, must write in multiplier mode" },
+  { address: 0x22, name: "R34", reset: "0x0000", feature: "Multiplier Mode reserved, must write in multiplier mode" },
+  { address: 0x41, name: "R65", reset: "0x45F0", feature: "Multiplier Mode read-only, optional partial-assist calibration" },
+  { address: 0x43, name: "R67", reset: "0x50C8", feature: "Multiplier Mode reserved, must write in multiplier mode" },
+  { address: 0x48, name: "R72", reset: "0x0000", feature: "SYSREF" },
+  { address: 0x4B, name: "R75", reset: "0xE716", feature: "Multiplier Mode read-only, optional lock detect" },
+  { address: 0x4F, name: "R79", reset: "0x0104", feature: "LOGICLK divider reserved, optional divider bypass" },
+  { address: 0x56, name: "R86", reset: "0x0000", feature: "MUXOUT reserved, optional tri-state" },
+  { address: 0x5A, name: "R90", reset: "0x0000", feature: "LOGICLK divider reserved, optional divider bypass" },
+];
+
+function lmx1204Registers(): KnowledgeRegister[] {
+  return [
+    ticsFrameRegister(),
+    ...LMX1204_REGISTER_ROWS.map((row) => ({
+      name: row.name,
+      address: hexAddress(row.address, 2),
+      width: "16",
+      access: ["R11", "R12", "R24", "R65", "R75"].includes(row.name) ? "RO/RW mixed" : "RW",
+      reset: row.reset,
+      purpose: `LMX1204 Table 1-1 register map girdisi: ${row.feature}.`,
+      fields: row.name === "R0"
+        ? [
+            { bits: "B2", name: "POWERDOWN", meaning: "Cihazı low-power state'e alır.", values: ["0: normal operation", "1: power-down"] },
+            { bits: "B0", name: "RESET", meaning: "Cihaz logic/register reset isteğidir; sonraki register write ile self-clearing davranışı vardır.", values: ["0: normal", "1: reset"] },
+          ]
+        : [
+            { bits: "D15:D0", name: row.feature, meaning: "Bu register TICS Pro export içindeki 16-bit data alanıyla programlanır." },
+          ],
+    })),
+  ];
+}
+
+const LMX2820_REGISTER_ROWS = [
+  { address: 0x00, reset: "0x4070" }, { address: 0x01, reset: "0x57A0" }, { address: 0x02, reset: "0xB3E8" }, { address: 0x03, reset: "0x41" }, { address: 0x04, reset: "0x4204" }, { address: 0x05, reset: "0x3832" }, { address: 0x06, reset: "0xA43" }, { address: 0x07, reset: "0xC8" },
+  { address: 0x08, reset: "0xC802" }, { address: 0x09, reset: "0x5" }, { address: 0x0A, reset: "0x0" }, { address: 0x0B, reset: "0x603" }, { address: 0x0C, reset: "0x408" }, { address: 0x0D, reset: "0x38" }, { address: 0x0E, reset: "0x3001" }, { address: 0x0F, reset: "0x2001" },
+  { address: 0x10, reset: "0x271C" }, { address: 0x11, reset: "0x1440" }, { address: 0x12, reset: "0x3E8" }, { address: 0x13, reset: "0x2120" }, { address: 0x14, reset: "0x272C" }, { address: 0x15, reset: "0x1C64" }, { address: 0x16, reset: "0xE2BF" }, { address: 0x17, reset: "0x1102" },
+  { address: 0x18, reset: "0xE34" }, { address: 0x19, reset: "0x624" }, { address: 0x1A, reset: "0xDB0" }, { address: 0x1B, reset: "0x8001" }, { address: 0x1C, reset: "0x639" }, { address: 0x1D, reset: "0x318C" }, { address: 0x1E, reset: "0xB18C" }, { address: 0x1F, reset: "0x401" },
+  { address: 0x20, reset: "0x1001" }, { address: 0x21, reset: "0x0" }, { address: 0x22, reset: "0x10" }, { address: 0x23, reset: "0x3100" }, { address: 0x24, reset: "0x38" }, { address: 0x25, reset: "0x500" }, { address: 0x26, reset: "0x0" }, { address: 0x27, reset: "0x3E8" },
+  { address: 0x28, reset: "0x0" }, { address: 0x29, reset: "0x0" }, { address: 0x2A, reset: "0x0" }, { address: 0x2B, reset: "0x0" }, { address: 0x2C, reset: "0x0" }, { address: 0x2D, reset: "0x0" }, { address: 0x2E, reset: "0x300" }, { address: 0x2F, reset: "0x300" },
+  { address: 0x30, reset: "0x4180" }, { address: 0x31, reset: "0x0" }, { address: 0x32, reset: "0x80" }, { address: 0x33, reset: "0x203F" }, { address: 0x34, reset: "0x0" }, { address: 0x35, reset: "0x0" }, { address: 0x36, reset: "0x0" }, { address: 0x37, reset: "0x2" },
+  { address: 0x38, reset: "0x1" }, { address: 0x39, reset: "0x1" }, { address: 0x3A, reset: "0x0" }, { address: 0x3B, reset: "0x1388" }, { address: 0x3C, reset: "0x1F4" }, { address: 0x3D, reset: "0x3E8" }, { address: 0x3E, reset: "0x0" }, { address: 0x3F, reset: "0xC350" },
+  { address: 0x40, reset: "0x4080" }, { address: 0x41, reset: "0x1" }, { address: 0x42, reset: "0x3F" }, { address: 0x43, reset: "0x0" }, { address: 0x44, reset: "0x0" }, { address: 0x45, reset: "0x11" }, { address: 0x46, reset: "0x1E" }, { address: 0x47, reset: "0x0" },
+  { address: 0x48, reset: "0x0" }, { address: 0x49, reset: "0x0" }, { address: 0x4A, reset: "0x0" }, { address: 0x4B, reset: "0x0" }, { address: 0x4C, reset: "0x0" }, { address: 0x4D, reset: "0x56CC" }, { address: 0x4E, reset: "0x1" }, { address: 0x4F, reset: "0x11E" },
+  { address: 0x50, reset: "0x1C0" }, { address: 0x51, reset: "0x0" }, { address: 0x52, reset: "0x0" }, { address: 0x53, reset: "0xF00" }, { address: 0x54, reset: "0x40" }, { address: 0x55, reset: "0x0" }, { address: 0x56, reset: "0x40" }, { address: 0x57, reset: "0xFF00" },
+  { address: 0x58, reset: "0x3FF" }, { address: 0x59, reset: "0x0" }, { address: 0x5A, reset: "0x0" }, { address: 0x5B, reset: "0x0" }, { address: 0x5C, reset: "0x0" }, { address: 0x5D, reset: "0x1000" }, { address: 0x5E, reset: "0x0" }, { address: 0x5F, reset: "0x0" },
+  { address: 0x60, reset: "0x17F8" }, { address: 0x61, reset: "0x0" }, { address: 0x62, reset: "0x1C80" }, { address: 0x63, reset: "0x19B9" }, { address: 0x64, reset: "0x533" }, { address: 0x65, reset: "0x3E8" }, { address: 0x66, reset: "0x28" }, { address: 0x67, reset: "0x14" },
+  { address: 0x68, reset: "0x14" }, { address: 0x69, reset: "0xA" }, { address: 0x6A, reset: "0x0" }, { address: 0x6B, reset: "0x0" }, { address: 0x6C, reset: "0x0" }, { address: 0x6D, reset: "0x0" }, { address: 0x6E, reset: "0x1F" }, { address: 0x6F, reset: "0x0" },
+  { address: 0x70, reset: "0xFFFF" }, { address: 0x71, reset: "0x0" }, { address: 0x72, reset: "0x0" }, { address: 0x73, reset: "0x0" }, { address: 0x74, reset: "0x0" }, { address: 0x75, reset: "0x0" }, { address: 0x76, reset: "0x0" }, { address: 0x77, reset: "0x0" },
+  { address: 0x78, reset: "0x0" }, { address: 0x79, reset: "0x0" }, { address: 0x7A, reset: "0x0" },
+];
+
+function lmx2820Registers(): KnowledgeRegister[] {
+  return [
+    ticsFrameRegister(),
+    ...LMX2820_REGISTER_ROWS.map((row) => ({
+      name: `R${row.address}`,
+      address: hexAddress(row.address, 2),
+      width: "16",
+      access: "RW",
+      reset: row.reset,
+      purpose: `LMX2820 SNAU251A register map girdisi R${row.address}; TICS Pro export bu 16-bit register image değerini üretir.`,
+      fields: row.address === 0
+        ? [
+            { bits: "B6", name: "DBLR_CAL_EN", meaning: "VCO doubler calibration enable bitidir.", values: disabledEnabledValues },
+            { bits: "B4", name: "FCAL_EN", meaning: "R0 yazımıyla VCO calibration enable/trigger davranışını belirler.", values: ["0: disabled", "1: enabled and triggered on R0 write"] },
+            { bits: "B1", name: "RESET", meaning: "Register/state reset isteği; self-clearing davranışlıdır.", values: ["0: normal", "1: reset"] },
+            { bits: "B0", name: "POWERDOWN", meaning: "Cihazı power-down moduna alır.", values: ["0: normal operation", "1: power-down"] },
+          ]
+        : [
+            { bits: "D15:D0", name: `R${row.address} image`, meaning: "Bitfield anlamı TI SNAU251A register map içinde tanımlıdır; generated init TICS Pro word değerini aynen yazar." },
+          ],
+    })),
+  ];
+}
+
 const PACKS: Record<string, DeviceKnowledgePack> = {
   LTC2991: {
     part: "LTC2991",
@@ -1529,48 +1729,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Export edilen hex register array'i cihaz konfigürasyon panelindeki TICS Pro alanına yapıştır.",
       "Generated driver array'i 3 byte SPI write olarak uygular; application code frekans hesabı veya register sort işlemi yapmaz.",
     ],
-    registers: [
-      {
-        name: "TICS_24BIT_WORD",
-        address: "word",
-        width: "24",
-        access: "WO",
-        purpose: "TICS Pro export satırındaki tek register write frame'i.",
-        fields: tics24Fields,
-      },
-      {
-        name: "RESET",
-        address: "0x000",
-        width: "8",
-        access: "RW",
-        purpose: "Software reset ve SPI mode davranışı için kullanılan başlangıç register'ı.",
-        fields: [
-          { bits: "B7", name: "RESET", meaning: "Cihaz register/state başlangıcını resetler.", values: ["0: normal", "1: reset isteği"] },
-          { bits: "B4", name: "SPI_3WIRE_DIS", meaning: "SDIO readback kullanım şeklini etkileyen SPI control bitidir." },
-        ],
-      },
-      {
-        name: "PLL2_N",
-        address: "0x166..0x168",
-        width: "3 x 8",
-        access: "RW",
-        purpose: "PLL2 feedback divider değeridir; internal VCO kalibrasyon davranışı için yazım sırası kritiktir.",
-        fields: [
-          { bits: "0x166..0x168", name: "PLL2_N value", meaning: "PLL2 feedback divider register image; TICS Pro hesapladığı değeri export eder." },
-        ],
-      },
-      {
-        name: "PLL2_POWER",
-        address: "0x173",
-        width: "8",
-        access: "RW",
-        purpose: "PLL2 power-down bitlerini içerir; PLL2_N yazılmadan önce PLL2'nin açık olması gereken akışlar vardır.",
-        fields: [
-          { bits: "PLL2_PD", name: "PLL2 power-down", meaning: "PLL2'nin power state bilgisini belirler; TICS Pro sequence'i korunmalıdır." },
-          { bits: "PLL2_PRE_PD", name: "PLL2 prescaler power-down", meaning: "PLL2 prescaler state bilgisini belirler." },
-        ],
-      },
-    ],
+    registers: lmk04832Registers(),
     recipes: [
       {
         title: "TICS Pro ile deterministic init",
@@ -1655,41 +1814,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Export edilen register array'i Spec2Code TICS Pro alanına yapıştır; array sırası değiştirilmez.",
       "Generated init tüm array'i yazar, 10 ms bekler ve export içinde bulunan son R0 word'ünü tekrar yazar.",
     ],
-    registers: [
-      {
-        name: "TICS_24BIT_WORD",
-        address: "word",
-        width: "24",
-        access: "WO",
-        purpose: "TICS Pro export satırındaki tek SPI register write frame'i.",
-        fields: tics24Fields,
-      },
-      {
-        name: "R0",
-        address: "0x00",
-        width: "16",
-        access: "RW",
-        reset: "0x251C",
-        purpose: "Powerdown, software reset ve VCO calibration trigger davranışını içerir; init sonunda tekrar yazılır.",
-        fields: [
-          { bits: "B0", name: "POWERDOWN", meaning: "Cihazı power-down moduna alır.", values: ["0: normal operation", "1: power-down"] },
-          { bits: "B1", name: "RESET", meaning: "Register/state reset isteği; self-clearing davranışlıdır.", values: ["0: normal", "1: reset"] },
-          { bits: "B4", name: "FCAL_EN", meaning: "R0 yazımıyla VCO calibration enable/trigger davranışını belirler.", values: ["0: disabled", "1: enabled and triggered on R0 write"] },
-          { bits: "B6", name: "DBLR_CAL_EN", meaning: "VCO doubler calibration enable bitidir.", values: disabledEnabledValues },
-        ],
-      },
-      {
-        name: "DBLBUF_GROUP",
-        address: "çoklu register",
-        width: "16",
-        access: "RW",
-        purpose: "PLL_N, PLL_NUM, PLL_DEN, MULT, PLL_R, PLL_R_PRE, MASH_ORDER ve PFD_DLY gibi alanlar R0 yazımıyla etkinleşen double-buffered gruptadır.",
-        fields: [
-          { bits: "register write", name: "Shadow update", meaning: "Ara register yazımları önce shadow/load bekleyen duruma geçer." },
-          { bits: "R0 write", name: "Apply", meaning: "R0 programlandığında ilgili double-buffered değerler etkinleşir." },
-        ],
-      },
-    ],
+    registers: lmx2820Registers(),
     recipes: [
       {
         title: "İlk power-on init",
@@ -1775,38 +1900,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Export edilen hex register array'i Spec2Code TICS Pro alanına yapıştır.",
       "Generated driver 24-bit word'leri aynen yazar; LMX1204 için SPI clock prescaler kart tarafında 2 MHz sınırını aşmayacak şekilde doğrulanmalıdır.",
     ],
-    registers: [
-      {
-        name: "TICS_24BIT_WORD",
-        address: "word",
-        width: "24",
-        access: "WO",
-        purpose: "TICS Pro export satırındaki tek SPI register write frame'i.",
-        fields: tics24Fields,
-      },
-      {
-        name: "R0",
-        address: "0x00",
-        width: "16",
-        access: "RW",
-        reset: "0x0000",
-        purpose: "Powerdown, software reset ve multiplier calibration davranışını etkileyen temel control register.",
-        fields: [
-          { bits: "B0", name: "RESET", meaning: "Cihaz logic/register reset isteği; bir sonraki register write ile self-clearing davranışı vardır.", values: ["0: normal", "1: reset"] },
-          { bits: "B2", name: "POWERDOWN", meaning: "Cihazı low-power state'e alır; diğer register değerleri korunur.", values: ["0: normal operation", "1: power-down"] },
-        ],
-      },
-      {
-        name: "MULT_CAL",
-        address: "R0 write",
-        width: "implicit",
-        access: "WO",
-        purpose: "POWERDOWN=0 ve RESET=0 iken R0'a yapılan yazım multiplier calibration state machine'ini tetikler.",
-        fields: [
-          { bits: "R0 write", name: "Calibration trigger", meaning: "Geçerli R0 yazımı multiplier calibration başlatır." },
-        ],
-      },
-    ],
+    registers: lmx1204Registers(),
     recipes: [
       {
         title: "Initial programming",
