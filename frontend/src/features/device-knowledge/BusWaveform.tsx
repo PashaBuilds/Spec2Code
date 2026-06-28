@@ -5,6 +5,7 @@ import type { KnowledgeRegisterTransfer } from "./knowledge";
 
 type Protocol = "i2c" | "spi";
 type ByteRole = "tx" | "rx";
+type BitTone = "normal" | "ack" | "idle" | "master" | "slave";
 
 interface ByteFrame {
   label: string;
@@ -165,12 +166,16 @@ function ClockPulse({ muted = false }: { muted?: boolean }) {
   );
 }
 
-function BitCell({ bit, tone = "normal" }: { bit: string; tone?: "normal" | "ack" | "idle" }) {
+function BitCell({ bit, tone = "normal" }: { bit: string; tone?: BitTone }) {
   return (
     <div
       className={cn(
         "grid h-6 min-w-7 place-items-center rounded border px-1 font-mono text-[10px]",
-        tone === "ack"
+        tone === "master"
+          ? "border-accent/40 bg-accent/15 text-accent"
+          : tone === "slave"
+            ? "border-ok/35 bg-ok/15 text-ok"
+            : tone === "ack"
           ? "border-ok/30 bg-ok/10 text-ok"
           : tone === "idle"
             ? "border-border bg-bg text-faint"
@@ -190,7 +195,17 @@ function EventChip({ label }: { label: string }) {
   );
 }
 
-function I2cByte({ frame, ackLabel = "ACK" }: { frame: ByteFrame; ackLabel?: string }) {
+function I2cByte({
+  frame,
+  dataDriver,
+  ackDriver,
+  ackLabel = "ACK",
+}: {
+  frame: ByteFrame;
+  dataDriver: "master" | "slave";
+  ackDriver: "master" | "slave";
+  ackLabel?: string;
+}) {
   return (
     <div className="inline-grid min-w-max grid-rows-[18px_20px_26px_26px] gap-1 rounded-md border border-border bg-bg p-2">
       <div className="truncate font-mono text-[10px] text-muted">{frame.label}</div>
@@ -199,8 +214,8 @@ function I2cByte({ frame, ackLabel = "ACK" }: { frame: ByteFrame; ackLabel?: str
         <ClockPulse muted />
       </div>
       <div className="grid grid-cols-9 gap-1">
-        {frame.bits.map((bit, index) => <BitCell key={`${frame.label}-sda-${index}`} bit={bit} />)}
-        <BitCell bit={ackLabel} tone="ack" />
+        {frame.bits.map((bit, index) => <BitCell key={`${frame.label}-sda-${index}`} bit={bit} tone={dataDriver} />)}
+        <BitCell bit={ackLabel} tone={ackDriver} />
       </div>
       <div className="grid grid-cols-9 gap-1 text-center font-mono text-[9px] text-faint">
         {frame.bits.map((_, index) => <span key={`${frame.label}-clk-${index}`}>{index + 1}</span>)}
@@ -225,28 +240,53 @@ function I2cWaveform({ transfer }: { transfer: KnowledgeRegisterTransfer }) {
         <Badge tone="neutral">SCL pulse başına 1 bit</Badge>
         <Badge tone="neutral">byte sonrası 9. clock ACK/NACK</Badge>
       </div>
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-faint">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="grid h-4 w-4 place-items-center rounded-sm border border-accent/50 bg-accent/20 font-mono text-[9px] font-semibold text-accent" aria-hidden>
+            M
+          </span>
+          master sürüyor
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="grid h-4 w-4 place-items-center rounded-sm border border-ok/50 bg-ok/20 font-mono text-[9px] font-semibold text-ok" aria-hidden>
+            S
+          </span>
+          slave sürüyor
+        </span>
+        <span>Tek fiziksel SDA hattı gösterilir; renk aktif sürücüyü belirtir.</span>
+      </div>
       <div className="overflow-x-auto rounded-md border border-border bg-elev p-3">
         <div className="mb-2 grid grid-cols-[64px_minmax(0,1fr)] gap-2 text-[10px] text-faint">
           <span>SCL</span>
           <span>Her kutudaki pulse bir clock darbesidir.</span>
           <span>SDA</span>
-          <span>Veri MSB-first gösterilir; adres catalog'da instance bağımsız olduğu için semboliktir.</span>
+          <span>Tek SDA hattında master/slave aktif sürücü rengiyle ayrılır; adres catalog'da instance bağımsız olduğu için semboliktir.</span>
         </div>
         <div className="flex min-w-max items-start gap-2">
           <EventChip label="START" />
-          <I2cByte frame={{ label: "SLA+W", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "W"], role: "tx" }} />
+          <I2cByte
+            frame={{ label: "SLA+W", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "W"], role: "tx" }}
+            dataDriver="master"
+            ackDriver="slave"
+          />
           {tx.visible.map((frame, index) => (
-            <I2cByte key={`${frame.label}-${index}`} frame={frame} />
+            <I2cByte key={`${frame.label}-${index}`} frame={frame} dataDriver="master" ackDriver="slave" />
           ))}
           {tx.hidden > 0 && <EventChip label={`+${tx.hidden} byte`} />}
           {read && (
             <>
               <EventChip label="RESTART" />
-              <I2cByte frame={{ label: "SLA+R", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "R"], role: "tx" }} />
+              <I2cByte
+                frame={{ label: "SLA+R", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "R"], role: "tx" }}
+                dataDriver="master"
+                ackDriver="slave"
+              />
               {rx.visible.map((frame, index) => (
                 <I2cByte
                   key={`${frame.label}-${index}`}
                   frame={frame}
+                  dataDriver="slave"
+                  ackDriver="master"
                   ackLabel={index === rx.visible.length - 1 && rx.hidden === 0 ? "NACK" : "ACK"}
                 />
               ))}
