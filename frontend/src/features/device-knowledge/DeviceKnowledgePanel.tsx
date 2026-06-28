@@ -65,13 +65,13 @@ function registerSearchResult(reg: KnowledgeRegister, query: string) {
   }
 
   const registerMatch = textMatchesSearch(
-    [reg.name, reg.address, reg.width, reg.access, reg.reset, reg.purpose],
+    [reg.name],
     normalizedQuery,
     compactQuery,
   );
   const matchedFields = fields.filter((field) =>
     textMatchesSearch(
-      [field.bits, field.name, field.meaning, ...(field.values ?? [])],
+      [field.name],
       normalizedQuery,
       compactQuery,
     ),
@@ -247,7 +247,7 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
           </span>
           {searchActive && (
             <span>
-              Register adı, adres, amaç ve bit field metinleri aranır.
+              Sadece register adı ve bit field adı aranır.
             </span>
           )}
         </div>
