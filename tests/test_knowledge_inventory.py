@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_TS = ROOT / "frontend" / "src" / "features" / "device-knowledge" / "knowledge.ts"
+TI_CLOCK_BITFIELDS_TS = ROOT / "frontend" / "src" / "features" / "device-knowledge" / "tiClockBitfields.ts"
 
 
 def section(name: str) -> str:
@@ -30,6 +31,36 @@ class KnowledgeInventoryTests(unittest.TestCase):
         self.assertIn("[0x555, \"SPI_LOCK\"]", lmk)
         self.assertIn("{ address: 0x5A, name: \"R90\"", lmx1204)
         self.assertIn("{ address: 0x7A, reset: \"0x0\" }", lmx2820)
+
+    def test_ti_clock_bitfield_inventory_is_wired_for_all_registers(self) -> None:
+        text = TI_CLOCK_BITFIELDS_TS.read_text(encoding="utf-8")
+
+        def part_section(part: str) -> str:
+            start = text.index(f"{part}: {{")
+            next_part = min(
+                [idx for idx in (text.find("\n  LM", start + 1), text.find("\n};", start + 1)) if idx != -1]
+            )
+            return text[start:next_part]
+
+        lmk = part_section("LMK04832")
+        lmx2820 = part_section("LMX2820")
+        lmx1204 = part_section("LMX1204")
+
+        self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{3}": \[', lmk, flags=re.MULTILINE)), 125)
+        self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{2}": \[', lmx2820, flags=re.MULTILINE)), 123)
+        self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{2}": \[', lmx1204, flags=re.MULTILINE)), 35)
+
+        for required in [
+            "PLL2_REF_2X_EN",
+            "MASH_RST_COUNT[31:16]",
+            "MASH_RST_COUNT[15:0]",
+            "SYSREFREQ_DELAY_STEPSIZE",
+            "SYSREFREQ_DELAY_STEP",
+            "SYSREF_DELAY_BYPASS",
+        ]:
+            self.assertIn(required, text)
+
+        self.assertNotIn("R${row.address} image", KNOWLEDGE_TS.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

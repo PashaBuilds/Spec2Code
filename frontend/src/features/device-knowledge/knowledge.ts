@@ -1,3 +1,5 @@
+import { getTiClockBitfields } from "./tiClockBitfields";
+
 export interface KnowledgeSource {
   label: string;
   url: string;
@@ -416,6 +418,18 @@ function ticsFrameRegister(): KnowledgeRegister {
   };
 }
 
+type TiClockPart = "LMK04832" | "LMX2820" | "LMX1204";
+
+function tiClockFields(part: TiClockPart, address: string, fallbackName: string): KnowledgeRegisterField[] {
+  return getTiClockBitfields(part, address) ?? [
+    {
+      bits: part === "LMK04832" ? "D7:D0" : "D15:D0",
+      name: fallbackName,
+      meaning: "Bu register için bitfield kaydı bulunamadı; TI datasheet/register map doğrulaması gerektirir.",
+    },
+  ];
+}
+
 const LMK04832_REGISTER_ROWS: Array<[number, string]> = [
   [0x000, "RESET / SPI_3WIRE_DIS"], [0x002, "POWERDOWN"], [0x003, "ID_DEVICE_TYPE"],
   [0x004, "ID_PROD[15:8]"], [0x005, "ID_PROD[7:0]"], [0x006, "ID_MASKREV"],
@@ -468,7 +482,7 @@ const LMK04832_REGISTER_ROWS: Array<[number, string]> = [
   [0x15B, "PLL1 window / charge-pump control"], [0x15C, "PLL1_DLD_CNT[13:8]"],
   [0x15D, "PLL1_DLD_CNT[7:0]"], [0x15E, "HOLDOVER_EXIT_NADJ"],
   [0x15F, "PLL1_LD_MUX / PLL1_LD_TYPE"], [0x160, "PLL2_R[11:8]"],
-  [0x161, "PLL2_R[7:0]"], [0x162, "PLL2_P / OSCin_FREQ / PLL2_XTAL_EN"],
+  [0x161, "PLL2_R[7:0]"], [0x162, "PLL2_P / OSCin_FREQ / PLL2_REF_2X_EN"],
   [0x163, "PLL2_N_CAL[17:16]"], [0x164, "PLL2_N_CAL[15:8]"], [0x165, "PLL2_N_CAL[7:0]"],
   [0x166, "PLL2_N[17:16]"], [0x167, "PLL2_N[15:8]"], [0x168, "PLL2_N[7:0]"],
   [0x169, "PLL2 window / charge-pump / DLD control"], [0x16A, "PLL2_DLD_CNT[13:8]"],
@@ -487,13 +501,7 @@ function lmk04832Registers(): KnowledgeRegister[] {
       width: "8",
       access: address >= 0x182 && address !== 0x555 ? "RO/RW status" : "RW",
       purpose: `LMK04832 Table 5 register map girdisi: ${summary}.`,
-      fields: [
-        {
-          bits: "DATA[7:0]",
-          name: summary,
-          meaning: "Bit-level anlam için TI Table 5/8.6.2 açıklamaları esas alınır; TICS Pro export bu byte değerini üretir.",
-        },
-      ],
+      fields: tiClockFields("LMK04832", hexAddress(address, 3), summary),
     })),
   ];
 }
@@ -546,14 +554,7 @@ function lmx1204Registers(): KnowledgeRegister[] {
       access: ["R11", "R12", "R24", "R65", "R75"].includes(row.name) ? "RO/RW mixed" : "RW",
       reset: row.reset,
       purpose: `LMX1204 Table 1-1 register map girdisi: ${row.feature}.`,
-      fields: row.name === "R0"
-        ? [
-            { bits: "B2", name: "POWERDOWN", meaning: "Cihazı low-power state'e alır.", values: ["0: normal operation", "1: power-down"] },
-            { bits: "B0", name: "RESET", meaning: "Cihaz logic/register reset isteğidir; sonraki register write ile self-clearing davranışı vardır.", values: ["0: normal", "1: reset"] },
-          ]
-        : [
-            { bits: "D15:D0", name: row.feature, meaning: "Bu register TICS Pro export içindeki 16-bit data alanıyla programlanır." },
-          ],
+      fields: tiClockFields("LMX1204", hexAddress(row.address, 2), row.feature),
     })),
   ];
 }
@@ -587,16 +588,7 @@ function lmx2820Registers(): KnowledgeRegister[] {
       access: "RW",
       reset: row.reset,
       purpose: `LMX2820 SNAU251A register map girdisi R${row.address}; TICS Pro export bu 16-bit register image değerini üretir.`,
-      fields: row.address === 0
-        ? [
-            { bits: "B6", name: "DBLR_CAL_EN", meaning: "VCO doubler calibration enable bitidir.", values: disabledEnabledValues },
-            { bits: "B4", name: "FCAL_EN", meaning: "R0 yazımıyla VCO calibration enable/trigger davranışını belirler.", values: ["0: disabled", "1: enabled and triggered on R0 write"] },
-            { bits: "B1", name: "RESET", meaning: "Register/state reset isteği; self-clearing davranışlıdır.", values: ["0: normal", "1: reset"] },
-            { bits: "B0", name: "POWERDOWN", meaning: "Cihazı power-down moduna alır.", values: ["0: normal operation", "1: power-down"] },
-          ]
-        : [
-            { bits: "D15:D0", name: `R${row.address} image`, meaning: "Bitfield anlamı TI SNAU251A register map içinde tanımlıdır; generated init TICS Pro word değerini aynen yazar." },
-          ],
+      fields: tiClockFields("LMX2820", hexAddress(row.address, 2), `R${row.address}`),
     })),
   ];
 }
