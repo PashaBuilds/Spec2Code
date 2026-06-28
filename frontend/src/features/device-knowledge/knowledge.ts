@@ -2525,6 +2525,10 @@ export function getDeviceKnowledge(part: string): DeviceKnowledgePack | undefine
   return PACKS[part.toUpperCase()];
 }
 
+export function listDeviceKnowledge(): DeviceKnowledgePack[] {
+  return Object.values(PACKS).sort((a, b) => a.part.localeCompare(b.part));
+}
+
 export function hasDeviceKnowledge(part: string): boolean {
   return Boolean(getDeviceKnowledge(part));
 }

@@ -115,6 +115,50 @@ def _safe_download_name(value: str) -> str:
     return name or "spec2code"
 
 
+_ANSWER_TOKEN_RE = re.compile(r"\b0x[0-9A-Fa-f]+\b|\b[A-Z][A-Z0-9_#]{2,}\b")
+_ANSWER_TOKEN_ALLOWLIST = {
+    "ADC",
+    "API",
+    "CPHA",
+    "CPOL",
+    "CRC",
+    "CS",
+    "GPIO",
+    "I2C",
+    "IRQ",
+    "JESD",
+    "LLM",
+    "LSB",
+    "MISO",
+    "MOSI",
+    "MSB",
+    "NULL",
+    "POR",
+    "QSPI",
+    "RO",
+    "RW",
+    "SCK",
+    "SPI",
+    "TX",
+    "RX",
+    "UI",
+    "WO",
+}
+
+
+def _knowledge_answer_unsupported_tokens(answer: str, context: str) -> list[str]:
+    """Return code-like tokens in the answer that were not present in the supplied context."""
+    context_upper = context.upper()
+    unsupported: list[str] = []
+    for token in sorted(set(_ANSWER_TOKEN_RE.findall(answer))):
+        normalized = token.upper()
+        if normalized in _ANSWER_TOKEN_ALLOWLIST:
+            continue
+        if normalized not in context_upper:
+            unsupported.append(token)
+    return unsupported
+
+
 def _resolve_job_file(job, file_path: str) -> tuple[Path, str]:
     requested = _posix_path(file_path).lstrip("/")
     allowed = {_posix_path(rel) for rel in job.result.get("files", [])}
@@ -383,6 +427,7 @@ def knowledge_ask(req: KnowledgeAskRequest) -> dict:
                 "Sen Spec2Code icindeki statik datasheet knowledge paketini cevaplayan bir gomulu yazilim "
                 "yardimcisisin. Sadece verilen KNOWLEDGE CONTEXT icindeki bilgilere dayan. Contextte olmayan "
                 "bir bilgiyi tahmin etme; bunun yerine 'Bu bilgi verilen knowledge icinde yok' de. "
+                "Contextte bulunmayan register, bit field, opcode, fonksiyon veya entegre adi uydurma. "
                 "Cevaplari Turkce cumlelerle ver; register, bit field, driver, readback, opcode gibi teknik "
                 "terimleri gerektiğinde Ingilizce kullan. Register adresi, bit field adi, read/write akisi, "
                 "TX/RX byte boyutu ve driver fonksiyon adi contextte varsa mutlaka belirt."
@@ -399,15 +444,26 @@ def knowledge_ask(req: KnowledgeAskRequest) -> dict:
     ]
 
     try:
-        answer = LlmClient(config).chat(messages, temperature=0.0, max_tokens=min(config.max_tokens, 2048))
+        answer = LlmClient(config).chat(messages, temperature=0.0, max_tokens=min(config.max_tokens, 2048)).strip()
     except LlmError as exc:
         raise HTTPException(502, {"message": "llm failed", "error": str(exc)}) from exc
+    if not answer:
+        raise HTTPException(502, {"message": "llm empty", "error": "LLM bos cevap dondurdu."})
+
+    unsupported_tokens = _knowledge_answer_unsupported_tokens(answer, context)
+    if unsupported_tokens:
+        raise HTTPException(502, {
+            "message": "llm ungrounded",
+            "error": "LLM cevabi verilen knowledge context disinda register/opcode/bitfield tokenlari iceriyor.",
+            "unsupported_tokens": unsupported_tokens[:20],
+        })
 
     return {
         "part": req.part,
         "model": config.model,
         "answer": answer,
         "context_chars": len(context),
+        "grounded": True,
     }
 
 

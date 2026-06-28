@@ -92,6 +92,7 @@ export interface KnowledgeAskResponse {
   model: string;
   answer: string;
   context_chars: number;
+  grounded?: boolean;
 }
 
 export interface ProjectSpec {

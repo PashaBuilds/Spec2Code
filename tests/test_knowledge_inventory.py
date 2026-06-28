@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+from backend.api.routes import _knowledge_answer_unsupported_tokens
 from backend.validators.wiring import validate_wiring
 
 
@@ -84,16 +85,34 @@ class KnowledgeInventoryTests(unittest.TestCase):
 
     def test_ti_clock_bitfield_meanings_do_not_use_placeholder_text(self) -> None:
         text = TI_CLOCK_BITFIELDS_TS.read_text(encoding="utf-8")
+        all_knowledge_text = "\n".join(
+            [
+                KNOWLEDGE_TS.read_text(encoding="utf-8"),
+                TI_CLOCK_BITFIELDS_TS.read_text(encoding="utf-8"),
+            ]
+        )
 
         for placeholder in [
             "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır.",
             "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar.",
             "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler.",
         ]:
-            self.assertNotIn(placeholder, text)
+            self.assertNotIn(placeholder, all_knowledge_text)
 
         self.assertIn("PLL2 digital lock detect anlık readback bitidir", text)
         self.assertIn("PLL2_DLD_EN=1", text)
+
+    def test_knowledge_answer_guard_rejects_context_external_code_tokens(self) -> None:
+        context = "PART=LMK04832\nRB_PLL2_DLD address=0x183\nPLL2 digital lock detect."
+
+        self.assertEqual(
+            _knowledge_answer_unsupported_tokens("RB_PLL2_DLD 0x183 register'ından okunur.", context),
+            [],
+        )
+        self.assertIn(
+            "FAKE_PLL_STATUS",
+            _knowledge_answer_unsupported_tokens("FAKE_PLL_STATUS 0x999 register'ından okunur.", context),
+        )
 
     def test_non_clock_descriptor_register_maps_cover_datasheet_rows(self) -> None:
         ltc2991 = descriptor("ltc2991")
