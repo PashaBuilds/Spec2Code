@@ -314,20 +314,26 @@ function SpiByte({
 }) {
   const mosiBits = direction === "mosi" ? frame.bits : Array.from({ length: 8 }, () => "x");
   const misoBits = direction === "miso" ? frame.bits : Array.from({ length: 8 }, () => "Z");
+  const rowClass = "grid grid-cols-[44px_repeat(8,1.75rem)] items-center gap-1";
+  const labelClass = "font-mono text-[9px] font-semibold uppercase text-muted";
 
   return (
-    <div className="inline-grid min-w-max grid-rows-[18px_20px_26px_26px_20px] gap-1 rounded-md border border-border bg-bg p-2">
-      <div className="truncate font-mono text-[10px] text-muted">{frame.label}</div>
-      <div className="grid grid-cols-8 gap-1">
+    <div className="inline-grid min-w-max gap-1 rounded-md border border-border bg-bg p-2">
+      <div className="ml-[48px] truncate font-mono text-[10px] text-muted">{frame.label}</div>
+      <div className={rowClass}>
+        <span className={labelClass}>SCK</span>
         {frame.bits.map((_, index) => <ClockPulse key={`${frame.label}-sck-${index}`} />)}
       </div>
-      <div className="grid grid-cols-8 gap-1">
+      <div className={rowClass}>
+        <span className={labelClass}>MOSI</span>
         {mosiBits.map((bit, index) => <BitCell key={`${frame.label}-mosi-${index}`} bit={bit} tone={direction === "mosi" ? "normal" : "idle"} />)}
       </div>
-      <div className="grid grid-cols-8 gap-1">
+      <div className={rowClass}>
+        <span className={labelClass}>MISO</span>
         {misoBits.map((bit, index) => <BitCell key={`${frame.label}-miso-${index}`} bit={bit} tone={direction === "miso" ? "normal" : "idle"} />)}
       </div>
-      <div className="grid grid-cols-8 gap-1 text-center font-mono text-[9px] text-faint">
+      <div className={`${rowClass} text-center font-mono text-[9px] text-faint`}>
+        <span className={labelClass}>CLK</span>
         {frame.bits.map((_, index) => <span key={`${frame.label}-clk-${index}`}>{index + 1}</span>)}
       </div>
     </div>
@@ -363,10 +369,8 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
         <div className="mb-2 grid grid-cols-[64px_minmax(0,1fr)] gap-2 text-[10px] text-faint">
           <span>CS#</span>
           <span>Soldan sağa low kabul edilir; transfer sonunda high olur.</span>
-          <span>SCK</span>
-          <span>Her pulse bir bit clock'udur.</span>
-          <span>MOSI/MISO</span>
-          <span>MOSI command/address/data, MISO read data alanlarını gösterir.</span>
+          <span>Satırlar</span>
+          <span>Her byte kartında SCK, MOSI, MISO ve clock numarası kendi satırının solunda gösterilir.</span>
         </div>
         <div className="inline-block min-w-max">
           <div className="mb-2 rounded border border-border bg-bg px-2 py-1 font-mono text-[10px] text-accent">
