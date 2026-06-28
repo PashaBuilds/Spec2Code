@@ -373,6 +373,28 @@ def _mock_plan_source(spec: dict, get_descriptor) -> str:
     return "\n".join(lines)
 
 
+def mock_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
+    project_name = spec["project"]["name"]
+    tests_dir = out_dir / "tests"
+    return [
+        tests_dir / "spec2code_mock_bus.h",
+        tests_dir / "spec2code_mock_bus.c",
+        tests_dir / f"{project_name}_mock_plan.c",
+    ]
+
+
+def write_mock_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[str]:
+    """Write the boardless mock harness files and return their resolved paths."""
+    get_descriptor = make_descriptor_loader(root)
+    paths = mock_harness_paths(spec, out_dir)
+    contents = [
+        _apply_default_identifier_style(_mock_bus_header()),
+        _apply_default_identifier_style(_mock_bus_source()),
+        _apply_default_identifier_style(_mock_plan_source(spec, get_descriptor)),
+    ]
+    return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
+
+
 def _env() -> Environment:
     return Environment(
         loader=FileSystemLoader(str(_TEMPLATES)),
@@ -463,12 +485,7 @@ def generate(
     readme = readme_t.render(spec=spec, units=units)
     written.append(str(hio.write_output(out_dir / "README.md", readme)))
 
-    mock_header = _apply_default_identifier_style(_mock_bus_header())
-    written.append(str(hio.write_output(tests_dir / "spec2code_mock_bus.h", mock_header)))
-    mock_source = _apply_default_identifier_style(_mock_bus_source())
-    written.append(str(hio.write_output(tests_dir / "spec2code_mock_bus.c", mock_source)))
-    mock_plan = _apply_default_identifier_style(_mock_plan_source(spec, get_descriptor))
-    written.append(str(hio.write_output(tests_dir / f"{spec['project']['name']}_mock_plan.c", mock_plan)))
+    written.extend(write_mock_harness(spec, out_dir, root=root))
 
     emit({"event": "codegen.done", "files": len(written)})
     return written
