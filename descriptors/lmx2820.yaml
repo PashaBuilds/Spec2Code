@@ -1,0 +1,40 @@
+descriptor_version: "1.0"
+part: "LMX2820"
+manufacturer: "Texas Instruments"
+summary: "22.6 GHz wideband PLLatinum RF synthesizer with phase synchronization and JESD204B support."
+transport:
+  type: spi
+  byte_order: big
+  register_model:
+    ticspro_words: true
+    frame_bits: 24
+    address_bits: 7
+    address_shift: 16
+    data_bits: 16
+    rw_bit: 23
+    write_value: 0
+    default_order: descending
+    spi_mode: 0
+    max_sck_hz: 40000000
+    rewrite_last_address: 0x00
+    rewrite_last_address_after_ms: 10
+access_primitives:
+  write_register_word: { pattern: ticspro_24bit_word }
+registers:
+  - { name: R0, offset: 0x00, width: 16, access: rw, reset: 0x251C,
+      fields: [
+        { name: POWERDOWN, bits: "0" },
+        { name: RESET, bits: "1" },
+        { name: FCAL_EN, bits: "4" },
+        { name: DBLR_CAL_EN, bits: "6" } ] }
+  - { name: R1, offset: 0x01, width: 16, access: rw }
+  - { name: R35, offset: 0x23, width: 16, access: rw }
+  - { name: R36, offset: 0x24, width: 16, access: rw }
+  - { name: R75, offset: 0x4B, width: 16, access: rw }
+operations:
+  - name: device_init
+    description: "Apply the ordered TICS Pro 24-bit register array, then re-write R0 after the LDO settle delay."
+    steps:
+      - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes." }
+test_hints:
+  self_test: { description: "Initialize SPI, emit the configured TICS Pro register array, and repeat R0 after 10 ms." }

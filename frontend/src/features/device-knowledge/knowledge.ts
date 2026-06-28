@@ -360,6 +360,47 @@ const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): Know
   ];
 };
 
+const tics24Fields: KnowledgeRegisterField[] = [
+  {
+    bits: "Word[23]",
+    name: "R/W",
+    meaning: "SPI frame içindeki erişim yönü bitidir.",
+    values: ["0: write", "1: read"],
+  },
+  {
+    bits: "Word address alanı",
+    name: "Address",
+    meaning: "Cihaz register adresidir; LMK04832 için 15 bit, LMX2820/LMX1204 için 7 bit yorumlanır.",
+  },
+  {
+    bits: "Word data alanı",
+    name: "Data",
+    meaning: "Cihaz register data alanıdır; LMK04832 için 8 bit, LMX2820/LMX1204 için 16 bit yazılır.",
+  },
+];
+
+function ticsRegisterTransfer(part: string, reg: KnowledgeRegister): KnowledgeRegisterTransfer[] {
+  const upper = part.toUpperCase();
+  const addressLabel = reg.address;
+  const dataBits = upper === "LMK04832" ? "D7:D0" : "D15:D0";
+  const addressBits = upper === "LMK04832" ? "A14:A0" : "A6:A0";
+  return [
+    {
+      title: "TICS Pro word write",
+      access: "WRITE",
+      txBytes: "3 byte",
+      rxBytes: "0 byte",
+      tx: [`R/W=0 + ${addressBits} (${addressLabel}) + ${dataBits}`],
+      rx: ["-"],
+      code: [
+        `/* TICS Pro export -> config.ticspro_registers */`,
+        `${cFunc(part, "device_init")}(spSpi);`,
+      ],
+      note: "Generated driver tek register API'si yerine TICS Pro array'ini sırayı bozmadan init sırasında gönderir.",
+    },
+  ];
+}
+
 const PACKS: Record<string, DeviceKnowledgePack> = {
   LTC2991: {
     part: "LTC2991",
@@ -1464,6 +1505,364 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       ],
     },
   },
+
+  LMK04832: {
+    part: "LMK04832",
+    reviewedAt: "2026-06-28",
+    scope: "TICS Pro export ile JESD204B clock jitter cleaner init akışı.",
+    sources: [
+      {
+        label: "Texas Instruments LMK04832 datasheet",
+        url: "https://www.ti.com/lit/ds/symlink/lmk04832.pdf",
+      },
+    ],
+    overview:
+      "Dual-loop PLL mimarisine sahip düşük jitter clock cleaner'dır. Spec2Code bu cihazda PLL/divider hesabı yapmaz; TICS Pro'da doğrulanmış 24-bit register word array'ini init sırasında sırayı bozmadan SPI üzerinden yazar.",
+    keyFacts: [
+      "SPI frame 24 bittir: R/W biti, 15-bit register adresi ve 8-bit data alanı MSB-first gönderilir.",
+      "Write için R/W=0 olmalıdır; CS low tutulur, son bit sonrası CS rising edge ile word latch edilir.",
+      "Datasheet genel olarak register'ların numerik sırada programlanmasını önerir; TICS Pro export sırası korunmalıdır.",
+      "Internal VCO kullanılırken PLL2_N register'ları diğer PLL2 divider ayarlarından sonra yazılmalıdır; TICS Pro bunu sırada çözer.",
+    ],
+    configuration: [
+      "TICS Pro'da clock tree, PLL1/PLL2, output formatları ve SYSREF ayarlarını oluştur.",
+      "Export edilen hex register array'i cihaz konfigürasyon panelindeki TICS Pro alanına yapıştır.",
+      "Generated driver array'i 3 byte SPI write olarak uygular; application code frekans hesabı veya register sort işlemi yapmaz.",
+    ],
+    registers: [
+      {
+        name: "TICS_24BIT_WORD",
+        address: "word",
+        width: "24",
+        access: "WO",
+        purpose: "TICS Pro export satırındaki tek register write frame'i.",
+        fields: tics24Fields,
+      },
+      {
+        name: "RESET",
+        address: "0x000",
+        width: "8",
+        access: "RW",
+        purpose: "Software reset ve SPI mode davranışı için kullanılan başlangıç register'ı.",
+        fields: [
+          { bits: "B7", name: "RESET", meaning: "Cihaz register/state başlangıcını resetler.", values: ["0: normal", "1: reset isteği"] },
+          { bits: "B4", name: "SPI_3WIRE_DIS", meaning: "SDIO readback kullanım şeklini etkileyen SPI control bitidir." },
+        ],
+      },
+      {
+        name: "PLL2_N",
+        address: "0x166..0x168",
+        width: "3 x 8",
+        access: "RW",
+        purpose: "PLL2 feedback divider değeridir; internal VCO kalibrasyon davranışı için yazım sırası kritiktir.",
+        fields: [
+          { bits: "0x166..0x168", name: "PLL2_N value", meaning: "PLL2 feedback divider register image; TICS Pro hesapladığı değeri export eder." },
+        ],
+      },
+      {
+        name: "PLL2_POWER",
+        address: "0x173",
+        width: "8",
+        access: "RW",
+        purpose: "PLL2 power-down bitlerini içerir; PLL2_N yazılmadan önce PLL2'nin açık olması gereken akışlar vardır.",
+        fields: [
+          { bits: "PLL2_PD", name: "PLL2 power-down", meaning: "PLL2'nin power state bilgisini belirler; TICS Pro sequence'i korunmalıdır." },
+          { bits: "PLL2_PRE_PD", name: "PLL2 prescaler power-down", meaning: "PLL2 prescaler state bilgisini belirler." },
+        ],
+      },
+    ],
+    recipes: [
+      {
+        title: "TICS Pro ile deterministic init",
+        goal: "Doğrulanmış clock tree ayarlarını karta taşımak.",
+        steps: [
+          "TICS Pro'da hedef input/output frekanslarını ve output formatlarını doğrula.",
+          "Register export içindeki 24-bit hex word array'ini Spec2Code TICS alanına yapıştır.",
+          "Generate sonrası mock plan içinde 3 byte SPI write sırasını gözden geçir.",
+        ],
+      },
+      {
+        title: "PLL2 kalibrasyon sırası",
+        goal: "Internal VCO kullanılan tasarımlarda hatalı calibration sırasından kaçınmak.",
+        steps: [
+          "PLL2 power-down bitlerinin TICS export içinde doğru temizlendiğini kontrol et.",
+          "PLL2_N / PLL2_N_CAL yazımlarının TICS Pro'nun verdiği sırada kaldığından emin ol.",
+          "Spec2Code içinde array'i elle sort etme; generated driver export sırasını uygular.",
+        ],
+      },
+    ],
+    gotchas: [
+      "Bu cihazda register listesi çok geniştir; manuel tek tek register edit etmek yerine TICS Pro export kullanılmalıdır.",
+      "SPI hatları lock sırasında gereksiz toggle edilirse phase-noise davranışı etkilenebilir; paylaşımlı SPI bus'ta CS disiplinine dikkat et.",
+      "Generated driver frekans doğrulaması yapmaz; clock plan doğrulaması TICS Pro ve board bring-up ölçümüyle yapılmalıdır.",
+    ],
+    codegenNotes: [
+      "Spec2Code config.ticspro_registers listesindeki her word'ü üç byte olarak MSB-first gönderir.",
+      "R/W biti write değilse backend validation error üretir.",
+      "Mock harness aynı word'leri tests mock plan içinde SPI write transferleri olarak listeler.",
+    ],
+    pinMap: {
+      packageName: "LLP-64",
+      view: "Fonksiyonel pin görünümü",
+      verification: "TI LMK04832 datasheet pinout ve pin function tablolarındaki isimlerle kontrol edildi.",
+      note: "Pin haritası clock/input/control gruplarını öne çıkarır; tüm supply pinleri package layout üzerinden ayrıca board seviyesinde kontrol edilmelidir.",
+      pins: [
+        { number: "18", name: "CS*", role: "SPI chip select", tone: "bus", side: "left" },
+        { number: "19", name: "SCK", role: "SPI clock", tone: "bus", side: "left" },
+        { number: "20", name: "SDIO", role: "SPI data / readback", tone: "bus", side: "left" },
+        { number: "5", name: "RESET/GPO", role: "Reset input veya GPO", tone: "control", side: "left" },
+        { number: "6", name: "SYNC/SYSREF_REQ", role: "SYNC veya SYSREF request", tone: "control", side: "left" },
+        { number: "37", name: "CLKin0", role: "Reference clock input 0", tone: "analog", side: "right" },
+        { number: "38", name: "CLKin0*", role: "Reference clock input 0 complement", tone: "analog", side: "right" },
+        { number: "34", name: "CLKin1/Fin/FBCLKin", role: "Reference / feedback input", tone: "analog", side: "right" },
+        { number: "43", name: "OSCin", role: "Oscillator input", tone: "analog", side: "right" },
+        { number: "44", name: "OSCin*", role: "Oscillator input complement", tone: "analog", side: "right" },
+        { name: "CLKout0..13", role: "Programmable device clock / SYSREF outputs", tone: "analog", side: "right" },
+        { name: "Status_LD1/2", role: "Programmable status / lock detect", tone: "control", side: "right" },
+      ],
+      groups: [
+        { label: "SPI", pins: ["CS*", "SCK", "SDIO"], tone: "bus", description: "24-bit register programming yolu." },
+        { label: "Reference", pins: ["CLKin0", "CLKin0*", "CLKin1/Fin/FBCLKin", "OSCin", "OSCin*"], tone: "analog", description: "PLL reference ve oscillator girişleri." },
+        { label: "Outputs", pins: ["CLKout0..13"], tone: "analog", description: "Device clock ve SYSREF output çiftleri." },
+      ],
+    },
+  },
+
+  LMX2820: {
+    part: "LMX2820",
+    reviewedAt: "2026-06-28",
+    scope: "TICS Pro export ile RF synthesizer init ve VCO calibration akışı.",
+    sources: [
+      {
+        label: "Texas Instruments LMX2820 datasheet",
+        url: "https://www.ti.com/lit/ds/symlink/lmx2820.pdf",
+      },
+      {
+        label: "Texas Instruments LMX2820 register map",
+        url: "https://www.ti.com/lit/pdf/snau251",
+      },
+    ],
+    overview:
+      "22.6 GHz'e kadar geniş bant RF synthesizer'dır. PLL_N, fractional numerator/denominator, MASH ve VCO calibration gibi ayarlar uygulamaya çok bağlıdır; Spec2Code bu hesapları yapmaz, TICS Pro export array'ini güvenli init akışına çevirir.",
+    keyFacts: [
+      "SPI write frame 24 bittir: R/W=0, 7-bit register adresi ve 16-bit register data alanı gönderilir.",
+      "Datasheet power-on sequence register'ların azalan sırada yazılmasını ve R0'ın son yazılmasını ister.",
+      "İlk programlamadan sonra 10 ms beklenir ve R0 tekrar yazılarak VCO calibration stabil LDO/reference koşullarında tetiklenir.",
+      "Birçok PLL register'ı double-buffered davranır; değişiklikler R0 yazıldığında etkinleşir.",
+    ],
+    configuration: [
+      "TICS Pro'da output frequency, reference, MASH, SYSREF ve calibration ayarlarını tamamla.",
+      "Export edilen register array'i Spec2Code TICS Pro alanına yapıştır; array sırası değiştirilmez.",
+      "Generated init tüm array'i yazar, 10 ms bekler ve export içinde bulunan son R0 word'ünü tekrar yazar.",
+    ],
+    registers: [
+      {
+        name: "TICS_24BIT_WORD",
+        address: "word",
+        width: "24",
+        access: "WO",
+        purpose: "TICS Pro export satırındaki tek SPI register write frame'i.",
+        fields: tics24Fields,
+      },
+      {
+        name: "R0",
+        address: "0x00",
+        width: "16",
+        access: "RW",
+        reset: "0x251C",
+        purpose: "Powerdown, software reset ve VCO calibration trigger davranışını içerir; init sonunda tekrar yazılır.",
+        fields: [
+          { bits: "B0", name: "POWERDOWN", meaning: "Cihazı power-down moduna alır.", values: ["0: normal operation", "1: power-down"] },
+          { bits: "B1", name: "RESET", meaning: "Register/state reset isteği; self-clearing davranışlıdır.", values: ["0: normal", "1: reset"] },
+          { bits: "B4", name: "FCAL_EN", meaning: "R0 yazımıyla VCO calibration enable/trigger davranışını belirler.", values: ["0: disabled", "1: enabled and triggered on R0 write"] },
+          { bits: "B6", name: "DBLR_CAL_EN", meaning: "VCO doubler calibration enable bitidir.", values: disabledEnabledValues },
+        ],
+      },
+      {
+        name: "DBLBUF_GROUP",
+        address: "çoklu register",
+        width: "16",
+        access: "RW",
+        purpose: "PLL_N, PLL_NUM, PLL_DEN, MULT, PLL_R, PLL_R_PRE, MASH_ORDER ve PFD_DLY gibi alanlar R0 yazımıyla etkinleşen double-buffered gruptadır.",
+        fields: [
+          { bits: "register write", name: "Shadow update", meaning: "Ara register yazımları önce shadow/load bekleyen duruma geçer." },
+          { bits: "R0 write", name: "Apply", meaning: "R0 programlandığında ilgili double-buffered değerler etkinleşir." },
+        ],
+      },
+    ],
+    recipes: [
+      {
+        title: "İlk power-on init",
+        goal: "TICS Pro ayarlarını VCO calibration ile güvenli biçimde başlatmak.",
+        steps: [
+          "Power rail'lerin minimum çalışma seviyesine ulaştığından emin ol.",
+          "TICS Pro export array'ini azalan register sırasıyla yapıştır; R0 sonlarda olmalıdır.",
+          "Generated driver array'i yazar, 10 ms bekler ve R0'ı tekrar yazar.",
+        ],
+      },
+      {
+        title: "Frequency change",
+        goal: "Yeni PLL ayarlarını runtime'da güvenli uygulamak.",
+        steps: [
+          "Yeni frekans için TICS Pro'dan ayrı bir register array üret.",
+          "Double-buffered alanların R0 ile apply edildiğini dikkate al.",
+          "Mute/lock detect davranışı application seviyesinde açıkça yönetilmelidir.",
+        ],
+      },
+    ],
+    gotchas: [
+      "R0 final write sadece data write değildir; FCAL_EN=1 ise calibration trigger davranışı vardır.",
+      "Export array içinde reserved register değerleri varsa elle silme; TI register map unlisted offsets konusunda uyarır.",
+      "Analog PLL lock süresi, dijital VCO calibration süresine eklenir; init return eder etmez RF çıkışın final lock'ta olduğu varsayılmamalıdır.",
+    ],
+    codegenNotes: [
+      "Descriptor LMX2820 için post-init 10 ms delay + son R0 rewrite kuralını taşır.",
+      "Generated mock plan array write'larına ek olarak R0 tekrar write transferini de listeler.",
+      "Spec2Code frekans synthesis hesabı yapmaz; TICS Pro export word'leri kaynak kabul edilir.",
+    ],
+    pinMap: {
+      packageName: "VQFN-48",
+      view: "Fonksiyonel pin görünümü",
+      verification: "TI LMX2820 datasheet Table 5-1 pin functions bilgisiyle kontrol edildi.",
+      note: "RF ve reference pinleri AC coupling/termination gerektirir; pin map bağlantı ailelerini gösterir, matching network hesabı yerine geçmez.",
+      pins: [
+        { number: "39", name: "CS#", role: "SPI latch / chip select", tone: "bus", side: "left" },
+        { number: "18", name: "SCK", role: "SPI clock", tone: "bus", side: "left" },
+        { number: "19", name: "SDI", role: "SPI data input", tone: "bus", side: "left" },
+        { number: "23", name: "MUXOUT", role: "SPI readback / mux output", tone: "control", side: "left" },
+        { number: "1", name: "CE", role: "Chip enable", tone: "control", side: "left" },
+        { number: "37", name: "MUTE", role: "Output buffer mute", tone: "control", side: "left" },
+        { number: "8", name: "OSCIN_P", role: "Reference input +", tone: "analog", side: "right" },
+        { number: "9", name: "OSCIN_N", role: "Reference input -", tone: "analog", side: "right" },
+        { number: "28", name: "RFIN", role: "External VCO input", tone: "analog", side: "right" },
+        { number: "30", name: "RFOUTA_N", role: "RF output A -", tone: "analog", side: "right" },
+        { number: "31", name: "RFOUTA_P", role: "RF output A +", tone: "analog", side: "right" },
+        { number: "25", name: "RFOUTB_N", role: "RF output B -", tone: "analog", side: "right" },
+        { number: "26", name: "RFOUTB_P", role: "RF output B +", tone: "analog", side: "right" },
+      ],
+      groups: [
+        { label: "SPI", pins: ["CS#", "SCK", "SDI", "MUXOUT"], tone: "bus", description: "Register programming ve readback yolu." },
+        { label: "RF", pins: ["RFOUTA_N", "RFOUTA_P", "RFOUTB_N", "RFOUTB_P", "RFIN"], tone: "analog", description: "RF output/input ağı." },
+        { label: "Control", pins: ["CE", "MUTE"], tone: "control", description: "Power ve output mute davranışı." },
+      ],
+    },
+  },
+
+  LMX1204: {
+    part: "LMX1204",
+    reviewedAt: "2026-06-28",
+    scope: "TICS Pro export ile JESD clock/SYSREF buffer init akışı.",
+    sources: [
+      {
+        label: "Texas Instruments LMX1204 datasheet",
+        url: "https://www.ti.com/lit/ds/symlink/lmx1204.pdf",
+      },
+      {
+        label: "Texas Instruments LMX1204 register map",
+        url: "https://www.ti.com/lit/pdf/snau269",
+      },
+    ],
+    overview:
+      "Clock/SYSREF distribution, multiplier ve divider işlevleri için kullanılan JESD odaklı clock cihazıdır. Bazı reserved register güncellemeleri POR/reset sonrası gerekli olabilir; bu nedenle TICS Pro export'u kaynak kabul edilir.",
+    keyFacts: [
+      "SPI write frame 24 bittir: R/W=0, 7-bit address ve 16-bit data MSB-first gönderilir.",
+      "Datasheet SPI için CPOL=0, CPHA=0 önerir ve SPI read/write hızını 2 MHz max olarak verir.",
+      "Initial programming R0 RESET=1 ile başlar, sonra gerekli register'lar azalan adreste yazılır.",
+      "TICS Pro export varsayılan olarak gerekli reserved register updates değerlerini içerir; bunlar elle ayıklanmamalıdır.",
+    ],
+    configuration: [
+      "TICS Pro'da CLKIN, CLKOUT, SYSREFOUT, multiplier/divider ve output format ayarlarını oluştur.",
+      "Export edilen hex register array'i Spec2Code TICS Pro alanına yapıştır.",
+      "Generated driver 24-bit word'leri aynen yazar; LMX1204 için SPI clock prescaler kart tarafında 2 MHz sınırını aşmayacak şekilde doğrulanmalıdır.",
+    ],
+    registers: [
+      {
+        name: "TICS_24BIT_WORD",
+        address: "word",
+        width: "24",
+        access: "WO",
+        purpose: "TICS Pro export satırındaki tek SPI register write frame'i.",
+        fields: tics24Fields,
+      },
+      {
+        name: "R0",
+        address: "0x00",
+        width: "16",
+        access: "RW",
+        reset: "0x0000",
+        purpose: "Powerdown, software reset ve multiplier calibration davranışını etkileyen temel control register.",
+        fields: [
+          { bits: "B0", name: "RESET", meaning: "Cihaz logic/register reset isteği; bir sonraki register write ile self-clearing davranışı vardır.", values: ["0: normal", "1: reset"] },
+          { bits: "B2", name: "POWERDOWN", meaning: "Cihazı low-power state'e alır; diğer register değerleri korunur.", values: ["0: normal operation", "1: power-down"] },
+        ],
+      },
+      {
+        name: "MULT_CAL",
+        address: "R0 write",
+        width: "implicit",
+        access: "WO",
+        purpose: "POWERDOWN=0 ve RESET=0 iken R0'a yapılan yazım multiplier calibration state machine'ini tetikler.",
+        fields: [
+          { bits: "R0 write", name: "Calibration trigger", meaning: "Geçerli R0 yazımı multiplier calibration başlatır." },
+        ],
+      },
+    ],
+    recipes: [
+      {
+        title: "Initial programming",
+        goal: "POR/reset sonrası gerekli reserved updates dahil güvenli init yapmak.",
+        steps: [
+          "TICS Pro export'u R0 RESET=1 yazımıyla başlayacak şekilde al.",
+          "Export edilen tüm word'leri Spec2Code alanına yapıştır; reserved görünen satırları silme.",
+          "Generate sonrası mock plan içinde 3 byte SPI write sayısını export count ile karşılaştır.",
+        ],
+      },
+      {
+        title: "Readback kullanımı",
+        goal: "MUXOUT readback hattını paylaşımlı SPI bus'ta güvenli kullanmak.",
+        steps: [
+          "Readback gerekiyorsa MUXOUT pininin bus paylaşımını board seviyesinde doğrula.",
+          "Readback sonrasında MUXOUT_EN kontrolüyle tri-state davranışı gerektiğinde application seviyesinde yönet.",
+          "Spec2Code mevcut generated init yolunda readback API üretmez; init deterministic write-only kalır.",
+        ],
+      },
+    ],
+    gotchas: [
+      "LMX1204 SPI max 2 MHz değerini aşma; hızlı SPI clock kullanan ortak bus'ta prescaler ayrıca kontrol edilmelidir.",
+      "MUXOUT readback sonrası otomatik tri-state olmayabilir; paylaşımlı readback hattında bu kritik bir board kuralıdır.",
+      "R0 yazımı multiplier calibration tetikleyebilir; init array sırası ve R0 içeriği TICS Pro'dan geldiği gibi kalmalıdır.",
+    ],
+    codegenNotes: [
+      "Spec2Code LMX1204 için TICS Pro word'lerini write-only init sequence olarak üretir.",
+      "Backend validation 24-bit word sınırını ve R/W write bitini kontrol eder.",
+      "Reserved update satırları TICS Pro export'tan geldiğinde korunur; codegen bunları filtrelemez.",
+    ],
+    pinMap: {
+      packageName: "VQFN-40",
+      view: "Fonksiyonel pin görünümü",
+      verification: "TI LMX1204 datasheet pin functions tablosundaki pin isimleriyle kontrol edildi.",
+      note: "Clock/SYSREF pinleri diferansiyel çiftlerdir; pin map mantıksal grupları gösterir, layout/matching rehberi yerine geçmez.",
+      pins: [
+        { number: "10", name: "CS#", role: "SPI chip select", tone: "bus", side: "left" },
+        { number: "8", name: "SCK", role: "SPI clock", tone: "bus", side: "left" },
+        { number: "9", name: "SDI", role: "SPI data input", tone: "bus", side: "left" },
+        { number: "1", name: "MUXOUT", role: "Readback / lock status mux output", tone: "control", side: "left" },
+        { number: "6", name: "CLKIN_P", role: "Reference clock input +", tone: "analog", side: "right" },
+        { number: "7", name: "CLKIN_N", role: "Reference clock input -", tone: "analog", side: "right" },
+        { number: "14/15", name: "CLKOUT0_P/N", role: "Clock output 0 pair", tone: "analog", side: "right" },
+        { number: "18/19", name: "CLKOUT1_P/N", role: "Clock output 1 pair", tone: "analog", side: "right" },
+        { number: "32/33", name: "CLKOUT2_N/P", role: "Clock output 2 pair", tone: "analog", side: "right" },
+        { number: "36/37", name: "CLKOUT3_N/P", role: "Clock output 3 pair", tone: "analog", side: "right" },
+        { number: "11/12", name: "SYSREFOUT0_P/N", role: "SYSREF output 0 pair", tone: "analog", side: "right" },
+        { number: "39/40", name: "SYSREFOUT3_N/P", role: "SYSREF output 3 pair", tone: "analog", side: "right" },
+      ],
+      groups: [
+        { label: "SPI", pins: ["CS#", "SCK", "SDI", "MUXOUT"], tone: "bus", description: "Programming ve optional readback." },
+        { label: "Clock", pins: ["CLKIN_P", "CLKIN_N", "CLKOUT0_P/N", "CLKOUT1_P/N", "CLKOUT2_N/P", "CLKOUT3_N/P"], tone: "analog", description: "Reference ve clock output çiftleri." },
+        { label: "SYSREF", pins: ["SYSREFOUT0_P/N", "SYSREFOUT3_N/P"], tone: "analog", description: "JESD SYSREF output çiftleri." },
+      ],
+    },
+  },
 };
 
 export function getRegisterTransfers(part: string, reg: KnowledgeRegister): KnowledgeRegisterTransfer[] {
@@ -1491,6 +1890,10 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
         code: ["tca9548aChannelDisable(spIic);"],
       },
     ];
+  }
+
+  if (normalizedPart === "LMK04832" || normalizedPart === "LMX2820" || normalizedPart === "LMX1204") {
+    return ticsRegisterTransfer(normalizedPart, reg);
   }
 
   if (normalizedPart === "LTC2991") {

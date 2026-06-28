@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from orchestrator.device_profiles import registry as device_profiles
+from orchestrator import tics
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _DESCRIPTORS = _ROOT / "descriptors"
@@ -179,7 +180,15 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
             elif expected_width is not None and actual_width is None:
                 add("warning", f"{path}/attach/address_width",
                     f"{owner}: address width is not set; descriptor value is {expected_width}")
-            if _has_manual_init_sequence(device):
+            if tics.has_tics_register_model(desc):
+                _validate_ticspro_registers(
+                    device=device,
+                    descriptor=desc,
+                    path=path,
+                    owner=owner,
+                    add=add,
+                )
+            elif _has_manual_init_sequence(device):
                 add("warning", f"{path}/config/init_sequence",
                     f"{owner}: manual register init sequence is only applied to I2C register devices")
         elif transport == "i2c_mux":
@@ -266,3 +275,35 @@ def _validate_i2c_init_sequence(
         elif not 0 <= value <= ((1 << width) - 1):
             add("error", f"{item_path}/value",
                 f"{owner}: value 0x{value:X} does not fit in {width}-bit register '{reg_name}'")
+
+
+def _validate_ticspro_registers(
+    *,
+    device: dict[str, Any],
+    descriptor: dict[str, Any],
+    path: str,
+    owner: str,
+    add,
+) -> None:
+    seq_path = f"{path}/config/ticspro_registers"
+    config = device.get("config")
+    words = tics.normalize_words(config)
+    requested_ops = set(device.get("operations_requested") or [])
+    if requested_ops and "device_init" not in requested_ops and words:
+        add("warning", seq_path, f"{owner}: TICS Pro register array is ignored unless device_init is selected")
+    if not words:
+        add("warning", seq_path, f"{owner}: no TICS Pro register array is configured; generated init will only initialize SPI")
+        return
+
+    model = tics.register_model(descriptor)
+    for issue in tics.validate_words(words, model):
+        index, _, message = issue.partition(": ")
+        add("error", f"{seq_path}/{index}", f"{owner}: {message}")
+
+    rewrite_addr = model.get("rewrite_last_address")
+    delay_ms = int(model.get("rewrite_last_address_after_ms", 0) or 0)
+    if rewrite_addr is not None and delay_ms > 0:
+        decoded = tics.decode_words(words, model)
+        if not any(item.address == int(rewrite_addr) for item in decoded):
+            add("warning", seq_path,
+                f"{owner}: post-init rewrite after {delay_ms} ms is configured, but address 0x{int(rewrite_addr):X} is not present")

@@ -15,6 +15,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
 from orchestrator import cmodel
+from orchestrator import tics
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -337,6 +338,19 @@ def _mock_plan_source(spec: dict, get_descriptor) -> str:
                     [int(reg.get("offset", 0)), int(write.get("value", 0))],
                 )
         elif transport == "spi":
+            if tics.has_tics_register_model(descriptor):
+                model = tics.register_model(descriptor)
+                decoded = tics.decode_words(tics.normalize_words(device.get("config")), model)
+                for item in decoded:
+                    add_transfer("enSpec2codeMockSpiWrite", str(device.get("id")), item.bytes_msb_first)
+                rewrite_addr = model.get("rewrite_last_address")
+                delay_ms = int(model.get("rewrite_last_address_after_ms", 0) or 0)
+                if rewrite_addr is not None and delay_ms > 0:
+                    for item in decoded:
+                        if item.address == int(rewrite_addr):
+                            add_transfer("enSpec2codeMockSpiWrite", str(device.get("id")), item.bytes_msb_first)
+                            break
+                continue
             commands = {c.get("name"): c for c in descriptor.get("commands", [])}
             ops = {op.get("name"): op for op in descriptor.get("operations", [])}
             init = ops.get("device_init")

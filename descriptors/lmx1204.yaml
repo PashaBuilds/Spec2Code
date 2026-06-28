@@ -1,0 +1,36 @@
+descriptor_version: "1.0"
+part: "LMX1204"
+manufacturer: "Texas Instruments"
+summary: "Low-noise high-frequency JESD buffer, multiplier, divider, and SYSREF distribution device."
+transport:
+  type: spi
+  byte_order: big
+  register_model:
+    ticspro_words: true
+    frame_bits: 24
+    address_bits: 7
+    address_shift: 16
+    data_bits: 16
+    rw_bit: 23
+    write_value: 0
+    default_order: descending
+    spi_mode: 0
+    max_sck_hz: 2000000
+access_primitives:
+  write_register_word: { pattern: ticspro_24bit_word }
+registers:
+  - { name: R0, offset: 0x00, width: 16, access: rw, reset: 0x0000,
+      fields: [
+        { name: RESET, bits: "0" },
+        { name: POWERDOWN, bits: "2" } ] }
+  - { name: R2, offset: 0x02, width: 16, access: rw, reset: 0x0223 }
+  - { name: R6, offset: 0x06, width: 16, access: rw }
+  - { name: R14, offset: 0x0E, width: 16, access: rw }
+  - { name: R15, offset: 0x0F, width: 16, access: rw }
+operations:
+  - name: device_init
+    description: "Apply the ordered TICS Pro 24-bit register array over SPI."
+    steps:
+      - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes." }
+test_hints:
+  self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

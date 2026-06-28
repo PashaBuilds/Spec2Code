@@ -24,7 +24,26 @@
         },
         "default_address": { "type": "integer", "minimum": 0 },
         "byte_order": { "type": "string", "enum": ["big", "little"] },
-        "channels": { "type": "integer", "minimum": 1, "maximum": 8 }
+        "channels": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "register_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "SPI register-frame metadata for non-flash devices, especially TI TICS Pro exports.",
+          "properties": {
+            "ticspro_words": { "type": "boolean" },
+            "frame_bits": { "type": "integer", "enum": [16, 24, 32] },
+            "address_bits": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "address_shift": { "type": "integer", "minimum": 0, "maximum": 31 },
+            "data_bits": { "type": "integer", "minimum": 1, "maximum": 24 },
+            "rw_bit": { "type": "integer", "minimum": 0, "maximum": 31 },
+            "write_value": { "type": "integer", "enum": [0, 1] },
+            "default_order": { "type": "string", "enum": ["ascending", "descending", "exported"] },
+            "spi_mode": { "type": "integer", "enum": [0, 1, 2, 3] },
+            "max_sck_hz": { "type": "integer", "minimum": 1 },
+            "rewrite_last_address": { "type": "integer", "minimum": 0 },
+            "rewrite_last_address_after_ms": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     },
     "access_primitives": {

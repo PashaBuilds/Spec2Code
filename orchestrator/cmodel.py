@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from orchestrator.device_profiles import registry as device_profiles
+from orchestrator import tics
 
 _IND = "    "  # 4 spaces
 
@@ -183,6 +184,10 @@ def _static_array_name(module: str, suffix: str) -> str:
     return f"S_sArr{_pascal_suffix(module)}{suffix}"
 
 
+def _static_uint_array_name(module: str, suffix: str) -> str:
+    return f"S_uiArr{_pascal_suffix(module)}{suffix}"
+
+
 def _handle_var(module: str) -> str:
     return f"s{_pascal_suffix(module)}Handle"
 
@@ -246,6 +251,29 @@ def _private_i2c_init_sequence(module: str, mod: str, writes: list[dict]) -> lis
         note = str(write.get("note", "")).strip()
         comment = f"  /* {note} */" if note else ""
         lines.append(f"    {{ {mod}_REG_{write['reg']}, {_hexu8(int(write['value']))} }},{comment}")
+    lines.extend([
+        "};",
+        "",
+    ])
+    return lines
+
+
+def _private_spi_register_init_sequence(module: str, mod: str, words: list[tics.TicsRegisterWord]) -> list[str]:
+    if not words:
+        return []
+
+    seq_name = _static_uint_array_name(module, "InitSequence")
+    count_name = f"{mod}_INIT_SEQUENCE_COUNT"
+    lines = [
+        f"#define {count_name} {len(words)}U",
+        "",
+        f"static const unsigned int {seq_name}[{count_name}] =",
+        "{",
+    ]
+    for item in words:
+        lines.append(
+            f"    {tics.c_word(item.word)},  /* address 0x{item.address:X}, value 0x{item.value:X} */"
+        )
     lines.extend([
         "};",
         "",
@@ -617,6 +645,155 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     return [f_send, f_read, f_write]
 
 
+def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, frame_def: str) -> CFunc:
+    wr = Emit()
+    wr.ln(f"unsigned char ucArrTx[{frame_def}];")
+    if _is_qspipsu(htype):
+        wr.ln("XQspiPsu_Msg sArrMessage[1];")
+    else:
+        wr.ln("int iStatus;")
+    wr.blank()
+    wr.ln("ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);")
+    wr.ln("ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);")
+    wr.ln("ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);")
+    if _is_qspipsu(htype):
+        wr.ln("sArrMessage[0].TxBfrPtr = ucArrTx;")
+        wr.ln("sArrMessage[0].RxBfrPtr = NULL;")
+        wr.ln(f"sArrMessage[0].ByteCount = {frame_def};")
+        wr.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        wr.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
+        wr.ln(f"return XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);")
+    else:
+        wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+        wr.ln(f"return XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, {frame_def});")
+    return CFunc(
+        _func_name(module, "register_write"),
+        "int",
+        [f"{htype}* {hvar}", "unsigned int uiWord"],
+        wr.out(),
+        static=True,
+    )
+
+
+def _delay_func(module: str) -> CFunc:
+    body = Emit()
+    body.ln("unsigned int uiIndex;")
+    body.ln("volatile unsigned int uiDelay;")
+    body.blank()
+    body.open("for (uiIndex = 0U; uiIndex < uiMs; uiIndex++)")
+    body.open("for (uiDelay = 0U; uiDelay < 100000U; uiDelay++)")
+    body.close()
+    body.close()
+    return CFunc(
+        _func_name(module, "delay_ms"),
+        "void",
+        ["unsigned int uiMs"],
+        body.out(),
+        static=True,
+    )
+
+
+def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
+    module = _module_of(device["part"])
+    htype, hvar = _handle_for(controller)
+    MOD = module.upper()
+    attach = device["attach"]
+    sel_def = f"{MOD}_SPI_SELECT"
+    frame_def = f"{MOD}_SPI_FRAME_BYTES"
+    sck_def = f"{MOD}_SPI_MAX_SCK_HZ"
+    instance = controller["instance"]
+    model = tics.register_model(descriptor)
+    words = tics.decode_words(tics.normalize_words(device.get("config")), model)
+    seq_name = _static_uint_array_name(module, "InitSequence")
+    rewrite_delay_ms = int(model.get("rewrite_last_address_after_ms", 0) or 0)
+    rewrite_addr = model.get("rewrite_last_address")
+    rewrite_word = None
+    if rewrite_delay_ms > 0 and rewrite_addr is not None:
+        for item in words:
+            if item.address == int(rewrite_addr):
+                rewrite_word = item
+
+    defines = [
+        (sel_def, f"{int(attach.get('spi_chip_select', 0))}U", "SPI slave select"),
+        (frame_def, "3U", "TICS Pro SPI register frame length"),
+        (sck_def, f"{int(model.get('max_sck_hz', 0) or 0)}U", "datasheet maximum SPI clock"),
+    ]
+    if rewrite_word is not None:
+        defines.append((f"{MOD}_POST_INIT_DELAY_MS", f"{rewrite_delay_ms}U", "delay before post-init calibration write"))
+
+    private_decls = _private_spi_register_init_sequence(module, MOD, words)
+    funcs = [_spi_register_write_func(module, htype, hvar, sel_def, frame_def)]
+    if rewrite_word is not None:
+        funcs.append(_delay_func(module))
+
+    public: list[str] = []
+    ops_by_name = {op["name"]: op for op in descriptor["operations"]}
+    requested = device.get("operations_requested") or list(ops_by_name)
+
+    for op_name in requested:
+        op = ops_by_name.get(op_name)
+        if op is None:
+            continue
+        if op_name != "device_init":
+            continue
+
+        e = Emit()
+        e.ln("int iStatus;")
+        e.ln(f"{htype}_Config* spConfig;")
+        if words:
+            e.ln("unsigned int uiIndex;")
+        e.blank()
+
+        if _is_qspipsu(htype):
+            e.ln(f"spConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
+        else:
+            e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
+        e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+        if _is_qspipsu(htype):
+            e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+            e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
+            e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
+            e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
+        else:
+            e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+            e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
+            e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+
+        if words:
+            e.open(f"for (uiIndex = 0U; uiIndex < {MOD}_INIT_SEQUENCE_COUNT; uiIndex++)")
+            e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {seq_name}[uiIndex]);").check_status()
+            e.close()
+        if rewrite_word is not None:
+            e.ln(f"{_func_name(module, 'delay_ms')}({MOD}_POST_INIT_DELAY_MS);")
+            e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {tics.c_word(rewrite_word.word)});").check_status()
+
+        e.ln("return XST_SUCCESS;")
+
+        funcs.append(CFunc(
+            name=_func_name(module, op_name),
+            ret="int",
+            params=[f"{htype}* {hvar}"],
+            body=e.out(),
+            brief=op.get("description", op_name.replace("_", " ")),
+            doxy_params=[(hvar, "Uninitialized SPI controller handle; this routine initializes it.")],
+            doxy_return="XST_SUCCESS on success, else an XST_* error code.",
+        ))
+        public.append(_func_name(module, op_name))
+
+    return CUnit(
+        module=module,
+        part=device["part"],
+        summary=descriptor.get("summary", ""),
+        transport="spi",
+        header_includes=["xil_types.h", _spi_header_for(htype)],
+        driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
+        defines=defines,
+        funcs=funcs,
+        public_names=public,
+        private_decls=private_decls,
+    )
+
+
 def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
     module = _module_of(device["part"])
     htype, hvar = _handle_for(controller)
@@ -911,7 +1088,10 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                 mux_module, mux_channel = _module_of(mux["part"]), via["channel"]
             unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel)
         elif transport == "spi":
-            unit = _spi_device_unit(device, controller, descriptor)
+            if tics.has_tics_register_model(descriptor):
+                unit = _spi_register_device_unit(device, controller, descriptor)
+            else:
+                unit = _spi_device_unit(device, controller, descriptor)
         else:
             raise CodegenError(
                 f"device {device['id']}: transport '{transport}' not supported by codegen yet "

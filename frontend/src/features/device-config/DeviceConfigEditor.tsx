@@ -3,6 +3,7 @@ import { useStore } from "@/store/useStore";
 import GenericConfigEditor from "@/features/device-config/GenericConfigEditor";
 import Ltc2991Editor, { defaultLtc2991Config } from "@/features/device-config/Ltc2991Editor";
 import InitSequenceBuilder from "@/features/device-config/InitSequenceBuilder";
+import TicsProArrayEditor from "@/features/device-config/TicsProArrayEditor";
 import type { ComponentType } from "react";
 
 type EditorProps = {
@@ -33,6 +34,11 @@ export default function DeviceConfigEditor({ device }: { device: Device }) {
         onChange={(next) => updateDevice(device.id, { config: next })}
       />
       <InitSequenceBuilder
+        device={device}
+        config={config}
+        onChange={(next) => updateDevice(device.id, { config: next })}
+      />
+      <TicsProArrayEditor
         device={device}
         config={config}
         onChange={(next) => updateDevice(device.id, { config: next })}

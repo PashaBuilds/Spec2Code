@@ -14,7 +14,7 @@ export type ReviewInitWrite = {
   part: string;
   reg: string;
   value: string;
-  source: "profile" | "builder";
+  source: "profile" | "builder" | "ticspro";
 };
 
 export type ReviewFilePlan = {
@@ -127,7 +127,24 @@ function deviceInitWrites(device: Device): ReviewInitWrite[] {
       source: "builder",
     });
   }
+  const ticsWords = normalizeTicsWords(device.config?.ticspro_registers);
+  if (ticsWords.length > 0) {
+    writes.push({
+      deviceId: device.id,
+      part: device.part,
+      reg: "TICS_PRO_ARRAY",
+      value: `${ticsWords.length} word`,
+      source: "ticspro",
+    });
+  }
   return writes;
+}
+
+function normalizeTicsWords(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => (typeof item === "string" ? item : typeof item === "number" ? hex24(item) : null))
+    .filter((item): item is string => item !== null);
 }
 
 function normalizeSequence(raw: unknown): InitSequenceWrite[] {
@@ -154,4 +171,8 @@ function moduleOf(part: string): string {
 
 function hex(value: number): string {
   return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+function hex24(value: number): string {
+  return `0x${(value & 0xffffff).toString(16).toUpperCase().padStart(6, "0")}`;
 }

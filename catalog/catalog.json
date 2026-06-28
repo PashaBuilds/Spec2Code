@@ -33,6 +33,18 @@
     { "part": "LTC2945", "transport": "i2c", "status": "builtin",
       "descriptor": "descriptors/ltc2945.yaml",
       "summary": "Wide range I2C power monitor for current, voltage, power, and ADIN",
-      "match_tokens": ["LTC2945", "ltc2945_", "POWER_MSB2", "SENSE_MSB"] }
+      "match_tokens": ["LTC2945", "ltc2945_", "POWER_MSB2", "SENSE_MSB"] },
+    { "part": "LMK04832", "transport": "spi", "status": "builtin",
+      "descriptor": "descriptors/lmk04832.yaml",
+      "summary": "JESD204B dual-loop clock jitter cleaner; initialized from a TICS Pro register array",
+      "match_tokens": ["LMK04832", "lmk04832_", "TICS", "PLL2_N"] },
+    { "part": "LMX2820", "transport": "spi", "status": "builtin",
+      "descriptor": "descriptors/lmx2820.yaml",
+      "summary": "22.6 GHz PLLatinum RF synthesizer; initialized from a TICS Pro register array",
+      "match_tokens": ["LMX2820", "lmx2820_", "TICS", "FCAL_EN"] },
+    { "part": "LMX1204", "transport": "spi", "status": "builtin",
+      "descriptor": "descriptors/lmx1204.yaml",
+      "summary": "JESD clock/SYSREF buffer, multiplier, and divider; initialized from a TICS Pro register array",
+      "match_tokens": ["LMX1204", "lmx1204_", "TICS", "SYSREF"] }
   ]
 }

@@ -52,6 +52,7 @@ export interface InitSequenceWrite {
 }
 export interface DeviceConfig {
   init_sequence?: InitSequenceWrite[];
+  ticspro_registers?: string[];
   [key: string]: unknown;
 }
 export interface Mux {
@@ -136,7 +137,26 @@ export interface DescriptorOperation {
 }
 export interface DeviceDescriptor {
   part: string;
-  transport: { type: string; address_width?: number; default_address?: number; byte_order?: string };
+  transport: {
+    type: string;
+    address_width?: number;
+    default_address?: number;
+    byte_order?: string;
+    register_model?: {
+      ticspro_words?: boolean;
+      frame_bits?: number;
+      address_bits?: number;
+      address_shift?: number;
+      data_bits?: number;
+      rw_bit?: number;
+      write_value?: number;
+      default_order?: "ascending" | "descending" | "exported";
+      spi_mode?: number;
+      max_sck_hz?: number;
+      rewrite_last_address?: number;
+      rewrite_last_address_after_ms?: number;
+    };
+  };
   summary?: string;
   registers?: DescriptorRegister[];
   commands?: DescriptorCommand[];
