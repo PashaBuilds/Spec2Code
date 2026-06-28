@@ -207,7 +207,7 @@ function I2cByte({
   ackLabel?: string;
 }) {
   const rowClass = "grid grid-cols-[44px_repeat(9,1.75rem)] items-center gap-1";
-  const labelClass = "font-mono text-[9px] font-semibold uppercase text-muted";
+  const labelClass = "justify-self-start font-mono text-[9px] font-semibold uppercase text-muted";
 
   return (
     <div className="inline-grid min-w-max gap-1 rounded-md border border-border bg-bg p-2">
@@ -321,7 +321,7 @@ function SpiByte({
   const mosiBits = direction === "mosi" ? frame.bits : Array.from({ length: 8 }, () => "x");
   const misoBits = direction === "miso" ? frame.bits : Array.from({ length: 8 }, () => "Z");
   const rowClass = "grid grid-cols-[44px_repeat(8,1.75rem)] items-center gap-1";
-  const labelClass = "font-mono text-[9px] font-semibold uppercase text-muted";
+  const labelClass = "justify-self-start font-mono text-[9px] font-semibold uppercase text-muted";
 
   return (
     <div className="inline-grid min-w-max gap-1 rounded-md border border-border bg-bg p-2">
@@ -346,25 +346,26 @@ function SpiByte({
   );
 }
 
-function SpiChipSelectRow() {
+function SpiChipSelectTrack() {
   return (
-    <div className="grid grid-cols-[44px_minmax(18rem,1fr)] items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5">
-      <span className="font-mono text-[9px] font-semibold uppercase text-muted">CS#</span>
-      <div className="grid h-8 grid-cols-[42px_minmax(12rem,1fr)_42px] items-center gap-1 font-mono text-[9px] text-faint">
-        <div className="relative h-full">
-          <span className="absolute left-0 right-0 top-1 border-t border-faint/50" aria-hidden />
-          <span className="absolute left-0 top-2.5">HIGH</span>
-        </div>
-        <div className="relative h-full rounded border border-accent/20 bg-accent/5">
-          <span className="absolute left-0 right-0 bottom-1.5 border-t border-accent/80" aria-hidden />
-          <span className="absolute left-2 bottom-2.5 text-accent">LOW aktif transfer</span>
-        </div>
-        <div className="relative h-full">
-          <span className="absolute left-0 right-0 top-1 border-t border-faint/50" aria-hidden />
-          <span className="absolute right-0 top-2.5">HIGH</span>
-        </div>
+    <>
+      <span className="justify-self-start self-center font-mono text-[9px] font-semibold uppercase text-muted">CS#</span>
+      <div className="relative h-9 font-mono text-[9px] text-faint">
+        <span className="absolute left-0 right-1 top-1 border-t border-faint/55" aria-hidden />
+        <span className="absolute left-0 top-2.5">HIGH</span>
+        <span className="absolute right-1 top-1 h-[22px] border-r border-faint/50" aria-hidden />
       </div>
-    </div>
+      <div className="relative h-9 rounded border border-accent/20 bg-accent/5 font-mono text-[9px] text-faint">
+        <span className="absolute left-0 top-1 h-[22px] border-l border-accent/55" aria-hidden />
+        <span className="absolute left-0 right-0 bottom-1.5 border-t border-accent/85" aria-hidden />
+        <span className="absolute left-2 bottom-2.5 text-accent">LOW aktif transfer</span>
+        <span className="absolute right-0 top-1 h-[22px] border-r border-accent/55" aria-hidden />
+      </div>
+      <div className="relative h-9 font-mono text-[9px] text-faint">
+        <span className="absolute left-1 right-0 top-1 border-t border-faint/55" aria-hidden />
+        <span className="absolute right-0 top-2.5">HIGH</span>
+      </div>
+    </>
   );
 }
 
@@ -400,9 +401,9 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
           <span>Satırlar</span>
           <span>Her byte kartında SCK, MOSI, MISO ve clock numarası kendi satırının solunda gösterilir.</span>
         </div>
-        <div className="inline-flex min-w-max flex-col gap-2">
-          <SpiChipSelectRow />
-          <div className="flex items-start gap-2">
+        <div className="inline-grid min-w-max grid-cols-[44px_4rem_auto_4rem] gap-x-2 gap-y-1 rounded-md border border-border bg-bg p-2">
+          <SpiChipSelectTrack />
+          <div className="col-start-3 col-end-4 flex items-start gap-2">
             {tx.visible.map((frame, index) => (
               <SpiByte key={`${frame.label}-${index}`} frame={frame} direction="mosi" />
             ))}
