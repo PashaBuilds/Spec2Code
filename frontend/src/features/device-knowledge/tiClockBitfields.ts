@@ -1784,17 +1784,31 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B3",
         name: "SYNC_PLL2_DLD",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "SYNC event kaynağı olarak PLL2 digital lock detect'i kullanır; 1 iken SYNC, PLL2_DLD=1 olana kadar assert tutulabilir.",
+        values: [
+          "0: PLL2 DLD, SYNC üretimini etkilemez",
+          "1: PLL2 DLD=1 olana kadar SYNC assert davranışına katılır"
+        ]
       },
       {
         bits: "B2",
         name: "SYNC_PLL1_DLD",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "SYNC event kaynağı olarak PLL1 digital lock detect'i kullanır; 1 iken SYNC, PLL1_DLD=1 olana kadar assert tutulabilir.",
+        values: [
+          "0: PLL1 DLD, SYNC üretimini etkilemez",
+          "1: PLL1 DLD=1 olana kadar SYNC assert davranışına katılır"
+        ]
       },
       {
         bits: "B1:B0",
         name: "SYNC_MODE",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "SYNC event üretim metodunu seçer; SYNC pini ve etkinse PLL1/PLL2 DLD flag'lerinin pulser/SYNC akışını nasıl tetikleyeceğini belirler.",
+        values: [
+          "0: SYNC pini ve DLD flag'leri SYNC event üretmez",
+          "1: SYNC event, SYNC pini veya etkin DLD flag'i ile üretilir",
+          "2: pulser üzerinden SYNC/SYSREF pulse üretimi; tetik SYNC pini veya etkin DLD flag'i olabilir",
+          "3: register 0x13E yazımı ile pulser üzerinden SYNC/SYSREF pulse üretimi"
+        ]
       }
     ],
     "0x144": [
@@ -1806,37 +1820,37 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B6",
         name: "SYNC_DIS12",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout12/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B5",
         name: "SYNC_DIS10",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout10/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B4",
         name: "SYNC_DIS8",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout8/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B3",
         name: "SYNC_DIS6",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout6/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B2",
         name: "SYNC_DIS4",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout4/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B1",
         name: "SYNC_DIS2",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout2/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       },
       {
         bits: "B0",
         name: "SYNC_DIS0",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DCLKout0/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
       }
     ],
     "0x145": [
@@ -1857,7 +1871,13 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5:B4",
         name: "PLL1R_SYNC_SRC",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 R divider senkronizasyonu için tetik kaynağını seçer; PLL1R_SYNC_EN ile birlikte kullanılır.",
+        values: [
+          "0: reserved",
+          "1: SYNC pini",
+          "2: CLKin0",
+          "3: reserved"
+        ]
       },
       {
         bits: "B3",
@@ -2031,7 +2051,13 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B7:B6",
         name: "LOS_TIMEOUT",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "CLKin üzerinde aktivite görülmediğinde loss-of-signal kaynaklı clock switch event oluşması için kullanılan timeout/frekans eşiğini seçer.",
+        values: [
+          "0: 5 MHz typical",
+          "1: 25 MHz typical",
+          "2: 100 MHz typical",
+          "3: 200 MHz typical"
+        ]
       },
       {
         bits: "B5",
@@ -2054,7 +2080,7 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B3",
         name: "HOLDOVER_FORCE",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Cihazı yazılımla holdover moduna zorlar; normal otomatik giriş koşullarından bağımsız holdover davranışı test/servis için kullanılabilir."
       },
       {
         bits: "B2",
@@ -2123,22 +2149,38 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5",
         name: "HOLDOVER_EXIT_MODE",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Holdover çıkış kararının LOS durumuna mı yoksa PLL1 digital lock detect durumuna mı dayanacağını seçer.",
+        values: [
+          "0: LOS status aktif clock'u geçerli gösterdiğinde holdover'dan çık",
+          "1: PLL1 phase detector/DLD geçerli clock'u onayladığında holdover'dan çık"
+        ]
       },
       {
         bits: "B4",
         name: "HOLDOVER_PLL1_DET",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 DLD high'dan low'a düştüğünde holdover/clock switch event üretimini etkinleştirir.",
+        values: [
+          "0: PLL1 DLD düşüşü clock switch event üretmez",
+          "1: PLL1 DLD düşüşü clock switch event üretir"
+        ]
       },
       {
         bits: "B3",
         name: "LOS_EXTERNAL_INPUT",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Internal LOS devresi yerine harici pinleri CLKin LOS status kaynağı olarak kullanır; CLKin_SEL0/1 ve Status_LD1 pin type ayarı input olmalıdır.",
+        values: [
+          "0: internal LOS kullanılır",
+          "1: external LOS input pinleri kullanılır"
+        ]
       },
       {
         bits: "B2",
         name: "HOLDOVER_VTUNE_DET",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "DAC Vtune rail detector'ı etkinleştirir; DAC belirlenen Vtune eşiğine ulaştığında mevcut clock invalid kabul edilip switch event üretilebilir.",
+        values: [
+          "0: Vtune detector disabled",
+          "1: Vtune detector enabled"
+        ]
       },
       {
         bits: "B1",
@@ -2164,14 +2206,14 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5:B0",
         name: "HOLDOVER_DLD_CNT[13:8]",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Holdover'dan çıkmadan önce PLL1 phase detector tarafında görülmesi gereken geçerli clock sayısının üst bitleridir."
       }
     ],
     "0x152": [
       {
         bits: "B7:B0",
         name: "HOLDOVER_DLD_CNT[7:0]",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Holdover'dan çıkmadan önce PLL1 phase detector tarafında görülmesi gereken geçerli clock sayısının alt bitleridir."
       }
     ],
     "0x153": [
@@ -2240,26 +2282,36 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5:B0",
         name: "PLL1_N[13:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 feedback N divider değerinin üst bitleridir; PLL1 phase detector feedback oranını belirler."
       }
     ],
     "0x15A": [
       {
         bits: "B7:B0",
         name: "PLL1_N[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 feedback N divider değerinin alt bitleridir; 14-bit PLL1_N değeri için 0 geçerli değildir."
       }
     ],
     "0x15B": [
       {
         bits: "B7:B6",
         name: "PLL1_WND_SIZE",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 digital lock detect için phase-error pencere boyutunu seçer; hata bu pencerenin altında kaldığında PLL1 lock counter artar.",
+        values: [
+          "0: 4 ns",
+          "1: 9 ns",
+          "2: 19 ns",
+          "3: 43 ns"
+        ]
       },
       {
         bits: "B5",
         name: "PLL1_CP_TRI",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 charge pump output pinini tri-state durumuna alır.",
+        values: [
+          "0: CPout1 active",
+          "1: CPout1 tri-state"
+        ]
       },
       {
         bits: "B4",
@@ -2273,7 +2325,7 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B3:B0",
         name: "PLL1_CP_GAIN",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 charge pump output current seviyesini seçer; datasheet tablosunda 0=50 uA, 15=1550 uA aralığı verilir."
       }
     ],
     "0x15C": [
@@ -2285,14 +2337,14 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5:B0",
         name: "PLL1_DLD_CNT[13:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL1_WND_SIZE içinde kalması gereken cycle sayısının üst bitleridir."
       }
     ],
     "0x15D": [
       {
         bits: "B7:B0",
         name: "PLL1_DLD_CNT[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL1_WND_SIZE içinde kalması gereken cycle sayısının alt bitleridir."
       }
     ],
     "0x15E": [
@@ -2304,7 +2356,7 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B4:B0",
         name: "HOLDOVER_EXIT_NADJ",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "Holdover çıkışında resetlenen PLL1 R ve PLL1 N divider'ları arasındaki relatif timing offset'i 2's complement değer olarak ayarlar."
       }
     ],
     "0x15F": [
@@ -2328,26 +2380,44 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B3:B0",
         name: "PLL2_R[11:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 reference R divider değerinin üst bitleridir; PLL2 phase detector referans frekansını belirler."
       }
     ],
     "0x161": [
       {
         bits: "B7:B0",
         name: "PLL2_R[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 reference R divider değerinin alt bitleridir; 12-bit PLL2_R oranı PLL2 PFD frekansını belirler."
       }
     ],
     "0x162": [
       {
         bits: "B7:B5",
         name: "PLL2_P",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 N prescaler değerini seçer; VCO output'u PLL2 N divider'a gitmeden önce bu prescaler üzerinden bölünür.",
+        values: [
+          "0: divide 8",
+          "1: divide 2",
+          "2: divide 2",
+          "3: divide 3",
+          "4: divide 4",
+          "5: divide 5",
+          "6: divide 6",
+          "7: divide 7"
+        ]
       },
       {
         bits: "B4:B2",
         name: "OSCin_FREQ",
-        meaning: "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar."
+        meaning: "PLL2 frequency calibration rutininin doğru çalışması için OSCin/OSCin* üzerinden PLL2 phase detector'a gelen referans frekans aralığını bildirir.",
+        values: [
+          "0: 0..63 MHz",
+          "1: >63..127 MHz",
+          "2: >127..255 MHz",
+          "3: reserved",
+          "4: >255..500 MHz",
+          "5..7: reserved"
+        ]
       },
       {
         bits: "B1",
@@ -2373,21 +2443,21 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B1:B0",
         name: "PLL2_N_CAL[17:16]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "Cascaded 0-delay modunda PLL2 frequency calibration sırasında kullanılan PLL2_N_CAL divider değerinin üst bitleridir."
       }
     ],
     "0x164": [
       {
         bits: "B7:B0",
         name: "PLL2_N_CAL[15:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "Cascaded 0-delay modunda PLL2 frequency calibration sırasında kullanılan PLL2_N_CAL divider değerinin orta bitleridir."
       }
     ],
     "0x165": [
       {
         bits: "B7:B0",
         name: "PLL2_N_CAL[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "Cascaded 0-delay modunda PLL2 frequency calibration sırasında kullanılan PLL2_N_CAL divider değerinin alt bitleridir."
       }
     ],
     "0x166": [
@@ -2399,21 +2469,21 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B1:B0",
         name: "PLL2_N[17:16]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 feedback N divider değerinin üst bitleridir; 0-delay calibration dışındaki normal PLL2_N değerine katılır."
       }
     ],
     "0x167": [
       {
         bits: "B7:B0",
         name: "PLL2_N[15:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 feedback N divider değerinin orta bitleridir; register 0x168 yazımı PLL2_FCAL_DIS=0 ise VCO calibration başlatır."
       }
     ],
     "0x168": [
       {
         bits: "B7:B0",
         name: "PLL2_N[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 feedback N divider değerinin alt bitleridir; PLL2_N programlaması internal VCO calibration akışında kritik son yazımlardan biridir."
       }
     ],
     "0x169": [
@@ -2425,12 +2495,24 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B6:B5",
         name: "PLL2_WND_SIZE",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 digital lock detect için phase-error pencere boyutunu ve izin verilen maksimum phase detector frekansını seçer.",
+        values: [
+          "0: reserved",
+          "1: 320 MHz / 1 ns",
+          "2: 240 MHz / 1.8 ns",
+          "3: 160 MHz / 2.6 ns"
+        ]
       },
       {
         bits: "B4:B3",
         name: "PLL2_CP_GAIN",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 charge pump output current seviyesini seçer; PLL2_CP_TRI ile birlikte charge pump davranışını belirler.",
+        values: [
+          "0: reserved",
+          "1: reserved",
+          "2: 1600 uA",
+          "3: 3200 uA"
+        ]
       },
       {
         bits: "B2",
@@ -2444,7 +2526,11 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B1",
         name: "PLL2_CP_TRI",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 charge pump output'unu tri-state durumuna alır.",
+        values: [
+          "0: disabled",
+          "1: tri-state"
+        ]
       },
       {
         bits: "B0",
@@ -2465,14 +2551,14 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5:B0",
         name: "PLL2_DLD_CNT[13:8]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL2_WND_SIZE içinde kalması gereken cycle sayısının üst bitleridir."
       }
     ],
     "0x16B": [
       {
         bits: "B7:B0",
         name: "PLL2_DLD_CNT[7:0]",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL2 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL2_WND_SIZE içinde kalması gereken cycle sayısının alt bitleridir."
       }
     ],
     "0x16C": [
@@ -2521,7 +2607,7 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B5",
         name: "PLL1R_RST",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "PLL1 R divider senkronizasyonu için divider'ı reset/arm eder; PLL1R_SYNC_EN ve seçilen sync kaynağıyla birlikte 1 sonra 0 yazılır."
       },
       {
         bits: "B4:B0",
@@ -2538,12 +2624,20 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B1",
         name: "CLR_PLL1_LD_LOST",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "Latched RB_PLL1_DLD_LOST durumunu temizlemek için 1 sonra 0 yazılır; 0 iken sonraki PLL1 DLD falling edge tekrar lost set edebilir.",
+        values: [
+          "0: sonraki PLL1 DLD falling edge lost bitini set edebilir",
+          "1: RB_PLL1_DLD_LOST clear durumda tutulur"
+        ]
       },
       {
         bits: "B0",
         name: "CLR_PLL2_LD_LOST",
-        meaning: "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler."
+        meaning: "Latched RB_PLL2_DLD_LOST durumunu temizlemek için 1 sonra 0 yazılır; 0 iken sonraki PLL2 DLD falling edge tekrar lost set edebilir.",
+        values: [
+          "0: sonraki PLL2 DLD falling edge lost bitini set edebilir",
+          "1: RB_PLL2_DLD_LOST clear durumda tutulur"
+        ]
       }
     ],
     "0x183": [
@@ -2555,66 +2649,106 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B3",
         name: "RB_PLL1_DLD_LOST",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "PLL1 digital lock detect falling edge görüldüğünde set olan latched lost status bitidir; PLL1 DLD low iken clear edilirse set olmaz.",
+        values: [
+          "0: PLL1 DLD lost latched değil",
+          "1: PLL1 DLD high'dan low'a düşmüş"
+        ]
       },
       {
         bits: "B2",
         name: "RB_PLL1_DLD",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "PLL1 digital lock detect anlık readback bitidir.",
+        values: [
+          "0: PLL1 DLD low; PLL1 lock detect assert değil",
+          "1: PLL1 DLD high; PLL1 lock detect assert"
+        ]
       },
       {
         bits: "B1",
         name: "RB_PLL2_DLD_LOST",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "PLL2 digital lock detect falling edge görüldüğünde set olan latched lost status bitidir; PLL2 DLD low iken clear edilirse set olmaz.",
+        values: [
+          "0: PLL2 DLD lost latched değil",
+          "1: PLL2 DLD high'dan low'a düşmüş"
+        ]
       },
       {
         bits: "B0",
         name: "RB_PLL2_DLD",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "PLL2 digital lock detect anlık readback bitidir; geçerli okuma için PLL2 DLD veya PLL1+PLL2 DLD status pin mux'a verilmeli ya da PLL2_DLD_EN=1 olmalıdır.",
+        values: [
+          "0: PLL2 DLD low; PLL2 lock detect assert değil",
+          "1: PLL2 DLD high; PLL2 lock detect assert"
+        ]
       }
     ],
     "0x184": [
       {
         bits: "B7:B6",
         name: "RB_DAC_VALUE[9:8]",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "Holdover DAC readback değerinin üst iki bitidir; 0x185 ile birlikte 10-bit RB_DAC_VALUE oluşturur."
       },
       {
         bits: "B5",
         name: "RB_CLKin2_SEL",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin2'nin PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir.",
+        values: [
+          "0: CLKin2 PLL1 input'u olarak seçili değil",
+          "1: CLKin2 PLL1 input'u olarak seçili"
+        ]
       },
       {
         bits: "B4",
         name: "RB_CLKin1_SEL",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin1'in PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir.",
+        values: [
+          "0: CLKin1 PLL1 input'u olarak seçili değil",
+          "1: CLKin1 PLL1 input'u olarak seçili"
+        ]
       },
       {
         bits: "B3",
         name: "RB_CLKin0_SEL",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin0'ın PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir.",
+        values: [
+          "0: CLKin0 PLL1 input'u olarak seçili değil",
+          "1: CLKin0 PLL1 input'u olarak seçili"
+        ]
       },
       {
         bits: "B2",
         name: "RB_CLKin2_LOS",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin2 loss-of-signal durumunu gösteren readback bitidir.",
+        values: [
+          "0: CLKin2 LOS active değil",
+          "1: CLKin2 LOS active"
+        ]
       },
       {
         bits: "B1",
         name: "RB_CLKin1_LOS",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin1 loss-of-signal durumunu gösteren readback bitidir.",
+        values: [
+          "0: CLKin1 LOS active değil",
+          "1: CLKin1 LOS active"
+        ]
       },
       {
         bits: "B0",
         name: "RB_CLKin0_LOS",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "CLKin0 loss-of-signal durumunu gösteren readback bitidir.",
+        values: [
+          "0: CLKin0 LOS active değil",
+          "1: CLKin0 LOS active"
+        ]
       }
     ],
     "0x185": [
       {
         bits: "B7:B0",
         name: "RB_DAC_VALUE[7:0]",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "Holdover DAC readback değerinin alt sekiz bitidir; 0x184[7:6] ile birlikte 10-bit DAC value okunur."
       }
     ],
     "0x188": [
@@ -2626,7 +2760,11 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
       {
         bits: "B4",
         name: "RB_HOLDOVER",
-        meaning: "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır."
+        meaning: "Cihazın holdover modunda olup olmadığını gösteren readback status bitidir.",
+        values: [
+          "0: holdover active değil",
+          "1: holdover active"
+        ]
       },
       {
         bits: "B3:B0",
@@ -5281,6 +5419,109 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
   }
 };
 
+const GENERIC_MEANING_MARKERS = [
+  "Enable kontrol alanıdır",
+  "Polarity kontrol alanıdır",
+  "Mux/source seçim alanıdır",
+  "Pin veya buffer type seçim alanıdır",
+  "Power-down kontrol alanıdır",
+  "CLKin input seçimi",
+  "SYSREF/SYNC üretim",
+  "Holdover DAC kontrol/readback",
+  "Mode seçim alanıdır",
+];
+
+function isGenericMeaning(meaning: string) {
+  return GENERIC_MEANING_MARKERS.some((marker) => meaning.includes(marker));
+}
+
+function readableFieldName(name: string) {
+  return name
+    .replace(/\[[^\]]+\]/g, "")
+    .replace(/^RB_/, "readback ")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferredValues(name: string): string[] | undefined {
+  if (/(_EN|_ENABLE)$/.test(name)) return ["0: disabled", "1: enabled"];
+  if (/_PD$/.test(name) || name.endsWith("_POWERDOWN")) return ["0: normal/enabled", "1: power-down"];
+  if (/_POL$/.test(name)) return ["0: normal/non-inverted polarity", "1: inverted polarity"];
+  if (/_TRI$/.test(name)) return ["0: active", "1: tri-state"];
+  if (/^RB_.*_(LOS|DLD|LD|SEL)$/.test(name)) return ["0: status false/not active", "1: status true/active"];
+  return undefined;
+}
+
+function inferTiClockMeaning(part: TiClockPart, address: string, field: TiClockBitfield) {
+  const name = field.name;
+  const label = readableFieldName(name);
+  const lower = name.toLowerCase();
+
+  if (!isGenericMeaning(field.meaning)) return field.meaning;
+  if (name === "NA" || name === "RESERVED") return field.meaning;
+
+  if (name.startsWith("RB_")) {
+    if (lower.includes("_los")) return `${label} bit'i ilgili clock input loss-of-signal durumunu SPI readback ile okutur.`;
+    if (lower.includes("_sel")) return `${label} bit'i ilgili clock input'un PLL1 yolu için seçili olup olmadığını SPI readback ile okutur.`;
+    if (lower.includes("_dac")) return `${label} alanı holdover DAC readback değerinin bir parçasıdır.`;
+    if (lower.includes("_holdover")) return `${label} bit'i cihazın holdover status durumunu SPI readback ile okutur.`;
+    if (lower.includes("_dld") || lower.includes("_ld")) return `${label} bit'i PLL digital lock detect/readback status bilgisini okutur.`;
+    return `${label} alanı ${part} iç status bilgisini SPI readback ile okutur.`;
+  }
+
+  if (lower.includes("dld_cnt")) {
+    return `${label} alanı digital lock detect assert olmadan önce PLL reference/feedback faz hatasının pencere içinde kalması gereken cycle count değerinin parçasıdır.`;
+  }
+  if (lower.includes("_dld") || lower.includes("_ld")) {
+    return `${label} alanı ilgili PLL digital lock detect sinyalini, lock-lost latch'ini veya bu sinyalin SYNC/status yoluna bağlanmasını kontrol eder.`;
+  }
+  if (lower.includes("holdover")) {
+    return `${label} alanı holdover giriş/çıkış kararı, holdover sayacı veya holdover status davranışını belirler.`;
+  }
+  if (lower.includes("los")) {
+    return `${label} alanı clock input loss-of-signal algılama, timeout veya harici LOS kaynağı davranışını belirler.`;
+  }
+  if (lower.includes("clkin")) {
+    return `${label} alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler.`;
+  }
+  if (lower.includes("sysref") || lower.includes("sync")) {
+    return `${label} alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler.`;
+  }
+  if (lower.includes("_mux")) {
+    return `${label} alanı ilgili pin/status/output mux kaynağını seçer.`;
+  }
+  if (lower.includes("_type")) {
+    return `${label} alanı ilgili pinin input/output tipi veya output driver tipini seçer.`;
+  }
+  if (lower.includes("_pd") || lower.endsWith("powerdown")) {
+    return `${label} alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer.`;
+  }
+  if (lower.includes("_en") || lower.endsWith("enable")) {
+    return `${label} alanı ilgili ${part} fonksiyonunu etkinleştirir veya devre dışı bırakır.`;
+  }
+  if (lower.includes("_pol")) {
+    return `${label} alanı ilgili sinyalin polarity davranışını seçer.`;
+  }
+  if (lower.includes("_div") || lower.includes("_r[") || lower.includes("_n[")) {
+    return `${label} alanı ilgili divider/counter oranının register image içindeki bitlerini taşır.`;
+  }
+  if (lower.includes("dac")) {
+    return `${label} alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler.`;
+  }
+
+  return `${label} alanı ${part} ${address} register'ında ilgili clock/synthesizer davranışını belirler.`;
+}
+
+function enrichTiClockField(part: TiClockPart, address: string, field: TiClockBitfield): TiClockBitfield {
+  const meaning = inferTiClockMeaning(part, address, field);
+  return {
+    ...field,
+    meaning,
+    values: field.values ?? inferredValues(field.name),
+  };
+}
+
 export function getTiClockBitfields(part: TiClockPart, address: string): TiClockBitfield[] | undefined {
-  return TI_CLOCK_BITFIELDS[part]?.[address];
+  return TI_CLOCK_BITFIELDS[part]?.[address]?.map((field) => enrichTiClockField(part, address, field));
 }

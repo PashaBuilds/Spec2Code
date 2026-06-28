@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, BookOpen, Code2, ExternalLink, ListChecks, Search, Settings2 } from "lucide-react";
-import { Badge, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, BookOpen, Code2, ExternalLink, ListChecks, Loader2, Search, Send, Settings2 } from "lucide-react";
+import { Badge, Button, Input, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "@/components/ui";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/store/useStore";
 import {
   getDeviceKnowledge,
   getRegisterTransfers,
+  type DeviceKnowledgePack,
   type KnowledgeRegister,
   type KnowledgeRecipe,
   type KnowledgeRegisterTransfer,
@@ -46,6 +49,149 @@ function normalizeSearchText(value: string) {
 
 function compactSearchText(value: string) {
   return normalizeSearchText(value).replace(/\s+/g, "");
+}
+
+const QUERY_STOPWORDS = new Set([
+  "bir",
+  "bu",
+  "da",
+  "de",
+  "icin",
+  "için",
+  "ile",
+  "mi",
+  "ne",
+  "nereden",
+  "nasil",
+  "nasıl",
+  "register",
+  "bit",
+  "field",
+  "oku",
+  "okuma",
+  "yaz",
+  "yazma",
+]);
+
+function questionTerms(question: string) {
+  return normalizeSearchText(question)
+    .split(" ")
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && !QUERY_STOPWORDS.has(term));
+}
+
+function scoreText(value: string, terms: string[]) {
+  const normalized = normalizeSearchText(value);
+  const compact = compactSearchText(value);
+  return terms.reduce((score, term) => {
+    const compactTerm = term.replace(/\s+/g, "");
+    if (normalized.includes(term)) return score + 2;
+    if (compactTerm && compact.includes(compactTerm)) return score + 1;
+    return score;
+  }, 0);
+}
+
+function transferContextText(transfers: KnowledgeRegisterTransfer[]) {
+  return transfers
+    .map((transfer) => [
+      transfer.title,
+      transfer.access,
+      transfer.txBytes,
+      transfer.rxBytes,
+      transfer.tx.join(" "),
+      transfer.rx.join(" "),
+      transfer.code.join(" "),
+      transfer.note ?? "",
+    ].join(" "))
+    .join("\n");
+}
+
+function registerContextText(part: string, reg: KnowledgeRegister) {
+  const fields = (reg.fields ?? [])
+    .map((field) => `${field.bits} ${field.name} ${field.meaning} ${(field.values ?? []).join(" ")}`)
+    .join("\n");
+  return [
+    reg.name,
+    reg.address,
+    reg.access,
+    reg.width,
+    reg.reset ?? "",
+    reg.purpose,
+    fields,
+    transferContextText(getRegisterTransfers(part, reg)),
+  ].join("\n");
+}
+
+function buildKnowledgeAskContext(pack: DeviceKnowledgePack, question: string) {
+  const terms = questionTerms(question);
+  const rankedRegisters = pack.registers
+    .map((reg) => ({ reg, score: scoreText(registerContextText(pack.part, reg), terms) }))
+    .sort((a, b) => b.score - a.score);
+  const selectedRegisters = rankedRegisters.some((item) => item.score > 0)
+    ? rankedRegisters.filter((item) => item.score > 0).slice(0, 18)
+    : rankedRegisters.slice(0, 24);
+
+  const lines: string[] = [
+    `PART: ${pack.part}`,
+    `REVIEWED_AT: ${pack.reviewedAt}`,
+    `SCOPE: ${pack.scope}`,
+    "",
+    "OVERVIEW:",
+    pack.overview,
+    "",
+    "KARAR NOKTALARI:",
+    ...pack.keyFacts.map((item) => `- ${item}`),
+    "",
+    "KONFIGURASYON:",
+    ...pack.configuration.map((item) => `- ${item}`),
+    "",
+    "SORUYA EN YAKIN REGISTERLAR:",
+  ];
+
+  selectedRegisters.forEach(({ reg }) => {
+    const transfers = getRegisterTransfers(pack.part, reg);
+    lines.push(`- ${reg.name} address=${reg.address} access=${reg.access} width=${reg.width}${reg.reset ? ` reset=${reg.reset}` : ""}`);
+    lines.push(`  purpose: ${reg.purpose}`);
+    if (reg.fields?.length) {
+      lines.push("  bitfields:");
+      reg.fields.forEach((field) => {
+        lines.push(`    - ${field.bits} ${field.name}: ${field.meaning}`);
+        if (field.values?.length) {
+          lines.push(`      values: ${field.values.join("; ")}`);
+        }
+      });
+    }
+    if (transfers.length) {
+      lines.push("  driver view:");
+      transfers.forEach((transfer) => {
+        lines.push(`    - ${transfer.title} access=${transfer.access} tx_bytes=${transfer.txBytes} rx_bytes=${transfer.rxBytes}`);
+        lines.push(`      TX: ${transfer.tx.join(" | ")}`);
+        lines.push(`      RX: ${transfer.rx.join(" | ")}`);
+        lines.push(`      code: ${transfer.code.join(" ")}`);
+        if (transfer.note) lines.push(`      note: ${transfer.note}`);
+      });
+    }
+  });
+
+  lines.push("", "RECETELER:");
+  pack.recipes.forEach((recipe) => {
+    lines.push(`- ${recipe.title}: ${recipe.goal}`);
+    recipe.steps.forEach((step, index) => lines.push(`  ${index + 1}. ${step}`));
+  });
+
+  lines.push("", "DIKKAT:");
+  pack.gotchas.forEach((item) => lines.push(`- ${item}`));
+  lines.push("", "CODEGEN NOTLARI:");
+  pack.codegenNotes.forEach((item) => lines.push(`- ${item}`));
+  lines.push("", "TUM REGISTER/KOMUT AD INDEKSI:");
+  pack.registers.forEach((reg) => {
+    const fields = (reg.fields ?? []).map((field) => field.name).join(", ");
+    lines.push(`- ${reg.name} ${reg.address}${fields ? ` fields=[${fields}]` : ""}`);
+  });
+  lines.push("", "KAYNAKLAR:");
+  pack.sources.forEach((source) => lines.push(`- ${source.label}: ${source.url}`));
+
+  return lines.join("\n");
 }
 
 function textMatchesSearch(values: Array<string | undefined>, normalizedQuery: string, compactQuery: string) {
@@ -170,6 +316,7 @@ function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[]
 function RegisterExplorer({ part, registers }: { part: string; registers: KnowledgeRegister[] }) {
   const [selectedKey, setSelectedKey] = useState(() => (registers[0] ? registerKey(registers[0]) : ""));
   const [searchQuery, setSearchQuery] = useState("");
+  const [showDriverView, setShowDriverView] = useState(false);
   const normalizedQuery = normalizeSearchText(searchQuery);
   const searchActive = normalizedQuery.length > 0;
   const searchResults = useMemo(
@@ -351,8 +498,6 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
           </div>
         </div>
 
-        <TransferPreview transfers={transfers} />
-
         {searchActive && selectedResult?.matchedFields.length ? (
           <div className="mb-2 rounded-md border border-accent/25 bg-accent/10 px-2 py-1.5 text-[11px] text-accent">
             Bu register içinde {selectedResult.matchedFields.length}/{selectedRegister.fields?.length ?? 0} bit field eşleşti.
@@ -390,6 +535,21 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
             Bu register/komut için ayrı bitfield ayrımı yok; işlem anlamı üstteki amaç satırında verilmiştir.
           </div>
         )}
+
+        {transfers.length > 0 && (
+          <div className="mt-3 border-t border-border pt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDriverView((value) => !value)}
+            >
+              <Code2 className="h-3.5 w-3.5" aria-hidden />
+              {showDriverView ? "Driver view'u gizle" : "Driver view'u göster"}
+            </Button>
+            {showDriverView && <div className="mt-3"><TransferPreview transfers={transfers} /></div>}
+          </div>
+        )}
           </div>
         ) : (
           <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
@@ -420,6 +580,105 @@ function RecipeList({ recipes }: { recipes: KnowledgeRecipe[] }) {
           </ol>
         </div>
       ))}
+    </div>
+  );
+}
+
+function askErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error);
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") return parsed;
+    if (parsed?.error) return String(parsed.error);
+    if (parsed?.message) return String(parsed.message);
+    if (Array.isArray(parsed?.errors) && parsed.errors[0]?.message) return String(parsed.errors[0].message);
+  } catch {
+    /* raw string is already useful */
+  }
+  return raw;
+}
+
+function KnowledgeAskPanel({ pack }: { pack: DeviceKnowledgePack }) {
+  const llm = useStore((s) => s.llm);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [meta, setMeta] = useState<{ model: string; contextChars: number } | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit() {
+    const trimmed = question.trim();
+    if (!trimmed || loading) return;
+
+    setLoading(true);
+    setError("");
+    setAnswer("");
+    setMeta(null);
+    try {
+      const context = buildKnowledgeAskContext(pack, trimmed);
+      const response = await api.knowledgeAsk({
+        part: pack.part,
+        question: trimmed,
+        context,
+        llm,
+      });
+      setAnswer(response.answer);
+      setMeta({ model: response.model, contextChars: response.context_chars });
+    } catch (err) {
+      setError(askErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border border-border bg-inset p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Search className="h-3.5 w-3.5 text-accent" aria-hidden />
+            <h4 className="text-xs font-semibold text-text">Knowledge sorusu</h4>
+          </div>
+          <Badge tone={llm.enabled ? "accent" : "warn"}>
+            LLM {llm.enabled ? "on" : "off"}
+          </Badge>
+        </div>
+        <Textarea
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="Örn. PLL2 lock nereden okunur? Bu register'a nasıl yazılır? Flash sector erase akışı nedir?"
+          className="min-h-24"
+        />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] leading-relaxed text-faint">
+            Cevap sadece {pack.part} bilgi paketi ve driver view context'i üzerinden üretilir.
+          </p>
+          <Button type="button" size="sm" onClick={submit} disabled={!question.trim() || loading}>
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="h-3.5 w-3.5" aria-hidden />}
+            Sor
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
+          {error}
+        </div>
+      )}
+
+      {answer && (
+        <div className="rounded-md border border-border bg-elev p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-text">Cevap</span>
+            {meta && (
+              <span className="font-mono text-[10px] text-faint">
+                {meta.model} / {meta.contextChars} chars
+              </span>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{answer}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -463,6 +722,7 @@ export default function DeviceKnowledgePanel({
           {hasPinMap && <TabsTrigger value="pinmap">Pin haritası</TabsTrigger>}
           <TabsTrigger value="registers">Register</TabsTrigger>
           <TabsTrigger value="recipes">Reçete</TabsTrigger>
+          <TabsTrigger value="ask">Soru</TabsTrigger>
           <TabsTrigger value="notes">Dikkat</TabsTrigger>
         </TabsList>
 
@@ -494,6 +754,10 @@ export default function DeviceKnowledgePanel({
 
         <TabsContent value="recipes">
           <RecipeList recipes={pack.recipes} />
+        </TabsContent>
+
+        <TabsContent value="ask">
+          <KnowledgeAskPanel pack={pack} />
         </TabsContent>
 
         <TabsContent value="notes" className="space-y-3">

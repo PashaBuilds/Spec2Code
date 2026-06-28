@@ -82,6 +82,19 @@ class KnowledgeInventoryTests(unittest.TestCase):
 
         self.assertNotIn("R${row.address} image", KNOWLEDGE_TS.read_text(encoding="utf-8"))
 
+    def test_ti_clock_bitfield_meanings_do_not_use_placeholder_text(self) -> None:
+        text = TI_CLOCK_BITFIELDS_TS.read_text(encoding="utf-8")
+
+        for placeholder in [
+            "Readback/status alanıdır; cihaz iç durumunu SPI readback ile okumak için kullanılır.",
+            "TI register map içindeki bitfield alanıdır; TICS Pro export bu alanı register image içinde programlar.",
+            "PLL konfigürasyon/status alanıdır; ilgili PLL divider, charge pump, lock-detect veya sync davranışını etkiler.",
+        ]:
+            self.assertNotIn(placeholder, text)
+
+        self.assertIn("PLL2 digital lock detect anlık readback bitidir", text)
+        self.assertIn("PLL2_DLD_EN=1", text)
+
     def test_non_clock_descriptor_register_maps_cover_datasheet_rows(self) -> None:
         ltc2991 = descriptor("ltc2991")
         ds1682 = descriptor("ds1682")

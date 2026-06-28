@@ -79,6 +79,21 @@ export interface LlmConfig {
   max_response_chars?: number;
   retries?: number;
 }
+
+export interface KnowledgeAskRequest {
+  part: string;
+  question: string;
+  context: string;
+  llm: LlmConfig;
+}
+
+export interface KnowledgeAskResponse {
+  part: string;
+  model: string;
+  answer: string;
+  context_chars: number;
+}
+
 export interface ProjectSpec {
   schema_version: string;
   project: ProjectMeta;

@@ -14,7 +14,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from jsonschema import Draft7Validator
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
@@ -23,6 +23,7 @@ from backend.validators.wiring import validate_wiring
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
+from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 _PLATFORMS = _ROOT / "platforms"
@@ -59,6 +60,13 @@ class ConfirmRequest(BaseModel):
     part: str
     role: str = "as_is"          # as_is | llm_exemplar | descriptor_source
     files: list[str] = []
+
+
+class KnowledgeAskRequest(BaseModel):
+    part: str
+    question: str
+    context: str
+    llm: dict = Field(default_factory=dict)
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -339,6 +347,68 @@ def get_descriptor(part: str) -> dict:
 @router.get("/rulesets/default")
 def ruleset_default() -> dict:
     return {"ruleset": DEFAULT_RULESET, "schema": RULESET_SCHEMA}
+
+
+@router.post("/knowledge/ask")
+def knowledge_ask(req: KnowledgeAskRequest) -> dict:
+    question = req.question.strip()
+    context = req.context.strip()
+    if not question:
+        raise HTTPException(400, "question is empty")
+    if not context:
+        raise HTTPException(400, "knowledge context is empty")
+    if not req.llm.get("enabled"):
+        raise HTTPException(400, {
+            "message": "llm disabled",
+            "errors": [{
+                "severity": "error",
+                "path": "llm/enabled",
+                "message": "LLM assist kapali. Knowledge sorulari icin OpenAI uyumlu lokal model endpointini etkinlestir.",
+            }],
+        })
+
+    llm_errors = _validate_llm_config({"llm": req.llm})
+    if llm_errors:
+        raise HTTPException(400, {"message": "llm invalid", "errors": llm_errors[:10]})
+
+    config = LlmConfig.resolve(req.llm)
+    max_context_chars = 90_000
+    if len(context) > max_context_chars:
+        context = context[:max_context_chars] + "\n[context burada kesildi]"
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Sen Spec2Code icindeki statik datasheet knowledge paketini cevaplayan bir gomulu yazilim "
+                "yardimcisisin. Sadece verilen KNOWLEDGE CONTEXT icindeki bilgilere dayan. Contextte olmayan "
+                "bir bilgiyi tahmin etme; bunun yerine 'Bu bilgi verilen knowledge icinde yok' de. "
+                "Cevaplari Turkce cumlelerle ver; register, bit field, driver, readback, opcode gibi teknik "
+                "terimleri gerektiğinde Ingilizce kullan. Register adresi, bit field adi, read/write akisi, "
+                "TX/RX byte boyutu ve driver fonksiyon adi contextte varsa mutlaka belirt."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"PART: {req.part}\n\n"
+                f"KNOWLEDGE CONTEXT:\n{context}\n\n"
+                f"QUESTION:\n{question}"
+            ),
+        },
+    ]
+
+    try:
+        answer = LlmClient(config).chat(messages, temperature=0.0, max_tokens=min(config.max_tokens, 2048))
+    except LlmError as exc:
+        raise HTTPException(502, {"message": "llm failed", "error": str(exc)}) from exc
+
+    return {
+        "part": req.part,
+        "model": config.model,
+        "answer": answer,
+        "context_chars": len(context),
+    }
 
 
 @router.post("/spec/validate")

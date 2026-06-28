@@ -6,6 +6,8 @@ import type {
   DescriptorMeta,
   DeviceDescriptor,
   GeneratedFile,
+  KnowledgeAskRequest,
+  KnowledgeAskResponse,
   ParseResult,
   PlatformInfo,
   ProjectSpec,
@@ -59,6 +61,12 @@ export const api = {
 
   descriptor: (part: string) =>
     req<DeviceDescriptor>(`/api/descriptors/${part}`),
+
+  knowledgeAsk: (payload: KnowledgeAskRequest) =>
+    req<KnowledgeAskResponse>("/api/knowledge/ask", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   validate: (spec: ProjectSpec) =>
     req<SpecValidation>("/api/spec/validate", {
