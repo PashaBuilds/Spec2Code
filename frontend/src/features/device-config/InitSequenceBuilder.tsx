@@ -33,7 +33,7 @@ export default function InitSequenceBuilder({ device, config, onChange }: Props)
     () =>
       (descriptor?.registers ?? []).filter((reg) => {
         const access = (reg.access ?? "rw").toLowerCase();
-        return descriptor?.transport.type === "i2c" && access.includes("w") && (reg.width ?? 8) <= 8;
+        return descriptor?.transport.type === "i2c" && access.includes("w") && !access.includes("*") && (reg.width ?? 8) <= 8;
       }),
     [descriptor],
   );

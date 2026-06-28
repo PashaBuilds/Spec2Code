@@ -22,17 +22,53 @@ registers:
         { name: MULTIPLIER_SELECT, bits: "0" } ] }
   - { name: ALERT_ENABLE,  offset: 0x01, width: 8, access: rw, reset: 0x00 }
   - { name: STATUS,        offset: 0x02, width: 8, access: ro, reset: 0x00 }
-  - { name: FAULT,         offset: 0x03, width: 8, access: ro, reset: 0x00 }
-  - { name: FAULT_CLEAR,   offset: 0x04, width: 8, access: rw, reset: 0x00 }
-  - { name: POWER_MSB2,    offset: 0x05, width: 8, access: ro, reset: 0x00 }
-  - { name: POWER_MSB1,    offset: 0x06, width: 8, access: ro, reset: 0x00 }
-  - { name: POWER_LSB,     offset: 0x07, width: 8, access: ro, reset: 0x00 }
-  - { name: SENSE_MSB,     offset: 0x14, width: 8, access: ro, reset: 0x00 }
-  - { name: SENSE_LSB,     offset: 0x15, width: 8, access: ro, reset: 0x00 }
-  - { name: VIN_MSB,       offset: 0x1E, width: 8, access: ro, reset: 0x00 }
-  - { name: VIN_LSB,       offset: 0x1F, width: 8, access: ro, reset: 0x00 }
-  - { name: ADIN_MSB,      offset: 0x28, width: 8, access: ro, reset: 0x00 }
-  - { name: ADIN_LSB,      offset: 0x29, width: 8, access: ro, reset: 0x00 }
+  - { name: FAULT,         offset: 0x03, width: 8, access: rw, reset: 0x00 }
+  - { name: FAULT_CLEAR,   offset: 0x04, width: 8, access: cor, reset: 0x00 }
+  - { name: POWER_MSB2,    offset: 0x05, width: 8, access: rw* }
+  - { name: POWER_MSB1,    offset: 0x06, width: 8, access: rw* }
+  - { name: POWER_LSB,     offset: 0x07, width: 8, access: rw* }
+  - { name: MAX_POWER_MSB2, offset: 0x08, width: 8, access: rw*, reset: 0x00 }
+  - { name: MAX_POWER_MSB1, offset: 0x09, width: 8, access: rw*, reset: 0x00 }
+  - { name: MAX_POWER_LSB,  offset: 0x0A, width: 8, access: rw*, reset: 0x00 }
+  - { name: MIN_POWER_MSB2, offset: 0x0B, width: 8, access: rw*, reset: 0xFF }
+  - { name: MIN_POWER_MSB1, offset: 0x0C, width: 8, access: rw*, reset: 0xFF }
+  - { name: MIN_POWER_LSB,  offset: 0x0D, width: 8, access: rw*, reset: 0xFF }
+  - { name: MAX_POWER_THRESHOLD_MSB2, offset: 0x0E, width: 8, access: rw, reset: 0xFF }
+  - { name: MAX_POWER_THRESHOLD_MSB1, offset: 0x0F, width: 8, access: rw, reset: 0xFF }
+  - { name: MAX_POWER_THRESHOLD_LSB,  offset: 0x10, width: 8, access: rw, reset: 0xFF }
+  - { name: MIN_POWER_THRESHOLD_MSB2, offset: 0x11, width: 8, access: rw, reset: 0x00 }
+  - { name: MIN_POWER_THRESHOLD_MSB1, offset: 0x12, width: 8, access: rw, reset: 0x00 }
+  - { name: MIN_POWER_THRESHOLD_LSB,  offset: 0x13, width: 8, access: rw, reset: 0x00 }
+  - { name: SENSE_MSB,     offset: 0x14, width: 8, access: rw* }
+  - { name: SENSE_LSB,     offset: 0x15, width: 8, access: rw* }
+  - { name: MAX_SENSE_MSB, offset: 0x16, width: 8, access: rw*, reset: 0x00 }
+  - { name: MAX_SENSE_LSB, offset: 0x17, width: 8, access: rw*, reset: 0x00 }
+  - { name: MIN_SENSE_MSB, offset: 0x18, width: 8, access: rw*, reset: 0xFF }
+  - { name: MIN_SENSE_LSB, offset: 0x19, width: 8, access: rw*, reset: 0xF0 }
+  - { name: MAX_SENSE_THRESHOLD_MSB, offset: 0x1A, width: 8, access: rw, reset: 0xFF }
+  - { name: MAX_SENSE_THRESHOLD_LSB, offset: 0x1B, width: 8, access: rw, reset: 0xF0 }
+  - { name: MIN_SENSE_THRESHOLD_MSB, offset: 0x1C, width: 8, access: rw, reset: 0x00 }
+  - { name: MIN_SENSE_THRESHOLD_LSB, offset: 0x1D, width: 8, access: rw, reset: 0x00 }
+  - { name: VIN_MSB,       offset: 0x1E, width: 8, access: rw* }
+  - { name: VIN_LSB,       offset: 0x1F, width: 8, access: rw* }
+  - { name: MAX_VIN_MSB,   offset: 0x20, width: 8, access: rw*, reset: 0x00 }
+  - { name: MAX_VIN_LSB,   offset: 0x21, width: 8, access: rw*, reset: 0x00 }
+  - { name: MIN_VIN_MSB,   offset: 0x22, width: 8, access: rw*, reset: 0xFF }
+  - { name: MIN_VIN_LSB,   offset: 0x23, width: 8, access: rw*, reset: 0xF0 }
+  - { name: MAX_VIN_THRESHOLD_MSB, offset: 0x24, width: 8, access: rw, reset: 0xFF }
+  - { name: MAX_VIN_THRESHOLD_LSB, offset: 0x25, width: 8, access: rw, reset: 0xF0 }
+  - { name: MIN_VIN_THRESHOLD_MSB, offset: 0x26, width: 8, access: rw, reset: 0x00 }
+  - { name: MIN_VIN_THRESHOLD_LSB, offset: 0x27, width: 8, access: rw, reset: 0x00 }
+  - { name: ADIN_MSB,      offset: 0x28, width: 8, access: rw* }
+  - { name: ADIN_LSB,      offset: 0x29, width: 8, access: rw* }
+  - { name: MAX_ADIN_MSB,  offset: 0x2A, width: 8, access: rw*, reset: 0x00 }
+  - { name: MAX_ADIN_LSB,  offset: 0x2B, width: 8, access: rw*, reset: 0x00 }
+  - { name: MIN_ADIN_MSB,  offset: 0x2C, width: 8, access: rw*, reset: 0xFF }
+  - { name: MIN_ADIN_LSB,  offset: 0x2D, width: 8, access: rw*, reset: 0xF0 }
+  - { name: MAX_ADIN_THRESHOLD_MSB, offset: 0x2E, width: 8, access: rw, reset: 0xFF }
+  - { name: MAX_ADIN_THRESHOLD_LSB, offset: 0x2F, width: 8, access: rw, reset: 0xF0 }
+  - { name: MIN_ADIN_THRESHOLD_MSB, offset: 0x30, width: 8, access: rw, reset: 0x00 }
+  - { name: MIN_ADIN_THRESHOLD_LSB, offset: 0x31, width: 8, access: rw, reset: 0x00 }
 operations:
   - name: device_init
     description: "Initialize I2C and select continuous scan of SENSE+/VDD for power calculation."

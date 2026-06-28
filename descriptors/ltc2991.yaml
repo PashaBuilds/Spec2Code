@@ -31,6 +31,10 @@ registers:
         { name: V3_V4_ENABLE, bits: "5" },
         { name: V5_V6_ENABLE, bits: "6" },
         { name: V7_V8_ENABLE, bits: "7" } ] }
+  - { name: RESERVED_02, offset: 0x02, width: 8, access: reserved, reset: 0x00 }
+  - { name: RESERVED_03, offset: 0x03, width: 8, access: reserved, reset: 0x00 }
+  - { name: RESERVED_04, offset: 0x04, width: 8, access: reserved, reset: 0x00 }
+  - { name: RESERVED_05, offset: 0x05, width: 8, access: reserved, reset: 0x00 }
   - { name: CONTROL_V1V4, offset: 0x06, width: 8, access: rw, reset: 0x00,
       fields: [
         { name: V1_V2_DIFFERENTIAL, bits: "0" },
@@ -43,6 +47,14 @@ registers:
         { name: V5_V6_TEMPERATURE, bits: "1" },
         { name: V7_V8_DIFFERENTIAL, bits: "4" },
         { name: V7_V8_TEMPERATURE, bits: "5" } ] }
+  - { name: PWM_T_INTERNAL_CONTROL, offset: 0x08, width: 8, access: rw, reset: 0x00,
+      fields: [
+        { name: PWM_THRESHOLD_LSB, bits: "7" },
+        { name: PWM_INVERTED, bits: "6" },
+        { name: PWM_ENABLE, bits: "5" },
+        { name: PWM_MODE, bits: "4" },
+        { name: T_INTERNAL_KELVIN, bits: "3" } ] }
+  - { name: PWM_THRESHOLD_MSB, offset: 0x09, width: 8, access: rw, reset: 0x00 }
   - { name: V1_MSB, offset: 0x0A, width: 8, access: ro, reset: 0x00 }
   - { name: V1_LSB, offset: 0x0B, width: 8, access: ro, reset: 0x00 }
   - { name: V2_MSB, offset: 0x0C, width: 8, access: ro, reset: 0x00 }

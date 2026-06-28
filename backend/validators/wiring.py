@@ -257,7 +257,7 @@ def _validate_i2c_init_sequence(
             add("error", f"{item_path}/reg", f"{owner}: unknown register '{reg_name}'")
             continue
         access = str(reg.get("access", "rw")).lower()
-        if "w" not in access:
+        if "w" not in access or "*" in access:
             add("error", f"{item_path}/reg", f"{owner}: register '{reg_name}' is not writable")
         if reg_name in seen:
             add("warning", f"{item_path}/reg", f"{owner}: register '{reg_name}' is written more than once")

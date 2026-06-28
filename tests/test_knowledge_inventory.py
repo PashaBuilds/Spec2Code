@@ -2,10 +2,15 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
+from backend.validators.wiring import validate_wiring
+
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_TS = ROOT / "frontend" / "src" / "features" / "device-knowledge" / "knowledge.ts"
 TI_CLOCK_BITFIELDS_TS = ROOT / "frontend" / "src" / "features" / "device-knowledge" / "tiClockBitfields.ts"
+DESCRIPTORS = ROOT / "descriptors"
 
 
 def section(name: str) -> str:
@@ -16,6 +21,21 @@ def section(name: str) -> str:
     candidates = [index for index in (next_const, next_function) if index != -1]
     end = min(candidates) if candidates else len(text)
     return text[start:end]
+
+
+def function_section(name: str) -> str:
+    text = KNOWLEDGE_TS.read_text(encoding="utf-8")
+    start = text.index(f"function {name}")
+    next_function = text.find("\nfunction ", start + 1)
+    next_const = text.find("\nconst ", start + 1)
+    candidates = [index for index in (next_function, next_const) if index != -1]
+    end = min(candidates) if candidates else len(text)
+    return text[start:end]
+
+
+def descriptor(name: str) -> dict:
+    with (DESCRIPTORS / f"{name}.yaml").open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 class KnowledgeInventoryTests(unittest.TestCase):
@@ -61,6 +81,92 @@ class KnowledgeInventoryTests(unittest.TestCase):
             self.assertIn(required, text)
 
         self.assertNotIn("R${row.address} image", KNOWLEDGE_TS.read_text(encoding="utf-8"))
+
+    def test_non_clock_descriptor_register_maps_cover_datasheet_rows(self) -> None:
+        ltc2991 = descriptor("ltc2991")
+        ds1682 = descriptor("ds1682")
+        ltc2945 = descriptor("ltc2945")
+        ad7414 = descriptor("ad7414")
+
+        self.assertEqual(len(ltc2991["registers"]), 30)
+        self.assertIn("PWM_T_INTERNAL_CONTROL", {row["name"] for row in ltc2991["registers"]})
+        self.assertEqual({row["offset"] for row in ltc2991["registers"] if row["name"].startswith("RESERVED_")}, {2, 3, 4, 5})
+
+        self.assertEqual(len(ds1682["registers"]), 24)
+        self.assertIn("USER_10", {row["name"] for row in ds1682["registers"]})
+        self.assertIn("WRITE_MEMORY_DISABLE", {row["name"] for row in ds1682["registers"]})
+
+        self.assertEqual(len(ltc2945["registers"]), 50)
+        ltc2945_offsets = {row["name"]: row["offset"] for row in ltc2945["registers"]}
+        self.assertEqual(ltc2945_offsets["ADIN_MSB"], 0x28)
+        self.assertEqual(ltc2945_offsets["MIN_ADIN_THRESHOLD_LSB"], 0x31)
+
+        ad7414_resets = {row["name"]: row.get("reset") for row in ad7414["registers"]}
+        self.assertEqual(ad7414_resets["THIGH"], 0x7F)
+        self.assertEqual(ad7414_resets["TLOW"], 0x80)
+
+    def test_non_clock_catalog_has_full_command_and_register_inventory(self) -> None:
+        text = KNOWLEDGE_TS.read_text(encoding="utf-8")
+        mt25q = section("mt25qCommandRows")
+        ltc2945 = function_section("ltc2945RegisterRows")
+        ds1682 = function_section("ds1682Registers")
+        ltc2991 = function_section("ltc2991Registers")
+
+        self.assertEqual(len(re.findall(r'name: "[A-Z0-9_]+"', mt25q)), 82)
+        for required in [
+            "READ_FLAG_STATUS",
+            "WRITE_NONVOLATILE_CONFIG",
+            "QUAD_IO_FAST_READ_4B",
+            "SUBSECTOR_ERASE_32K_4B",
+            "WRITE_PASSWORD",
+            "CRC_CHECK",
+        ]:
+            self.assertIn(required, mt25q)
+
+        for required in [
+            "MAX_POWER_THRESHOLD_MSB2",
+            "MIN_SENSE_THRESHOLD_LSB",
+            "MAX_VIN_THRESHOLD_MSB",
+            "MIN_ADIN_THRESHOLD_LSB",
+        ]:
+            self.assertIn(required, ltc2945)
+
+        self.assertIn("PWM_T_INTERNAL_CONTROL", ltc2991)
+        self.assertIn("PWM_THRESHOLD_MSB", ltc2991)
+        self.assertIn("Array.from({ length: 10 }", ds1682)
+        self.assertIn('registers: mt25qRegisters("MT25QU02G")', text)
+
+    def test_rw_star_registers_are_not_allowed_in_manual_init(self) -> None:
+        spec = {
+            "controllers": [
+                {
+                    "id": "i2c0",
+                    "type": "i2c",
+                    "instance": "XPAR_XIICPS_0",
+                    "base_address": "0xFF020000",
+                    "device_id": 0,
+                    "driver": "XIicPs",
+                    "source": "xparameters",
+                    "zone": "ps",
+                }
+            ],
+            "muxes": [],
+            "devices": [
+                {
+                    "id": "u1",
+                    "part": "LTC2945",
+                    "descriptor_ref": "descriptors/ltc2945.yaml",
+                    "attach": {"controller_id": "i2c0", "i2c_address": "0x67"},
+                    "config": {"init_sequence": [{"reg": "POWER_MSB2", "value": 0}]},
+                    "operations_requested": ["device_init"],
+                }
+            ],
+        }
+
+        result = validate_wiring(spec)
+
+        messages = [issue["message"] for issue in result["errors"]]
+        self.assertTrue(any("POWER_MSB2" in message and "not writable" in message for message in messages))
 
 
 if __name__ == "__main__":

@@ -230,7 +230,7 @@ function i2cRegisterTransfers(
   const normalized = access.toUpperCase();
   const transfers: KnowledgeRegisterTransfer[] = [];
 
-  if (normalized === "RO" || normalized === "RW" || normalized === "COR") {
+  if (normalized.includes("R")) {
     transfers.push(
       readonlyTransfer(part, reg, address, "1 byte", [valueName], [
         `${cFunc(part, "register_read")}(spIic, ${regMacro(part, reg)}, &${valueName});`,
@@ -241,7 +241,7 @@ function i2cRegisterTransfers(
     );
   }
 
-  if (normalized === "WO" || normalized === "RW") {
+  if (normalized.includes("W")) {
     transfers.push(writeonlyTransfer(part, reg, address, valueName));
   }
 
@@ -332,6 +332,56 @@ function flashWriteTransfer(
   };
 }
 
+function genericFlashTransfers(
+  part: string,
+  reg: KnowledgeRegister,
+  handle: string,
+  defaultAddressBytes: number,
+): KnowledgeRegisterTransfer[] {
+  const row = mt25qCommandRows.find((item) => item.name === reg.name);
+  const opcode = row?.opcode.split("/")[0].trim() ?? reg.address.split("/")[0].trim();
+  const addressBytes =
+    row?.addressBytes === "4" ? 4 :
+    row?.addressBytes === "3" ? 3 :
+    row?.addressBytes === "3/4" ? defaultAddressBytes :
+    0;
+  const dataBytes = row?.dataBytes ?? "0";
+  const access = reg.access.toUpperCase();
+  const transfers: KnowledgeRegisterTransfer[] = [];
+
+  if (access.includes("R")) {
+    transfers.push(
+      flashReadTransfer(part, reg.name, opcode, addressBytes, dataBytes === "0" ? "0 byte" : dataBytes, ["ucArrData[0..uiLength-1]"], [
+        `${cFunc(part, "command_read")}(${handle}, ${cmdMacro(part, reg.name)}, uiAddress, ${addressBytes}U, ucArrData, uiLength);`,
+      ], {
+        txBytes: addressBytes > 0 ? `${1 + addressBytes} byte` : "1 byte",
+        note: row?.dummyCycles && row.dummyCycles !== "0"
+          ? `${row.dummyCycles} dummy cycle gerektirir; controller transfer helper'i bunu explicit clocklamalidir.`
+          : undefined,
+      }),
+    );
+  }
+
+  if (access.includes("W")) {
+    const payload = dataBytes === "0" ? "" : "ucArrPayload[0..uiLength-1]";
+    transfers.push(
+      flashWriteTransfer(part, reg.name, opcode, addressBytes, payload, [
+        dataBytes === "0"
+          ? `${cFunc(part, "command_send")}(${handle}, ${cmdMacro(part, reg.name)});`
+          : `${cFunc(part, "command_write")}(${handle}, ${cmdMacro(part, reg.name)}, uiAddress, ${addressBytes}U, ucArrPayload, uiLength);`,
+      ], {
+        txBytes: `${1 + addressBytes} byte${payload ? " + payload" : ""}`,
+        note: ["PAGE_PROGRAM", "ERASE", "CONFIG", "STATUS", "LOCK", "PASSWORD"].some((token) => reg.name.includes(token))
+          ? "Bu komut oncesinde WRITE_ENABLE ve sonrasinda status/flag polling gerekebilir."
+          : undefined,
+        tone: reg.name.includes("ERASE") || reg.name.includes("PASSWORD") || reg.name.includes("LOCK") ? "warn" : undefined,
+      }),
+    );
+  }
+
+  return transfers;
+}
+
 const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): KnowledgeRegisterField[] => {
   const verb =
     kind === "enable"
@@ -361,6 +411,603 @@ const ltc2945LimitFields = (kind: "enable" | "status" | "fault" | "clear"): Know
     { bits: "B0", name: "Min ADIN", meaning: verb, values },
   ];
 };
+
+function byteFields(label: string): KnowledgeRegisterField[] {
+  return [
+    {
+      bits: "B7:B0",
+      name: label,
+      meaning: `${label} alaninin bu register icindeki 8-bit parcasidir.`,
+    },
+  ];
+}
+
+function reservedFields(note = "Datasheet tarafinda reserved olarak ayrilmistir; yazarken reset/default deger korunmalidir."): KnowledgeRegisterField[] {
+  return [{ bits: "B7:B0", name: "Reserved", meaning: note }];
+}
+
+function ltc2991ExternalMsbFields(): KnowledgeRegisterField[] {
+  return [
+    { bits: "B7", name: "Data valid", meaning: "Ilgili channel sonucunda yeni conversion datasinin hazir oldugunu gosterir.", values: oldNewDataValues },
+    { bits: "B6", name: "Sign", meaning: "Signed voltage/current formatinda isaret bitidir.", values: signValues },
+    { bits: "B5:B0", name: "D13:D8 / D12:D8", meaning: "Voltage/current icin 14-bit, temperature/diode-voltage icin 13-bit raw code ust bitleridir." },
+  ];
+}
+
+function ltc2991ExternalLsbFields(): KnowledgeRegisterField[] {
+  return [
+    { bits: "B7:B0", name: "D7:D0", meaning: "External input raw conversion sonucunun alt 8 bitidir." },
+  ];
+}
+
+function ltc2991TemperatureMsbFields(label: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "B7", name: "Data valid", meaning: `${label} sonucunda yeni conversion datasinin hazir oldugunu gosterir.`, values: oldNewDataValues },
+    { bits: "B6:B5", name: "Unused", meaning: "13-bit temperature formatinda kullanilmaz.", values: unusedValues },
+    { bits: "B4:B0", name: "D12:D8", meaning: `${label} raw conversion code ust bitleridir.` },
+  ];
+}
+
+function ltc2991Registers(): KnowledgeRegister[] {
+  const externalRows: KnowledgeRegister[] = [];
+  for (let channel = 1; channel <= 8; channel++) {
+    const base = 0x0A + (channel - 1) * 2;
+    externalRows.push(
+      {
+        name: `V${channel}_MSB`,
+        address: hexAddress(base),
+        width: "8",
+        access: "RO",
+        purpose: `V${channel} raw conversion sonucunun MSB byte'i.`,
+        fields: ltc2991ExternalMsbFields(),
+      },
+      {
+        name: `V${channel}_LSB`,
+        address: hexAddress(base + 1),
+        width: "8",
+        access: "RO",
+        purpose: `V${channel} raw conversion sonucunun LSB byte'i.`,
+        fields: ltc2991ExternalLsbFields(),
+      },
+    );
+  }
+
+  return [
+    {
+      name: "STATUS_LOW",
+      address: "0x00",
+      width: "8",
+      access: "RO",
+      reset: "0x00",
+      purpose: "External V1..V8 conversion ready bitleri.",
+      fields: [
+        { bits: "B7", name: "V8 ready", meaning: "V8 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B6", name: "V7 ready", meaning: "V7 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B5", name: "V6 ready", meaning: "V6 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B4", name: "V5 ready", meaning: "V5 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B3", name: "V4 ready", meaning: "V4 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B2", name: "V3 ready", meaning: "V3 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B1", name: "V2 ready", meaning: "V2 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B0", name: "V1 ready", meaning: "V1 sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+      ],
+    },
+    {
+      name: "STATUS_HIGH",
+      address: "0x01",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "External pair enable bitleri, T_INTERNAL/VCC enable biti, busy ve T_INTERNAL/VCC ready bitleri.",
+      fields: [
+        { bits: "B7", name: "V7/V8/TR4 enable", meaning: "V7/V8 pair veya TR4 olcum grubunu enable eder.", values: disabledEnabledValues },
+        { bits: "B6", name: "V5/V6/TR3 enable", meaning: "V5/V6 pair veya TR3 olcum grubunu enable eder.", values: disabledEnabledValues },
+        { bits: "B5", name: "V3/V4/TR2 enable", meaning: "V3/V4 pair veya TR2 olcum grubunu enable eder.", values: disabledEnabledValues },
+        { bits: "B4", name: "V1/V2/TR1 enable", meaning: "V1/V2 pair veya TR1 olcum grubunu enable eder.", values: disabledEnabledValues },
+        { bits: "B3", name: "T_INTERNAL/VCC enable", meaning: "Ic sicaklik ve VCC conversion grubunu enable eder.", values: disabledEnabledValues },
+        { bits: "B2", name: "Busy", meaning: "Conversion devam ederken set olan busy bitidir.", values: ["0: sleep/idle / hazir", "1: conversion devam ediyor"] },
+        { bits: "B1", name: "T_INTERNAL ready", meaning: "Ic sicaklik sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B0", name: "VCC ready", meaning: "VCC sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+      ],
+    },
+    {
+      name: "RESERVED_02",
+      address: "0x02",
+      width: "8",
+      access: "N/A",
+      purpose: "Datasheet register map icinde reserved adres.",
+      fields: reservedFields(),
+    },
+    {
+      name: "RESERVED_03",
+      address: "0x03",
+      width: "8",
+      access: "N/A",
+      purpose: "Datasheet register map icinde reserved adres.",
+      fields: reservedFields(),
+    },
+    {
+      name: "RESERVED_04",
+      address: "0x04",
+      width: "8",
+      access: "N/A",
+      purpose: "Datasheet register map icinde reserved adres.",
+      fields: reservedFields(),
+    },
+    {
+      name: "RESERVED_05",
+      address: "0x05",
+      width: "8",
+      access: "N/A",
+      purpose: "Datasheet register map icinde reserved adres.",
+      fields: reservedFields(),
+    },
+    {
+      name: "CONTROL_V1V4",
+      address: "0x06",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "V1/V2 ve V3/V4 pair mode bitleri.",
+      fields: [
+        { bits: "B7", name: "V3/V4 filter", meaning: "V3/V4 olcum grubunda digital filter ayarini belirler.", values: filterValues },
+        { bits: "B6", name: "TR2 Kelvin", meaning: "TR2 remote temperature sonucu icin Celsius/Kelvin formatini secer.", values: celsiusKelvinValues },
+        { bits: "B5", name: "V3/V4 temperature", meaning: "V3/V4 pair'ini remote temperature olcumu icin kullanir.", values: voltageTemperatureValues },
+        { bits: "B4", name: "V3/V4 differential", meaning: "V3/V4 pair'ini differential voltage/current yolu olarak kullanir.", values: singleEndedDifferentialValues },
+        { bits: "B3", name: "V1/V2 filter", meaning: "V1/V2 olcum grubunda digital filter ayarini belirler.", values: filterValues },
+        { bits: "B2", name: "TR1 Kelvin", meaning: "TR1 remote temperature sonucu icin Celsius/Kelvin formatini secer.", values: celsiusKelvinValues },
+        { bits: "B1", name: "V1/V2 temperature", meaning: "V1/V2 pair'ini remote temperature olcumu icin kullanir.", values: voltageTemperatureValues },
+        { bits: "B0", name: "V1/V2 differential", meaning: "V1/V2 pair'ini differential voltage/current yolu olarak kullanir.", values: singleEndedDifferentialValues },
+      ],
+    },
+    {
+      name: "CONTROL_V5V8",
+      address: "0x07",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "V5/V6 ve V7/V8 pair mode bitleri.",
+      fields: [
+        { bits: "B7", name: "V7/V8 filter", meaning: "V7/V8 olcum grubunda digital filter ayarini belirler.", values: filterValues },
+        { bits: "B6", name: "TR4 Kelvin", meaning: "TR4 remote temperature sonucu icin Celsius/Kelvin formatini secer.", values: celsiusKelvinValues },
+        { bits: "B5", name: "V7/V8 temperature", meaning: "V7/V8 pair'ini remote temperature olcumu icin kullanir.", values: voltageTemperatureValues },
+        { bits: "B4", name: "V7/V8 differential", meaning: "V7/V8 pair'ini differential voltage/current yolu olarak kullanir.", values: singleEndedDifferentialValues },
+        { bits: "B3", name: "V5/V6 filter", meaning: "V5/V6 olcum grubunda digital filter ayarini belirler.", values: filterValues },
+        { bits: "B2", name: "TR3 Kelvin", meaning: "TR3 remote temperature sonucu icin Celsius/Kelvin formatini secer.", values: celsiusKelvinValues },
+        { bits: "B1", name: "V5/V6 temperature", meaning: "V5/V6 pair'ini remote temperature olcumu icin kullanir.", values: voltageTemperatureValues },
+        { bits: "B0", name: "V5/V6 differential", meaning: "V5/V6 pair'ini differential voltage/current yolu olarak kullanir.", values: singleEndedDifferentialValues },
+      ],
+    },
+    {
+      name: "PWM_T_INTERNAL_CONTROL",
+      address: "0x08",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "PWM output ve internal temperature format/control register'i.",
+      fields: [
+        { bits: "B7", name: "PWM threshold LSB", meaning: "PWM threshold degerinin en dusuk bitidir; 0x09 register'i ust 8 biti tasir." },
+        { bits: "B6", name: "PWM inverted", meaning: "PWM output polaritesini secer.", values: ["0: normal polarity", "1: inverted polarity"] },
+        { bits: "B5", name: "PWM enable", meaning: "PWM output fonksiyonunu enable eder.", values: disabledEnabledValues },
+        { bits: "B4", name: "PWM mode", meaning: "PWM comparator/input davranisini secer; board kullanimi varsa datasheet akisi ile birlikte degerlendirilmelidir." },
+        { bits: "B3", name: "T_INTERNAL Kelvin", meaning: "Ic sicaklik sonucunda Celsius/Kelvin formatini secer.", values: celsiusKelvinValues },
+        { bits: "B2:B0", name: "Reserved", meaning: "Reserved alan; yazarken 0 tutulmalidir.", values: ["000: normal kullanım", "diger: reserved; kullanma"] },
+      ],
+    },
+    {
+      name: "PWM_THRESHOLD_MSB",
+      address: "0x09",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "PWM threshold degerinin ust 8 biti.",
+      fields: byteFields("PWM_THRESHOLD[8:1]"),
+    },
+    ...externalRows,
+    {
+      name: "T_INTERNAL_MSB",
+      address: "0x1A",
+      width: "8",
+      access: "RO",
+      purpose: "Raw internal temperature MSB byte'i.",
+      fields: ltc2991TemperatureMsbFields("Internal temperature"),
+    },
+    {
+      name: "T_INTERNAL_LSB",
+      address: "0x1B",
+      width: "8",
+      access: "RO",
+      purpose: "Raw internal temperature LSB byte'i.",
+      fields: byteFields("T_INTERNAL[7:0]"),
+    },
+    {
+      name: "VCC_MSB",
+      address: "0x1C",
+      width: "8",
+      access: "RO",
+      purpose: "Raw VCC conversion MSB byte'i.",
+      fields: [
+        { bits: "B7", name: "Data valid", meaning: "VCC conversion sonucunda yeni data hazir oldugunu gosterir.", values: oldNewDataValues },
+        { bits: "B6", name: "Sign", meaning: "VCC measurement formatindaki sign bitidir; datasheet formatinda VCC = result + 2.5V olarak yorumlanir.", values: signValues },
+        { bits: "B5:B0", name: "VCC code MSB", meaning: "VCC raw conversion code ust data bitleri." },
+      ],
+    },
+    {
+      name: "VCC_LSB",
+      address: "0x1D",
+      width: "8",
+      access: "RO",
+      purpose: "Raw VCC conversion LSB byte'i.",
+      fields: byteFields("VCC[7:0]"),
+    },
+  ];
+}
+
+function ds1682Registers(): KnowledgeRegister[] {
+  const alarmRows = ["LOW", "LOW_MID", "HIGH_MID", "HIGH"].map((suffix, index) => ({
+    name: `ALARM_${suffix}`,
+    address: hexAddress(0x01 + index),
+    width: "8",
+    access: "RW",
+    reset: "0x00",
+    purpose: `32-bit alarm trip point degerinin byte ${index} parcasi; little-endian siradadir.`,
+    fields: byteFields(`ALARM[${index * 8 + 7}:${index * 8}]`),
+  }));
+  const elapsedRows = ["LOW", "LOW_MID", "HIGH_MID", "HIGH"].map((suffix, index) => ({
+    name: `ETC_${suffix}`,
+    address: hexAddress(0x05 + index),
+    width: "8",
+    access: "RO",
+    reset: "0x00",
+    purpose: `32-bit elapsed-time counter degerinin byte ${index} parcasi; quarter-second tick ve little-endian siradadir.`,
+    fields: byteFields(`ETC[${index * 8 + 7}:${index * 8}]`),
+  }));
+  const userRows = Array.from({ length: 10 }, (_, index) => ({
+    name: `USER_${index + 1}`,
+    address: hexAddress(0x0B + index),
+    width: "8",
+    access: "RW",
+    reset: "0x00",
+    purpose: `User EEPROM byte ${index + 1}.`,
+    fields: byteFields(`USER_${index + 1}`),
+  }));
+
+  return [
+    {
+      name: "CONFIGURATION",
+      address: "0x00",
+      width: "8",
+      access: "RW",
+      reset: "0x00",
+      purpose: "Alarm flag, write-disable flag'leri, alarm output secimi, reset enable ve event MSB.",
+      fields: [
+        { bits: "B7", name: "Reserved", meaning: "Normal kullanimda 0 olarak birakilir.", values: ["0: normal kullanim", "1: reserved; kullanma"] },
+        { bits: "B6", name: "AF", meaning: "Alarm flag; elapsed-time counter alarm degerine ulastiginda set olur.", values: ["0: alarm match yok", "1: alarm match oldu; reset command disinda clear edilemez"] },
+        { bits: "B5", name: "WDF", meaning: "Write-disable flag; write-disable komutu sonrasi set olur.", values: ["0: alarm/event/ETC yazimlari disable degil", "1: alarm/event/ETC read-only; clear edilemez"] },
+        { bits: "B4", name: "WMDF", meaning: "Write-memory-disable flag; user EEPROM alaninin disable durumunu gosterir.", values: ["0: user EEPROM yazimi disable degil", "1: user EEPROM read-only; clear edilemez"] },
+        { bits: "B3", name: "AOS", meaning: "Alarm output select; ALARM pininin pulse veya constant alarm output davranisini secer.", values: ["0: pulse/flash output mode; AP etkisiz", "1: alarm aktifken constant output; AP polarity belirler"] },
+        { bits: "B2", name: "RE", meaning: "Reset enable; reset komutu kabul edilmeden once 1 yapilmalidir.", values: ["0: reset command disabled", "1: reset command enabled"] },
+        { bits: "B1", name: "AP", meaning: "Alarm polarity; yalnizca AOS=1 constant output modunda etkilidir.", values: ["0: alarm oncesi high-Z, match sonrasi low", "1: alarm oncesi low, match sonrasi high-Z"] },
+        { bits: "B0", name: "ECMSB", meaning: "17-bit event counter degerinin en ust bitidir.", values: ["0: event counter bit16 = 0", "1: event counter bit16 = 1"] },
+      ],
+    },
+    ...alarmRows,
+    ...elapsedRows,
+    {
+      name: "EVENT_LOW",
+      address: "0x09",
+      width: "8",
+      access: "RO",
+      reset: "0x00",
+      purpose: "17-bit event counter degerinin bit7..bit0 parcasi.",
+      fields: byteFields("EVENT[7:0]"),
+    },
+    {
+      name: "EVENT_HIGH",
+      address: "0x0A",
+      width: "8",
+      access: "RO",
+      reset: "0x00",
+      purpose: "17-bit event counter degerinin bit15..bit8 parcasi; bit16 CONFIGURATION.ECMSB alanindadir.",
+      fields: byteFields("EVENT[15:8]"),
+    },
+    ...userRows,
+    {
+      name: "RESET_COMMAND",
+      address: "0x1D",
+      width: "command byte",
+      access: "WO",
+      purpose: "Reset komutu; RE biti set edilmeden kabul edilmemelidir.",
+      fields: [
+        { bits: "On kosul", name: "CONFIGURATION.RE", meaning: "Reset command kabul icin CONFIGURATION icindeki RE biti enable edilmelidir.", values: ["0: reset command kabul edilmez", "1: reset command kabul edilebilir"] },
+        { bits: "Command payload", name: "0x55, 0x55", meaning: "Reset icin ayni command byte iki kez yazilmalidir.", values: ["0x55 iki kez: reset sequence", "diger: reset sequence degil"] },
+      ],
+    },
+    {
+      name: "WRITE_DISABLE",
+      address: "0x1E",
+      width: "command byte",
+      access: "WO",
+      purpose: "Alarm, event counter ve elapsed-time counter yazimlarini kalici olarak disable eder.",
+      fields: [
+        { bits: "Command payload", name: "0xAA, 0xAA", meaning: "Write-disable icin ayni command byte iki kez yazilmalidir.", values: ["0xAA iki kez: WDF set edilir", "diger: write-disable sequence degil"] },
+        { bits: "Yan etki", name: "WDF", meaning: "Komut sonrasi CONFIGURATION icindeki write-disable flag set olur.", values: ["0: flag set degil", "1: alarm/event/ETC read-only"] },
+      ],
+    },
+    {
+      name: "WRITE_MEMORY_DISABLE",
+      address: "0x1F",
+      width: "command byte",
+      access: "WO",
+      purpose: "User EEPROM write-memory-disable komutu; production-only islem olarak ele alinmalidir.",
+      fields: [
+        { bits: "Command payload", name: "0xF0, 0xF0", meaning: "Write-memory-disable icin ayni command byte iki kez yazilmalidir.", values: ["0xF0 iki kez: WMDF set edilir", "diger: write-memory-disable sequence degil"] },
+        { bits: "Yan etki", name: "WMDF", meaning: "Komut sonrasi CONFIGURATION icindeki write-memory-disable flag set olur.", values: ["0: flag set degil", "1: user EEPROM read-only"] },
+      ],
+    },
+  ];
+}
+
+function ltc2945AdcFields(prefix: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "MSB B7:B0", name: `${prefix}[11:4]`, meaning: `${prefix} 12-bit ADC code degerinin ust sekiz biti.` },
+    { bits: "LSB B7:B4", name: `${prefix}[3:0]`, meaning: `${prefix} 12-bit ADC code degerinin alt dort biti.` },
+    { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabina dahil edilmez.", values: unusedValues },
+  ];
+}
+
+function ltc2945PowerFields(prefix: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "MSB2 B7:B0", name: `${prefix}[23:16]`, meaning: `${prefix} 24-bit raw power code ust byte.` },
+    { bits: "MSB1 B7:B0", name: `${prefix}[15:8]`, meaning: `${prefix} 24-bit raw power code orta byte.` },
+    { bits: "LSB B7:B0", name: `${prefix}[7:0]`, meaning: `${prefix} 24-bit raw power code alt byte.` },
+  ];
+}
+
+function ltc2945RegisterRows(): KnowledgeRegister[] {
+  const powerLike = (name: string, address: number, prefix: string, access = "RO"): KnowledgeRegister => ({
+    name,
+    address: hexAddress(address),
+    width: "8",
+    access,
+    reset: "0x00",
+    purpose: `${prefix} 24-bit power register image byte'i.`,
+    fields: name.endsWith("_MSB2") ? ltc2945PowerFields(prefix.split("[")[0]) : byteFields(prefix),
+  });
+  const adcLike = (name: string, address: number, prefix: string, access = "RO"): KnowledgeRegister => ({
+    name,
+    address: hexAddress(address),
+    width: "8",
+    access,
+    reset: "0x00",
+    purpose: `${prefix} 12-bit ADC register image byte'i.`,
+    fields: name.endsWith("_MSB") ? ltc2945AdcFields(prefix.split("[")[0]) : byteFields(prefix),
+  });
+
+  return [
+    {
+      name: "CONTROL",
+      address: "0x00",
+      width: "8",
+      access: "RW",
+      reset: "0x05",
+      purpose: "Snapshot mode/channel, test mode, ADC busy, VIN monitor, shutdown ve multiplier selection.",
+      fields: [
+        { bits: "B7", name: "Snapshot mode", meaning: "Conversion akisinin continuous veya snapshot olacagini secer.", values: ["0: continuous conversion / varsayilan", "1: snapshot mode"] },
+        { bits: "B6:B5", name: "Snapshot ADC channel", meaning: "Snapshot mode icin yakalanacak ADC kanalini secer.", values: ["00: SENSE", "01: VIN", "10: ADIN", "11: reserved / kullanma"] },
+        { bits: "B4", name: "Test mode enable", meaning: "Normal application code icinde kullanilmamasi gereken test mode bitidir.", values: ["0: disabled / varsayilan", "1: enabled"] },
+        { bits: "B3", name: "ADC busy", meaning: "ADC conversion devam ederken set olan status bitidir.", values: ["0: ADC idle", "1: ADC busy"] },
+        { bits: "B2", name: "VIN monitor", meaning: "VIN olcumunun VDD pininden mi SENSE+ pininden mi yapilacagini secer.", values: ["0: VDD pinini monitor et", "1: SENSE+ pinini monitor et / varsayilan"] },
+        { bits: "B1", name: "Shutdown enable", meaning: "ADC olcum bloklarini shutdown moduna alir.", values: ["0: disabled / varsayilan", "1: shutdown enabled"] },
+        { bits: "B0", name: "Multiplier select", meaning: "Power multiplier icin ADIN veya SENSE+ girisini secer.", values: ["0: ADIN", "1: SENSE+ / varsayilan"] },
+      ],
+    },
+    { name: "ALERT_ENABLE", address: "0x01", width: "8", access: "RW", reset: "0x00", purpose: "Power, SENSE, VIN ve ADIN limitleri icin ALERT enable maskesi.", fields: ltc2945LimitFields("enable") },
+    { name: "STATUS", address: "0x02", width: "8", access: "RO", reset: "0x00", purpose: "Power, SENSE, VIN ve ADIN limit kosullarinin anlik status bitleri.", fields: ltc2945LimitFields("status") },
+    { name: "FAULT", address: "0x03", width: "8", access: "RW", reset: "0x00", purpose: "Power, SENSE, VIN ve ADIN limit kosullari icin latched fault bitleri.", fields: ltc2945LimitFields("fault") },
+    { name: "FAULT_CLEAR", address: "0x04", width: "8", access: "CoR", reset: "0x00", purpose: "FAULT register'i read-and-clear yolu.", fields: ltc2945LimitFields("clear") },
+    powerLike("POWER_MSB2", 0x05, "POWER[23:16]"),
+    powerLike("POWER_MSB1", 0x06, "POWER[15:8]"),
+    powerLike("POWER_LSB", 0x07, "POWER[7:0]"),
+    powerLike("MAX_POWER_MSB2", 0x08, "MAX_POWER[23:16]", "RW*"),
+    powerLike("MAX_POWER_MSB1", 0x09, "MAX_POWER[15:8]", "RW*"),
+    powerLike("MAX_POWER_LSB", 0x0A, "MAX_POWER[7:0]", "RW*"),
+    powerLike("MIN_POWER_MSB2", 0x0B, "MIN_POWER[23:16]", "RW*"),
+    powerLike("MIN_POWER_MSB1", 0x0C, "MIN_POWER[15:8]", "RW*"),
+    powerLike("MIN_POWER_LSB", 0x0D, "MIN_POWER[7:0]", "RW*"),
+    powerLike("MAX_POWER_THRESHOLD_MSB2", 0x0E, "MAX_POWER_THRESHOLD[23:16]", "RW"),
+    powerLike("MAX_POWER_THRESHOLD_MSB1", 0x0F, "MAX_POWER_THRESHOLD[15:8]", "RW"),
+    powerLike("MAX_POWER_THRESHOLD_LSB", 0x10, "MAX_POWER_THRESHOLD[7:0]", "RW"),
+    powerLike("MIN_POWER_THRESHOLD_MSB2", 0x11, "MIN_POWER_THRESHOLD[23:16]", "RW"),
+    powerLike("MIN_POWER_THRESHOLD_MSB1", 0x12, "MIN_POWER_THRESHOLD[15:8]", "RW"),
+    powerLike("MIN_POWER_THRESHOLD_LSB", 0x13, "MIN_POWER_THRESHOLD[7:0]", "RW"),
+    adcLike("SENSE_MSB", 0x14, "SENSE[11:4]"),
+    adcLike("SENSE_LSB", 0x15, "SENSE[3:0]"),
+    adcLike("MAX_SENSE_MSB", 0x16, "MAX_SENSE[11:4]", "RW*"),
+    adcLike("MAX_SENSE_LSB", 0x17, "MAX_SENSE[3:0]", "RW*"),
+    adcLike("MIN_SENSE_MSB", 0x18, "MIN_SENSE[11:4]", "RW*"),
+    adcLike("MIN_SENSE_LSB", 0x19, "MIN_SENSE[3:0]", "RW*"),
+    adcLike("MAX_SENSE_THRESHOLD_MSB", 0x1A, "MAX_SENSE_THRESHOLD[11:4]", "RW"),
+    adcLike("MAX_SENSE_THRESHOLD_LSB", 0x1B, "MAX_SENSE_THRESHOLD[3:0]", "RW"),
+    adcLike("MIN_SENSE_THRESHOLD_MSB", 0x1C, "MIN_SENSE_THRESHOLD[11:4]", "RW"),
+    adcLike("MIN_SENSE_THRESHOLD_LSB", 0x1D, "MIN_SENSE_THRESHOLD[3:0]", "RW"),
+    adcLike("VIN_MSB", 0x1E, "VIN[11:4]"),
+    adcLike("VIN_LSB", 0x1F, "VIN[3:0]"),
+    adcLike("MAX_VIN_MSB", 0x20, "MAX_VIN[11:4]", "RW*"),
+    adcLike("MAX_VIN_LSB", 0x21, "MAX_VIN[3:0]", "RW*"),
+    adcLike("MIN_VIN_MSB", 0x22, "MIN_VIN[11:4]", "RW*"),
+    adcLike("MIN_VIN_LSB", 0x23, "MIN_VIN[3:0]", "RW*"),
+    adcLike("MAX_VIN_THRESHOLD_MSB", 0x24, "MAX_VIN_THRESHOLD[11:4]", "RW"),
+    adcLike("MAX_VIN_THRESHOLD_LSB", 0x25, "MAX_VIN_THRESHOLD[3:0]", "RW"),
+    adcLike("MIN_VIN_THRESHOLD_MSB", 0x26, "MIN_VIN_THRESHOLD[11:4]", "RW"),
+    adcLike("MIN_VIN_THRESHOLD_LSB", 0x27, "MIN_VIN_THRESHOLD[3:0]", "RW"),
+    adcLike("ADIN_MSB", 0x28, "ADIN[11:4]"),
+    adcLike("ADIN_LSB", 0x29, "ADIN[3:0]"),
+    adcLike("MAX_ADIN_MSB", 0x2A, "MAX_ADIN[11:4]", "RW*"),
+    adcLike("MAX_ADIN_LSB", 0x2B, "MAX_ADIN[3:0]", "RW*"),
+    adcLike("MIN_ADIN_MSB", 0x2C, "MIN_ADIN[11:4]", "RW*"),
+    adcLike("MIN_ADIN_LSB", 0x2D, "MIN_ADIN[3:0]", "RW*"),
+    adcLike("MAX_ADIN_THRESHOLD_MSB", 0x2E, "MAX_ADIN_THRESHOLD[11:4]", "RW"),
+    adcLike("MAX_ADIN_THRESHOLD_LSB", 0x2F, "MAX_ADIN_THRESHOLD[3:0]", "RW"),
+    adcLike("MIN_ADIN_THRESHOLD_MSB", 0x30, "MIN_ADIN_THRESHOLD[11:4]", "RW"),
+    adcLike("MIN_ADIN_THRESHOLD_LSB", 0x31, "MIN_ADIN_THRESHOLD[3:0]", "RW"),
+  ];
+}
+
+type FlashCommandRow = {
+  name: string;
+  opcode: string;
+  access: "RO" | "WO" | "RW";
+  addressBytes: "0" | "3" | "4" | "3/4";
+  dummyCycles: string;
+  dataBytes: string;
+  purpose: string;
+  fields?: KnowledgeRegisterField[];
+};
+
+const flashFlagStatusFields: KnowledgeRegisterField[] = [
+  { bits: "B7", name: "Program/erase controller", meaning: "Internal program/erase controller hazirlik durumunu gosterir.", values: ["0: busy", "1: ready"] },
+  { bits: "B6", name: "Erase suspend", meaning: "Erase operasyonunun suspend durumunu gosterir.", values: ["0: clear", "1: erase suspended"] },
+  { bits: "B5", name: "Erase error", meaning: "Erase isleminin basarisiz oldugunu veya protection hatasini gosterir.", values: ["0: clear", "1: failure/protection error"] },
+  { bits: "B4", name: "Program error", meaning: "Program isleminin veya CRC check'in basarisiz oldugunu gosterir.", values: ["0: clear", "1: failure/protection error"] },
+  { bits: "B3", name: "Reserved", meaning: "Reserved alan; ignore et.", values: ["0: reserved default"] },
+  { bits: "B2", name: "Program suspend", meaning: "Program operasyonunun suspend durumunu gosterir.", values: ["0: clear", "1: program suspended"] },
+  { bits: "B1", name: "Protection error", meaning: "Protected array veya locked OTP alanina yazma/erase denemesi hatasini gosterir.", values: ["0: clear", "1: protection error"] },
+  { bits: "B0", name: "Addressing mode", meaning: "Adresleme modunu gosterir.", values: ["0: 3-byte addressing", "1: 4-byte addressing"] },
+];
+
+const flashNonvolatileConfigFields: KnowledgeRegisterField[] = [
+  { bits: "B15:B12", name: "Dummy clock cycles", meaning: "Fast read komutlarindan sonraki dummy clock sayisini belirler." },
+  { bits: "B11:B9", name: "Output driver strength", meaning: "DQ output driver strength ayaridir." },
+  { bits: "B8:B6", name: "XIP bits", meaning: "XIP davranisini nonvolatile olarak belirleyen bitlerdir; normal driver akisi icinde degistirilmez." },
+  { bits: "B5:B4", name: "Reserved", meaning: "Reserved alan; default deger korunmalidir." },
+  { bits: "B3", name: "Reset/hold function", meaning: "DQ3/HOLD#/RESET# fonksiyon secimiyle iliskili nonvolatile ayardir." },
+  { bits: "B2", name: "Dual I/O protocol", meaning: "Dual protocol enable davranisini etkiler; controller pinleriyle birlikte dogrulanmalidir." },
+  { bits: "B1", name: "Quad I/O protocol", meaning: "Quad protocol enable davranisini etkiler; controller pinleriyle birlikte dogrulanmalidir." },
+  { bits: "B0", name: "Address bytes", meaning: "Power-up/default addressing davranisini belirler.", values: ["0: 3-byte default", "1: 4-byte default / segment secimi"] },
+];
+
+const flashVolatileConfigFields: KnowledgeRegisterField[] = [
+  { bits: "B7:B4", name: "Dummy clock cycles", meaning: "Fast read icin volatile dummy clock sayisini belirler." },
+  { bits: "B3", name: "XIP", meaning: "Volatile XIP enable/terminate davranisi." },
+  { bits: "B2", name: "Wrap", meaning: "Burst wrap davranisiyla iliskili volatile ayar." },
+  { bits: "B1:B0", name: "Output driver / reserved", meaning: "Variant'a bagli output veya reserved bitler; datasheet defaultu korunmalidir." },
+];
+
+const flashEnhancedVolatileConfigFields: KnowledgeRegisterField[] = [
+  { bits: "B7", name: "Quad I/O protocol", meaning: "Quad I/O protocol enable davranisini belirler.", values: ["0: quad protocol enabled", "1: quad protocol disabled / default variant'a bagli"] },
+  { bits: "B6", name: "Dual I/O protocol", meaning: "Dual I/O protocol enable davranisini belirler." },
+  { bits: "B5:B4", name: "Reset/hold function", meaning: "DQ3/HOLD#/RESET# fonksiyon secimiyle iliskili volatile ayarlar." },
+  { bits: "B3:B0", name: "Output driver / reserved", meaning: "Variant'a bagli output veya reserved alan; default deger korunmalidir." },
+];
+
+const mt25qCommandRows: FlashCommandRow[] = [
+  { name: "RESET_ENABLE", opcode: "0x66", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "RESET_MEMORY komutunu kabul ettirmek icin once gonderilir." },
+  { name: "RESET_MEMORY", opcode: "0x99", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Software reset islemini tamamlar; genelde RESET_ENABLE sonrasi kullanilir." },
+  { name: "READ_ID", opcode: "0x9E / 0x9F", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..20", purpose: "JEDEC/device ID bilgisini okur.", fields: flashReadIdFields },
+  { name: "MULTIPLE_IO_READ_ID", opcode: "0xAF", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..20", purpose: "Dual/quad capable bus uzerinden ID okuma komutu." },
+  { name: "READ_SFDP", opcode: "0x5A", access: "RO", addressBytes: "3", dummyCycles: "8", dataBytes: "1..n", purpose: "Serial Flash Discoverable Parameters tablosunu okur." },
+  { name: "READ_DATA", opcode: "0x03", access: "RO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..n", purpose: "Normal single-SPI array read komutu." },
+  { name: "FAST_READ", opcode: "0x0B", access: "RO", addressBytes: "3/4", dummyCycles: "8", dataBytes: "1..n", purpose: "Dummy clock ile single-SPI fast read." },
+  { name: "DUAL_OUTPUT_FAST_READ", opcode: "0x3B", access: "RO", addressBytes: "3/4", dummyCycles: "8", dataBytes: "1..n", purpose: "Dual output fast read; DQ1/DQ0 data cikisi kullanir." },
+  { name: "DUAL_IO_FAST_READ", opcode: "0xBB", access: "RO", addressBytes: "3/4", dummyCycles: "8", dataBytes: "1..n", purpose: "Dual input/output fast read; address ve data dual hat kullanir." },
+  { name: "QUAD_OUTPUT_FAST_READ", opcode: "0x6B", access: "RO", addressBytes: "3/4", dummyCycles: "8/10", dataBytes: "1..n", purpose: "Quad output fast read; data quad hatlardan gelir." },
+  { name: "QUAD_IO_FAST_READ", opcode: "0xEB", access: "RO", addressBytes: "3/4", dummyCycles: "10", dataBytes: "1..n", purpose: "Quad input/output fast read; address ve data quad hat kullanir." },
+  { name: "DTR_FAST_READ", opcode: "0x0D", access: "RO", addressBytes: "3/4", dummyCycles: "6/8", dataBytes: "1..n", purpose: "DTR single-SPI fast read." },
+  { name: "DTR_DUAL_OUTPUT_FAST_READ", opcode: "0x3D", access: "RO", addressBytes: "3/4", dummyCycles: "6", dataBytes: "1..n", purpose: "DTR dual output fast read." },
+  { name: "DTR_DUAL_IO_FAST_READ", opcode: "0xBD", access: "RO", addressBytes: "3/4", dummyCycles: "6", dataBytes: "1..n", purpose: "DTR dual I/O fast read." },
+  { name: "DTR_QUAD_OUTPUT_FAST_READ", opcode: "0x6D", access: "RO", addressBytes: "3/4", dummyCycles: "6/8", dataBytes: "1..n", purpose: "DTR quad output fast read." },
+  { name: "DTR_QUAD_IO_FAST_READ", opcode: "0xED", access: "RO", addressBytes: "3/4", dummyCycles: "8", dataBytes: "1..n", purpose: "DTR quad input/output fast read." },
+  { name: "QUAD_IO_WORD_READ", opcode: "0xE7", access: "RO", addressBytes: "3/4", dummyCycles: "4", dataBytes: "1..n", purpose: "Quad I/O word read komutu." },
+  { name: "READ_DATA_4B", opcode: "0x13", access: "RO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..n", purpose: "4-byte address normal read." },
+  { name: "FAST_READ_4B", opcode: "0x0C", access: "RO", addressBytes: "4", dummyCycles: "8/10", dataBytes: "1..n", purpose: "4-byte address fast read." },
+  { name: "DUAL_OUTPUT_FAST_READ_4B", opcode: "0x3C", access: "RO", addressBytes: "4", dummyCycles: "8", dataBytes: "1..n", purpose: "4-byte address dual output fast read." },
+  { name: "DUAL_IO_FAST_READ_4B", opcode: "0xBC", access: "RO", addressBytes: "4", dummyCycles: "8", dataBytes: "1..n", purpose: "4-byte address dual I/O fast read." },
+  { name: "QUAD_OUTPUT_FAST_READ_4B", opcode: "0x6C", access: "RO", addressBytes: "4", dummyCycles: "8/10", dataBytes: "1..n", purpose: "4-byte address quad output fast read." },
+  { name: "QUAD_IO_FAST_READ_4B", opcode: "0xEC", access: "RO", addressBytes: "4", dummyCycles: "10", dataBytes: "1..n", purpose: "4-byte address quad I/O fast read." },
+  { name: "DTR_FAST_READ_4B", opcode: "0x0E", access: "RO", addressBytes: "4", dummyCycles: "6/8", dataBytes: "1..n", purpose: "4-byte address DTR fast read." },
+  { name: "DTR_DUAL_IO_FAST_READ_4B", opcode: "0xBE", access: "RO", addressBytes: "4", dummyCycles: "6", dataBytes: "1..n", purpose: "4-byte address DTR dual I/O fast read." },
+  { name: "DTR_QUAD_IO_FAST_READ_4B", opcode: "0xEE", access: "RO", addressBytes: "4", dummyCycles: "8", dataBytes: "1..n", purpose: "4-byte address DTR quad I/O fast read." },
+  { name: "WRITE_ENABLE", opcode: "0x06", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Program/erase/register write komutlari oncesinde WEL bitini set eder." },
+  { name: "WRITE_DISABLE", opcode: "0x04", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "WEL bitini clear eder." },
+  { name: "READ_STATUS", opcode: "0x05", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Status register okuma; WIP/WEL/protection bitleri icin kullanilir.", fields: flashStatusFields },
+  { name: "READ_FLAG_STATUS", opcode: "0x70", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Program/erase ready ve hata flag'lerini okur.", fields: flashFlagStatusFields },
+  { name: "READ_NONVOLATILE_CONFIG", opcode: "0xB5", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "2..n", purpose: "Nonvolatile configuration register okuma.", fields: flashNonvolatileConfigFields },
+  { name: "READ_VOLATILE_CONFIG", opcode: "0x85", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Volatile configuration register okuma.", fields: flashVolatileConfigFields },
+  { name: "READ_ENHANCED_VOLATILE_CONFIG", opcode: "0x65", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Enhanced volatile configuration register okuma.", fields: flashEnhancedVolatileConfigFields },
+  { name: "READ_EXTENDED_ADDRESS", opcode: "0xC8", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Extended address register okuma; 3-byte mode'da segment secimini gosterir." },
+  { name: "READ_GENERAL_PURPOSE", opcode: "0x96", access: "RO", addressBytes: "0", dummyCycles: "8", dataBytes: "1..n", purpose: "General purpose read register okuma." },
+  { name: "WRITE_STATUS", opcode: "0x01", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "1", purpose: "Status register yazma; write enable on kosulu vardir.", fields: flashStatusFields },
+  { name: "WRITE_NONVOLATILE_CONFIG", opcode: "0xB1", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "2", purpose: "Nonvolatile configuration register yazma; production-only dikkat gerektirir.", fields: flashNonvolatileConfigFields },
+  { name: "WRITE_VOLATILE_CONFIG", opcode: "0x81", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "1", purpose: "Volatile configuration register yazma.", fields: flashVolatileConfigFields },
+  { name: "WRITE_ENHANCED_VOLATILE_CONFIG", opcode: "0x61", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "1", purpose: "Enhanced volatile configuration register yazma.", fields: flashEnhancedVolatileConfigFields },
+  { name: "WRITE_EXTENDED_ADDRESS", opcode: "0xC5", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "1", purpose: "Extended address register yazma; 3-byte addressing segment secimi icindir." },
+  { name: "CLEAR_FLAG_STATUS", opcode: "0x50", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Flag status register hata bitlerini temizler." },
+  { name: "PAGE_PROGRAM", opcode: "0x02", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..256", purpose: "3-byte/4-byte mode page program komutu." },
+  { name: "DUAL_INPUT_FAST_PROGRAM", opcode: "0xA2", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..256", purpose: "Dual input fast program komutu." },
+  { name: "EXTENDED_DUAL_INPUT_FAST_PROGRAM", opcode: "0xD2", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..256", purpose: "Extended dual input fast program komutu." },
+  { name: "QUAD_INPUT_FAST_PROGRAM", opcode: "0x32", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..256", purpose: "Quad input fast program komutu." },
+  { name: "EXTENDED_QUAD_INPUT_FAST_PROGRAM", opcode: "0x38", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..256", purpose: "Extended quad input fast program komutu." },
+  { name: "PAGE_PROGRAM_4B", opcode: "0x12", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..256", purpose: "4-byte address page program." },
+  { name: "QUAD_INPUT_FAST_PROGRAM_4B", opcode: "0x34", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..256", purpose: "4-byte address quad input fast program." },
+  { name: "EXTENDED_QUAD_INPUT_FAST_PROGRAM_4B", opcode: "0x3E", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..256", purpose: "4-byte address extended quad input fast program." },
+  { name: "SUBSECTOR_ERASE_32K", opcode: "0x52", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "0", purpose: "32 KB subsector erase." },
+  { name: "SUBSECTOR_ERASE", opcode: "0x20", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "0", purpose: "4 KB subsector erase." },
+  { name: "SECTOR_ERASE", opcode: "0xD8", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "0", purpose: "64 KB sector erase." },
+  { name: "BULK_ERASE", opcode: "0xC7 / 0x60", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Tum flash array erase; cok dikkatli kullanilmalidir." },
+  { name: "SECTOR_ERASE_4B", opcode: "0xDC", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "0", purpose: "4-byte address 64 KB sector erase." },
+  { name: "SUBSECTOR_ERASE_4B", opcode: "0x21", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "0", purpose: "4-byte address 4 KB subsector erase." },
+  { name: "SUBSECTOR_ERASE_32K_4B", opcode: "0x5C", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "0", purpose: "4-byte address 32 KB subsector erase." },
+  { name: "PROGRAM_ERASE_SUSPEND", opcode: "0x75", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Devam eden program/erase operasyonunu suspend eder." },
+  { name: "PROGRAM_ERASE_RESUME", opcode: "0x7A", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Suspend edilmis program/erase operasyonunu devam ettirir." },
+  { name: "READ_OTP_ARRAY", opcode: "0x4B", access: "RO", addressBytes: "3/4", dummyCycles: "8/10", dataBytes: "1..64", purpose: "One-time-programmable array okuma." },
+  { name: "PROGRAM_OTP_ARRAY", opcode: "0x42", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..64", purpose: "One-time-programmable array programlama." },
+  { name: "ENTER_4BYTE", opcode: "0xB7", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "4-byte address mode'a gecis." },
+  { name: "EXIT_4BYTE", opcode: "0xE9", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "4-byte address mode'dan cikis." },
+  { name: "ENTER_QUAD_IO", opcode: "0x35", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Quad input/output protocol modunu enable eder." },
+  { name: "RESET_QUAD_IO", opcode: "0xF5", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Quad input/output protocol modunu resetler." },
+  { name: "ENTER_DEEP_POWER_DOWN", opcode: "0xB9", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Deep power-down moduna giris." },
+  { name: "RELEASE_FROM_DEEP_POWER_DOWN", opcode: "0xAB", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Deep power-down modundan cikis." },
+  { name: "READ_SECTOR_PROTECTION", opcode: "0x2D", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Advanced sector protection durumunu okur." },
+  { name: "PROGRAM_SECTOR_PROTECTION", opcode: "0x2C", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "2", purpose: "Advanced sector protection programlama." },
+  { name: "READ_VOLATILE_LOCK_BITS", opcode: "0xE8", access: "RO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1..n", purpose: "Volatile lock bitlerini okur." },
+  { name: "WRITE_VOLATILE_LOCK_BITS", opcode: "0xE5", access: "WO", addressBytes: "3/4", dummyCycles: "0", dataBytes: "1", purpose: "Volatile lock bitlerini yazar." },
+  { name: "READ_NONVOLATILE_LOCK_BITS", opcode: "0xE2", access: "RO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..n", purpose: "Nonvolatile lock bitlerini okur." },
+  { name: "WRITE_NONVOLATILE_LOCK_BITS", opcode: "0xE3", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "0", purpose: "Nonvolatile lock bitlerini yazar." },
+  { name: "ERASE_NONVOLATILE_LOCK_BITS", opcode: "0xE4", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Nonvolatile lock bitlerini erase eder." },
+  { name: "READ_GLOBAL_FREEZE_BIT", opcode: "0xA7", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Global freeze bit durumunu okur." },
+  { name: "WRITE_GLOBAL_FREEZE_BIT", opcode: "0xA6", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Global freeze bit yazar." },
+  { name: "READ_PASSWORD", opcode: "0x27", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "1..n", purpose: "Password protection alanini okur." },
+  { name: "WRITE_PASSWORD", opcode: "0x28", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "8", purpose: "Password protection alanini yazar." },
+  { name: "UNLOCK_PASSWORD", opcode: "0x29", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "8", purpose: "Password unlock sequence gonderir." },
+  { name: "READ_VOLATILE_LOCK_BITS_4B", opcode: "0xE0", access: "RO", addressBytes: "4", dummyCycles: "0", dataBytes: "1..n", purpose: "4-byte address volatile lock bit okuma." },
+  { name: "WRITE_VOLATILE_LOCK_BITS_4B", opcode: "0xE1", access: "WO", addressBytes: "4", dummyCycles: "0", dataBytes: "1", purpose: "4-byte address volatile lock bit yazma." },
+  { name: "INTERFACE_ACTIVATION", opcode: "0x9B", access: "WO", addressBytes: "0", dummyCycles: "0", dataBytes: "0", purpose: "Advanced function interface activation komutu." },
+  { name: "CRC_CHECK", opcode: "0x9B / 0x27", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "10 veya 18", purpose: "Cyclic redundancy check operation." },
+];
+
+function mt25qRegisters(part: "MT25Q128" | "MT25QU02G"): KnowledgeRegister[] {
+  const large = part === "MT25QU02G";
+  return mt25qCommandRows.map((row) => {
+    const effectiveAddressBytes = row.addressBytes === "3/4" ? (large ? "4" : "3") : row.addressBytes;
+    const widthParts = ["opcode"];
+    if (effectiveAddressBytes !== "0") widthParts.push(`${effectiveAddressBytes}-byte address`);
+    if (row.dummyCycles !== "0") widthParts.push(`${row.dummyCycles} dummy cycles`);
+    if (row.dataBytes !== "0") widthParts.push(`${row.dataBytes} data byte`);
+    return {
+      name: row.name,
+      address: row.opcode,
+      width: widthParts.join(" + "),
+      access: row.access,
+      purpose: row.purpose,
+      fields: row.fields ?? [
+        { bits: "Opcode", name: row.opcode, meaning: `${row.name} komut opcode degeri.` },
+        ...(effectiveAddressBytes !== "0" ? [{ bits: "Address", name: `${effectiveAddressBytes}-byte address`, meaning: "Gonderilecek array/register adres byte'lari MSB-first siradadir." }] : []),
+        ...(row.dummyCycles !== "0" ? [{ bits: "Dummy", name: `${row.dummyCycles} cycles`, meaning: "Data fazindan once controller tarafindan clocklanan dummy cycle sayisi." }] : []),
+        ...(row.dataBytes !== "0" ? [{ bits: "Data", name: row.dataBytes, meaning: row.access === "RO" ? "Cihazdan okunacak byte sayisi." : "Cihaza gonderilecek payload byte sayisi." }] : []),
+      ],
+    };
+  });
+}
 
 const tics24Fields: KnowledgeRegisterField[] = [
   {
@@ -617,121 +1264,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Current mode seçilirse shunt direnç değeri device config içinde tutulmalıdır; böylece ileride üretilen kod doğru conversion helper sunabilir.",
       "İç sıcaklık ve VCC sadece kart bu okumaları gerçekten kullanıyorsa açılmalı; aksi halde init minimal tutulmalıdır.",
     ],
-    registers: [
-      {
-        name: "STATUS_LOW",
-        address: "0x00",
-        width: "8",
-        access: "RO",
-        reset: "0x00",
-        purpose: "Harici kanal dönüşümleri için busy/status bitleri.",
-        fields: [
-          { bits: "B7", name: "V8 ready", meaning: "V8 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B6", name: "V7 ready", meaning: "V7 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B5", name: "V6 ready", meaning: "V6 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B4", name: "V5 ready", meaning: "V5 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B3", name: "V4 ready", meaning: "V4 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B2", name: "V3 ready", meaning: "V3 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B1", name: "V2 ready", meaning: "V2 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B0", name: "V1 ready", meaning: "V1 sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-        ],
-      },
-      {
-        name: "STATUS_HIGH",
-        address: "0x01",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "V1/V2, V3/V4, V5/V6, V7/V8, iç sıcaklık ve VCC ölçümlerini enable eder.",
-        fields: [
-          { bits: "B7", name: "V7/V8/TR4 enable", meaning: "V7/V8 pair veya TR4 ölçüm grubunu enable eder.", values: disabledEnabledValues },
-          { bits: "B6", name: "V5/V6/TR3 enable", meaning: "V5/V6 pair veya TR3 ölçüm grubunu enable eder.", values: disabledEnabledValues },
-          { bits: "B5", name: "V3/V4/TR2 enable", meaning: "V3/V4 pair veya TR2 ölçüm grubunu enable eder.", values: disabledEnabledValues },
-          { bits: "B4", name: "V1/V2/TR1 enable", meaning: "V1/V2 pair veya TR1 ölçüm grubunu enable eder.", values: disabledEnabledValues },
-          { bits: "B3", name: "T_INT/VCC enable", meaning: "İç sıcaklık ve VCC dönüşümlerini enable eder.", values: disabledEnabledValues },
-          { bits: "B2", name: "Busy", meaning: "Conversion devam ederken set olan read-only busy biti.", values: ["0: sleep/idle / varsayılan", "1: conversion devam ediyor"] },
-          { bits: "B1", name: "T_INT ready", meaning: "İç sıcaklık sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-          { bits: "B0", name: "VCC ready", meaning: "VCC sonucunda yeni data hazır olduğunu gösterir.", values: oldNewDataValues },
-        ],
-      },
-      {
-        name: "CONTROL_V1V4",
-        address: "0x06",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "V1/V2 ve V3/V4 pair mode bitleri.",
-        fields: [
-          { bits: "B7", name: "V3/V4 filter", meaning: "V3/V4 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
-          { bits: "B6", name: "TR2 Kelvin", meaning: "TR2 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
-          { bits: "B5", name: "V3/V4 temperature", meaning: "V3/V4 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
-          { bits: "B4", name: "V3/V4 differential", meaning: "V3/V4 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
-          { bits: "B3", name: "V1/V2 filter", meaning: "V1/V2 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
-          { bits: "B2", name: "TR1 Kelvin", meaning: "TR1 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
-          { bits: "B1", name: "V1/V2 temperature", meaning: "V1/V2 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
-          { bits: "B0", name: "V1/V2 differential", meaning: "V1/V2 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
-        ],
-      },
-      {
-        name: "CONTROL_V5V8",
-        address: "0x07",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "V5/V6 ve V7/V8 pair mode bitleri.",
-        fields: [
-          { bits: "B7", name: "V7/V8 filter", meaning: "V7/V8 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
-          { bits: "B6", name: "TR4 Kelvin", meaning: "TR4 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
-          { bits: "B5", name: "V7/V8 temperature", meaning: "V7/V8 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
-          { bits: "B4", name: "V7/V8 differential", meaning: "V7/V8 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
-          { bits: "B3", name: "V5/V6 filter", meaning: "V5/V6 ölçüm grubunda dijital filter ayarını belirler.", values: filterValues },
-          { bits: "B2", name: "TR3 Kelvin", meaning: "TR3 remote temperature sonucu için Celsius/Kelvin formatını seçer.", values: celsiusKelvinValues },
-          { bits: "B1", name: "V5/V6 temperature", meaning: "V5/V6 pair'ini remote temperature ölçümü için kullanır.", values: voltageTemperatureValues },
-          { bits: "B0", name: "V5/V6 differential", meaning: "V5/V6 pair'ini differential voltage/current ölçüm yolu olarak kullanır.", values: singleEndedDifferentialValues },
-        ],
-      },
-      {
-        name: "V1_MSB..V8_LSB",
-        address: "0x0A..0x19",
-        width: "her biri 16",
-        access: "RO",
-        purpose: "Harici girişler için raw ölçüm sonuç register'ları.",
-        fields: [
-          { bits: "Voltage/current MSB B7", name: "Data valid", meaning: "İlgili conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
-          { bits: "Voltage/current MSB B6", name: "Sign", meaning: "Signed voltage/current ölçüm formatlarında işaret bitidir.", values: signValues },
-          { bits: "Voltage/current MSB B5:B0", name: "D13:D8", meaning: "14-bit raw conversion sonucunun üst data bitleri." },
-          { bits: "Temperature/diode MSB B7", name: "Data valid", meaning: "Remote temperature veya diode-voltage sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
-          { bits: "Temperature/diode MSB B6:B5", name: "Unused", meaning: "13-bit temperature/diode-voltage formatında kullanılmaz.", values: unusedValues },
-          { bits: "Temperature/diode MSB B4:B0", name: "D12:D8", meaning: "13-bit raw temperature veya diode-voltage sonucunun üst data bitleri." },
-          { bits: "LSB B7:B0", name: "D7:D0", meaning: "Raw conversion sonucunun alt data bitleri." },
-        ],
-      },
-      {
-        name: "T_INTERNAL",
-        address: "0x1A..0x1B",
-        width: "16",
-        access: "RO",
-        purpose: "Raw iç sıcaklık sonucu.",
-        fields: [
-          { bits: "MSB B7", name: "Data valid", meaning: "İç sıcaklık conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
-          { bits: "MSB B6:B5", name: "Unused", meaning: "13-bit temperature formatında kullanılmaz.", values: unusedValues },
-          { bits: "MSB B4:B0", name: "D12:D8", meaning: "İç sıcaklık için raw conversion code üst data bitleri." },
-          { bits: "LSB B7:B0", name: "D7:D0", meaning: "İç sıcaklık için raw conversion code alt data bitleri." },
-        ],
-      },
-      {
-        name: "VCC",
-        address: "0x1C..0x1D",
-        width: "16",
-        access: "RO",
-        purpose: "Raw VCC ölçüm sonucu.",
-        fields: [
-          { bits: "MSB B7", name: "Data valid", meaning: "VCC conversion sonucunda yeni data hazır olduğunda set olur.", values: oldNewDataValues },
-          { bits: "MSB B6", name: "Sign", meaning: "VCC measurement formatındaki sign bitidir; datasheet formatında VCC = result + 2.5V olarak yorumlanır.", values: signValues },
-          { bits: "MSB/LSB data", name: "VCC code", meaning: "VCC için raw conversion code; mühendislik birimine çeviri datasheet formülüne bırakılır." },
-        ],
-      },
-    ],
+    registers: ltc2991Registers(),
     recipes: [
       {
         title: "V1/V2 üzerinde differential gerilim",
@@ -939,71 +1472,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Bu descriptor için address width 24 bit kalmalıdır.",
       "Flash reset pini işlemciye bağlıysa board reset GPIO ekle; bağlı değilse gereksizdir.",
     ],
-    registers: [
-      {
-        name: "READ_ID",
-        address: "0x9F",
-        width: "opcode",
-        access: "RO",
-        purpose: "JEDEC manufacturer/device identification bilgisini okumak.",
-        fields: flashReadIdFields,
-      },
-      {
-        name: "READ_STATUS",
-        address: "0x05",
-        width: "opcode",
-        access: "RO",
-        purpose: "Status register okumak; özellikle WIP/busy durumunu takip etmek.",
-        fields: flashStatusFields,
-      },
-      {
-        name: "WRITE_ENABLE",
-        address: "0x06",
-        width: "opcode",
-        access: "WO",
-        purpose: "Program/erase operasyonlarından önce write enable latch etmek.",
-        fields: [
-          { bits: "Opcode", name: "0x06", meaning: "Write Enable komutu." },
-          { bits: "Yan etki", name: "WEL=1", meaning: "Başarılı komut sonrası status register içindeki WEL biti set olur." },
-        ],
-      },
-      {
-        name: "READ_DATA",
-        address: "0x03",
-        width: "opcode + 24-bit address",
-        access: "RO",
-        purpose: "Konservatif array read command.",
-        fields: [
-          { bits: "Opcode", name: "0x03", meaning: "Single-SPI normal read komutu." },
-          { bits: "A23:A0", name: "24-bit address", meaning: "Okumanın başlayacağı byte adresi." },
-          { bits: "Data stream", name: "MISO bytes", meaning: "Adres sonrası ardışık memory byte'ları okunur." },
-        ],
-      },
-      {
-        name: "PAGE_PROGRAM",
-        address: "0x02",
-        width: "opcode + 24-bit address",
-        access: "WO",
-        purpose: "Write enable sonrası en fazla bir page programlamak.",
-        fields: [
-          { bits: "Opcode", name: "0x02", meaning: "Page Program komutu." },
-          { bits: "A23:A0", name: "24-bit address", meaning: "Programlamanın başlayacağı page içi adres." },
-          { bits: "Payload", name: "1..256 byte", meaning: "Tek page sınırı içinde programlanacak data byte'ları." },
-        ],
-      },
-      {
-        name: "SUBSECTOR/SECTOR_ERASE",
-        address: "0x20 / 0xD8",
-        width: "opcode + 24-bit address",
-        access: "WO",
-        purpose: "4 KB subsector veya 64 KB sector erase yapmak.",
-        fields: [
-          { bits: "Opcode", name: "0x20", meaning: "4 KB subsector erase komutu." },
-          { bits: "Opcode", name: "0xD8", meaning: "64 KB sector erase komutu." },
-          { bits: "A23:A0", name: "24-bit address", meaning: "Erase edilecek subsector/sector içinde herhangi bir adres." },
-        ],
-      },
-    ],
+    registers: mt25qRegisters("MT25Q128"),
     recipes: [
       {
         title: "JEDEC ID okuma",
@@ -1078,82 +1547,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Address width 32 bit kalmalıdır.",
       "Kart quad/dual transfer mode'u bilinçli enable ediyorsa ileride explicit mode field kullanılmalıdır.",
     ],
-    registers: [
-      {
-        name: "READ_ID",
-        address: "0x9F",
-        width: "opcode",
-        access: "RO",
-        purpose: "JEDEC ID okumak ve cihazın erişilebilir olduğunu doğrulamak.",
-        fields: flashReadIdFields,
-      },
-      {
-        name: "READ_STATUS",
-        address: "0x05",
-        width: "opcode",
-        access: "RO",
-        purpose: "Status register okumak; özellikle WIP/busy ve WEL durumlarını takip etmek.",
-        fields: flashStatusFields,
-      },
-      {
-        name: "WRITE_ENABLE",
-        address: "0x06",
-        width: "opcode",
-        access: "WO",
-        purpose: "Mode enter, program ve erase akışlarından önce gereklidir.",
-        fields: [
-          { bits: "Opcode", name: "0x06", meaning: "Write Enable komutu." },
-          { bits: "Yan etki", name: "WEL=1", meaning: "Başarılı komut sonrası status register içindeki WEL biti set olur." },
-        ],
-      },
-      {
-        name: "ENTER_4BYTE",
-        address: "0xB7",
-        width: "opcode",
-        access: "WO",
-        purpose: "Yüksek adres aralığı için 4-byte address mode'a geçmek.",
-        fields: [
-          { bits: "Opcode", name: "0xB7", meaning: "4-byte address mode'a geçiş komutu." },
-          { bits: "Yan etki", name: "32-bit addressing", meaning: "Sonraki full-range erişimler 4-byte adres komutlarıyla uyumlu hale gelir." },
-        ],
-      },
-      {
-        name: "READ_DATA_4B",
-        address: "0x13",
-        width: "opcode + 32-bit address",
-        access: "RO",
-        purpose: "4-byte address ile array data okumak.",
-        fields: [
-          { bits: "Opcode", name: "0x13", meaning: "4-byte address normal read komutu." },
-          { bits: "A31:A0", name: "32-bit address", meaning: "Okumanın başlayacağı byte adresi." },
-          { bits: "Data stream", name: "MISO bytes", meaning: "Adres sonrası ardışık memory byte'ları okunur." },
-        ],
-      },
-      {
-        name: "PAGE_PROGRAM_4B",
-        address: "0x12",
-        width: "opcode + 32-bit address",
-        access: "WO",
-        purpose: "4-byte address kullanarak bir page programlamak.",
-        fields: [
-          { bits: "Opcode", name: "0x12", meaning: "4-byte address page program komutu." },
-          { bits: "A31:A0", name: "32-bit address", meaning: "Programlamanın başlayacağı page içi adres." },
-          { bits: "Payload", name: "1..256 byte", meaning: "Tek page sınırı içinde programlanacak data byte'ları." },
-        ],
-      },
-      {
-        name: "ERASE_4B",
-        address: "0x21 / 0xDC",
-        width: "opcode + 32-bit address",
-        access: "WO",
-        purpose: "4-byte address ile 4 KB subsector veya 64 KB sector erase yapmak.",
-        fields: [
-          { bits: "Opcode", name: "0x21", meaning: "4-byte address 4 KB subsector erase komutu." },
-          { bits: "Opcode", name: "0xDC", meaning: "4-byte address 64 KB sector erase komutu." },
-          { bits: "A31:A0", name: "32-bit address", meaning: "Erase edilecek subsector/sector içinde herhangi bir adres." },
-        ],
-      },
-    ],
+    registers: mt25qRegisters("MT25QU02G"),
     recipes: [
       {
         title: "Güvenli init",
@@ -1359,113 +1753,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Alarm polarity/output yalnızca alarm pini board design içinde kullanılıyorsa konfigüre edilmelidir.",
       "Destructive command'lar normal self-test akışlarından uzak tutulmalıdır.",
     ],
-    registers: [
-      {
-        name: "CONFIGURATION",
-        address: "0x00",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "Alarm flag, write-disable flag'leri, alarm output seçimi, reset enable ve event MSB.",
-        fields: [
-          { bits: "B7", name: "Reserved", meaning: "Normal kullanımda 0 olarak bırakılır.", values: ["0: normal kullanım", "1: reserved; kullanma"] },
-          { bits: "B6", name: "AF", meaning: "Alarm flag; elapsed-time counter alarm değerine ulaştığında set olur.", values: ["0: alarm match yok", "1: alarm match oldu; reset command dışında clear edilemez"] },
-          { bits: "B5", name: "WDF", meaning: "Write-disable flag; write-disable komutu sonrası set olur.", values: ["0: alarm/event/ETC yazımları disable değil", "1: alarm/event/ETC read-only; clear edilemez"] },
-          { bits: "B4", name: "WMDF", meaning: "Write-memory-disable flag; user EEPROM alanı için disable durumunu gösterir.", values: ["0: user EEPROM yazımı disable değil", "1: user EEPROM read-only; clear edilemez"] },
-          { bits: "B3", name: "AOS", meaning: "Alarm output select; ALARM pininin pulse veya constant alarm output davranışını seçer.", values: ["0: pulse/flash output mode; AP etkisiz", "1: alarm aktifken constant output; AP polarity belirler"] },
-          { bits: "B2", name: "RE", meaning: "Reset enable; reset komutu kabul edilmeden önce 1 yapılmalıdır.", values: ["0: reset command disabled", "1: reset command enabled"] },
-          { bits: "B1", name: "AP", meaning: "Alarm polarity; yalnızca AOS=1 constant output modunda etkilidir.", values: ["0: alarm öncesi high-Z, match sonrası low", "1: alarm öncesi low, match sonrası high-Z"] },
-          { bits: "B0", name: "ECMSB", meaning: "17-bit event counter değerinin en üst bitidir.", values: ["0: event counter bit16 = 0", "1: event counter bit16 = 1"] },
-        ],
-      },
-      {
-        name: "ALARM",
-        address: "0x01..0x04",
-        width: "32",
-        access: "RW",
-        reset: "0x00000000",
-        purpose: "Quarter-second tick cinsinden alarm trip point.",
-        fields: [
-          { bits: "0x01", name: "ALRM0", meaning: "Alarm değerinin en düşük byte'ı." },
-          { bits: "0x02", name: "ALRM1", meaning: "Alarm değerinin ikinci byte'ı." },
-          { bits: "0x03", name: "ALRM2", meaning: "Alarm değerinin üçüncü byte'ı." },
-          { bits: "0x04", name: "ALRM3", meaning: "Alarm değerinin en yüksek byte'ı." },
-        ],
-      },
-      {
-        name: "ETC",
-        address: "0x05..0x08",
-        width: "32",
-        access: "RO",
-        reset: "0x00000000",
-        purpose: "Quarter-second tick cinsinden elapsed-time counter.",
-        fields: [
-          { bits: "0x05", name: "ETC0", meaning: "Elapsed-time counter değerinin en düşük byte'ı." },
-          { bits: "0x06", name: "ETC1", meaning: "Elapsed-time counter değerinin ikinci byte'ı." },
-          { bits: "0x07", name: "ETC2", meaning: "Elapsed-time counter değerinin üçüncü byte'ı." },
-          { bits: "0x08", name: "ETC3", meaning: "Elapsed-time counter değerinin en yüksek byte'ı." },
-        ],
-      },
-      {
-        name: "EVENT",
-        address: "0x09..0x0A + CFG[0]",
-        width: "17",
-        access: "RO",
-        reset: "0x00000",
-        purpose: "Event count değeri.",
-        fields: [
-          { bits: "0x09", name: "ECNT0", meaning: "Event counter değerinin düşük byte'ı." },
-          { bits: "0x0A", name: "ECNT1", meaning: "Event counter değerinin yüksek byte'ı." },
-          { bits: "CONFIG B0", name: "ECMSB", meaning: "17-bit event counter değerinin bit16 alanı.", values: ["0: event counter bit16 = 0", "1: event counter bit16 = 1"] },
-        ],
-      },
-      {
-        name: "USER EEPROM",
-        address: "0x0B..0x14",
-        width: "10 bytes",
-        access: "RW",
-        purpose: "Küçük nonvolatile user field.",
-        fields: [
-          { bits: "0x0B..0x14", name: "User bytes", meaning: "Uygulama tarafından kullanılabilen 10 byte nonvolatile alan." },
-        ],
-      },
-      {
-        name: "RESET_COMMAND",
-        address: "0x1D",
-        width: "command byte",
-        access: "WO",
-        purpose: "Reset komutu; RE biti set edilmeden kabul edilmemelidir.",
-        fields: [
-          { bits: "Ön koşul", name: "CONFIG.RE", meaning: "Reset command kabulü için CONFIGURATION içindeki RE biti enable edilmelidir.", values: ["0: reset command kabul edilmez", "1: reset command kabul edilebilir"] },
-          { bits: "Command address", name: "0x1D", meaning: "Reset işlemi için ayrılmış command adresi; normal smoke test içinde kullanılmaz." },
-          { bits: "Command payload", name: "0x55, 0x55", meaning: "Reset için aynı command byte iki kez yazılmalıdır.", values: ["0x55 iki kez: reset sequence", "diğer: reset sequence değil"] },
-        ],
-      },
-      {
-        name: "WRITE_DISABLE",
-        address: "0x1E",
-        width: "command byte",
-        access: "WO",
-        purpose: "Write-disable komutu; kalıcı/production-only işlem olarak ele alınmalıdır.",
-        fields: [
-          { bits: "Command address", name: "0x1E", meaning: "Write-disable işlemi için ayrılmış command adresi." },
-          { bits: "Command payload", name: "0xAA, 0xAA", meaning: "Write-disable için aynı command byte iki kez yazılmalıdır.", values: ["0xAA iki kez: WDF set edilir", "diğer: write-disable sequence değil"] },
-          { bits: "Yan etki", name: "WDF", meaning: "Komut sonrası CONFIGURATION içindeki write-disable flag set olur.", values: ["0: komut uygulanmamış veya flag set değil", "1: alarm/event/ETC read-only"] },
-        ],
-      },
-      {
-        name: "WRITE_MEMORY_DISABLE",
-        address: "0x1F",
-        width: "command byte",
-        access: "WO",
-        purpose: "User EEPROM write-memory-disable komutu; production-only işlem olarak ele alınmalıdır.",
-        fields: [
-          { bits: "Command address", name: "0x1F", meaning: "Write-memory-disable işlemi için ayrılmış command adresi." },
-          { bits: "Command payload", name: "0xF0, 0xF0", meaning: "Write-memory-disable için aynı command byte iki kez yazılmalıdır.", values: ["0xF0 iki kez: WMDF set edilir", "diğer: write-memory-disable sequence değil"] },
-          { bits: "Yan etki", name: "WMDF", meaning: "Komut sonrası CONFIGURATION içindeki write-memory-disable flag set olur.", values: ["0: komut uygulanmamış veya flag set değil", "1: user EEPROM read-only"] },
-        ],
-      },
-    ],
+    registers: ds1682Registers(),
     recipes: [
       {
         title: "Elapsed-time okuma",
@@ -1539,109 +1827,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       "Snapshot mode yalnızca simultaneous channel capture gerekiyorsa kullanılmalıdır.",
       "Alert/fault limitleri sadece alert line bağlı ve test edilmişse konfigüre edilmelidir.",
     ],
-    registers: [
-      {
-        name: "CONTROL",
-        address: "0x00",
-        width: "8",
-        access: "RW",
-        reset: "0x05",
-        purpose: "Snapshot mode/channel, test mode, ADC busy, VIN monitor, shutdown ve multiplier selection.",
-        fields: [
-          { bits: "B7", name: "Snapshot mode", meaning: "Conversion akışını continuous veya snapshot olarak seçer.", values: ["0: continuous conversion / varsayılan", "1: snapshot mode"] },
-          { bits: "B6:B5", name: "Snapshot ADC channel", meaning: "Snapshot mode kullanıldığında hangi ADC kanalının yakalanacağını seçer.", values: ["00: SENSE", "01: VIN", "10: ADIN", "11: reserved / kullanma"] },
-          { bits: "B4", name: "Test mode enable", meaning: "Normal uygulama kodunda kullanılmaması gereken test mode bitidir.", values: ["0: disabled / varsayılan", "1: enabled"] },
-          { bits: "B3", name: "ADC busy", meaning: "ADC conversion devam ederken set olan status bitidir.", values: ["0: ADC idle", "1: ADC busy"] },
-          { bits: "B2", name: "VIN monitor", meaning: "VIN ölçümünün VDD pininden mi SENSE+ pininden mi yapılacağını seçer.", values: ["0: VDD pinini monitor et", "1: SENSE+ pinini monitor et / varsayılan"] },
-          { bits: "B1", name: "Shutdown enable", meaning: "ADC ölçüm bloklarını shutdown moduna alır.", values: ["0: disabled / varsayılan", "1: shutdown enabled"] },
-          { bits: "B0", name: "Multiplier select", meaning: "Power multiplier için ADIN veya SENSE+ girişini seçer.", values: ["0: ADIN", "1: SENSE+ / varsayılan"] },
-        ],
-      },
-      {
-        name: "ALERT_ENABLE",
-        address: "0x01",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "Power, SENSE, VIN ve ADIN limitleri için ALERT enable maskesi.",
-        fields: ltc2945LimitFields("enable"),
-      },
-      {
-        name: "STATUS",
-        address: "0x02",
-        width: "8",
-        access: "RO",
-        reset: "0x00",
-        purpose: "Power, SENSE, VIN ve ADIN limit koşullarının anlık status bitleri.",
-        fields: ltc2945LimitFields("status"),
-      },
-      {
-        name: "FAULT",
-        address: "0x03",
-        width: "8",
-        access: "RW",
-        reset: "0x00",
-        purpose: "Power, SENSE, VIN ve ADIN limit koşulları için latched fault bitleri.",
-        fields: ltc2945LimitFields("fault"),
-      },
-      {
-        name: "FAULT_CLEAR",
-        address: "0x04",
-        width: "8",
-        access: "CoR",
-        reset: "0x00",
-        purpose: "Fault clear yolu.",
-        fields: ltc2945LimitFields("clear"),
-      },
-      {
-        name: "POWER",
-        address: "0x05..0x07",
-        width: "24",
-        access: "RO",
-        purpose: "Raw calculated power register.",
-        fields: [
-          { bits: "0x05", name: "POWER_MSB2", meaning: "24-bit raw power code değerinin bit23..bit16 alanı." },
-          { bits: "0x06", name: "POWER_MSB1", meaning: "24-bit raw power code değerinin bit15..bit8 alanı." },
-          { bits: "0x07", name: "POWER_LSB", meaning: "24-bit raw power code değerinin bit7..bit0 alanı." },
-        ],
-      },
-      {
-        name: "SENSE",
-        address: "0x14..0x15",
-        width: "16 transfer",
-        access: "RO",
-        purpose: "Raw 12-bit shunt/sense ADC image.",
-        fields: [
-          { bits: "MSB B7:B0", name: "SENSE[11:4]", meaning: "12-bit raw sense ADC code değerinin üst sekiz biti." },
-          { bits: "LSB B7:B4", name: "SENSE[3:0]", meaning: "12-bit raw sense ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
-        ],
-      },
-      {
-        name: "VIN",
-        address: "0x1E..0x1F",
-        width: "16 transfer",
-        access: "RO",
-        purpose: "Raw 12-bit VIN ADC image.",
-        fields: [
-          { bits: "MSB B7:B0", name: "VIN[11:4]", meaning: "12-bit raw VIN ADC code değerinin üst sekiz biti." },
-          { bits: "LSB B7:B4", name: "VIN[3:0]", meaning: "12-bit raw VIN ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
-        ],
-      },
-      {
-        name: "ADIN",
-        address: "0x28..0x29",
-        width: "16 transfer",
-        access: "RO",
-        purpose: "Raw 12-bit auxiliary ADC image.",
-        fields: [
-          { bits: "MSB B7:B0", name: "ADIN[11:4]", meaning: "12-bit raw ADIN ADC code değerinin üst sekiz biti." },
-          { bits: "LSB B7:B4", name: "ADIN[3:0]", meaning: "12-bit raw ADIN ADC code değerinin alt dört biti." },
-          { bits: "LSB B3:B0", name: "Unused", meaning: "12-bit conversion code hesabına dahil edilmez.", values: unusedValues },
-        ],
-      },
-    ],
+    registers: ltc2945RegisterRows(),
     recipes: [
       {
         title: "Power monitor başlatma",
@@ -1983,6 +2169,22 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
   }
 
   if (normalizedPart === "LTC2991") {
+    if (/^V[1-8]_MSB$/.test(reg.name)) {
+      const channel = Number(reg.name.slice(1, 2));
+      return [
+        {
+          title: `Read V${channel}`,
+          access: "READ",
+          txBytes: "1 byte",
+          rxBytes: "2 byte",
+          tx: [`LTC2991_REG_V${channel}_MSB (${reg.address})`],
+          rx: ["ucArrBytes[0]", "ucArrBytes[1]", `usV${channel}`],
+          code: ["ltc2991VoltageRead(spIic, usArrVoltages);"],
+          note: "Generated helper tum V1..V8 kanallarini okur; burada secilen channel icin MSB/LSB transfer formatı gosterilir.",
+        },
+      ];
+    }
+
     switch (reg.name) {
       case "V1_MSB..V8_LSB":
         return [
@@ -1997,6 +2199,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "T_INTERNAL":
+      case "T_INTERNAL_MSB":
         return [
           {
             title: "Read internal temperature",
@@ -2009,6 +2212,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "VCC":
+      case "VCC_MSB":
         return [
           {
             title: "Read VCC",
@@ -2061,6 +2265,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           writeonlyTransfer("DS1682", "CONFIGURATION", reg.address, "ucConfig"),
         ];
       case "ALARM":
+      case "ALARM_LOW":
         return [
           {
             title: "Read alarm",
@@ -2077,6 +2282,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           }),
         ];
       case "ETC":
+      case "ETC_LOW":
         return [
           {
             title: "Read elapsed time",
@@ -2089,6 +2295,8 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "EVENT":
+      case "EVENT_LOW":
+      case "EVENT_HIGH":
         return [
           {
             title: "Read event counter",
@@ -2101,6 +2309,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "USER EEPROM":
+      case "USER_1":
         return [
           i2cBlockReadTransfer("DS1682", "USER_1", "0x0B", 10, "ucArrUser"),
           i2cGroupedWriteTransfer("DS1682", "USER_1", "0x0B", 10, "ucArrUser", {
@@ -2172,6 +2381,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           ]),
         ];
       case "POWER":
+      case "POWER_MSB2":
         return [
           {
             title: "Read power",
@@ -2184,6 +2394,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "SENSE":
+      case "SENSE_MSB":
         return [
           {
             title: "Read sense",
@@ -2196,6 +2407,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "VIN":
+      case "VIN_MSB":
         return [
           {
             title: "Read VIN",
@@ -2208,6 +2420,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           },
         ];
       case "ADIN":
+      case "ADIN_MSB":
         return [
           {
             title: "Read ADIN",
@@ -2301,7 +2514,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
           }),
         ];
       default:
-        return [];
+        return genericFlashTransfers(part, reg, handle, addrBytes);
     }
   }
 

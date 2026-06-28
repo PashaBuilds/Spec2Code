@@ -21,8 +21,8 @@ registers:
         { name: ALERT_POLARITY, bits: "4" },
         { name: ALERT_RESET, bits: "3" },
         { name: ONE_SHOT, bits: "2" } ] }
-  - { name: THIGH,         offset: 0x02, width: 8, access: rw, reset: 0x50 }
-  - { name: TLOW,          offset: 0x03, width: 8, access: rw, reset: 0x4B }
+  - { name: THIGH,         offset: 0x02, width: 8, access: rw, reset: 0x7F }
+  - { name: TLOW,          offset: 0x03, width: 8, access: rw, reset: 0x80 }
 operations:
   - name: device_init
     description: "Initialize the I2C controller; the AD7414 powers up in continuous conversion mode."

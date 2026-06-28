@@ -31,6 +31,14 @@ registers:
   - { name: EVENT_LOW,      offset: 0x09, width: 8, access: ro, reset: 0x00 }
   - { name: EVENT_HIGH,     offset: 0x0A, width: 8, access: ro, reset: 0x00 }
   - { name: USER_1,         offset: 0x0B, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_2,         offset: 0x0C, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_3,         offset: 0x0D, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_4,         offset: 0x0E, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_5,         offset: 0x0F, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_6,         offset: 0x10, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_7,         offset: 0x11, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_8,         offset: 0x12, width: 8, access: rw, reset: 0x00 }
+  - { name: USER_9,         offset: 0x13, width: 8, access: rw, reset: 0x00 }
   - { name: USER_10,        offset: 0x14, width: 8, access: rw, reset: 0x00 }
   - { name: RESET_COMMAND,  offset: 0x1D, width: 8, access: wo }
   - { name: WRITE_DISABLE,  offset: 0x1E, width: 8, access: wo }

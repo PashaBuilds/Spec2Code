@@ -144,7 +144,7 @@ def _generic_i2c_init_writes(device: dict, descriptor: dict) -> list[dict]:
         if not isinstance(reg, str) or reg not in registers:
             continue
         access = str(registers[reg].get("access", "rw")).lower()
-        if "w" not in access:
+        if "w" not in access or "*" in access:
             continue
         writes.append({
             "reg": reg,
