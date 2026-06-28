@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, BookOpen, Code2, ExternalLink, ListChecks, Settings2 } from "lucide-react";
-import { Badge, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, BookOpen, Code2, ExternalLink, ListChecks, Search, Settings2 } from "lucide-react";
+import { Badge, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import {
   getDeviceKnowledge,
@@ -34,6 +34,50 @@ function BulletList({ items }: { items: string[] }) {
 
 function registerKey(reg: KnowledgeRegister) {
   return `${reg.name}-${reg.address}`;
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[_\-./:#[\]()]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactSearchText(value: string) {
+  return normalizeSearchText(value).replace(/\s+/g, "");
+}
+
+function textMatchesSearch(values: Array<string | undefined>, normalizedQuery: string, compactQuery: string) {
+  return values.filter(Boolean).some((value) => {
+    const normalizedValue = normalizeSearchText(value!);
+    return normalizedValue.includes(normalizedQuery) || compactSearchText(value!).includes(compactQuery);
+  });
+}
+
+function registerSearchResult(reg: KnowledgeRegister, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  const compactQuery = compactSearchText(query);
+  const fields = reg.fields ?? [];
+
+  if (!normalizedQuery) {
+    return { reg, registerMatch: false, matchedFields: [] };
+  }
+
+  const registerMatch = textMatchesSearch(
+    [reg.name, reg.address, reg.width, reg.access, reg.reset, reg.purpose],
+    normalizedQuery,
+    compactQuery,
+  );
+  const matchedFields = fields.filter((field) =>
+    textMatchesSearch(
+      [field.bits, field.name, field.meaning, ...(field.values ?? [])],
+      normalizedQuery,
+      compactQuery,
+    ),
+  );
+
+  return { reg, registerMatch, matchedFields };
 }
 
 function transferToneClass(tone: KnowledgeRegisterTransfer["tone"]) {
@@ -125,14 +169,34 @@ function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[]
 
 function RegisterExplorer({ part, registers }: { part: string; registers: KnowledgeRegister[] }) {
   const [selectedKey, setSelectedKey] = useState(() => (registers[0] ? registerKey(registers[0]) : ""));
-  const selectedRegister = useMemo(
-    () => registers.find((reg) => registerKey(reg) === selectedKey) ?? registers[0],
-    [registers, selectedKey],
+  const [searchQuery, setSearchQuery] = useState("");
+  const normalizedQuery = normalizeSearchText(searchQuery);
+  const searchActive = normalizedQuery.length > 0;
+  const searchResults = useMemo(
+    () => registers.map((reg) => registerSearchResult(reg, searchQuery)),
+    [registers, searchQuery],
   );
+  const filteredResults = useMemo(
+    () =>
+      searchActive
+        ? searchResults.filter((result) => result.registerMatch || result.matchedFields.length > 0)
+        : searchResults,
+    [searchActive, searchResults],
+  );
+  const selectedResult = useMemo(
+    () => filteredResults.find((result) => registerKey(result.reg) === selectedKey) ?? filteredResults[0],
+    [filteredResults, selectedKey],
+  );
+  const selectedRegister = selectedResult?.reg;
   const transfers = useMemo(
     () => (selectedRegister ? getRegisterTransfers(part, selectedRegister) : []),
     [part, selectedRegister],
   );
+  const fieldsToShow = useMemo(() => {
+    if (!selectedRegister?.fields) return [];
+    if (searchActive && selectedResult?.matchedFields.length) return selectedResult.matchedFields;
+    return selectedRegister.fields;
+  }, [searchActive, selectedRegister, selectedResult]);
 
   useEffect(() => {
     if (!registers.length) {
@@ -140,12 +204,17 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
       return;
     }
 
-    if (!registers.some((reg) => registerKey(reg) === selectedKey)) {
-      setSelectedKey(registerKey(registers[0]));
+    if (!filteredResults.length) {
+      setSelectedKey("");
+      return;
     }
-  }, [registers, selectedKey]);
 
-  if (!selectedRegister) {
+    if (!filteredResults.some((result) => registerKey(result.reg) === selectedKey)) {
+      setSelectedKey(registerKey(filteredResults[0].reg));
+    }
+  }, [filteredResults, registers.length, selectedKey]);
+
+  if (!registers.length) {
     return (
       <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
         Register bilgisi henüz eklenmemiş.
@@ -154,47 +223,114 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
   }
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-      <div className="max-h-[620px] min-h-0 space-y-1 overflow-y-auto rounded-md border border-border bg-inset/40 p-1.5">
-        {registers.map((reg) => {
-          const key = registerKey(reg);
-          const active = key === registerKey(selectedRegister);
-          const fieldCount = reg.fields?.length ?? 0;
-
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setSelectedKey(key)}
-              aria-pressed={active}
-              className={cn(
-                "w-full rounded-md border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                active
-                  ? "border-accent/60 bg-accent/15 text-text"
-                  : "border-transparent text-muted hover:border-border hover:bg-elev hover:text-text",
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 truncate font-mono text-xs font-semibold">{reg.name}</span>
-                <span className="shrink-0 font-mono text-[10px] text-accent">{reg.address}</span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <Badge tone="neutral" className="font-mono">
-                  {reg.access}
-                </Badge>
-                <span className="font-mono text-[10px] text-faint">{reg.width}</span>
-                {fieldCount > 0 && (
-                  <span className="rounded bg-elev px-1.5 py-0.5 text-[10px] text-faint">
-                    {fieldCount} alan
-                  </span>
-                )}
-              </div>
-            </button>
-          );
-        })}
+    <div className="space-y-3">
+      <div className="rounded-md border border-border bg-inset/40 p-2">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Register veya bit field ara..."
+            aria-label="Register ve bit field filtrele"
+            className="pl-9"
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-faint">
+          <span>
+            {searchActive
+              ? `${filteredResults.length}/${registers.length} register eşleşti`
+              : `${registers.length} register listeleniyor`}
+          </span>
+          {searchActive && (
+            <span>
+              Register adı, adres, amaç ve bit field metinleri aranır.
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="min-w-0 rounded-md border border-border bg-inset p-3">
+      <div className="grid gap-3 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+        <div className="max-h-[620px] min-h-0 space-y-1 overflow-y-auto rounded-md border border-border bg-inset/40 p-1.5">
+          {filteredResults.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-1 px-3 py-12 text-center">
+              <Search className="h-5 w-5 text-faint" aria-hidden />
+              <p className="text-xs text-muted">Bu aramayla eşleşen register yok.</p>
+              <p className="text-[11px] text-faint">Register adı veya bit field adıyla tekrar dene.</p>
+            </div>
+          ) : (
+            filteredResults.map((result) => {
+              const reg = result.reg;
+              const key = registerKey(reg);
+              const active = key === registerKey(selectedRegister!);
+              const fieldCount = reg.fields?.length ?? 0;
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSelectedKey(key)}
+                  aria-pressed={active}
+                  className={cn(
+                    "w-full rounded-md border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    active
+                      ? "border-accent/60 bg-accent/15 text-text"
+                      : "border-transparent text-muted hover:border-border hover:bg-elev hover:text-text",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 truncate font-mono text-xs font-semibold">{reg.name}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-accent">{reg.address}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <Badge tone="neutral" className="font-mono">
+                      {reg.access}
+                    </Badge>
+                    <span className="font-mono text-[10px] text-faint">{reg.width}</span>
+                    {fieldCount > 0 && (
+                      <span className="rounded bg-elev px-1.5 py-0.5 text-[10px] text-faint">
+                        {fieldCount} alan
+                      </span>
+                    )}
+                    {searchActive && result.registerMatch && (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                        register
+                      </span>
+                    )}
+                    {searchActive && result.matchedFields.length > 0 && (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                        {result.matchedFields.length} bit field
+                      </span>
+                    )}
+                  </div>
+                  {searchActive && result.matchedFields.length > 0 && (
+                    <div className="mt-1.5 flex min-w-0 flex-wrap gap-1">
+                      {result.matchedFields.slice(0, 3).map((field) => (
+                        <span
+                          key={`${key}-${field.bits}-${field.name}`}
+                          className="max-w-full truncate rounded border border-border bg-inset px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                        >
+                          {field.name}
+                        </span>
+                      ))}
+                      {result.matchedFields.length > 3 && (
+                        <span className="rounded bg-inset px-1.5 py-0.5 text-[10px] text-faint">
+                          +{result.matchedFields.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {selectedRegister ? (
+          <div className="min-w-0 rounded-md border border-border bg-inset p-3">
         <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h4 className="truncate font-mono text-sm font-semibold text-text">{selectedRegister.name}</h4>
@@ -217,9 +353,15 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
 
         <TransferPreview transfers={transfers} />
 
-        {selectedRegister.fields && selectedRegister.fields.length > 0 ? (
+        {searchActive && selectedResult?.matchedFields.length ? (
+          <div className="mb-2 rounded-md border border-accent/25 bg-accent/10 px-2 py-1.5 text-[11px] text-accent">
+            Bu register içinde {selectedResult.matchedFields.length}/{selectedRegister.fields?.length ?? 0} bit field eşleşti.
+          </div>
+        ) : null}
+
+        {fieldsToShow.length > 0 ? (
           <div className="space-y-2">
-            {selectedRegister.fields.map((field) => (
+            {fieldsToShow.map((field) => (
               <div
                 key={`${selectedRegister.name}-${field.bits}-${field.name}`}
                 className="rounded-md border border-border bg-elev px-3 py-2"
@@ -246,6 +388,12 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
         ) : (
           <div className="rounded-md border border-border bg-elev px-3 py-2 text-xs leading-relaxed text-muted">
             Bu register/komut için ayrı bitfield ayrımı yok; işlem anlamı üstteki amaç satırında verilmiştir.
+          </div>
+        )}
+          </div>
+        ) : (
+          <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
+            Aramayla eşleşen register seçimi yok.
           </div>
         )}
       </div>
