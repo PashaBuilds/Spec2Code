@@ -9,13 +9,14 @@ All files use **CRLF** line endings and follow `{{ spec.coding_standard_ref }}`.
 | File | Purpose |
 |------|---------|
 {% for unit in units %}| `drivers/{{ unit.module }}.h` / `.c` | {{ unit.part }} - {{ unit.summary }} |
-{% endfor %}{% for unit in units %}{% if unit.test %}| `tests/{{ unit.module }}_test.c` | {{ unit.part }} self-test ({{ unit.test.runtime }}) |
-{% endif %}{% endfor %}
+{% endfor %}{% for unit in units %}{% if unit.test %}| `tests/{{ unit.module }}_test.h` / `.c` | {{ unit.part }} self-test ({{ unit.test.runtime }}) |
+{% endif %}{% endfor %}| `tests/spec2code_mock_bus.h` / `.c` | Boardless transfer recorder for mock/self-test review |
+| `tests/{{ spec.project.name }}_mock_plan.h` / `.c` | Expected init-transfer plan for boardless review |
 
 ## How to integrate (drop-in)
 
 1. Copy `drivers/*.c` and `drivers/*.h` into your Vitis application sources.
-2. Copy `tests/*_test.c` if you want the self-tests.
+2. Copy `tests/*_test.h` and `tests/*_test.c` if you want the self-tests.
 3. Include the header(s) and call the init + operations, e.g.:
 
 ```c

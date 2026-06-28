@@ -82,6 +82,11 @@ def _pascal_identifier(value: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", value) if part)
 
 
+def _header_guard(value: str) -> str:
+    guard = re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
+    return guard if guard else "SPEC2CODE_GENERATED_H"
+
+
 def _apply_default_identifier_style(text: str) -> str:
     """Apply the fixed camelCase + Hungarian identifier surface to generated C files."""
     for old, new in _TYPE_REPLACEMENTS.items():
@@ -277,6 +282,23 @@ def _mock_bus_source() -> str:
     )
 
 
+def _mock_plan_header(spec: dict) -> str:
+    project_name = spec["project"]["name"]
+    guard = _header_guard(f"{project_name}_mock_plan_h")
+    return (
+        "/**\n"
+        f" * @file {project_name}_mock_plan.h\n"
+        " * @brief Public API for loading the expected boardless transfer plan.\n"
+        " */\n"
+        f"#ifndef {guard}\n"
+        f"#define {guard}\n\n"
+        '#include "spec2code_mock_bus.h"\n'
+        '#include "xstatus.h"\n\n'
+        "int spec2codeMockPlanLoad(void);\n\n"
+        f"#endif /* {guard} */\n"
+    )
+
+
 def _mock_plan_source(spec: dict, get_descriptor) -> str:
     controllers = {c["id"]: c for c in spec.get("controllers", [])}
     muxes = {m["id"]: m for m in spec.get("muxes", [])}
@@ -332,8 +354,7 @@ def _mock_plan_source(spec: dict, get_descriptor) -> str:
         f" * @file {spec['project']['name']}_mock_plan.c",
         " * @brief Expected init-transfer plan for boardless review.",
         " */",
-        '#include "spec2code_mock_bus.h"',
-        '#include "xstatus.h"',
+        f'#include "{spec["project"]["name"]}_mock_plan.h"',
         "",
         "#include <stddef.h>",
         "",
@@ -379,6 +400,7 @@ def mock_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     return [
         tests_dir / "spec2code_mock_bus.h",
         tests_dir / "spec2code_mock_bus.c",
+        tests_dir / f"{project_name}_mock_plan.h",
         tests_dir / f"{project_name}_mock_plan.c",
     ]
 
@@ -390,6 +412,7 @@ def write_mock_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list
     contents = [
         _apply_default_identifier_style(_mock_bus_header()),
         _apply_default_identifier_style(_mock_bus_source()),
+        _apply_default_identifier_style(_mock_plan_header(spec)),
         _apply_default_identifier_style(_mock_plan_source(spec, get_descriptor)),
     ]
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
@@ -449,6 +472,7 @@ def generate(
     tests_dir = out_dir / "tests"
     header_t = env.get_template("header.h.j2")
     driver_t = env.get_template("driver.c.j2")
+    test_header_t = env.get_template("test.h.j2")
     test_t = env.get_template("test.c.j2")
     readme_t = env.get_template("readme.md.j2")
 
@@ -475,6 +499,14 @@ def generate(
         written.append(str(hio.write_output(drivers_dir / f"{unit.module}.c", driver)))
 
         if unit.test:
+            test_header = test_header_t.render(
+                module=unit.module, part=unit.part, runtime=unit.test.runtime,
+                guard=_header_guard(f"{unit.module}_test_h"),
+                test_includes=unit.test.includes, test_funcs=unit.test.funcs,
+                include_doxygen=include_doxygen)
+            test_header = _apply_default_identifier_style(test_header)
+            written.append(str(hio.write_output(tests_dir / f"{unit.module}_test.h", test_header)))
+
             test = test_t.render(
                 module=unit.module, part=unit.part, runtime=unit.test.runtime,
                 test_includes=unit.test.includes, test_funcs=unit.test.funcs,

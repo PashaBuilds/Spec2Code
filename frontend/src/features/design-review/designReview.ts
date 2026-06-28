@@ -69,6 +69,7 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
   files.push(
     { path: "tests/spec2code_mock_bus.h", kind: "mock" },
     { path: "tests/spec2code_mock_bus.c", kind: "mock" },
+    { path: `tests/${spec.project.name}_mock_plan.h`, kind: "mock" },
     { path: `tests/${spec.project.name}_mock_plan.c`, kind: "mock" },
     { path: ".clang-format", kind: "meta" },
     { path: "README.md", kind: "meta" },
@@ -88,6 +89,7 @@ function pushUnitFiles(files: ReviewFilePlan[], part: string) {
   files.push(
     { path: `drivers/${module}.h`, kind: "driver" },
     { path: `drivers/${module}.c`, kind: "driver" },
+    { path: `tests/${module}_test.h`, kind: "test" },
     { path: `tests/${module}_test.c`, kind: "test" },
   );
 }

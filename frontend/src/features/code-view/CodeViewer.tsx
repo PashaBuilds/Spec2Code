@@ -301,7 +301,7 @@ export default function CodeViewer() {
   const vitisDownloadUrl = jobId ? api.jobVitisDownloadUrl(jobId) : null;
   const mockFiles = files.filter((file) => {
     const path = generatedPath(file);
-    return path.includes("spec2code_mock") || path.endsWith("_mock_plan.c");
+    return path.includes("spec2code_mock") || path.endsWith("_mock_plan.c") || path.endsWith("_mock_plan.h");
   });
 
   const errorCount = qc

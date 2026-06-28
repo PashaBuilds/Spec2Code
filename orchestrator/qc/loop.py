@@ -54,7 +54,12 @@ def run_qc(
     hio.write_output(out_dir / ".clang-format", runners.clang_format_config(ruleset))
 
     c_files = sorted([*drivers_dir.glob("*.c"), *tests_dir.glob("*.c")])
-    fmt_files = sorted([*drivers_dir.glob("*.c"), *drivers_dir.glob("*.h"), *tests_dir.glob("*.c")])
+    fmt_files = sorted([
+        *drivers_dir.glob("*.c"),
+        *drivers_dir.glob("*.h"),
+        *tests_dir.glob("*.c"),
+        *tests_dir.glob("*.h"),
+    ])
 
     tool_status = {"clang-format": None, "clang-tidy": None, "cppcheck": None, "libclang": None}
     rounds: list[dict] = []
