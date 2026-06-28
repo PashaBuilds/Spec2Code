@@ -206,18 +206,24 @@ function I2cByte({
   ackDriver: "master" | "slave";
   ackLabel?: string;
 }) {
+  const rowClass = "grid grid-cols-[44px_repeat(9,1.75rem)] items-center gap-1";
+  const labelClass = "font-mono text-[9px] font-semibold uppercase text-muted";
+
   return (
-    <div className="inline-grid min-w-max grid-rows-[18px_20px_26px_26px] gap-1 rounded-md border border-border bg-bg p-2">
-      <div className="truncate font-mono text-[10px] text-muted">{frame.label}</div>
-      <div className="grid grid-cols-9 gap-1">
+    <div className="inline-grid min-w-max gap-1 rounded-md border border-border bg-bg p-2">
+      <div className="ml-[48px] truncate font-mono text-[10px] text-muted">{frame.label}</div>
+      <div className={rowClass}>
+        <span className={labelClass}>SCL</span>
         {frame.bits.map((_, index) => <ClockPulse key={`${frame.label}-scl-${index}`} />)}
         <ClockPulse muted />
       </div>
-      <div className="grid grid-cols-9 gap-1">
+      <div className={rowClass}>
+        <span className={labelClass}>SDA</span>
         {frame.bits.map((bit, index) => <BitCell key={`${frame.label}-sda-${index}`} bit={bit} tone={dataDriver} />)}
         <BitCell bit={ackLabel} tone={ackDriver} />
       </div>
-      <div className="grid grid-cols-9 gap-1 text-center font-mono text-[9px] text-faint">
+      <div className={`${rowClass} text-center font-mono text-[9px] text-faint`}>
+        <span className={labelClass}>CLK</span>
         {frame.bits.map((_, index) => <span key={`${frame.label}-clk-${index}`}>{index + 1}</span>)}
         <span>9</span>
       </div>
@@ -257,8 +263,8 @@ function I2cWaveform({ transfer }: { transfer: KnowledgeRegisterTransfer }) {
       </div>
       <div className="overflow-x-auto rounded-md border border-border bg-elev p-3">
         <div className="mb-2 grid grid-cols-[64px_minmax(0,1fr)] gap-2 text-[10px] text-faint">
-          <span>SCL</span>
-          <span>Her kutudaki pulse bir clock darbesidir.</span>
+          <span>Satırlar</span>
+          <span>Her byte kartında SCL, SDA ve clock numarası kendi satırının solunda gösterilir.</span>
           <span>SDA</span>
           <span>Tek SDA hattında master/slave aktif sürücü rengiyle ayrılır; adres catalog'da instance bağımsız olduğu için semboliktir.</span>
         </div>
@@ -340,6 +346,28 @@ function SpiByte({
   );
 }
 
+function SpiChipSelectRow() {
+  return (
+    <div className="grid grid-cols-[44px_minmax(18rem,1fr)] items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5">
+      <span className="font-mono text-[9px] font-semibold uppercase text-muted">CS#</span>
+      <div className="grid h-8 grid-cols-[42px_minmax(12rem,1fr)_42px] items-center gap-1 font-mono text-[9px] text-faint">
+        <div className="relative h-full">
+          <span className="absolute left-0 right-0 top-1 border-t border-faint/50" aria-hidden />
+          <span className="absolute left-0 top-2.5">HIGH</span>
+        </div>
+        <div className="relative h-full rounded border border-accent/20 bg-accent/5">
+          <span className="absolute left-0 right-0 bottom-1.5 border-t border-accent/80" aria-hidden />
+          <span className="absolute left-2 bottom-2.5 text-accent">LOW aktif transfer</span>
+        </div>
+        <div className="relative h-full">
+          <span className="absolute left-0 right-0 top-1 border-t border-faint/50" aria-hidden />
+          <span className="absolute right-0 top-2.5">HIGH</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function spiModeNote(part: string) {
   const normalized = part.toUpperCase();
   if (normalized === "LMK04832") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 5 MHz.";
@@ -368,14 +396,12 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
       <div className="overflow-x-auto rounded-md border border-border bg-elev p-3">
         <div className="mb-2 grid grid-cols-[64px_minmax(0,1fr)] gap-2 text-[10px] text-faint">
           <span>CS#</span>
-          <span>Soldan sağa low kabul edilir; transfer sonunda high olur.</span>
+          <span>Tek satırda gösterilir; HIGH transfer dışı, LOW aktif transfer penceresidir.</span>
           <span>Satırlar</span>
           <span>Her byte kartında SCK, MOSI, MISO ve clock numarası kendi satırının solunda gösterilir.</span>
         </div>
-        <div className="inline-block min-w-max">
-          <div className="mb-2 rounded border border-border bg-bg px-2 py-1 font-mono text-[10px] text-accent">
-            CS# LOW
-          </div>
+        <div className="inline-flex min-w-max flex-col gap-2">
+          <SpiChipSelectRow />
           <div className="flex items-start gap-2">
             {tx.visible.map((frame, index) => (
               <SpiByte key={`${frame.label}-${index}`} frame={frame} direction="mosi" />
@@ -385,9 +411,6 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
               <SpiByte key={`${frame.label}-${index}`} frame={frame} direction="miso" />
             ))}
             {read && rx.hidden > 0 && <EventChip label={`+${rx.hidden} RX`} />}
-          </div>
-          <div className="mt-2 rounded border border-border bg-bg px-2 py-1 font-mono text-[10px] text-accent">
-            CS# HIGH
           </div>
         </div>
       </div>
