@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Boxes, Cpu, FileInput, Play, Loader2, Library } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
+import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { Badge, Button } from "@/components/ui";
@@ -86,6 +87,9 @@ export default function App() {
             S2
           </div>
           <span className="font-semibold">Spec2Code</span>
+          <Badge tone="accent" className="font-mono">
+            {APP_VERSION}
+          </Badge>
         </div>
 
         <nav className="flex items-center gap-1">

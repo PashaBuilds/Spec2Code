@@ -299,6 +299,10 @@ export default function CodeViewer() {
   const activeDownloadUrl = jobId ? api.jobFileDownloadUrl(jobId, activeFile.path) : null;
   const allDownloadUrl = jobId ? api.jobDownloadUrl(jobId) : null;
   const vitisDownloadUrl = jobId ? api.jobVitisDownloadUrl(jobId) : null;
+  const mockFiles = files.filter((file) => {
+    const path = generatedPath(file);
+    return path.includes("spec2code_mock") || path.endsWith("_mock_plan.c");
+  });
 
   const errorCount = qc
     ? qc.final_violations.filter((v) => v.severity.toLowerCase() === "error").length
@@ -324,6 +328,7 @@ export default function CodeViewer() {
           <Badge tone="neutral">QC pending</Badge>
         )}
         <Badge tone="neutral">{files.length} files</Badge>
+        <Badge tone={mockFiles.length ? "ok" : "warn"}>Mock harness: {mockFiles.length}</Badge>
         {previousFiles.length > 0 ? <DiffBadges diffs={diffs} /> : <Badge tone="neutral">baseline</Badge>}
         {qc?.warning ? (
           <span className="text-xs text-warn">{qc.warning}</span>
@@ -343,6 +348,8 @@ export default function CodeViewer() {
           ) : null}
         </div>
       </div>
+
+      <MockHarnessPanel files={mockFiles} activePath={activePath} onSelect={setActive} />
 
       {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
 
@@ -432,6 +439,59 @@ function DiffBadges({ diffs }: { diffs: FileDiff[] }) {
       <Badge tone="danger">-{counts.removed}</Badge>
       <Badge tone="neutral">={counts.unchanged}</Badge>
     </>
+  );
+}
+
+function MockHarnessPanel({
+  files,
+  activePath,
+  onSelect,
+}: {
+  files: GeneratedFile[];
+  activePath: string;
+  onSelect: (path: string) => void;
+}) {
+  if (files.length === 0) {
+    return (
+      <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="warn">Mock harness yok</Badge>
+          <span className="text-xs text-warn">
+            Bu generate sonucu mock bus dosyası içermiyor; uygulama versiyonunu ve yeni generate çalıştığını kontrol et.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-ok/30 bg-ok/10">
+      <div className="flex items-center justify-between gap-2 border-b border-ok/20 px-3 py-2">
+        <span className="text-xs font-medium text-ok">Mock harness dosyaları</span>
+        <Badge tone="ok">{files.length} file</Badge>
+      </div>
+      <div className="flex flex-wrap gap-2 p-2">
+        {files.map((file) => {
+          const path = generatedPath(file);
+          return (
+            <button
+              key={file.path}
+              type="button"
+              onClick={() => onSelect(file.path)}
+              className={cn(
+                "rounded border px-2 py-1 font-mono text-xs transition-colors",
+                file.path === activePath
+                  ? "border-ok bg-ok/20 text-text"
+                  : "border-ok/30 bg-bg/60 text-muted hover:bg-ok/15 hover:text-text",
+              )}
+              title={path}
+            >
+              {path}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
