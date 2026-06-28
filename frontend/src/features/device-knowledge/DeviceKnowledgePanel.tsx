@@ -9,6 +9,7 @@ import {
   type KnowledgeRecipe,
   type KnowledgeRegisterTransfer,
 } from "./knowledge";
+import BusWaveform from "./BusWaveform";
 import DevicePinMap from "./DevicePinMap";
 
 function EmptyKnowledge({ part }: { part: string }) {
@@ -121,7 +122,7 @@ function TransferRow({
   );
 }
 
-function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[] }) {
+function TransferPreview({ part, transfers }: { part: string; transfers: KnowledgeRegisterTransfer[] }) {
   if (!transfers.length) return null;
 
   return (
@@ -130,7 +131,7 @@ function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[]
         <Code2 className="h-3.5 w-3.5 text-accent" aria-hidden />
         Driver view
       </div>
-      <div className="grid gap-2 xl:grid-cols-2">
+      <div className="grid gap-2">
         {transfers.map((transfer) => (
           <div
             key={`${transfer.title}-${transfer.tx.join("|")}-${transfer.rx.join("|")}`}
@@ -159,6 +160,7 @@ function TransferPreview({ transfers }: { transfers: KnowledgeRegisterTransfer[]
                 {transfer.code.join("\n")}
               </pre>
               {transfer.note && <p className="text-[11px] leading-relaxed text-faint">{transfer.note}</p>}
+              <BusWaveform part={part} transfer={transfer} />
             </div>
           </div>
         ))}
@@ -401,7 +403,7 @@ function RegisterExplorer({ part, registers }: { part: string; registers: Knowle
               <Code2 className="h-3.5 w-3.5" aria-hidden />
               {showDriverView ? "Driver view'u gizle" : "Driver view'u göster"}
             </Button>
-            {showDriverView && <div className="mt-3"><TransferPreview transfers={transfers} /></div>}
+            {showDriverView && <div className="mt-3"><TransferPreview part={part} transfers={transfers} /></div>}
           </div>
         )}
           </div>
