@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Boxes, Cpu, FileInput, Play, Loader2, Library } from "lucide-react";
+import { BookOpen, Boxes, Cpu, FileInput, Play, Loader2, Library } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -14,8 +14,9 @@ import CodeViewer from "@/features/code-view/CodeViewer";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DriverImport from "@/features/driver-import/DriverImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
+import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 
-type View = "flow" | "catalog" | "import";
+type View = "flow" | "knowledge" | "catalog" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -118,6 +119,13 @@ export default function App() {
           <Badge tone="neutral">{PLATFORM_LABELS[project.platform]}</Badge>
           <Badge tone={llm.enabled ? "accent" : "neutral"}>LLM {llm.enabled ? "on" : "off"}</Badge>
           <Button
+            variant={view === "knowledge" ? "outline" : "ghost"}
+            size="sm"
+            onClick={() => setView(view === "knowledge" ? "flow" : "knowledge")}
+          >
+            <BookOpen className="h-4 w-4" /> Bilgi
+          </Button>
+          <Button
             variant={view === "catalog" ? "outline" : "ghost"}
             size="sm"
             onClick={() => setView(view === "catalog" ? "flow" : "catalog")}
@@ -146,7 +154,14 @@ export default function App() {
 
       {/* body */}
       <main className="min-h-0 flex-1">
-        {view === "catalog" ? (
+        {view === "knowledge" ? (
+          <div className="mx-auto flex h-full max-w-5xl flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Bilgi soru merkezi</h2>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <KnowledgeAskPanel />
+            </div>
+          </div>
+        ) : view === "catalog" ? (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Entegre kataloğu</h2>
             <div className="min-h-0 flex-1">

@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import type { CatalogDevice, DeviceStatus } from "@/lib/types";
 import { useStore } from "@/store/useStore";
 import DeviceKnowledgePanel from "@/features/device-knowledge/DeviceKnowledgePanel";
-import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import { hasDeviceKnowledge } from "@/features/device-knowledge/knowledge";
 
 type Mode = "browse" | "pick";
@@ -107,48 +106,44 @@ export default function CatalogPanel({
 
   if (mode === "browse") {
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <KnowledgeAskPanel className="shrink-0" />
+      <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-elev">
+          <div className="border-b border-border p-3">
+            <CatalogFilters
+              query={query}
+              protocols={protocols}
+              onQueryChange={setQuery}
+              onToggleProtocol={toggleProtocol}
+            />
+          </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-elev">
-            <div className="border-b border-border p-3">
-              <CatalogFilters
-                query={query}
-                protocols={protocols}
-                onQueryChange={setQuery}
-                onToggleProtocol={toggleProtocol}
-              />
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
+                <Search className="h-5 w-5 text-faint" aria-hidden />
+                <p className="text-sm text-muted">Filtreyle eşleşen entegre yok.</p>
+                <p className="text-xs text-faint">
+                  {catalog.length === 0 ? "Katalog boş." : "Farklı bir filtre dene."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {filtered.map((dev) => (
+                  <CatalogListItem
+                    key={dev.part}
+                    dev={dev}
+                    selected={selected?.part === dev.part}
+                    onSelect={() => setSelectedPart(dev.part)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
-                  <Search className="h-5 w-5 text-faint" aria-hidden />
-                  <p className="text-sm text-muted">Filtreyle eşleşen entegre yok.</p>
-                  <p className="text-xs text-faint">
-                    {catalog.length === 0 ? "Katalog boş." : "Farklı bir filtre dene."}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {filtered.map((dev) => (
-                    <CatalogListItem
-                      key={dev.part}
-                      dev={dev}
-                      selected={selected?.part === dev.part}
-                      onSelect={() => setSelectedPart(dev.part)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </aside>
-
-          <section className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
-            {selected ? <CatalogDetail dev={selected} /> : <EmptyCatalogDetail />}
-          </section>
-        </div>
+        <section className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
+          {selected ? <CatalogDetail dev={selected} /> : <EmptyCatalogDetail />}
+        </section>
       </div>
     );
   }
