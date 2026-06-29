@@ -14,7 +14,7 @@ interface ByteFrame {
 }
 
 const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "DS1682", "LTC2945"]);
-const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "LMK04832", "LMX2820", "LMX1204"]);
+const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "ADAR1000", "LMK04832", "LMX2820", "LMX1204"]);
 
 function protocolForPart(part: string): Protocol | null {
   const normalized = part.toUpperCase();
@@ -58,11 +58,14 @@ function descendingBits(prefix: string, high: number, low: number) {
 }
 
 function ticsFrames(label: string, role: ByteRole): ByteFrame[] | null {
-  if (!/R\/W=0/.test(label)) return null;
+  const rw = /R\/W=([01])/.exec(label);
+  if (!rw) return null;
+  const rwBit = rw[1];
+  const rwLabel = rwBit === "0" ? "W=0" : "R=1";
 
   if (/A14:A0/.test(label)) {
     return [
-      { label: "W=0 + A14:A8", bits: ["0", ...descendingBits("A", 14, 8)], role },
+      { label: `${rwLabel} + A14:A8`, bits: [rwBit, ...descendingBits("A", 14, 8)], role },
       { label: "A7:A0", bits: descendingBits("A", 7, 0), role },
       { label: "D7:D0", bits: descendingBits("D", 7, 0), role },
     ];
@@ -70,7 +73,7 @@ function ticsFrames(label: string, role: ByteRole): ByteFrame[] | null {
 
   if (/A6:A0/.test(label)) {
     return [
-      { label: "W=0 + A6:A0", bits: ["0", ...descendingBits("A", 6, 0)], role },
+      { label: `${rwLabel} + A6:A0`, bits: [rwBit, ...descendingBits("A", 6, 0)], role },
       { label: "D15:D8", bits: descendingBits("D", 15, 8), role },
       { label: "D7:D0", bits: descendingBits("D", 7, 0), role },
     ];
@@ -375,6 +378,7 @@ function spiModeNote(part: string) {
   if (normalized === "LMK04832") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 5 MHz.";
   if (normalized === "LMX1204") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 2 MHz.";
   if (normalized === "LMX2820") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 40 MHz.";
+  if (normalized === "ADAR1000") return "SPI mode 0, 24-bit frame: R/W + A14:A0 + D7:D0, MSB-first; max SCLK 25 MHz.";
   return "CS# low boyunca opcode/address/data MSB-first clocklanır; dummy/read clocks controller transferiyle üretilir.";
 }
 

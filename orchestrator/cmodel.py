@@ -715,8 +715,13 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
 
     defines = [
         (sel_def, f"{int(attach.get('spi_chip_select', 0))}U", "SPI slave select"),
-        (frame_def, "3U", "TICS Pro SPI register frame length"),
+        (frame_def, "3U", "SPI register frame length"),
         (sck_def, f"{int(model.get('max_sck_hz', 0) or 0)}U", "datasheet maximum SPI clock"),
+    ]
+    defines += [
+        (f"{MOD}_REG_{rg['name']}", _hexu32(int(rg["offset"])), rg.get("description", "register offset"))
+        for rg in descriptor.get("registers", [])
+        if "name" in rg and "offset" in rg
     ]
     if rewrite_word is not None:
         defines.append((f"{MOD}_POST_INIT_DELAY_MS", f"{rewrite_delay_ms}U", "delay before post-init calibration write"))

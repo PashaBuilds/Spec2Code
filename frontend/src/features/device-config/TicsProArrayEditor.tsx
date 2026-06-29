@@ -47,6 +47,8 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
 
   const model = descriptor?.transport.register_model;
   const supportsTics = descriptor?.transport.type === "spi" && model?.ticspro_words;
+  const isTicsExport = ["LMK04832", "LMX2820", "LMX1204"].includes(device.part.toUpperCase());
+  const configKey = isTicsExport ? "ticspro_registers" : "register_words";
   const parsedWords = useMemo(() => parseWords(draft), [draft]);
   const decoded = useMemo(
     () => parsedWords.map((word) => decodeWord(word, model)),
@@ -63,7 +65,7 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
     setDraft(value);
     onChange({
       ...config,
-      ticspro_registers: parseWords(value).map((word) => wordHex(word)),
+      [configKey]: parseWords(value).map((word) => wordHex(word)),
     });
   };
 
@@ -73,23 +75,28 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <FileCode2 className="h-4 w-4 text-accent" aria-hidden />
-            <span className="text-xs font-medium text-muted">TICS Pro register array</span>
+            <span className="text-xs font-medium text-muted">
+              {isTicsExport ? "TICS Pro register array" : "SPI register init array"}
+            </span>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-faint">
-            TICS Pro export içindeki 24-bit word değerlerini buraya yapıştır. Sıra değiştirilmeden init sırasında
-            SPI üzerinden MSB-first yazılır.
+            {isTicsExport
+              ? "TICS Pro export içindeki 24-bit word değerlerini buraya yapıştır. Sıra değiştirilmeden init sırasında SPI üzerinden MSB-first yazılır."
+              : "Doğrulanmış 24-bit SPI register word değerlerini buraya yapıştır. Sıra değiştirilmeden init sırasında SPI üzerinden MSB-first yazılır."}
           </p>
         </div>
         <Badge tone={parsedWords.length ? "accent" : "warn"}>{parsedWords.length} word</Badge>
       </div>
 
       <div className="space-y-1.5">
-        <Label>TICS Pro çıktısı</Label>
+        <Label>{isTicsExport ? "TICS Pro çıktısı" : "Register word listesi"}</Label>
         <Textarea
           value={draft}
           onChange={(event) => onTextChange(event.target.value)}
           spellCheck={false}
-          placeholder={"const unsigned int lmx[] = {\n    0x4B0800,\n    0x00051C\n};"}
+          placeholder={isTicsExport
+            ? "const unsigned int lmx[] = {\n    0x4B0800,\n    0x00051C\n};"
+            : "const unsigned int adar1000Init[] = {\n    0x000080,\n    0x002E7F\n};"}
           className="min-h-40 text-xs"
         />
       </div>
@@ -124,7 +131,7 @@ function InfoPill({ label, value }: { label: string; value: string }) {
 }
 
 function wordsFromConfig(config: Record<string, unknown>): string[] {
-  const raw = config.ticspro_registers;
+  const raw = Array.isArray(config.ticspro_registers) ? config.ticspro_registers : config.register_words;
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => {

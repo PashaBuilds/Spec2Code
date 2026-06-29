@@ -285,14 +285,15 @@ def _validate_ticspro_registers(
     owner: str,
     add,
 ) -> None:
-    seq_path = f"{path}/config/ticspro_registers"
     config = device.get("config")
+    seq_key = "register_words" if isinstance(config, dict) and "register_words" in config else "ticspro_registers"
+    seq_path = f"{path}/config/{seq_key}"
     words = tics.normalize_words(config)
     requested_ops = set(device.get("operations_requested") or [])
     if requested_ops and "device_init" not in requested_ops and words:
-        add("warning", seq_path, f"{owner}: TICS Pro register array is ignored unless device_init is selected")
+        add("warning", seq_path, f"{owner}: SPI register array is ignored unless device_init is selected")
     if not words:
-        add("warning", seq_path, f"{owner}: no TICS Pro register array is configured; generated init will only initialize SPI")
+        add("warning", seq_path, f"{owner}: no SPI register array is configured; generated init will only initialize SPI")
         return
 
     model = tics.register_model(descriptor)

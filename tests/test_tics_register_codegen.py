@@ -59,6 +59,15 @@ def tics_spec() -> dict:
                 "operations_requested": ["device_init"],
                 "tests_requested": ["self_test"],
             },
+            {
+                "id": "u4_adar1000",
+                "part": "ADAR1000",
+                "descriptor_ref": "descriptors/adar1000.yaml",
+                "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 3, "reset_gpio": None},
+                "config": {"register_words": ["0x000080", "0x002E7F"]},
+                "operations_requested": ["device_init"],
+                "tests_requested": ["self_test"],
+            },
         ],
         "generation_options": {"qc_max_rounds": 3, "include_doxygen": True, "line_ending": "crlf"},
     }
@@ -106,6 +115,8 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             self.assertIn("drivers/lmx2820.c", written)
             self.assertIn("drivers/lmx1204.h", written)
             self.assertIn("drivers/lmx1204.c", written)
+            self.assertIn("drivers/adar1000.h", written)
+            self.assertIn("drivers/adar1000.c", written)
 
             lmk_source = (out_dir / "drivers" / "lmk04832.c").read_text(encoding="utf-8")
             self.assertIn("0x000080U,  /* address 0x0, value 0x80 */", lmk_source)
@@ -118,9 +129,16 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             self.assertIn("lmx2820DelayMs(LMX2820_POST_INIT_DELAY_MS);", lmx_source)
             self.assertIn("lmx2820RegisterWrite(spSpi, 0x00251CU);", lmx_source)
 
+            adar_header = (out_dir / "drivers" / "adar1000.h").read_text(encoding="utf-8")
+            adar_source = (out_dir / "drivers" / "adar1000.c").read_text(encoding="utf-8")
+            self.assertIn("#define ADAR1000_REG_RX_ENABLES 0x2EU", adar_header)
+            self.assertIn("0x002E7FU,  /* address 0x2E, value 0x7F */", adar_source)
+            self.assertIn("adar1000RegisterWrite(spSpi, S_uiArrAdar1000InitSequence[uiIndex]);", adar_source)
+
             mock_plan = (out_dir / "tests" / "unit_tics_codegen_mock_plan.c").read_text(encoding="utf-8")
             self.assertIn("{ 0x4BU, 0x08U, 0x00U }", mock_plan)
             self.assertGreaterEqual(mock_plan.count("{ 0x00U, 0x25U, 0x1CU }"), 2)
+            self.assertIn("{ 0x00U, 0x2EU, 0x7FU }", mock_plan)
 
 
 if __name__ == "__main__":

@@ -1240,7 +1240,565 @@ function lmx2820Registers(): KnowledgeRegister[] {
   ];
 }
 
+const adarBitValues = ["0: disabled / clear", "1: enabled / set"];
+const adarReservedValues = ["0: normal kullanımda 0 yaz", "1: reserved; ADI guidance olmadan kullanma"];
+
+type AdarRegisterRow = {
+  name: string;
+  address: number | string;
+  width?: string;
+  access: string;
+  reset?: string;
+  purpose: string;
+  fields?: KnowledgeRegisterField[];
+};
+
+function adarReserved(bits: string): KnowledgeRegisterField {
+  return {
+    bits,
+    name: "Reserved",
+    meaning: "Datasheet tarafından application control alanı olarak tanımlanmamıştır; read-modify-write sırasında mevcut değer korunmalı veya 0 yazılmalıdır.",
+    values: adarReservedValues,
+  };
+}
+
+function adarIdentityFields(label: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "D7:D0", name: label, meaning: `${label} kimlik byte'ıdır; cihaz tanıma ve sanity read için kullanılır.` },
+  ];
+}
+
+function adarGainFields(direction: "RX" | "TX"): KnowledgeRegisterField[] {
+  return [
+    {
+      bits: "D7",
+      name: "CH_ATTN",
+      meaning: `${direction} channel attenuator kontrol bitidir; VGA code ile birlikte channel gain/attenuation ayarını etkiler.`,
+      values: ["0: attenuator bit clear", "1: attenuator bit set"],
+    },
+    {
+      bits: "D6:D0",
+      name: "VGA_GAIN[6:0]",
+      meaning: `${direction} channel VGA gain/attenuation code alanıdır; beam calibration tablosundan gelen gain değeri buraya yazılır.`,
+    },
+  ];
+}
+
+function adarPhaseFields(direction: "RX" | "TX", axis: "I" | "Q"): KnowledgeRegisterField[] {
+  return [
+    {
+      bits: "D5",
+      name: "VM_POL",
+      meaning: `${direction} channel vector modulator ${axis} kolunun polarity bitidir; 0/180 derece tarafını seçerek phase quadrant bilgisini taşır.`,
+      values: ["0: positive polarity", "1: inverted polarity"],
+    },
+    {
+      bits: "D4:D0",
+      name: "VM_GAIN[4:0]",
+      meaning: `${direction} channel vector modulator ${axis} kolunun gain code alanıdır; ADI phase table I/Q code çiftleri bu alanları birlikte ayarlar.`,
+    },
+    adarReserved("D7:D6"),
+  ];
+}
+
+function adarChannelEnableFields(direction: "RX" | "TX"): KnowledgeRegisterField[] {
+  return [
+    { bits: "D6", name: "CH1_EN", meaning: `${direction} channel 1 RF path enable bitidir.`, values: adarBitValues },
+    { bits: "D5", name: "CH2_EN", meaning: `${direction} channel 2 RF path enable bitidir.`, values: adarBitValues },
+    { bits: "D4", name: "CH3_EN", meaning: `${direction} channel 3 RF path enable bitidir.`, values: adarBitValues },
+    { bits: "D3", name: "CH4_EN", meaning: `${direction} channel 4 RF path enable bitidir.`, values: adarBitValues },
+    {
+      bits: "D2",
+      name: direction === "RX" ? "RX_LNA_EN" : "TX_DRV_EN",
+      meaning: direction === "RX" ? "RX LNA bias/enable yolunu açar." : "TX driver enable yolunu açar.",
+      values: adarBitValues,
+    },
+    { bits: "D1", name: "VM_EN", meaning: `${direction} vector modulator enable bitidir.`, values: adarBitValues },
+    { bits: "D0", name: "VGA_EN", meaning: `${direction} VGA enable bitidir.`, values: adarBitValues },
+    adarReserved("D7"),
+  ];
+}
+
+function adarBiasFields(label: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "D7:D0", name: label, meaning: `${label} bias DAC/code değeridir; RF performans, sıcaklık ve board calibration sonucuna göre seçilmelidir.` },
+  ];
+}
+
+function adarBeamPositionFields(): KnowledgeRegisterField[] {
+  return [
+    { bits: "B6:B0", name: "VGA_GAIN[6:0]", meaning: "Beam position içindeki channel VGA gain/attenuation code alanıdır." },
+    { bits: "B7", name: "ATTENUATOR", meaning: "Beam position içinde channel attenuator bitidir.", values: ["0: attenuator bit clear", "1: attenuator bit set"] },
+    { bits: "B12:B8", name: "VM_I_GAIN[4:0]", meaning: "Vector modulator I kolu gain code alanıdır." },
+    { bits: "B13", name: "VM_I_POL", meaning: "Vector modulator I kolu polarity bitidir.", values: ["0: positive polarity", "1: inverted polarity"] },
+    { bits: "B20:B16", name: "VM_Q_GAIN[4:0]", meaning: "Vector modulator Q kolu gain code alanıdır." },
+    { bits: "B21", name: "VM_Q_POL", meaning: "Vector modulator Q kolu polarity bitidir.", values: ["0: positive polarity", "1: inverted polarity"] },
+    adarReserved("B23:B22"),
+  ];
+}
+
+function adarRxBiasRamFields(): KnowledgeRegisterField[] {
+  return [
+    { bits: "B7:B0", name: "EXT_LNA_OFF", meaning: "External LNA off-state bias code değeridir." },
+    { bits: "B15:B8", name: "EXT_LNA_ON", meaning: "External LNA on-state bias code değeridir." },
+    { bits: "B19:B16", name: "RX_VGA_BIAS", meaning: "RX VGA bias current code alanıdır." },
+    { bits: "B22:B20", name: "RX_VM_BIAS", meaning: "RX vector modulator bias current code alanıdır." },
+    { bits: "B27:B23", name: "RX_LNA_BIAS", meaning: "RX LNA bias current code alanıdır." },
+    adarReserved("B31:B28"),
+  ];
+}
+
+function adarTxBiasRamFields(): KnowledgeRegisterField[] {
+  return [
+    { bits: "B7:B0", name: "EXT_PA1_BIAS_OFF", meaning: "External PA1 off-state bias code değeridir." },
+    { bits: "B15:B8", name: "EXT_PA2_BIAS_OFF", meaning: "External PA2 off-state bias code değeridir." },
+    { bits: "B23:B16", name: "EXT_PA3_BIAS_OFF", meaning: "External PA3 off-state bias code değeridir." },
+    { bits: "B31:B24", name: "EXT_PA1_BIAS_ON", meaning: "External PA1 on-state bias code değeridir." },
+    { bits: "B39:B32", name: "EXT_PA2_BIAS_ON", meaning: "External PA2 on-state bias code değeridir." },
+    { bits: "B47:B40", name: "EXT_PA3_BIAS_ON", meaning: "External PA3 on-state bias code değeridir." },
+    { bits: "B55:B48", name: "EXT_PA4_BIAS_OFF", meaning: "External PA4 off-state bias code değeridir." },
+    { bits: "B63:B56", name: "EXT_PA4_BIAS_ON", meaning: "External PA4 on-state bias code değeridir." },
+    { bits: "B67:B64", name: "TX_VGA_BIAS", meaning: "TX VGA bias current code alanıdır." },
+    { bits: "B70:B68", name: "TX_VM_BIAS", meaning: "TX vector modulator bias current code alanıdır." },
+    { bits: "B74:B72", name: "TX_DRV_BIAS", meaning: "TX driver bias current code alanıdır." },
+    adarReserved("B79:B75"),
+  ];
+}
+
+function adar1000Fields(name: string): KnowledgeRegisterField[] {
+  if (name === "INTERFACE_CONFIG_A") {
+    return [
+      { bits: "D7", name: "SOFTRESET", meaning: "1 yazıldığında digital register interface reset akışını tetikler.", values: ["0: reset yok", "1: soft reset request"] },
+      { bits: "D6", name: "LSB_FIRST", meaning: "SPI bit sırasını seçer; Spec2Code ve datasheet default akışı MSB-first kabul eder.", values: ["0: MSB-first", "1: LSB-first"] },
+      { bits: "D5", name: "ADDR_ASCN", meaning: "Multi-byte SPI erişimlerinde adres auto-increment yönünü kontrol eder.", values: ["0: normal/autodecrement default akışı", "1: ascending address mode"] },
+      { bits: "D4", name: "SDOACTIVE", meaning: "SDO/readback driver davranışını etkinleştirir; 4-wire readback için gereklidir.", values: adarBitValues },
+      { bits: "D3", name: "SDOACTIVE_", meaning: "SDOACTIVE alanının complement shadow bitidir; datasheet yazım pattern'inde birlikte kullanılır.", values: ["0: SDOACTIVE=1 için complement", "1: SDOACTIVE=0 için complement"] },
+      { bits: "D2", name: "ADDR_ASCN_", meaning: "ADDR_ASCN complement shadow bitidir.", values: ["0: ADDR_ASCN=1 için complement", "1: ADDR_ASCN=0 için complement"] },
+      { bits: "D1", name: "LSB_FIRST_", meaning: "LSB_FIRST complement shadow bitidir.", values: ["0: LSB_FIRST=1 için complement", "1: LSB_FIRST=0 için complement"] },
+      { bits: "D0", name: "SOFTRESET_", meaning: "SOFTRESET complement shadow bitidir.", values: ["0: SOFTRESET=1 için complement", "1: SOFTRESET=0 için complement"] },
+    ];
+  }
+  if (name === "INTERFACE_CONFIG_B") {
+    return [
+      { bits: "D7:D0", name: "Interface option bits", meaning: "SPI interface davranışına ait ek seçeneklerdir; default bring-up'ta değiştirilmemelidir." },
+    ];
+  }
+  if (name === "DEV_CONFIG") {
+    return [
+      { bits: "D7:D0", name: "Device config bits", meaning: "Cihaz seviyesindeki digital configuration alanıdır; default akışta ADI referans ayarları korunmalıdır." },
+    ];
+  }
+  if (["CHIP_TYPE", "PRODUCT_ID_H", "PRODUCT_ID_L", "SPI_REV", "VENDOR_ID_H", "VENDOR_ID_L", "REV_ID"].includes(name)) {
+    return adarIdentityFields(name);
+  }
+  if (name === "SCRATCH_PAD") {
+    return [
+      { bits: "D7:D0", name: "SCRATCH", meaning: "SPI write/read sanity testi için kullanılan volatile scratch byte; örnek testlerde 0xAD/0xEA pattern'leri kullanılabilir." },
+    ];
+  }
+  if (name === "TRANSFER_REG") {
+    return [
+      { bits: "D7:D0", name: "Transfer control", meaning: "Buffered/shadow register içeriklerinin active control alanlarına aktarımında kullanılan transfer kontrol byte'ıdır." },
+    ];
+  }
+  const gain = /^CH[1-4]_(RX|TX)_GAIN$/.exec(name);
+  if (gain) return adarGainFields(gain[1] as "RX" | "TX");
+
+  const phase = /^CH[1-4]_(RX|TX)_PHASE_([IQ])$/.exec(name);
+  if (phase) return adarPhaseFields(phase[1] as "RX" | "TX", phase[2] as "I" | "Q");
+
+  if (name === "LD_WRK_REGS") {
+    return [
+      { bits: "D1", name: "LDTX_OVERRIDE", meaning: "TX load/work register override kontrolüdür.", values: adarBitValues },
+      { bits: "D0", name: "LDRX_OVERRIDE", meaning: "RX load/work register override kontrolüdür.", values: adarBitValues },
+      adarReserved("D7:D2"),
+    ];
+  }
+  if (/^CH[1-4]_PA_BIAS_ON$/.test(name)) return adarBiasFields("PA_BIAS_ON");
+  if (/^CH[1-4]_PA_BIAS_OFF$/.test(name)) return adarBiasFields("PA_BIAS_OFF");
+  if (name === "LNA_BIAS_ON") return adarBiasFields("LNA_BIAS_ON");
+  if (name === "LNA_BIAS_OFF") return adarBiasFields("LNA_BIAS_OFF");
+  if (name === "RX_ENABLES") return adarChannelEnableFields("RX");
+  if (name === "TX_ENABLES") return adarChannelEnableFields("TX");
+  if (name === "MISC_ENABLES") {
+    return [
+      { bits: "D7", name: "SW_DRV_TR_MODE_SEL", meaning: "T/R switch driver mode seçimini etkiler.", values: adarBitValues },
+      { bits: "D6", name: "BIAS_CTRL", meaning: "Bias control path seçimini belirler.", values: adarBitValues },
+      { bits: "D5", name: "BIAS_EN", meaning: "Internal bias generator/control bloklarını enable eder.", values: adarBitValues },
+      { bits: "D4", name: "LNA_BIAS_OUT_EN", meaning: "External LNA bias output enable bitidir.", values: adarBitValues },
+      { bits: "D3", name: "CH1_DET_EN", meaning: "Channel 1 detector enable bitidir.", values: adarBitValues },
+      { bits: "D2", name: "CH2_DET_EN", meaning: "Channel 2 detector enable bitidir.", values: adarBitValues },
+      { bits: "D1", name: "CH3_DET_EN", meaning: "Channel 3 detector enable bitidir.", values: adarBitValues },
+      { bits: "D0", name: "CH4_DET_EN", meaning: "Channel 4 detector enable bitidir.", values: adarBitValues },
+    ];
+  }
+  if (name === "SW_CTRL") {
+    return [
+      { bits: "D7", name: "SW_DRV_TR_STATE", meaning: "T/R switch driver state kontrol bitidir.", values: adarBitValues },
+      { bits: "D6", name: "TX_EN", meaning: "TX path global enable kontrolüdür.", values: adarBitValues },
+      { bits: "D5", name: "RX_EN", meaning: "RX path global enable kontrolüdür.", values: adarBitValues },
+      { bits: "D4", name: "SW_DRV_EN_TR", meaning: "T/R switch driver enable kaynağını T/R state ile ilişkilendirir.", values: adarBitValues },
+      { bits: "D3", name: "SW_DRV_EN_POL", meaning: "Switch driver enable polarity seçimini yapar.", values: ["0: active-low style polarity", "1: active-high style polarity"] },
+      { bits: "D2", name: "TR_SOURCE", meaning: "T/R kontrol kaynağını pin veya SPI tarafına yönlendirir.", values: ["0: external T/R control", "1: SPI controlled T/R path"] },
+      { bits: "D1", name: "TR_SPI", meaning: "SPI üzerinden T/R state seçimini yapar.", values: ["0: RX side selected", "1: TX side selected"] },
+      { bits: "D0", name: "POL", meaning: "External polarity/control yorumunu tersler.", values: ["0: non-inverted", "1: inverted"] },
+    ];
+  }
+  if (name === "ADC_CTRL") {
+    return [
+      { bits: "D7", name: "ADC_CLKFREQ_SEL", meaning: "Aux ADC clock frequency seçimini yapar.", values: ["0: default ADC clock range", "1: alternate ADC clock range"] },
+      { bits: "D6", name: "AC_EN", meaning: "Aux ADC analog circuit enable bitidir.", values: adarBitValues },
+      { bits: "D5", name: "CLK_EN", meaning: "Aux ADC clock enable bitidir.", values: adarBitValues },
+      { bits: "D4", name: "ST_CONV", meaning: "Aux ADC conversion başlatır.", values: ["0: conversion start yok", "1: conversion başlat"] },
+      { bits: "D3:D1", name: "MUX_SEL[2:0]", meaning: "Aux ADC'nin ölçeceği internal/aux mux kanalını seçer." },
+      { bits: "D0", name: "ADC_EOC", meaning: "Aux ADC conversion complete status bitidir; polling için kullanılır.", values: ["0: conversion devam ediyor", "1: conversion tamamlandı"] },
+    ];
+  }
+  if (name === "ADC_OUTPUT") {
+    return [
+      { bits: "D7:D0", name: "ADC_OUTPUT", meaning: "Aux ADC conversion sonucu; önce ADC_EOC=1 görülmelidir." },
+    ];
+  }
+  if (["BIAS_CURRENT_RX_LNA", "BIAS_CURRENT_RX", "BIAS_CURRENT_TX", "BIAS_CURRENT_TX_DRV"].includes(name)) {
+    return adarBiasFields(name);
+  }
+  if (name === "MEM_CTRL") {
+    return [
+      { bits: "D7", name: "SCAN_MODE_EN", meaning: "Beam RAM üzerinden scan mode akışını enable eder.", values: adarBitValues },
+      { bits: "D6", name: "BEAM_RAM_BYPASS", meaning: "Beam RAM bypass edilirse active beam değerleri doğrudan work register'lardan gelir.", values: ["0: beam RAM aktif olabilir", "1: beam RAM bypass"] },
+      { bits: "D5", name: "BIAS_RAM_BYPASS", meaning: "Bias RAM bypass edilirse bias değerleri doğrudan register'lardan gelir.", values: ["0: bias RAM aktif olabilir", "1: bias RAM bypass"] },
+      { bits: "D3", name: "TX_BEAM_STEP_EN", meaning: "TX beam step sequencer enable bitidir.", values: adarBitValues },
+      { bits: "D2", name: "RX_BEAM_STEP_EN", meaning: "RX beam step sequencer enable bitidir.", values: adarBitValues },
+      { bits: "D1", name: "TX_CHX_RAM_BYPASS", meaning: "TX channel RAM fetch path bypass bitidir.", values: adarBitValues },
+      { bits: "D0", name: "RX_CHX_RAM_BYPASS", meaning: "RX channel RAM fetch path bypass bitidir.", values: adarBitValues },
+      adarReserved("D4"),
+    ];
+  }
+  if (name === "RX_CHX_MEM" || name === "TX_CHX_MEM" || /^R[XT]_CH[1-4]_MEM$/.test(name)) {
+    return [
+      { bits: "D7", name: "CHX_RAM_FETCH", meaning: "Set edildiğinde seçili beam position bilgisini RAM'den ilgili channel work register'larına çeker.", values: ["0: fetch yok", "1: RAM fetch request"] },
+      { bits: "D6:D0", name: "BEAM_POSITION[6:0]", meaning: "RAM içindeki beam position index değeridir; ADI driver ve datasheet 0..120 aralığını kullanır.", values: ["0..120: geçerli beam position", "121..127: kullanma"] },
+    ];
+  }
+  if (name === "TX_TO_RX_DELAY_CTRL" || name === "RX_TO_TX_DELAY_CTRL") {
+    return [
+      { bits: "D7:D4", name: "DELAY1[3:0]", meaning: "T/R geçiş sekansındaki ilk delay code alanıdır." },
+      { bits: "D3:D0", name: "DELAY2[3:0]", meaning: "T/R geçiş sekansındaki ikinci delay code alanıdır." },
+    ];
+  }
+  if (/_BEAM_STEP_(START|STOP)$/.test(name)) {
+    return [
+      { bits: "D6:D0", name: "BEAM_STEP_INDEX[6:0]", meaning: "Scan sequencer start/stop beam position index değeridir; normal aralık 0..120 olmalıdır.", values: ["0..120: geçerli beam position", "121..127: kullanma"] },
+      adarReserved("D7"),
+    ];
+  }
+  if (name === "RX_BIAS_RAM_CTL" || name === "TX_BIAS_RAM_CTL") {
+    return [
+      { bits: "D3", name: "BIAS_RAM_FETCH", meaning: "Set edildiğinde seçili bias setting RAM'den active bias register'larına çekilir.", values: ["0: fetch yok", "1: bias RAM fetch request"] },
+      { bits: "D2:D0", name: "BIAS_SETTING_INDEX[2:0]", meaning: "RAM içindeki bias setting index değeridir; ADI driver 1..7 aralığını kullanır.", values: ["1..7: geçerli bias setting", "0: kullanma / default dışı"] },
+      adarReserved("D7:D4"),
+    ];
+  }
+  if (name === "LDO_TRIM_CTL_0" || name === "LDO_TRIM_CTL_1") {
+    return [
+      { bits: "D1:D0", name: "LDO_TRIM_SEL[1:0]", meaning: "Internal LDO trim select alanıdır; üretim/factory trim dışı kullanımda değiştirilmemelidir." },
+      adarReserved("D7:D2"),
+    ];
+  }
+  if (name === "RAM_RX_BEAM_POSITION" || name === "RAM_TX_BEAM_POSITION") return adarBeamPositionFields();
+  if (name === "RAM_RX_BIAS_SETTING") return adarRxBiasRamFields();
+  if (name === "RAM_TX_BIAS_SETTING") return adarTxBiasRamFields();
+
+  return [
+    { bits: "D7:D0", name, meaning: `${name} register image alanıdır; ADAR1000 init ve bring-up sırasında datasheet sırasına göre yazılır/okunur.` },
+  ];
+}
+
+function adarSpiFrameRegister(): KnowledgeRegister {
+  return {
+    name: "SPI_24BIT_FRAME",
+    address: "word",
+    width: "24",
+    access: "RW",
+    purpose: "ADAR1000 SPI transaction formatı; her register erişimi 24-bit word olarak clocklanır.",
+    fields: [
+      { bits: "Word[23]", name: "R/W", meaning: "SPI erişim yönünü seçer.", values: ["0: write", "1: read"] },
+      { bits: "Word[22:21]", name: "ADDR[14:13]", meaning: "Aynı CS hattında dört ADAR1000'e kadar device address seçimi için kullanılır." },
+      { bits: "Word[20:8]", name: "REG_ADDR[12:0]", meaning: "Register/RAM adresinin alt 13 bitidir." },
+      { bits: "Word[7:0]", name: "DATA[7:0]", meaning: "Write sırasında yazılan data byte; read sırasında dummy byte clocklanırken MISO/SDO data üretir." },
+    ],
+  };
+}
+
+const ADAR1000_REGISTER_ROWS: AdarRegisterRow[] = [
+  { name: "INTERFACE_CONFIG_A", address: 0x000, access: "RW", reset: "0x00", purpose: "SPI interface reset, bit order, address increment ve SDO/readback davranışı." },
+  { name: "INTERFACE_CONFIG_B", address: 0x001, access: "RW", reset: "0x00", purpose: "SPI interface ek configuration alanı; default durumda korunmalıdır." },
+  { name: "DEV_CONFIG", address: 0x002, access: "RW", reset: "0x00", purpose: "Device-level digital configuration alanı." },
+  { name: "CHIP_TYPE", address: 0x003, access: "RO", reset: "0x00", purpose: "Cihaz tipi kimlik byte'ı." },
+  { name: "PRODUCT_ID_H", address: 0x004, access: "RO", reset: "0x00", purpose: "Product ID üst byte." },
+  { name: "PRODUCT_ID_L", address: 0x005, access: "RO", reset: "0x00", purpose: "Product ID alt byte." },
+  { name: "SCRATCH_PAD", address: 0x00A, access: "RW", reset: "0x00", purpose: "SPI write/read sanity testi için scratch register." },
+  { name: "SPI_REV", address: 0x00B, access: "RO", reset: "0x00", purpose: "SPI/register interface revision bilgisi." },
+  { name: "VENDOR_ID_H", address: 0x00C, access: "RO", reset: "0x00", purpose: "Vendor ID üst byte." },
+  { name: "VENDOR_ID_L", address: 0x00D, access: "RO", reset: "0x00", purpose: "Vendor ID alt byte." },
+  { name: "TRANSFER_REG", address: 0x00F, access: "RW", reset: "0x00", purpose: "Shadow/work register transfer kontrolü." },
+  ...Array.from({ length: 4 }, (_, index) => ({
+    name: `CH${index + 1}_RX_GAIN`,
+    address: 0x010 + index,
+    access: "RW",
+    reset: "0x00",
+    purpose: `RX channel ${index + 1} VGA gain ve attenuator control register'ı.`,
+  })),
+  ...Array.from({ length: 4 }, (_, index) => ([
+    { name: `CH${index + 1}_RX_PHASE_I`, address: 0x014 + index * 2, access: "RW", reset: "0x00", purpose: `RX channel ${index + 1} vector modulator I gain/polarity register'ı.` },
+    { name: `CH${index + 1}_RX_PHASE_Q`, address: 0x015 + index * 2, access: "RW", reset: "0x00", purpose: `RX channel ${index + 1} vector modulator Q gain/polarity register'ı.` },
+  ])).flat(),
+  ...Array.from({ length: 4 }, (_, index) => ({
+    name: `CH${index + 1}_TX_GAIN`,
+    address: 0x01C + index,
+    access: "RW",
+    reset: "0x00",
+    purpose: `TX channel ${index + 1} VGA gain ve attenuator control register'ı.`,
+  })),
+  ...Array.from({ length: 4 }, (_, index) => ([
+    { name: `CH${index + 1}_TX_PHASE_I`, address: 0x020 + index * 2, access: "RW", reset: "0x00", purpose: `TX channel ${index + 1} vector modulator I gain/polarity register'ı.` },
+    { name: `CH${index + 1}_TX_PHASE_Q`, address: 0x021 + index * 2, access: "RW", reset: "0x00", purpose: `TX channel ${index + 1} vector modulator Q gain/polarity register'ı.` },
+  ])).flat(),
+  { name: "LD_WRK_REGS", address: 0x028, access: "WO", reset: "0x00", purpose: "Load/work register override kontrolü." },
+  ...Array.from({ length: 4 }, (_, index) => ({ name: `CH${index + 1}_PA_BIAS_ON`, address: 0x029 + index, access: "RW", reset: "0x00", purpose: `TX external PA channel ${index + 1} on-state bias code.` })),
+  { name: "LNA_BIAS_ON", address: 0x02D, access: "RW", reset: "0x00", purpose: "RX external LNA on-state bias code." },
+  { name: "RX_ENABLES", address: 0x02E, access: "RW", reset: "0x00", purpose: "RX channel, LNA, VM ve VGA enable register'ı." },
+  { name: "TX_ENABLES", address: 0x02F, access: "RW", reset: "0x00", purpose: "TX channel, driver, VM ve VGA enable register'ı." },
+  { name: "MISC_ENABLES", address: 0x030, access: "RW", reset: "0x00", purpose: "Bias, detector ve switch-driver yardımcı enable alanları." },
+  { name: "SW_CTRL", address: 0x031, access: "RW", reset: "0x00", purpose: "TX/RX switch, SPI controlled T/R state ve polarity control register'ı." },
+  { name: "ADC_CTRL", address: 0x032, access: "RW", reset: "0x00", purpose: "Internal auxiliary ADC clock, mux, start-conversion ve EOC status register'ı." },
+  { name: "ADC_OUTPUT", address: 0x033, access: "RO", reset: "0x00", purpose: "Internal auxiliary ADC conversion result byte." },
+  { name: "BIAS_CURRENT_RX_LNA", address: 0x034, access: "RW", reset: "0x00", purpose: "RX LNA bias current code." },
+  { name: "BIAS_CURRENT_RX", address: 0x035, access: "RW", reset: "0x00", purpose: "RX path bias current code." },
+  { name: "BIAS_CURRENT_TX", address: 0x036, access: "RW", reset: "0x00", purpose: "TX path bias current code." },
+  { name: "BIAS_CURRENT_TX_DRV", address: 0x037, access: "RW", reset: "0x00", purpose: "TX driver bias current code." },
+  { name: "MEM_CTRL", address: 0x038, access: "RW", reset: "0x00", purpose: "Beam RAM, bias RAM, scan mode ve channel RAM bypass/fetch path kontrolü." },
+  { name: "RX_CHX_MEM", address: 0x039, access: "RW", reset: "0x00", purpose: "RX tüm channel'lar için ortak beam RAM fetch/index register'ı." },
+  { name: "TX_CHX_MEM", address: 0x03A, access: "RW", reset: "0x00", purpose: "TX tüm channel'lar için ortak beam RAM fetch/index register'ı." },
+  ...Array.from({ length: 4 }, (_, index) => ({ name: `RX_CH${index + 1}_MEM`, address: 0x03D + index, access: "RW", reset: "0x00", purpose: `RX channel ${index + 1} için beam RAM fetch/index register'ı.` })),
+  ...Array.from({ length: 4 }, (_, index) => ({ name: `TX_CH${index + 1}_MEM`, address: 0x041 + index, access: "RW", reset: "0x00", purpose: `TX channel ${index + 1} için beam RAM fetch/index register'ı.` })),
+  { name: "REV_ID", address: 0x045, access: "RO", reset: "0x00", purpose: "Silicon revision ID byte." },
+  ...Array.from({ length: 4 }, (_, index) => ({ name: `CH${index + 1}_PA_BIAS_OFF`, address: 0x046 + index, access: "RW", reset: "0x00", purpose: `TX external PA channel ${index + 1} off-state bias code.` })),
+  { name: "LNA_BIAS_OFF", address: 0x04A, access: "RW", reset: "0x00", purpose: "RX external LNA off-state bias code." },
+  { name: "TX_TO_RX_DELAY_CTRL", address: 0x04B, access: "RW", reset: "0x00", purpose: "TX'ten RX'e geçişte switch/bias timing delay code alanları." },
+  { name: "RX_TO_TX_DELAY_CTRL", address: 0x04C, access: "RW", reset: "0x00", purpose: "RX'ten TX'e geçişte switch/bias timing delay code alanları." },
+  { name: "TX_BEAM_STEP_START", address: 0x04D, access: "RW", reset: "0x00", purpose: "TX scan sequencer start beam position index'i." },
+  { name: "TX_BEAM_STEP_STOP", address: 0x04E, access: "RW", reset: "0x00", purpose: "TX scan sequencer stop beam position index'i." },
+  { name: "RX_BEAM_STEP_START", address: 0x04F, access: "RW", reset: "0x00", purpose: "RX scan sequencer start beam position index'i." },
+  { name: "RX_BEAM_STEP_STOP", address: 0x050, access: "RW", reset: "0x00", purpose: "RX scan sequencer stop beam position index'i." },
+  { name: "RX_BIAS_RAM_CTL", address: 0x051, access: "RW", reset: "0x00", purpose: "RX bias RAM setting index ve fetch kontrolü." },
+  { name: "TX_BIAS_RAM_CTL", address: 0x052, access: "RW", reset: "0x00", purpose: "TX bias RAM setting index ve fetch kontrolü." },
+  { name: "LDO_TRIM_CTL_0", address: 0x400, access: "RW", reset: "0x00", purpose: "Internal LDO trim control; normal firmware flow içinde değiştirilmemelidir." },
+  { name: "LDO_TRIM_CTL_1", address: 0x401, access: "RW", reset: "0x00", purpose: "Internal LDO trim control; normal firmware flow içinde değiştirilmemelidir." },
+  { name: "RAM_RX_BEAM_POSITION", address: "0x1000 + (position << 4) + channel*4 + byte[0..2]", width: "24", access: "RW", purpose: "RX beam RAM position image; 121 position x 4 channel için VGA/VM I/VM Q kodlarını tutar.", fields: adarBeamPositionFields() },
+  { name: "RAM_TX_BEAM_POSITION", address: "0x1800 + (position << 4) + channel*4 + byte[0..2]", width: "24", access: "RW", purpose: "TX beam RAM position image; 121 position x 4 channel için VGA/VM I/VM Q kodlarını tutar.", fields: adarBeamPositionFields() },
+  { name: "RAM_RX_BIAS_SETTING", address: "0x1780 + (setting << 4) + bias byte offsets", width: "32", access: "RW", purpose: "RX bias RAM setting image; external LNA ve RX bias kodlarını tutar.", fields: adarRxBiasRamFields() },
+  { name: "RAM_TX_BIAS_SETTING", address: "0x1F80 + (setting << 4) + bias byte offsets", width: "80", access: "RW", purpose: "TX bias RAM setting image; external PA ve TX bias kodlarını tutar.", fields: adarTxBiasRamFields() },
+];
+
+function adar1000Registers(): KnowledgeRegister[] {
+  return [
+    adarSpiFrameRegister(),
+    ...ADAR1000_REGISTER_ROWS.map((row) => ({
+      name: row.name,
+      address: typeof row.address === "number" ? hexAddress(row.address, row.address > 0xFF ? 3 : 2) : row.address,
+      width: row.width ?? "8",
+      access: row.access,
+      reset: row.reset,
+      purpose: row.purpose,
+      fields: row.fields ?? adar1000Fields(row.name),
+    })),
+  ];
+}
+
+function adar1000RegisterTransfers(reg: KnowledgeRegister): KnowledgeRegisterTransfer[] {
+  if (reg.name === "SPI_24BIT_FRAME") {
+    return [
+      {
+        title: "SPI write frame",
+        access: "WRITE",
+        txBytes: "3 byte",
+        rxBytes: "0 byte",
+        tx: ["R/W=0 + A14:A0 + D7:D0"],
+        rx: ["-"],
+        code: ["adar1000DeviceInit(spSpi);"],
+        note: "Generated init register_words array'indeki her word'u bu 24-bit formatta gönderir.",
+      },
+      {
+        title: "SPI read frame",
+        access: "READ",
+        txBytes: "3 byte",
+        rxBytes: "1 byte",
+        tx: ["R/W=1 + A14:A0 + 0x00"],
+        rx: ["D7:D0"],
+        code: ["/* Readback helper eklenirse aynı 24-bit frame R/W=1 ile kullanılır. */"],
+        note: "Readback için SDO/SDIO bağlantısı ve INTERFACE_CONFIG_A.SDOACTIVE davranışı board topolojisine göre doğrulanmalıdır.",
+      },
+    ];
+  }
+
+  const access = reg.access.toUpperCase();
+  const macro = regMacro("ADAR1000", reg.name);
+  const addressLabel = reg.address;
+  const transfers: KnowledgeRegisterTransfer[] = [];
+
+  if (access.includes("R")) {
+    transfers.push({
+      title: "SPI register read",
+      access: "READ",
+      txBytes: "3 byte",
+      rxBytes: "1 byte",
+      tx: [`R/W=1 + A14:A0 (${addressLabel}) + 0x00`],
+      rx: ["ucValue / D7:D0"],
+      code: [`adar1000RegisterRead(spSpi, ${macro}, &ucValue);`],
+      note: "Catalog formatı register-level helper mantığını gösterir; generated init şu anda register_words array'ini yazar.",
+    });
+  }
+
+  if (access.includes("W")) {
+    transfers.push({
+      title: "SPI register write",
+      access: "WRITE",
+      txBytes: "3 byte",
+      rxBytes: "0 byte",
+      tx: [`R/W=0 + A14:A0 (${addressLabel}) + ucValue`],
+      rx: ["-"],
+      code: [`adar1000RegisterWrite(spSpi, ${macro}, ucValue);`],
+      note: reg.name.startsWith("RAM_")
+        ? "RAM adresi position/channel/setting parametrelerinden hesaplanmalıdır; beam/bias image power-up sonrası yeniden yüklenmelidir."
+        : undefined,
+    });
+  }
+
+  return transfers;
+}
+
 const PACKS: Record<string, DeviceKnowledgePack> = {
+  ADAR1000: {
+    part: "ADAR1000",
+    reviewedAt: "2026-06-29",
+    scope: "4-channel X/Ku-band beamforming, RX/TX gain/phase, RAM beam table, bias RAM ve SPI bring-up.",
+    sources: [
+      {
+        label: "Analog Devices ADAR1000 product page",
+        url: "https://www.analog.com/en/products/adar1000.html",
+      },
+      {
+        label: "Analog Devices ADAR1000 datasheet",
+        url: "https://www.analog.com/media/en/technical-documentation/data-sheets/ADAR1000.pdf",
+      },
+      {
+        label: "Analog Devices ADAR1000 Linux driver",
+        url: "https://github.com/analogdevicesinc/linux/blob/main/drivers/iio/beamformer/adar1000.c",
+      },
+    ],
+    overview:
+      "4 kanal X-band/Ku-band beamformer entegresidir. Her channel için RX/TX tarafında VGA gain, vector modulator I/Q gain-polarity, bias control, beam RAM position ve T/R switch control alanları vardır. Spec2Code bu cihazda beam synthesis yapmaz; doğrulanmış register word array'ini ve catalog içindeki register/RAM bilgisini firmware bring-up için kullanır.",
+    keyFacts: [
+      "SPI erişimi 24-bit word formatındadır: R/W biti, 15-bit adres ve 8-bit data alanı MSB-first gönderilir.",
+      "A14:A13 alanı aynı chip-select hattında birden fazla ADAR1000 kullanıldığında device address seçimi için kullanılır.",
+      "Write için R/W=0, read için R/W=1 kullanılır; readback tarafında SDO/SDIO bağlantısı ve SDOACTIVE configuration board topolojisine göre doğrulanmalıdır.",
+      "RX/TX gain ve phase ayarı channel başına ayrıdır; phase için I/Q vector modulator gain-polarity code çiftleri birlikte değerlendirilmelidir.",
+      "Beam RAM position aralığı 0..120, bias RAM setting aralığı 1..7 olarak ele alınmalıdır.",
+    ],
+    configuration: [
+      "Bring-up için önce SPI sanity read/write yap: SCRATCH_PAD register'ına test pattern yazıp readback yap.",
+      "TX/RX path enable etmeden önce bias current, PA/LNA bias ve switch control değerleri board RF tasarımıyla uyumlu olmalıdır.",
+      "Beam RAM kullanılıyorsa tüm position table power-up sonrası explicit yüklenmeli; RAM içeriği kalıcı kabul edilmemelidir.",
+      "Scan mode veya RAM fetch kullanılıyorsa MEM_CTRL, CHx_MEM ve BIAS_RAM_CTL register'ları aynı state machine mantığında yönetilmelidir.",
+    ],
+    registers: adar1000Registers(),
+    recipes: [
+      {
+        title: "SPI sanity check",
+        goal: "ADAR1000 register interface'in doğru çalıştığını doğrulamak.",
+        steps: [
+          "INTERFACE_CONFIG_A içindeki SDO/readback davranışını board SPI topolojisine göre ayarla.",
+          "SCRATCH_PAD register'ına 0xAD yaz ve readback ile aynı değeri oku.",
+          "Aynı testi 0xEA gibi ikinci bir pattern ile tekrar ederek stuck-at durumlarını ayıkla.",
+        ],
+      },
+      {
+        title: "Tek channel RX path açma",
+        goal: "Channel 1 üzerinde kontrollü RX ölçümü başlatmak.",
+        steps: [
+          "BIAS_CURRENT_RX_LNA, BIAS_CURRENT_RX ve LNA_BIAS_ON değerlerini RF tasarımına göre yaz.",
+          "CH1_RX_GAIN, CH1_RX_PHASE_I ve CH1_RX_PHASE_Q değerlerini doğrulanmış calibration tablosundan yaz.",
+          "RX_ENABLES içinde CH1_EN, RX_LNA_EN, VM_EN ve VGA_EN bitlerini set et.",
+          "SW_CTRL ile RX path'i seç ve RF ölçümü önce düşük riskli power seviyesinde yap.",
+        ],
+      },
+      {
+        title: "Beam RAM position yükleme",
+        goal: "Bir beam position için tüm channel gain/phase değerlerini RAM'e almak.",
+        steps: [
+          "RX veya TX RAM base adresini seç: RX için 0x1000, TX için 0x1800.",
+          "Her channel için 3 byte beam image yaz: VGA gain/attenuator, VM I gain/polarity, VM Q gain/polarity.",
+          "MEM_CTRL içinde ilgili RAM bypass bitlerini temizle.",
+          "CHx_MEM veya CHX_MEM üzerinden position index ve CHX_RAM_FETCH bitini kullanarak değerleri work register'lara çek.",
+        ],
+      },
+      {
+        title: "Aux ADC okuma",
+        goal: "Internal auxiliary ADC sonucunu firmware ile almak.",
+        steps: [
+          "ADC_CTRL içinde AC_EN, CLK_EN, MUX_SEL ve ST_CONV alanlarını yaz.",
+          "ADC_CTRL.ADC_EOC biti 1 olana kadar timeout'lu poll yap.",
+          "ADC_OUTPUT register'ını oku ve işlem bittiğinde ADC_CTRL değerini temizle.",
+        ],
+      },
+    ],
+    gotchas: [
+      "Readback 3-wire/4-wire SPI topolojisine bağlıdır; SDOACTIVE yanlış bırakılırsa bus contention veya sürekli high-Z görülebilir.",
+      "Channel enable bitlerini bias ve switch state kurulmadan açmak RF path üzerinde istenmeyen transient üretebilir.",
+      "Beam RAM ve bias RAM kalıcı storage değildir; deterministic init akışı bunları her power-up sonrası yeniden yüklemelidir.",
+      "LDO trim ve reserved alanlar normal firmware tuning alanı değildir; ADI guidance olmadan değiştirilmeyecek kabul edilmelidir.",
+      "Aynı CS hattında birden fazla ADAR1000 varsa A14:A13 device address alanı ve broadcast/write-all davranışı açıkça test edilmelidir.",
+    ],
+    codegenNotes: [
+      "Spec2Code ADAR1000 için device.config.register_words listesindeki 24-bit word'leri sırayı bozmadan SPI üzerinden yazar.",
+      "Descriptor frame modeli R/W bitini doğrular; write init array içinde R/W=1 olan word hata üretir.",
+      "Generated header ADAR1000_REG_* offset makrolarını içerir; düşük seviyeli register read/write helper'ları ileride public API olarak genişletilebilir.",
+      "Catalog içindeki driver view register transfer formatını gösterir; şu an generated public operation deterministic device_init akışıdır.",
+    ],
+    pinMap: {
+      packageName: "88-terminal LGA_CAV",
+      view: "Fonksiyonel pin görünümü",
+      verification: "Analog Devices ADAR1000 datasheet pin configuration ve pin function tablolarıyla kontrol edildi; burada software bring-up için kritik gruplar öne çıkarılır.",
+      note: "Tam ball/pad yerleşimi PCB layout sırasında datasheet package drawing üzerinden ayrıca doğrulanmalıdır.",
+      pins: [
+        { name: "CSB", role: "SPI chip select, active low", tone: "bus", side: "left" },
+        { name: "SCLK", role: "SPI clock", tone: "bus", side: "left" },
+        { name: "SDIO", role: "SPI serial data input / 3-wire data", tone: "bus", side: "left" },
+        { name: "SDO", role: "SPI serial data output / 4-wire readback", tone: "bus", side: "left" },
+        { name: "ADDR0", role: "SPI device address strap", tone: "control", side: "left" },
+        { name: "ADDR1", role: "SPI device address strap", tone: "control", side: "left" },
+        { name: "RESETB", role: "Hardware reset, active low", tone: "control", side: "left" },
+        { name: "TR", role: "External transmit/receive state control", tone: "control", side: "left" },
+        { name: "POL", role: "External polarity/control input", tone: "control", side: "left" },
+        { name: "RX1..RX4", role: "Channel RX RF inputs", tone: "analog", side: "right" },
+        { name: "TX1..TX4", role: "Channel TX RF outputs", tone: "analog", side: "right" },
+        { name: "RF_IO1..RF_IO4", role: "Antenna-side RF channel ports", tone: "analog", side: "right" },
+        { name: "DET1..DET4", role: "Channel detector outputs/inputs", tone: "analog", side: "right" },
+        { name: "LNA_BIAS", role: "External LNA bias output", tone: "analog", side: "right" },
+        { name: "PA_BIAS1..4", role: "External PA bias outputs", tone: "analog", side: "right" },
+        { name: "VDD*", role: "Analog/digital supply rails", tone: "power", side: "right" },
+        { name: "GND/EPAD", role: "Ground and exposed pad", tone: "ground", side: "right" },
+      ],
+      groups: [
+        { label: "SPI", pins: ["CSB", "SCLK", "SDIO", "SDO", "ADDR0", "ADDR1"], tone: "bus", description: "24-bit register/RAM erişimi ve multi-drop address seçimi." },
+        { label: "T/R control", pins: ["TR", "POL", "RESETB"], tone: "control", description: "External TX/RX state, polarity ve reset davranışı." },
+        { label: "RF channels", pins: ["RX1..RX4", "TX1..TX4", "RF_IO1..RF_IO4"], tone: "analog", description: "Beamforming path; gain/phase register'ları bu channel'ları ayarlar." },
+        { label: "Bias/detector", pins: ["DET1..DET4", "LNA_BIAS", "PA_BIAS1..4"], tone: "analog", description: "Bias RAM/register ve detector enable alanlarıyla yönetilir." },
+      ],
+    },
+  },
+
   LTC2991: {
     part: "LTC2991",
     reviewedAt: "2026-06-28",
@@ -2166,6 +2724,10 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
 
   if (normalizedPart === "LMK04832" || normalizedPart === "LMX2820" || normalizedPart === "LMX1204") {
     return ticsRegisterTransfer(normalizedPart, reg);
+  }
+
+  if (normalizedPart === "ADAR1000") {
+    return adar1000RegisterTransfers(reg);
   }
 
   if (normalizedPart === "LTC2991") {

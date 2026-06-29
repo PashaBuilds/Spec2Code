@@ -119,6 +119,7 @@ class KnowledgeInventoryTests(unittest.TestCase):
         ds1682 = descriptor("ds1682")
         ltc2945 = descriptor("ltc2945")
         ad7414 = descriptor("ad7414")
+        adar1000 = descriptor("adar1000")
 
         self.assertEqual(len(ltc2991["registers"]), 30)
         self.assertIn("PWM_T_INTERNAL_CONTROL", {row["name"] for row in ltc2991["registers"]})
@@ -137,12 +138,19 @@ class KnowledgeInventoryTests(unittest.TestCase):
         self.assertEqual(ad7414_resets["THIGH"], 0x7F)
         self.assertEqual(ad7414_resets["TLOW"], 0x80)
 
+        self.assertEqual(len(adar1000["registers"]), 78)
+        adar1000_offsets = {row["name"]: row["offset"] for row in adar1000["registers"]}
+        self.assertEqual(adar1000_offsets["RX_ENABLES"], 0x2E)
+        self.assertEqual(adar1000_offsets["TX_BIAS_RAM_CTL"], 0x52)
+        self.assertEqual(adar1000_offsets["LDO_TRIM_CTL_1"], 0x401)
+
     def test_non_clock_catalog_has_full_command_and_register_inventory(self) -> None:
         text = KNOWLEDGE_TS.read_text(encoding="utf-8")
         mt25q = section("mt25qCommandRows")
         ltc2945 = function_section("ltc2945RegisterRows")
         ds1682 = function_section("ds1682Registers")
         ltc2991 = function_section("ltc2991Registers")
+        adar1000 = section("ADAR1000_REGISTER_ROWS")
 
         self.assertEqual(len(re.findall(r'name: "[A-Z0-9_]+"', mt25q)), 82)
         for required in [
@@ -167,6 +175,18 @@ class KnowledgeInventoryTests(unittest.TestCase):
         self.assertIn("PWM_THRESHOLD_MSB", ltc2991)
         self.assertIn("Array.from({ length: 10 }", ds1682)
         self.assertIn('registers: mt25qRegisters("MT25QU02G")', text)
+
+        for required in [
+            "RX_ENABLES",
+            "TX_ENABLES",
+            "MEM_CTRL",
+            "RAM_RX_BEAM_POSITION",
+            "RAM_TX_BIAS_SETTING",
+            "ADC_EOC",
+            "CHX_RAM_FETCH",
+            "VM_I_GAIN[4:0]",
+        ]:
+            self.assertIn(required, adar1000 + text)
 
     def test_rw_star_registers_are_not_allowed_in_manual_init(self) -> None:
         spec = {
