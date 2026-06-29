@@ -30,7 +30,6 @@ DATA_DIRS = [
     "std",
     "orchestrator/templates",
     "orchestrator/qc/bsp_stubs",
-    "docs",
 ]
 
 HIDDEN_IMPORTS = [
@@ -96,15 +95,12 @@ def _data_arg(source: str) -> str:
     return f"{path}{os.pathsep}{source}"
 
 
-def _copy_runtime_docs(bundle_dir: Path) -> None:
-    for name in ("README.md",):
-        shutil.copy2(ROOT / name, bundle_dir / name)
-    docs_dir = bundle_dir / "docs"
-    docs_dir.mkdir(exist_ok=True)
-    for name in ("WINDOWS.md", "EXECUTION-PLAN.md", "CODEX-HANDOFF.md"):
-        source = ROOT / "docs" / name
-        if source.is_file():
-            shutil.copy2(source, docs_dir / name)
+def _copy_release_docs(bundle_dir: Path) -> None:
+    for name in ("changelog.md", "userguide.md"):
+        source = ROOT / name
+        if not source.is_file():
+            raise FileNotFoundError(f"required release document is missing: {name}")
+        shutil.copy2(source, bundle_dir / name)
 
 
 def main() -> int:
@@ -154,7 +150,7 @@ def main() -> int:
     shutil.rmtree(bundle_dir, ignore_errors=True)
     bundle_dir.mkdir(parents=True)
     shutil.copy2(executable, bundle_dir / executable.name)
-    _copy_runtime_docs(bundle_dir)
+    _copy_release_docs(bundle_dir)
 
     archive = shutil.make_archive(str(bundle_dir), "zip", root_dir=bundle_dir)
     print(archive)

@@ -1,0 +1,398 @@
+# Spec2Code User Guide
+
+Bu dosya release paketinin icine girer. Amaci, Spec2Code'u kullanan bir gomulu
+yazilimcinin uygulamayi acip proje uretmesine, ciktiyi incelemesine ve gerekirse
+Vitis workspace hazirlamasina yetecek pratik bilgiyi tek yerde vermektir.
+
+## 1. Spec2Code Nedir?
+
+Spec2Code, Xilinx/Vitis tabanli kartlarda kullanilan I2C, SPI ve QSPI bagli
+entegreler icin deterministik C driver ve test dosyalari ureten lokal bir web
+uygulamasidir.
+
+Uygulama cloud uzerinde calismaz. `Spec2Code.exe` lokal bir FastAPI backend ve
+React UI baslatir. Browser'da gordugun ekran kendi bilgisayarinda calisir.
+
+Ana hedefler:
+
+- `xparameters.h` icinden controller bilgisini okumak.
+- Schematic ekraninda harici entegre baglantilarini kurmak.
+- Desteklenen entegreler icin `.c/.h` driver ve test dosyalari uretmek.
+- Generated kodu sabit coding standard ve QC kontrollerinden gecirmek.
+- Gerekirse `.xsa` ile Vitis workspace olusturmak.
+
+## 2. Windows'ta Calistirma
+
+Release paketini acinca uc dosya gorursun:
+
+```text
+Spec2Code.exe
+changelog.md
+userguide.md
+```
+
+Calistirmak icin:
+
+```powershell
+.\Spec2Code.exe
+```
+
+Varsayilan adres:
+
+```text
+http://127.0.0.1:8077
+```
+
+Otomatik browser acilmazsa bu adresi manuel ac.
+
+Port degistirmek icin:
+
+```powershell
+.\Spec2Code.exe --host 127.0.0.1 --port 8078
+```
+
+Browser acilmasin istersen:
+
+```powershell
+.\Spec2Code.exe --no-browser
+```
+
+## 3. Gerekli Yardimci Tool'lar
+
+Uygulama acilmak icin LLVM veya Cppcheck'e mecbur degildir; ama gercek QC icin
+bu tool'lar onerilir:
+
+- LLVM: `clang-format`, `clang-tidy`, `libclang`
+- Cppcheck
+
+Tipik Windows kurulum path'leri otomatik aranir:
+
+```text
+C:\Program Files\LLVM\bin
+C:\Program Files\Cppcheck
+```
+
+Farkli yerde kuruluysa environment variable verebilirsin:
+
+```powershell
+$env:SPEC2CODE_CLANG_FORMAT_PATH = "D:\Tools\LLVM\bin\clang-format.exe"
+$env:SPEC2CODE_CLANG_TIDY_PATH = "D:\Tools\LLVM\bin\clang-tidy.exe"
+$env:SPEC2CODE_CPPCHECK_PATH = "D:\Tools\Cppcheck\cppcheck.exe"
+$env:SPEC2CODE_LIBCLANG_PATH = "D:\Tools\LLVM\bin\libclang.dll"
+```
+
+Tool algilama durumunu kontrol etmek icin:
+
+```text
+http://127.0.0.1:8077/api/health
+```
+
+## 4. Temel Kullanim Akisi
+
+Spec2Code kullanimi genelde su sirayla ilerler:
+
+1. **Setup** ekraninda platformu sec.
+2. `xparameters.h` dosyasini yukle veya icerigini yapistir.
+3. Parser tarafindan bulunan controller'lari kontrol et.
+4. **Schematic** ekraninda entegreleri controller'lara bagla.
+5. Gerekirse entegre configuration ayarlarini yap.
+6. **Generate** ekraninda kod uret.
+7. Code viewer'da dosya agacini, QC sonucunu ve test/mock dosyalarini incele.
+8. Istersen tek dosya, tum output zip veya Vitis-ready paket indir.
+9. Istersen Vitis workspace paneliyle `.xsa` uzerinden workspace olustur.
+
+## 5. Setup Ekrani
+
+Setup ekraninda proje adi, platform, target core ve runtime secilir.
+
+Desteklenen platformlar:
+
+- Zynq-7000
+- Zynq UltraScale+ MPSoC
+- Versal ACAP
+- MicroBlaze 7-series
+
+`xparameters.h` yuklediginde uygulama controller'lari cikartir. Ayni controller
+farkli macro alias'lariyla geldiyse tek controller olarak dedupe edilir.
+
+Ornek:
+
+```text
+XPAR_PSU_I2C_0
+XPAR_XIICPS_0
+```
+
+Bu iki macro ayni donanim controller'ini isaret ediyorsa UI'da tek I2C controller
+olarak gorunmelidir.
+
+## 6. Schematic Ekrani
+
+Schematic ekraninda controller, mux ve entegre baglantilari kurulur.
+
+Yapabileceklerin:
+
+- I2C cihaz eklemek.
+- SPI/QSPI cihaz eklemek.
+- TCA9548A gibi I2C mux eklemek.
+- Cihazi mux channel uzerinden veya dogrudan controller'a baglamak.
+- I2C address, SPI chip select, reset GPIO ve IRQ gibi attach bilgilerini girmek.
+- Desteklenen cihazlarda configuration panelinden init ayarlarini yapmak.
+
+Baglanti validasyonu generate oncesinde yapilir. Ornegin:
+
+- Ayni I2C bus uzerinde address cakismasi.
+- Ayni SPI controller uzerinde chip select cakismasi.
+- Var olmayan controller referansi.
+- Descriptor ile uyumsuz transport tipi.
+
+## 7. Catalog ve Knowledge
+
+Catalog ekrani desteklenen entegreleri listeler. Arama ve protokol filtreleri ile
+I2C/SPI cihazlari daraltabilirsin.
+
+Knowledge bolumunde su bilgiler bulunur:
+
+- Register veya command map.
+- Bit field seviyesi anlamlar.
+- Deger aciklamalari.
+- Pin map.
+- Tipik kullanim receteleri.
+- Driver view.
+- Bus transaction waveform.
+
+Bu bilgiler runtime'da LLM'e yazdirilmaz. Repo icindeki dogrulanmis statik bilgi
+paketlerinden gelir. LLM soru merkezi de cevap verirken bu dogrulanmis context'i
+kullanir.
+
+## 8. Bilgi Soru Merkezi
+
+Bilgi soru merkezi, catalog knowledge uzerinden lokal OpenAI-compatible modele
+soru sormak icindir.
+
+Ornek sorular:
+
+```text
+LMK04832 PLL2 lock nereden okunur?
+Flash sector erase icin hangi byte'lar gider?
+LTC2991 differential ayari hangi register'lari etkiler?
+```
+
+Model sadece verilen knowledge context'i kullanmalidir. Backend cevap icindeki
+register, opcode ve bit field gibi token'lari context ile karsilastirir. Context
+disi bilgi varsa hata verir.
+
+Qwen 3.5 397B gibi 256K context destekli modeller icin context limiti yuksek
+tutulmustur. Daha kucuk modellerde soru daha dar sorulmalidir.
+
+## 9. Generate Ekrani
+
+Generate basladiginda pipeline console su asamalari gosterir:
+
+- Codegen.
+- Mock harness.
+- Imported reference source kopyalama.
+- LLM destekli QC fixer varsa LLM adimlari.
+- Deterministik QC round'lari.
+- Result summary.
+
+Generate bittiginde Code viewer'da dosya agaci acilir.
+
+Output klasor yapisi tipik olarak:
+
+```text
+drivers/
+tests/
+reference_sources/
+qc_report.json
+README.md
+.clang-format
+```
+
+Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test dosyalari ve mock
+harness dosyalari da bu kurala dahildir.
+
+## 10. Code Viewer ve Download
+
+Code viewer'da:
+
+- Generated dosyalari hiyerarsik agacta gorursun.
+- Tek dosya indirebilirsin.
+- Tum generated output'u zip olarak indirebilirsin.
+- Vitis-ready export zip indirebilirsin.
+- QC bulgularini aktif dosya ozelinde gorebilirsin.
+- Mock harness dosyalarini hizli gorebilirsin.
+
+Mock harness yok uyarisi gorursen:
+
+- Ustteki uygulama versiyonunu kontrol et.
+- Eski backend calisiyor olabilir; tum eski `Spec2Code.exe`/Python server
+  sureclerini kapatip yeni surumu tekrar ac.
+- Yeni generate calistirdigindan emin ol.
+
+## 11. Vitis Workspace Uretimi
+
+Generate tamamlandiktan sonra **Vitis workspace** paneli gorunur.
+
+Girilmesi gereken bilgiler:
+
+- Vitis dizini: ornek `C:\Xilinx\Vitis\2024.2`
+- `.xsa` dosyasi: ornek `D:\Board\export\system.xsa`
+- Workspace dizini: ornek `D:\VitisWorkspaces\spec2code`
+- Processor: ornek `psu_cortexa53_0`
+- Application adi: bos birakilabilir
+
+Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
+
+1. Vitis/XSCT surumunu algilar.
+2. Generated kaynaklari staging klasorune kopyalar.
+3. `spec2code_create_workspace.tcl` dosyasini yazar.
+4. XSCT ile headless application workspace olusturur.
+5. `app build` calistirir.
+
+Workspace altinda olusan yardimci klasor:
+
+```text
+_spec2code_staging\<vitis_job>\
+  src\
+  spec2code_create_workspace.tcl
+  spec2code_vitis_manifest.json
+  logs\xsct_stdout.log
+  logs\xsct_stderr.log
+```
+
+Hata olursa once UI'daki son progress mesajina, sonra `xsct_stderr.log` dosyasina
+bak. En sik hatalar:
+
+- Yanlis Vitis dizini.
+- Yanlis `.xsa` path'i.
+- XSA icinde beklenen processor instance adinin farkli olmasi.
+- Vitis surumunde template adinin farkli davranmasi.
+- BSP/toolchain eksigi.
+
+## 12. Kodlama Standardi
+
+Spec2Code sabit default coding standard kullanir. Kullanici Word, Markdown veya
+ayri JSON standard dokumani vermez.
+
+Ozet kurallar:
+
+- Fonksiyon isimleri camelCase: `tca9548aChannelSelect`.
+- Primitive C tipleri kullanilir: `unsigned char`, `unsigned int`.
+- `uint8_t`, `uint16_t`, `uint32_t` gibi fixed-width typedef kullanilmaz.
+- Hungarian prefix kullanilir:
+  - `unsigned char -> uc`
+  - `char -> c`
+  - `unsigned short -> us`
+  - `short -> s`
+  - `unsigned int -> ui`
+  - `int -> i`
+  - `unsigned long -> ul`
+  - `unsigned long long -> ull`
+- Struct typedef adi buyuk `S` ile baslar: `SOrnekStruct`.
+- Struct degiskeni kucuk `s` prefix'i alir: `SOrnekStruct sMyStruct;`.
+- Struct pointer `sp` prefix'i alir.
+- Diger pointer'lar tip prefix'i + `p` kullanir.
+- Pointer yildizi tipe bitisik yazilir: `XIicPs* spIic`.
+- Array'ler tip prefix'i + `Arr` kullanir.
+- Global degiskenler `G_`, static degiskenler `S_` ile baslar.
+- Allman brace stili kullanilir.
+- Bitfield uyelerinde Hungarian prefix kullanilmaz.
+
+## 13. LLM Kullanimi
+
+LLM varsayilan olarak kapali gelir. Acmak icin OpenAI-compatible endpoint,
+tam model adi ve gerekirse API key girilir.
+
+Desteklenen model ailesi uygulama tarafindan sinirlanmaz. Kimi, Qwen veya baska
+bir OpenAI-compatible model kullanilabilir.
+
+LLM generate akisi icinde yardimci roldedir:
+
+- Cevap bos, cok uzun, eksik veya timeout olursa hata net gosterilir.
+- LLM output dogrudan dosyaya yazilmaz.
+- Aday dosya deterministic QC'den gecmeden kabul edilmez.
+- Aday reddedilirse mevcut deterministic output korunur.
+
+## 14. Air-gap Notlari
+
+Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
+
+- `Spec2Code.exe`
+- `changelog.md`
+- `userguide.md`
+- Opsiyonel LLVM/Cppcheck kurulumlari
+- Opsiyonel Vitis kurulumu
+- Opsiyonel lokal/internal LLM endpoint'i
+
+Source uzerinden gelistirme yapacaksan GitHub Release icindeki source archive ve
+offline dependency cache gerekir. Bu kullanici paketinin konusu degildir; source
+developer akisi icin repo dokumanlarina bakilmalidir.
+
+## 15. Desteklenen Entegreler
+
+Bu surumde desteklenen baslica entegreler:
+
+- TCA9548A
+- LTC2991
+- MT25Q128
+- MT25QU02G
+- AD7414
+- TMP101
+- SHT21
+- 24LC32A
+- DS1682
+- LTC2945
+- ADAR1000
+- LMK04832
+- LMX2820
+- LMX1204
+
+Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
+deterministik descriptor/codegen destegi yoktur.
+
+## 16. Sorun Giderme
+
+**Browser aciliyor ama eski surum gibi davranıyor**
+
+- Eski backend hala calisiyor olabilir.
+- Tum eski Spec2Code sureclerini kapat.
+- Yeni exe'yi tekrar calistir.
+- Uygulamanin ust kismindaki versiyonu kontrol et.
+
+**Generate tamamlanmiyor**
+
+- Generate console'daki son hata satirini oku.
+- LLM aciksa timeout, bos cevap veya context disi cevap olabilir.
+- QC tool path'lerini `/api/health` ile kontrol et.
+
+**Windows'ta UnicodeDecodeError benzeri hata**
+
+- Yeni surumu kullandigindan emin ol.
+- Vendor dosyalari farkli encoding ile geldiyse parser toleransli okur; hata
+  devam ederse problemli dosyayi ayri incelemek gerekir.
+
+**Vitis workspace olusmuyor**
+
+- Vitis path'ini kontrol et.
+- `.xsa` path'ini kontrol et.
+- Processor adinin XSA icindeki gercek processor instance adi oldugundan emin ol.
+- `_spec2code_staging\<job>\logs\xsct_stderr.log` dosyasini oku.
+
+**Mock harness yok uyarisi**
+
+- Yeni generate calistir.
+- Ustteki uygulama versiyonunu kontrol et.
+- Eski backend sureclerini kapatip yeni exe ile tekrar dene.
+
+## 17. Release Dosyalari
+
+Executable release zip'i sade tutulur:
+
+```text
+Spec2Code.exe
+changelog.md
+userguide.md
+```
+
+`changelog.md` en yeni surumden baslayarak tum gecmis release degisikliklerini
+icerir. `userguide.md` bu dosyadir.

@@ -39,6 +39,17 @@ Unzip it, then run:
 .\Spec2Code.exe
 ```
 
+The executable zip is intentionally minimal:
+
+```text
+Spec2Code.exe
+changelog.md
+userguide.md
+```
+
+`changelog.md` contains the full release history. `userguide.md` contains the user-level
+operating guide for setup, schematic, generate, Vitis workspace, LLM, and troubleshooting.
+
 By default it starts a local web server on:
 
 ```text

@@ -234,8 +234,18 @@ GitHub Releases içinden Windows paketini indir:
 spec2code-vX.Y.Z-windows-x64.zip
 ```
 
-Zip'i aç, içindeki `Spec2Code.exe` dosyasını çalıştır. Uygulama lokal web
-arayüzünü açar. `windows-x64`, Intel ve AMD 64-bit Windows makinelerde çalışır.
+Zip'i aç, içindeki `Spec2Code.exe` dosyasını çalıştır. Executable paket içinde
+yalnızca şu dosyalar bulunur:
+
+```text
+Spec2Code.exe
+changelog.md
+userguide.md
+```
+
+Uygulama lokal web arayüzünü açar. `windows-x64`, Intel ve AMD 64-bit Windows
+makinelerde çalışır. `changelog.md` geçmiş tüm release değişikliklerini,
+`userguide.md` ise kullanıcı seviyesindeki kullanım adımlarını içerir.
 
 Windows'ta geliştirmeye devam etmek için source zip'i indir:
 
@@ -330,6 +340,10 @@ GitHub Actions şu asset'leri üretir:
 - `spec2code-vX.Y.Z-source.tar.gz`
 - `spec2code-vX.Y.Z-macos-*.zip`
 - `spec2code-vX.Y.Z-windows-x64.zip`
+
+Executable zip içerikleri bilinçli olarak sade tutulur: çalıştırılabilir dosya,
+`changelog.md` ve `userguide.md`. Source archive asset'leri tam kaynak ağacını
+taşımaya devam eder.
 
 ## Repo Haritası
 
