@@ -115,6 +115,23 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(current["fixed_read_length"], 16)
         self.assertEqual(current["risk"], "safe")
 
+    def test_duplicate_i2c_part_emits_one_register_resolver(self) -> None:
+        spec = load_sample_spec("unit_duplicate_ltc2991_testbench")
+        second = json.loads(json.dumps(spec["devices"][0]))
+        second["id"] = "u99_ltc2991"
+        second["attach"] = {**second["attach"], "via_mux": None}
+        spec["devices"].append(second)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            ops = (out_dir / "tests" / "unit_duplicate_ltc2991_testbench_testbench_ops.c").read_text(encoding="utf-8")
+
+        self.assertEqual(ops.count("static int ltc2991TestbenchRegisterResolve"), 1)
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrDevice, "u12_ltc2991")', ops)
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrDevice, "u99_ltc2991")', ops)
+
     def test_i2c_eeprom_testbench_uses_memory_operations_not_register_macros(self) -> None:
         spec = load_sample_spec("unit_eeprom_testbench")
         spec["devices"] = [

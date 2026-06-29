@@ -1416,8 +1416,12 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         '#include <stddef.h>',
         "",
     ]
+    emitted_includes: set[str] = set()
     for entry in entries:
-        includes.append(f'#include "{entry["module"]}.h"')
+        include = f'#include "{entry["module"]}.h"'
+        if include not in emitted_includes:
+            includes.append(include)
+            emitted_includes.add(include)
     mux_modules = sorted({entry["mux_module"] for entry in entries if entry["mux_module"] is not None})
     for mux_module in mux_modules:
         includes.append(f'#include "{mux_module}.h"')
@@ -1455,9 +1459,12 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "",
         *(_testbench_i2c_helpers() if any(entry["descriptor"].get("transport", {}).get("type") == "i2c" for entry in entries) else []),
     ]
+    emitted_resolvers: set[str] = set()
     for entry in entries:
-        if _supports_i2c_register_ops(entry["descriptor"]):
+        module = entry["module"]
+        if module not in emitted_resolvers and _supports_i2c_register_ops(entry["descriptor"]):
             lines.extend(_testbench_register_resolver(entry))
+            emitted_resolvers.add(module)
 
     lines.extend([
         f"#define SPEC2CODE_TESTBENCH_OPERATION_COUNT {len(rows)}U",
