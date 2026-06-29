@@ -169,8 +169,6 @@ class JobManager:
         out_dir = _OUTPUTS / spec["project"]["name"]
         _reset_output_dir(out_dir)
         codegen.generate(spec, out_dir, emit=job.emit)
-        mock_files = codegen.write_mock_harness(spec, out_dir)
-        job.emit({"event": "mock_harness.ready", "files": len(mock_files)})
         _copy_imported_sources(spec, out_dir, job.emit)
         ruleset = _load_ruleset(spec)
         fixer = _maybe_llm_fixer(spec, ruleset, emit=job.emit)

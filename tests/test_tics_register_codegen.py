@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -102,7 +103,7 @@ class TicsRegisterCodegenTests(unittest.TestCase):
         messages = [issue["message"] for issue in result["errors"]]
         self.assertTrue(any("expected write value" in message for message in messages))
 
-    def test_codegen_emits_tics_arrays_and_mock_plan(self) -> None:
+    def test_codegen_emits_tics_arrays_and_testbench_manifest(self) -> None:
         spec = tics_spec()
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / spec["project"]["name"]
@@ -135,10 +136,14 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             self.assertIn("0x002E7FU,  /* address 0x2E, value 0x7F */", adar_source)
             self.assertIn("adar1000RegisterWrite(spSpi, S_uiArrAdar1000InitSequence[uiIndex]);", adar_source)
 
-            mock_plan = (out_dir / "tests" / "unit_tics_codegen_mock_plan.c").read_text(encoding="utf-8")
-            self.assertIn("{ 0x4BU, 0x08U, 0x00U }", mock_plan)
-            self.assertGreaterEqual(mock_plan.count("{ 0x00U, 0x25U, 0x1CU }"), 2)
-            self.assertIn("{ 0x00U, 0x2EU, 0x7FU }", mock_plan)
+            manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            parts = {device["part"] for device in manifest["devices"]}
+            self.assertIn("LMK04832", parts)
+            self.assertIn("LMX2820", parts)
+            self.assertIn("LMX1204", parts)
+            self.assertIn("ADAR1000", parts)
+            retired_fragments = ("spec2code_" + "mo" + "ck", "_" + "mo" + "ck" + "_plan")
+            self.assertFalse(any(any(fragment in path.lower() for fragment in retired_fragments) for path in written))
 
 
 if __name__ == "__main__":

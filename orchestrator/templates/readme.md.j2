@@ -10,8 +10,9 @@ All files use **CRLF** line endings and follow `{{ spec.coding_standard_ref }}`.
 |------|---------|
 {% for unit in units %}| `drivers/{{ unit.module }}.h` / `.c` | {{ unit.part }} - {{ unit.summary }} |
 {% endfor %}{% for unit in units %}{% if unit.test %}| `tests/{{ unit.module }}_test.h` / `.c` | {{ unit.part }} self-test ({{ unit.test.runtime }}) |
-{% endif %}{% endfor %}| `tests/spec2code_mock_bus.h` / `.c` | Boardless transfer recorder for mock/self-test review |
-| `tests/{{ spec.project.name }}_mock_plan.h` / `.c` | Expected init-transfer plan for boardless review |
+{% endif %}{% endfor %}| `tests/spec2code_testbench_protocol.h` / `.c` | TCP test bench line protocol |
+| `tests/{{ spec.project.name }}_testbench_ops.h` / `.c` | Target-side test bench operation dispatch |
+| `tests/spec2code_testbench_manifest.json` | UI operation manifest for live target debug |
 
 ## How to integrate (drop-in)
 

@@ -2931,7 +2931,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         steps: [
           "TICS Pro'da hedef input/output frekanslarını ve output formatlarını doğrula.",
           "Register export içindeki 24-bit hex word array'ini Spec2Code TICS alanına yapıştır.",
-          "Generate sonrası mock plan içinde 3 byte SPI write sırasını gözden geçir.",
+          "Generate sonrası driver init array sırasını TICS Pro export sırası ile karşılaştır.",
         ],
       },
       {
@@ -2952,7 +2952,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     codegenNotes: [
       "Spec2Code config.ticspro_registers listesindeki her word'ü üç byte olarak MSB-first gönderir.",
       "R/W biti write değilse backend validation error üretir.",
-      "Mock harness aynı word'leri tests mock plan içinde SPI write transferleri olarak listeler.",
+      "Test Bench manifest aynı cihazları canlı hedef debug operasyonları için listeler.",
     ],
     pinMap: {
       packageName: "LLP-64",
@@ -3036,7 +3036,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     ],
     codegenNotes: [
       "Descriptor LMX2820 için post-init 10 ms delay + son R0 rewrite kuralını taşır.",
-      "Generated mock plan array write'larına ek olarak R0 tekrar write transferini de listeler.",
+      "Generated driver array write'larına ek olarak R0 tekrar write işlemini de uygular.",
       "Spec2Code frekans synthesis hesabı yapmaz; TICS Pro export word'leri kaynak kabul edilir.",
     ],
     pinMap: {
@@ -3102,7 +3102,7 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
         steps: [
           "TICS Pro export'u R0 RESET=1 yazımıyla başlayacak şekilde al.",
           "Export edilen tüm word'leri Spec2Code alanına yapıştır; reserved görünen satırları silme.",
-          "Generate sonrası mock plan içinde 3 byte SPI write sayısını export count ile karşılaştır.",
+          "Generate sonrası driver init array eleman sayısını export count ile karşılaştır.",
         ],
       },
       {

@@ -98,7 +98,7 @@ Spec2Code kullanimi genelde su sirayla ilerler:
 4. **Schematic** ekraninda entegreleri controller'lara bagla.
 5. Gerekirse entegre configuration ayarlarini yap.
 6. **Generate** ekraninda kod uret.
-7. Code viewer'da dosya agacini, QC sonucunu ve test/mock dosyalarini incele.
+7. Code viewer'da dosya agacini, QC sonucunu ve Test Bench dosyalarini incele.
 8. Istersen tek dosya, tum output zip veya Vitis-ready paket indir.
 9. Istersen Vitis workspace paneliyle `.xsa` uzerinden workspace olustur.
 10. Kart tarafinda TCP test agent hazirsa **Test Bench** sayfasindan canli okuma/yazma denemeleri yap.
@@ -191,7 +191,6 @@ tutulmustur. Daha kucuk modellerde soru daha dar sorulmalidir.
 Generate basladiginda pipeline console su asamalari gosterir:
 
 - Codegen.
-- Mock harness.
 - Imported reference source kopyalama.
 - LLM destekli QC fixer varsa LLM adimlari.
 - Deterministik QC round'lari.
@@ -210,8 +209,8 @@ README.md
 .clang-format
 ```
 
-Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test dosyalari ve mock
-harness dosyalari da bu kurala dahildir.
+Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test ve Test Bench
+agent dosyalari da bu kurala dahildir.
 
 ## 10. Code Viewer ve Download
 
@@ -222,15 +221,7 @@ Code viewer'da:
 - Tum generated output'u zip olarak indirebilirsin.
 - Vitis-ready export zip indirebilirsin.
 - QC bulgularini aktif dosya ozelinde gorebilirsin.
-- Mock harness dosyalarini hizli gorebilirsin.
 - Test bench manifest ve agent kaynaklarini `tests/` altinda gorebilirsin.
-
-Mock harness yok uyarisi gorursen:
-
-- Ustteki uygulama versiyonunu kontrol et.
-- Eski backend calisiyor olabilir; tum eski `Spec2Code.exe`/Python server
-  sureclerini kapatip yeni surumu tekrar ac.
-- Yeni generate calistirdigindan emin ol.
 
 ## 11. Test Bench
 
@@ -482,12 +473,6 @@ deterministik descriptor/codegen destegi yoktur.
 - Host/port alanlari Windows makineden ulasilabilir olmalidir.
 - Firewall veya air-gap ag kurallarini kontrol et.
 - Kart server'i gelen satiri `spec2codeTestbenchDispatchLine()` fonksiyonuna iletmeli ve response satirini geri yazmalidir.
-
-**Mock harness yok uyarisi**
-
-- Yeni generate calistir.
-- Ustteki uygulama versiyonunu kontrol et.
-- Eski backend sureclerini kapatip yeni exe ile tekrar dene.
 
 ## 18. Release Dosyalari
 

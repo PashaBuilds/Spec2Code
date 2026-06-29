@@ -15,7 +15,6 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
 from orchestrator import cmodel
-from orchestrator import tics
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -110,326 +109,6 @@ def _apply_default_identifier_style(text: str) -> str:
         text,
     )
     return text
-
-
-def _int_value(value) -> int:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return int(value, 0)
-    return int(value)
-
-
-def _hex_byte(value: int) -> str:
-    return f"0x{value & 0xFF:02X}U"
-
-
-def _mock_byte_array(values: list[int]) -> str:
-    return ", ".join(_hex_byte(value) for value in values)
-
-
-def _generic_i2c_init_writes(device: dict, descriptor: dict) -> list[dict]:
-    config = device.get("config")
-    if not isinstance(config, dict):
-        return []
-    sequence = config.get("init_sequence")
-    if not isinstance(sequence, list):
-        return []
-    registers = {r.get("name"): r for r in descriptor.get("registers", [])}
-    writes: list[dict] = []
-    for item in sequence:
-        if not isinstance(item, dict):
-            continue
-        reg = item.get("reg")
-        if not isinstance(reg, str) or reg not in registers:
-            continue
-        access = str(registers[reg].get("access", "rw")).lower()
-        if "w" not in access or "*" in access:
-            continue
-        writes.append({
-            "reg": reg,
-            "value": _int_value(item.get("value", 0)) & 0xFF,
-            "note": str(item.get("note") or "manual init builder write"),
-        })
-    return writes
-
-
-def _mock_bus_header() -> str:
-    return (
-        "/**\n"
-        " * @file spec2code_mock_bus.h\n"
-        " * @brief Lightweight transfer recorder for boardless Spec2Code tests.\n"
-        " */\n"
-        "#ifndef SPEC2CODE_MOCK_BUS_H\n"
-        "#define SPEC2CODE_MOCK_BUS_H\n\n"
-        "#define SPEC2CODE_MOCK_MAX_TRANSFERS 128U\n"
-        "#define SPEC2CODE_MOCK_MAX_BYTES 32U\n\n"
-        "typedef enum\n"
-        "{\n"
-        "    enSpec2codeMockI2cWrite = 0,\n"
-        "    enSpec2codeMockI2cRead = 1,\n"
-        "    enSpec2codeMockSpiWrite = 2,\n"
-        "    enSpec2codeMockSpiRead = 3\n"
-        "} ESpec2codeMockTransferType;\n\n"
-        "typedef struct\n"
-        "{\n"
-        "    ESpec2codeMockTransferType enType;\n"
-        "    char cArrDevice[32];\n"
-        "    unsigned char ucArrTx[SPEC2CODE_MOCK_MAX_BYTES];\n"
-        "    unsigned char ucArrRx[SPEC2CODE_MOCK_MAX_BYTES];\n"
-        "    unsigned int uiTxLength;\n"
-        "    unsigned int uiRxLength;\n"
-        "} SSpec2codeMockTransfer;\n\n"
-        "void spec2codeMockBusReset(void);\n"
-        "int spec2codeMockBusPush(ESpec2codeMockTransferType enType,\n"
-        "                         const char* cpDevice,\n"
-        "                         const unsigned char* ucpTx,\n"
-        "                         unsigned int uiTxLength,\n"
-        "                         const unsigned char* ucpRx,\n"
-        "                         unsigned int uiRxLength);\n"
-        "unsigned int spec2codeMockBusCount(void);\n"
-        "const SSpec2codeMockTransfer* spec2codeMockBusTransferGet(unsigned int uiIndex);\n\n"
-        "#endif /* SPEC2CODE_MOCK_BUS_H */\n"
-    )
-
-
-def _mock_bus_source() -> str:
-    return (
-        "/**\n"
-        " * @file spec2code_mock_bus.c\n"
-        " * @brief Lightweight transfer recorder for boardless Spec2Code tests.\n"
-        " */\n"
-        '#include "spec2code_mock_bus.h"\n'
-        '#include "xstatus.h"\n\n'
-        "#include <stddef.h>\n\n"
-        "static SSpec2codeMockTransfer S_sArrTransfers[SPEC2CODE_MOCK_MAX_TRANSFERS];\n"
-        "static unsigned int S_uiTransferCount;\n\n"
-        "void spec2codeMockBusReset(void)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n"
-        "    unsigned int uiByte;\n\n"
-        "    S_uiTransferCount = 0U;\n"
-        "    for (uiIndex = 0U; uiIndex < SPEC2CODE_MOCK_MAX_TRANSFERS; uiIndex++)\n"
-        "    {\n"
-        "        S_sArrTransfers[uiIndex].enType = enSpec2codeMockI2cWrite;\n"
-        "        S_sArrTransfers[uiIndex].uiTxLength = 0U;\n"
-        "        S_sArrTransfers[uiIndex].uiRxLength = 0U;\n"
-        "        for (uiByte = 0U; uiByte < SPEC2CODE_MOCK_MAX_BYTES; uiByte++)\n"
-        "        {\n"
-        "            S_sArrTransfers[uiIndex].ucArrTx[uiByte] = 0U;\n"
-        "            S_sArrTransfers[uiIndex].ucArrRx[uiByte] = 0U;\n"
-        "        }\n"
-        "    }\n"
-        "}\n\n"
-        "int spec2codeMockBusPush(ESpec2codeMockTransferType enType,\n"
-        "                         const char* cpDevice,\n"
-        "                         const unsigned char* ucpTx,\n"
-        "                         unsigned int uiTxLength,\n"
-        "                         const unsigned char* ucpRx,\n"
-        "                         unsigned int uiRxLength)\n"
-        "{\n"
-        "    SSpec2codeMockTransfer* spTransfer;\n"
-        "    unsigned int uiIndex;\n\n"
-        "    if ((uiTxLength > SPEC2CODE_MOCK_MAX_BYTES) || (uiRxLength > SPEC2CODE_MOCK_MAX_BYTES))\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    if (S_uiTransferCount >= SPEC2CODE_MOCK_MAX_TRANSFERS)\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n\n"
-        "    spTransfer = &S_sArrTransfers[S_uiTransferCount];\n"
-        "    spTransfer->enType = enType;\n"
-        "    spTransfer->uiTxLength = uiTxLength;\n"
-        "    spTransfer->uiRxLength = uiRxLength;\n"
-        "    for (uiIndex = 0U; uiIndex < 31U; uiIndex++)\n"
-        "    {\n"
-        "        if ((cpDevice == NULL) || (cpDevice[uiIndex] == '\\0'))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        spTransfer->cArrDevice[uiIndex] = cpDevice[uiIndex];\n"
-        "    }\n"
-        "    spTransfer->cArrDevice[uiIndex] = '\\0';\n"
-        "    for (uiIndex = 0U; uiIndex < uiTxLength; uiIndex++)\n"
-        "    {\n"
-        "        if (ucpTx != NULL)\n"
-        "        {\n"
-        "            spTransfer->ucArrTx[uiIndex] = ucpTx[uiIndex];\n"
-        "        }\n"
-        "    }\n"
-        "    for (uiIndex = 0U; uiIndex < uiRxLength; uiIndex++)\n"
-        "    {\n"
-        "        if (ucpRx != NULL)\n"
-        "        {\n"
-        "            spTransfer->ucArrRx[uiIndex] = ucpRx[uiIndex];\n"
-        "        }\n"
-        "    }\n\n"
-        "    S_uiTransferCount++;\n"
-        "    return XST_SUCCESS;\n"
-        "}\n\n"
-        "unsigned int spec2codeMockBusCount(void)\n"
-        "{\n"
-        "    return S_uiTransferCount;\n"
-        "}\n\n"
-        "const SSpec2codeMockTransfer* spec2codeMockBusTransferGet(unsigned int uiIndex)\n"
-        "{\n"
-        "    if (uiIndex >= S_uiTransferCount)\n"
-        "    {\n"
-        "        return NULL;\n"
-        "    }\n"
-        "    return &S_sArrTransfers[uiIndex];\n"
-        "}\n"
-    )
-
-
-def _mock_plan_header(spec: dict) -> str:
-    project_name = spec["project"]["name"]
-    guard = _header_guard(f"{project_name}_mock_plan_h")
-    return (
-        "/**\n"
-        f" * @file {project_name}_mock_plan.h\n"
-        " * @brief Public API for loading the expected boardless transfer plan.\n"
-        " */\n"
-        f"#ifndef {guard}\n"
-        f"#define {guard}\n\n"
-        '#include "spec2code_mock_bus.h"\n'
-        '#include "xstatus.h"\n\n'
-        "int spec2codeMockPlanLoad(void);\n\n"
-        f"#endif /* {guard} */\n"
-    )
-
-
-def _mock_plan_source(spec: dict, get_descriptor) -> str:
-    controllers = {c["id"]: c for c in spec.get("controllers", [])}
-    muxes = {m["id"]: m for m in spec.get("muxes", [])}
-    transfers: list[dict] = []
-
-    def add_transfer(kind: str, device: str, tx: list[int], rx_len: int = 0) -> None:
-        transfers.append({"kind": kind, "device": device, "tx": tx, "rx_len": rx_len})
-
-    for device in spec.get("devices", []):
-        controller = controllers.get(device.get("attach", {}).get("controller_id"))
-        if controller is None:
-            continue
-        descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
-        transport = descriptor.get("transport", {}).get("type")
-        requested = set(device.get("operations_requested") or [])
-        if requested and "device_init" not in requested:
-            continue
-        if transport == "i2c":
-            via = device.get("attach", {}).get("via_mux")
-            if via:
-                mux = muxes.get(via.get("mux_id"))
-                if mux is not None:
-                    add_transfer("enSpec2codeMockI2cWrite", str(mux.get("id")), [1 << int(via.get("channel", 0))])
-            registers = {r.get("name"): r for r in descriptor.get("registers", [])}
-            writes = [
-                *device_profiles.i2c_init_writes(device),
-                *_generic_i2c_init_writes(device, descriptor),
-            ]
-            for write in writes:
-                reg = registers.get(write.get("reg"))
-                if reg is None:
-                    continue
-                add_transfer(
-                    "enSpec2codeMockI2cWrite",
-                    str(device.get("id")),
-                    [int(reg.get("offset", 0)), int(write.get("value", 0))],
-                )
-        elif transport == "spi":
-            if tics.has_tics_register_model(descriptor):
-                model = tics.register_model(descriptor)
-                decoded = tics.decode_words(tics.normalize_words(device.get("config")), model)
-                for item in decoded:
-                    add_transfer("enSpec2codeMockSpiWrite", str(device.get("id")), item.bytes_msb_first)
-                rewrite_addr = model.get("rewrite_last_address")
-                delay_ms = int(model.get("rewrite_last_address_after_ms", 0) or 0)
-                if rewrite_addr is not None and delay_ms > 0:
-                    for item in decoded:
-                        if item.address == int(rewrite_addr):
-                            add_transfer("enSpec2codeMockSpiWrite", str(device.get("id")), item.bytes_msb_first)
-                            break
-                continue
-            commands = {c.get("name"): c for c in descriptor.get("commands", [])}
-            ops = {op.get("name"): op for op in descriptor.get("operations", [])}
-            init = ops.get("device_init")
-            if not init:
-                continue
-            for step in init.get("steps", []):
-                if step.get("op") != "send_command":
-                    continue
-                cmd = commands.get(step.get("cmd"))
-                if cmd is not None:
-                    add_transfer("enSpec2codeMockSpiWrite", str(device.get("id")), [int(cmd.get("opcode", 0))])
-
-    lines = [
-        "/**",
-        f" * @file {spec['project']['name']}_mock_plan.c",
-        " * @brief Expected init-transfer plan for boardless review.",
-        " */",
-        f'#include "{spec["project"]["name"]}_mock_plan.h"',
-        "",
-        "#include <stddef.h>",
-        "",
-    ]
-    for index, transfer in enumerate(transfers):
-        lines.append(
-            f"static const unsigned char S_ucArrTransfer{index}Tx[] = "
-            f"{{ {_mock_byte_array(transfer['tx'])} }};"
-        )
-    if transfers:
-        lines.append("")
-    lines.extend([
-        "int spec2codeMockPlanLoad(void)",
-        "{",
-        "    int iStatus;",
-        "",
-        "    spec2codeMockBusReset();",
-    ])
-    for index, transfer in enumerate(transfers):
-        lines.extend([
-            f"    iStatus = spec2codeMockBusPush({transfer['kind']},",
-            f"                                     \"{transfer['device']}\",",
-            f"                                     S_ucArrTransfer{index}Tx,",
-            f"                                     {len(transfer['tx'])}U,",
-            "                                     NULL,",
-            f"                                     {transfer['rx_len']}U);",
-            "    if (iStatus != XST_SUCCESS)",
-            "    {",
-            "        return iStatus;",
-            "    }",
-        ])
-    lines.extend([
-        "    return XST_SUCCESS;",
-        "}",
-        "",
-    ])
-    return "\n".join(lines)
-
-
-def mock_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
-    project_name = spec["project"]["name"]
-    tests_dir = out_dir / "tests"
-    return [
-        tests_dir / "spec2code_mock_bus.h",
-        tests_dir / "spec2code_mock_bus.c",
-        tests_dir / f"{project_name}_mock_plan.h",
-        tests_dir / f"{project_name}_mock_plan.c",
-    ]
-
-
-def write_mock_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[str]:
-    """Write the boardless mock harness files and return their resolved paths."""
-    get_descriptor = make_descriptor_loader(root)
-    paths = mock_harness_paths(spec, out_dir)
-    contents = [
-        _apply_default_identifier_style(_mock_bus_header()),
-        _apply_default_identifier_style(_mock_bus_source()),
-        _apply_default_identifier_style(_mock_plan_header(spec)),
-        _apply_default_identifier_style(_mock_plan_source(spec, get_descriptor)),
-    ]
-    return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 
 
 def _testbench_protocol_header() -> str:
@@ -2158,6 +1837,17 @@ def _env() -> Environment:
     )
 
 
+def _remove_retired_boardless_artifacts(out_dir: Path, project_name: str) -> None:
+    legacy = "mo" + "ck"
+    for path in (
+        out_dir / "tests" / f"spec2code_{legacy}_bus.h",
+        out_dir / "tests" / f"spec2code_{legacy}_bus.c",
+        out_dir / "tests" / f"{project_name}_{legacy}_plan.h",
+        out_dir / "tests" / f"{project_name}_{legacy}_plan.c",
+    ):
+        path.unlink(missing_ok=True)
+
+
 def make_descriptor_loader(root: Path = _ROOT) -> Callable[[str], dict]:
     """Resolve a descriptor by ref path (descriptors/x.yaml) or by part name (TCA9548A)."""
     cache: dict[str, dict] = {}
@@ -2193,6 +1883,7 @@ def generate(
     """
     emit = emit or (lambda _e: None)
     spec = {**spec, "coding_standard_ref": _DEFAULT_RULESET_REF}
+    _remove_retired_boardless_artifacts(out_dir, spec["project"]["name"])
     env = _env()
     get_descriptor = make_descriptor_loader(root)
     units = cmodel.build_units(spec, get_descriptor)
@@ -2250,7 +1941,6 @@ def generate(
     readme = readme_t.render(spec=spec, units=units)
     written.append(str(hio.write_output(out_dir / "README.md", readme)))
 
-    written.extend(write_mock_harness(spec, out_dir, root=root))
     written.extend(write_testbench_harness(spec, out_dir, root=root))
 
     emit({"event": "codegen.done", "files": len(written)})

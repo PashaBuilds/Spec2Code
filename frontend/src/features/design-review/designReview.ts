@@ -19,7 +19,7 @@ export type ReviewInitWrite = {
 
 export type ReviewFilePlan = {
   path: string;
-  kind: "driver" | "test" | "mock" | "meta";
+  kind: "driver" | "test" | "meta";
 };
 
 export type DesignReview = {
@@ -67,10 +67,6 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
   }
 
   files.push(
-    { path: "tests/spec2code_mock_bus.h", kind: "mock" },
-    { path: "tests/spec2code_mock_bus.c", kind: "mock" },
-    { path: `tests/${spec.project.name}_mock_plan.h`, kind: "mock" },
-    { path: `tests/${spec.project.name}_mock_plan.c`, kind: "mock" },
     { path: "tests/spec2code_testbench_protocol.h", kind: "test" },
     { path: "tests/spec2code_testbench_protocol.c", kind: "test" },
     { path: `tests/${spec.project.name}_testbench_ops.h`, kind: "test" },

@@ -58,12 +58,6 @@ function describe(e: JobEvent): Line {
         prefix: "CODEGEN",
         text: `${field(e, "files")} files written`,
       };
-    case "mock_harness.ready":
-      return {
-        tone: Number(e.files ?? 0) > 0 ? "ok" : "warn",
-        prefix: "MOCK",
-        text: `${field(e, "files", "0")} mock harness file(s) ready`,
-      };
     case "imported_sources.copied":
       return {
         tone: Number(e.missing ?? 0) > 0 ? "warn" : "ok",

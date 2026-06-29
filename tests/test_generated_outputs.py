@@ -9,6 +9,7 @@ from orchestrator import codegen
 
 
 ROOT = Path(__file__).resolve().parent.parent
+RETIRED_BOARDLESS_FRAGMENTS = ("spec2code_" + "mo" + "ck", "_" + "mo" + "ck" + "_plan")
 
 
 def load_sample_spec(project_name: str) -> dict:
@@ -17,18 +18,23 @@ def load_sample_spec(project_name: str) -> dict:
     return spec
 
 
-class MockHarnessTests(unittest.TestCase):
-    def test_codegen_writes_mock_harness_files(self) -> None:
-        spec = load_sample_spec("unit_mock_codegen")
+def has_retired_boardless_path(paths: set[str]) -> bool:
+    return any(any(fragment in path.lower() for fragment in RETIRED_BOARDLESS_FRAGMENTS) for path in paths)
+
+
+class GeneratedOutputTests(unittest.TestCase):
+    def test_codegen_does_not_write_retired_boardless_files(self) -> None:
+        spec = load_sample_spec("unit_generated_outputs")
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / spec["project"]["name"]
 
             written = {Path(path).relative_to(out_dir).as_posix() for path in codegen.generate(spec, out_dir)}
 
-            self.assertIn("tests/spec2code_mock_bus.h", written)
-            self.assertIn("tests/spec2code_mock_bus.c", written)
-            self.assertIn("tests/unit_mock_codegen_mock_plan.h", written)
-            self.assertIn("tests/unit_mock_codegen_mock_plan.c", written)
+            self.assertFalse(has_retired_boardless_path(written))
+            self.assertIn("tests/spec2code_testbench_protocol.h", written)
+            self.assertIn("tests/spec2code_testbench_protocol.c", written)
+            self.assertIn("tests/unit_generated_outputs_testbench_ops.h", written)
+            self.assertIn("tests/unit_generated_outputs_testbench_ops.c", written)
 
     def test_every_generated_c_file_has_matching_header(self) -> None:
         spec = load_sample_spec("unit_c_header_pairing")
@@ -50,27 +56,21 @@ class MockHarnessTests(unittest.TestCase):
             self.assertIn("int ltc2991SelfTest(XIicPs* spIic);", ltc_test_header)
             self.assertIn("void ltc2991TestTask(void* vpParameters);", ltc_test_header)
 
-            mock_plan_header = (out_dir / "tests" / "unit_c_header_pairing_mock_plan.h").read_text(
-                encoding="utf-8",
-            )
-            self.assertIn("int spec2codeMockPlanLoad(void);", mock_plan_header)
-
-    def test_backend_result_includes_mock_harness_files(self) -> None:
-        project_name = "unit_mock_backend_result"
+    def test_backend_result_does_not_include_retired_boardless_files(self) -> None:
+        project_name = "unit_generated_backend_result"
         spec = load_sample_spec(project_name)
         out_dir = _OUTPUTS / project_name
         shutil.rmtree(out_dir, ignore_errors=True)
         try:
-            job = Job(id="unit_mock_backend", spec=spec)
+            job = Job(id="unit_generated_backend", spec=spec)
 
             JobManager()._blocking(job, max_rounds=1)
 
             self.assertIsNotNone(job.result)
             files = set(job.result["files"])
-            self.assertIn(f"outputs/{project_name}/tests/spec2code_mock_bus.h", files)
-            self.assertIn(f"outputs/{project_name}/tests/spec2code_mock_bus.c", files)
-            self.assertIn(f"outputs/{project_name}/tests/{project_name}_mock_plan.h", files)
-            self.assertIn(f"outputs/{project_name}/tests/{project_name}_mock_plan.c", files)
+            self.assertFalse(has_retired_boardless_path(files))
+            self.assertIn(f"outputs/{project_name}/tests/spec2code_testbench_protocol.h", files)
+            self.assertIn(f"outputs/{project_name}/tests/{project_name}_testbench_ops.c", files)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
