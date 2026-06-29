@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { BookOpen, Loader2, Search, Send, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, CheckCircle2, CircleDashed, Loader2, Search, Send, ShieldCheck } from "lucide-react";
 import { Badge, Button, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,45 @@ const QUERY_STOPWORDS = new Set([
   "yazma",
   "var",
 ]);
+
+const ASK_STAGES = [
+  {
+    id: "context",
+    label: "Context hazırlanıyor",
+    detail: "Soruya yakın entegre, register, bit field, reçete ve driver view satırları seçiliyor.",
+    progress: 26,
+  },
+  {
+    id: "llm",
+    label: "LLM cevabı bekleniyor",
+    detail: "OpenAI uyumlu lokal endpoint'e doğrulanmış context ile istek gönderildi.",
+    progress: 68,
+  },
+  {
+    id: "grounding",
+    label: "Cevap kontrol ediliyor",
+    detail: "Backend, cevaptaki register/opcode/bitfield tokenlarını verilen context ile karşılaştırıyor.",
+    progress: 88,
+  },
+  {
+    id: "format",
+    label: "Cevap düzenleniyor",
+    detail: "Cevap okunabilir başlık, liste ve teknik token bloklarına ayrılıyor.",
+    progress: 96,
+  },
+] as const;
+
+type AskStageId = (typeof ASK_STAGES)[number]["id"] | "done" | "error";
+
+type AskProgressState = {
+  stage: AskStageId;
+  value: number;
+  detail?: string;
+};
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function normalizeSearchText(value: string) {
   return value
@@ -247,6 +286,191 @@ function askErrorMessage(error: unknown) {
   return raw;
 }
 
+function cleanAnswerText(value: string) {
+  return value
+    .trim()
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function stripOuterMarkdown(value: string) {
+  return value
+    .trim()
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^\*\*(.+)\*\*:?$/, "$1")
+    .trim();
+}
+
+function renderInlineText(value: string) {
+  const clean = value.replace(/\*\*([^*]+)\*\*/g, "$1");
+  const tokenPattern = /(`[^`]+`|0x[0-9A-Fa-f]+|[A-Z][A-Z0-9_#]{2,}(?:\[[^\]]+\])?|[a-z][A-Za-z0-9]*\([^)]*\))/g;
+  const pieces = clean.split(tokenPattern).filter((piece) => piece.length > 0);
+
+  return pieces.map((piece, index) => {
+    const withoutBackticks = piece.startsWith("`") && piece.endsWith("`") ? piece.slice(1, -1) : piece;
+    const codeLike = withoutBackticks !== piece || tokenPattern.test(piece);
+    tokenPattern.lastIndex = 0;
+    if (codeLike) {
+      return (
+        <code key={`${piece}-${index}`} className="rounded border border-border bg-bg px-1 py-0.5 font-mono text-[11px] text-text">
+          {withoutBackticks}
+        </code>
+      );
+    }
+    return <span key={`${piece}-${index}`}>{piece}</span>;
+  });
+}
+
+type AnswerBlock =
+  | { type: "heading"; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "bullet"; text: string }
+  | { type: "number"; index: string; text: string }
+  | { type: "kv"; keyText: string; valueText: string };
+
+function answerBlocks(answer: string): AnswerBlock[] {
+  return cleanAnswerText(answer)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const heading = /^(?:#{1,6}\s+)?\*\*([^*]+)\*\*:?\s*$/.exec(line) ?? /^#{1,6}\s+(.+)$/.exec(line);
+      if (heading) return { type: "heading", text: stripOuterMarkdown(heading[1]) };
+
+      const numbered = /^(\d+)[.)]\s+(.+)$/.exec(line);
+      if (numbered) return { type: "number", index: numbered[1], text: numbered[2].trim() };
+
+      const bullet = /^[-*]\s+(.+)$/.exec(line);
+      if (bullet) return { type: "bullet", text: bullet[1].trim() };
+
+      const boldKv = /^\*\*([^*]+)\*\*:?\s+(.+)$/.exec(line);
+      if (boldKv) return { type: "kv", keyText: stripOuterMarkdown(boldKv[1]), valueText: boldKv[2].trim() };
+
+      const kv = /^([A-Za-zÇĞİÖŞÜçğıöşü0-9_/#()[\] .-]{2,28}):\s+(.+)$/.exec(line);
+      if (kv && !/^https?:\/\//.test(line)) return { type: "kv", keyText: kv[1].trim(), valueText: kv[2].trim() };
+
+      return { type: "paragraph", text: line };
+    });
+}
+
+function FormattedAnswer({ answer }: { answer: string }) {
+  const blocks = answerBlocks(answer);
+
+  return (
+    <div className="space-y-2.5 text-xs leading-relaxed text-muted">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          return (
+            <div key={`${block.type}-${index}`} className="pt-2 first:pt-0">
+              <div className="flex items-center gap-2 border-b border-border/70 pb-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                <h4 className="text-xs font-semibold text-text">{block.text}</h4>
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type === "kv") {
+          return (
+            <div key={`${block.type}-${index}`} className="grid gap-1 rounded border border-border/70 bg-bg/50 px-2 py-1.5 sm:grid-cols-[150px_minmax(0,1fr)]">
+              <span className="font-mono text-[11px] font-semibold text-faint">{block.keyText}</span>
+              <span>{renderInlineText(block.valueText)}</span>
+            </div>
+          );
+        }
+
+        if (block.type === "bullet") {
+          return (
+            <div key={`${block.type}-${index}`} className="flex gap-2">
+              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
+              <p>{renderInlineText(block.text)}</p>
+            </div>
+          );
+        }
+
+        if (block.type === "number") {
+          return (
+            <div key={`${block.type}-${index}`} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2">
+              <span className="grid h-5 w-5 place-items-center rounded border border-border bg-bg font-mono text-[10px] text-faint">{block.index}</span>
+              <p>{renderInlineText(block.text)}</p>
+            </div>
+          );
+        }
+
+        return <p key={`${block.type}-${index}`}>{renderInlineText(block.text)}</p>;
+      })}
+    </div>
+  );
+}
+
+function AskProgress({ state }: { state: AskProgressState }) {
+  const activeIndex = state.stage === "done"
+    ? ASK_STAGES.length
+    : state.stage === "error"
+      ? ASK_STAGES.findIndex((stage) => stage.id === "llm")
+      : ASK_STAGES.findIndex((stage) => stage.id === state.stage);
+  const activeStage = ASK_STAGES.find((stage) => stage.id === state.stage);
+
+  return (
+    <div className="mt-3 rounded-md border border-border bg-inset/70 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {state.stage === "done" ? (
+            <CheckCircle2 className="h-4 w-4 text-ok" aria-hidden />
+          ) : state.stage === "error" ? (
+            <CircleDashed className="h-4 w-4 text-danger" aria-hidden />
+          ) : (
+            <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden />
+          )}
+          <span className="text-xs font-semibold text-text">
+            {state.stage === "done" ? "Cevap hazır" : state.stage === "error" ? "Akış hata ile durdu" : activeStage?.label}
+          </span>
+        </div>
+        <span className="font-mono text-[10px] text-faint">{Math.round(state.value)}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-bg">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-300",
+            state.stage === "error" ? "bg-danger" : state.stage === "done" ? "bg-ok" : "bg-accent",
+          )}
+          style={{ width: `${Math.max(4, Math.min(100, state.value))}%` }}
+        />
+      </div>
+      <div className="mt-3 grid gap-1.5 sm:grid-cols-4">
+        {ASK_STAGES.map((stage, index) => {
+          const done = state.stage === "done" || index < activeIndex;
+          const active = state.stage === stage.id;
+          return (
+            <div
+              key={stage.id}
+              className={cn(
+                "rounded border px-2 py-1.5",
+                done ? "border-ok/30 bg-ok/10" : active ? "border-accent/40 bg-accent/10" : "border-border bg-bg/50",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                {done ? (
+                  <CheckCircle2 className="h-3 w-3 text-ok" aria-hidden />
+                ) : active ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-accent" aria-hidden />
+                ) : (
+                  <CircleDashed className="h-3 w-3 text-faint" aria-hidden />
+                )}
+                <span className={cn("text-[10px] font-semibold", done ? "text-ok" : active ? "text-accent" : "text-faint")}>{stage.label}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-faint">
+        {state.detail ?? activeStage?.detail ?? "Akış tamamlandı."}
+      </p>
+    </div>
+  );
+}
+
 export default function KnowledgeAskPanel({
   className,
   packs = listDeviceKnowledge(),
@@ -260,7 +484,19 @@ export default function KnowledgeAskPanel({
   const [meta, setMeta] = useState<{ model: string; contextChars: number; grounded: boolean } | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<AskProgressState | null>(null);
   const registerCount = useMemo(() => packs.reduce((sum, pack) => sum + pack.registers.length, 0), [packs]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const timer = window.setInterval(() => {
+      setProgress((current) => {
+        if (!current || current.stage !== "llm") return current;
+        return { ...current, value: Math.min(82, current.value + 2) };
+      });
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   async function submit() {
     const trimmed = question.trim();
@@ -270,22 +506,30 @@ export default function KnowledgeAskPanel({
     setError("");
     setAnswer("");
     setMeta(null);
+    setProgress({ stage: "context", value: ASK_STAGES[0].progress, detail: ASK_STAGES[0].detail });
     try {
       const context = buildKnowledgeAskContext(packs, trimmed);
+      setProgress({ stage: "llm", value: ASK_STAGES[1].progress, detail: ASK_STAGES[1].detail });
       const response = await api.knowledgeAsk({
         part: "GLOBAL_VERIFIED_KNOWLEDGE",
         question: trimmed,
         context,
         llm,
       });
+      setProgress({ stage: "grounding", value: ASK_STAGES[2].progress, detail: ASK_STAGES[2].detail });
+      await wait(120);
+      setProgress({ stage: "format", value: ASK_STAGES[3].progress, detail: ASK_STAGES[3].detail });
+      await wait(80);
       setAnswer(response.answer);
       setMeta({
         model: response.model,
         contextChars: response.context_chars,
         grounded: response.grounded ?? false,
       });
+      setProgress({ stage: "done", value: 100, detail: "Cevap context kontrolünden geçti ve okunabilir formata dönüştürüldü." });
     } catch (err) {
       setError(askErrorMessage(err));
+      setProgress({ stage: "error", value: 100, detail: "Hata mesajı backend veya LLM katmanından geldi; ayrıntı aşağıda gösteriliyor." });
     } finally {
       setLoading(false);
     }
@@ -343,6 +587,8 @@ export default function KnowledgeAskPanel({
         </div>
       )}
 
+      {progress && <AskProgress state={progress} />}
+
       {answer && (
         <div className="mt-3 rounded-md border border-border bg-inset p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -356,7 +602,7 @@ export default function KnowledgeAskPanel({
               </span>
             )}
           </div>
-          <div className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{answer}</div>
+          <FormattedAnswer answer={answer} />
         </div>
       )}
     </section>

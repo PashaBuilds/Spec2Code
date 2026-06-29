@@ -430,7 +430,10 @@ def knowledge_ask(req: KnowledgeAskRequest) -> dict:
                 "Contextte bulunmayan register, bit field, opcode, fonksiyon veya entegre adi uydurma. "
                 "Cevaplari Turkce cumlelerle ver; register, bit field, driver, readback, opcode gibi teknik "
                 "terimleri gerektiğinde Ingilizce kullan. Register adresi, bit field adi, read/write akisi, "
-                "TX/RX byte boyutu ve driver fonksiyon adi contextte varsa mutlaka belirt."
+                "TX/RX byte boyutu ve driver fonksiyon adi contextte varsa mutlaka belirt. "
+                "Cevabi okunabilir ve kisa bolumler halinde ver: once 'Kisa cevap', sonra gerekiyorsa "
+                "'Register detayi', 'Bit field', 'Islem sirasi' ve 'Driver view'. Gereksiz markdown kalabaligi "
+                "uretme; madde isaretlerini ve numarali adimlari sadece okunurluk icin kullan."
             ),
         },
         {
