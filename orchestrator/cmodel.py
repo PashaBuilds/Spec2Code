@@ -1112,6 +1112,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned short usArrVoltages[8];")
         if any(n.endswith("VoltageRead") and not is_array_read(n) for n in read_ops):
             st.ln("unsigned short usVoltage;")
+        if any(n.endswith("CurrentRead") and is_array_read(n) for n in read_ops):
+            st.ln("unsigned short usArrCurrents[8];")
+        if any(n.endswith("CurrentRead") and not is_array_read(n) for n in read_ops):
+            st.ln("unsigned short usCurrent;")
         if any(n.endswith("TemperatureRead") and has_uint_out(n) for n in read_ops):
             st.ln("unsigned int uiTemperature;")
         if any(n.endswith("TemperatureRead") and not has_uint_out(n) for n in read_ops):
@@ -1155,6 +1159,13 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usVoltage);").check_status()
                 st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)usVoltage);')
+        elif name.endswith("CurrentRead"):
+            if is_array_read(name):
+                st.ln(f"iStatus = {name}({hvar}, usArrCurrents);").check_status()
+                st.ln('xil_printf("' + part + ' current raw = %u\\r\\n", (unsigned int)usArrCurrents[0]);')
+            else:
+                st.ln(f"iStatus = {name}({hvar}, &usCurrent);").check_status()
+                st.ln('xil_printf("' + part + ' current raw = %u\\r\\n", (unsigned int)usCurrent);')
         elif name.endswith("TemperatureRead"):
             if has_uint_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &uiTemperature);").check_status()

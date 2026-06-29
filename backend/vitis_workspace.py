@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.jobs import Job
+from backend.vitis_errors import map_vitis_errors
 from hostplat import io as hio
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -561,11 +562,23 @@ class VitisWorkspaceJobManager:
         stdout_log.write_text(completed.stdout, encoding="utf-8")
         stderr_log.write_text(completed.stderr, encoding="utf-8")
         if completed.returncode != 0:
+            issues = map_vitis_errors(f"{completed.stdout}\n{completed.stderr}")
+            if job.result is not None:
+                job.result["compile_issues"] = issues
+            job.emit({
+                "event": "vitis.compile_errors",
+                "stage": "run",
+                "progress": 92,
+                "message": f"Vitis build log {len(issues)} issue ile eşleştirildi.",
+                "issues": issues,
+            })
             raise RuntimeError(
                 "XSCT workspace üretimi hata ile bitti "
                 f"(exit={completed.returncode}). Log: {stderr_log}"
             )
 
+        if job.result is not None:
+            job.result["compile_issues"] = []
         job.emit({
             "event": "vitis.done",
             "stage": "done",

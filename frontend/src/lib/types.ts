@@ -95,6 +95,17 @@ export interface KnowledgeAskResponse {
   grounded?: boolean;
 }
 
+export interface VitisCompileIssue {
+  severity: string;
+  category: string;
+  message: string;
+  suggestion: string;
+  file?: string;
+  line?: number | null;
+  symbol?: string;
+  raw?: string;
+}
+
 export interface VitisWorkspaceRequest {
   vitis_path: string;
   xsa_path: string;
@@ -128,7 +139,67 @@ export interface VitisWorkspaceResult {
     manifest_path: string;
     stdout_log: string;
     stderr_log: string;
+    compile_issues?: VitisCompileIssue[];
   } | null;
+}
+
+export interface TestbenchOperation {
+  name: string;
+  label: string;
+  description?: string;
+  risk: "safe" | "risky" | string;
+  implemented?: boolean;
+  fixed_read_length?: number;
+  requires_address?: boolean;
+  requires_length?: boolean;
+  requires_data?: boolean;
+  requires_register?: boolean;
+  requires_value?: boolean;
+}
+
+export interface TestbenchRegister {
+  name: string;
+  offset: number;
+  access?: string;
+  width?: number;
+}
+
+export interface TestbenchManifestDevice {
+  id: string;
+  part: string;
+  transport: string;
+  attach?: DeviceAttach;
+  registers: TestbenchRegister[];
+  operations: TestbenchOperation[];
+}
+
+export interface TestbenchManifest {
+  schema_version: string;
+  project: string;
+  protocol: string;
+  line_format: string;
+  devices: TestbenchManifestDevice[];
+}
+
+export interface TestbenchCommandRequest {
+  host: string;
+  port: number;
+  device: string;
+  operation: string;
+  command_id?: number;
+  register?: string;
+  register_address?: number | null;
+  address?: number | null;
+  length?: number | null;
+  value?: number | null;
+  data_hex?: string;
+  timeout_s?: number;
+}
+
+export interface TestbenchCommandResponse {
+  request_line: string;
+  response_line: string;
+  parsed: Record<string, string>;
 }
 
 export interface ProjectSpec {

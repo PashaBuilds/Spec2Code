@@ -20,6 +20,7 @@ Ana hedefler:
 - Desteklenen entegreler icin `.c/.h` driver ve test dosyalari uretmek.
 - Generated kodu sabit coding standard ve QC kontrollerinden gecirmek.
 - Gerekirse `.xsa` ile Vitis workspace olusturmak.
+- Gercek karta baglanan test bench agent uzerinden register ve operasyon seviyesinde okuma/yazma denemeleri yapmak.
 
 ## 2. Windows'ta Calistirma
 
@@ -100,6 +101,7 @@ Spec2Code kullanimi genelde su sirayla ilerler:
 7. Code viewer'da dosya agacini, QC sonucunu ve test/mock dosyalarini incele.
 8. Istersen tek dosya, tum output zip veya Vitis-ready paket indir.
 9. Istersen Vitis workspace paneliyle `.xsa` uzerinden workspace olustur.
+10. Kart tarafinda TCP test agent hazirsa **Test Bench** sayfasindan canli okuma/yazma denemeleri yap.
 
 ## 5. Setup Ekrani
 
@@ -221,6 +223,7 @@ Code viewer'da:
 - Vitis-ready export zip indirebilirsin.
 - QC bulgularini aktif dosya ozelinde gorebilirsin.
 - Mock harness dosyalarini hizli gorebilirsin.
+- Test bench manifest ve agent kaynaklarini `tests/` altinda gorebilirsin.
 
 Mock harness yok uyarisi gorursen:
 
@@ -229,7 +232,56 @@ Mock harness yok uyarisi gorursen:
   sureclerini kapatip yeni surumu tekrar ac.
 - Yeni generate calistirdigindan emin ol.
 
-## 11. Vitis Workspace Uretimi
+## 11. Test Bench
+
+Test Bench sayfasi, generate sonucu uretilen su manifest dosyasindan beslenir:
+
+```text
+tests/spec2code_testbench_manifest.json
+```
+
+Generate sonucu ayrica hedef uygulamaya eklenebilecek agent kaynaklari uretir:
+
+```text
+tests/spec2code_testbench_protocol.c/.h
+tests/<project>_testbench_ops.c/.h
+```
+
+Bu agent dosyalari kart tarafinda `spec2codeTestbenchDispatchLine()` fonksiyonunu
+sunar. Windows UI dogrudan donanima baglanmaz; TCP uzerinden karta bir satir
+komut gonderir. Kart tarafindaki kendi TCP server kodun bu satiri alip
+`spec2codeTestbenchDispatchLine()` fonksiyonuna vermeli ve olusan response satirini
+geri dondurmelidir.
+
+Komut formati:
+
+```text
+S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB
+```
+
+Test Bench sayfasinda:
+
+- Host, port ve timeout girilir.
+- Generate edilmis manifest icindeki entegre secilir.
+- Entegre icin gercekten uretilmis operasyonlar listelenir.
+- Register read/write icin register adi veya manuel register address verilebilir.
+- Flash/EEPROM gibi adresli islemlerde address, length ve data hex alanlari kullanilir.
+- Riskli islemler (`init`, `write`, `program`, `erase`) gonderilmeden once onay ister.
+- Response icindeki `ok`, `status`, `value`, `data` ve `message` alanlari okunabilir sekilde gosterilir.
+
+LTC2991 icin test bench uzerinden tipik faydali operasyonlar:
+
+- `voltage_read`: 8 kanal raw voltage code okur.
+- `current_read`: current-shunt veya differential kullanilan pair'ler icin raw channel code okur.
+- `temperature_read`: internal temperature raw code okur.
+- `vcc_read`: VCC raw code okur.
+- `register_read` / `register_write`: 8-bit register seviyesinde tek byte okuma/yazma yapar.
+
+`current_read` dogrudan amper hesaplamasi yapmaz. LTC2991'de akim, shunt uzerindeki
+differential raw code ve board tarafinda bilinen shunt milliohm degeriyle application
+katmaninda hesaplanmalidir.
+
+## 12. Vitis Workspace Uretimi
 
 Generate tamamlandiktan sonra **Vitis workspace** paneli gorunur.
 
@@ -269,7 +321,19 @@ bak. En sik hatalar:
 - Vitis surumunde template adinin farkli davranmasi.
 - BSP/toolchain eksigi.
 
-## 12. Kodlama Standardi
+Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
+ayri liste olarak gosterir:
+
+- Missing include/header.
+- Undefined reference.
+- Multiple definition.
+- Eksik veya uyumsuz `XPAR_*` macro.
+- Unknown type veya implicit function declaration.
+- Yanlis processor/XSA/platform secimi.
+
+Mapper raw log'u gizlemez; yalnizca ilk aksiyon alinacak ipucunu one cikarir.
+
+## 13. Kodlama Standardi
 
 Spec2Code sabit default coding standard kullanir. Kullanici Word, Markdown veya
 ayri JSON standard dokumani vermez.
@@ -298,7 +362,7 @@ Ozet kurallar:
 - Allman brace stili kullanilir.
 - Bitfield uyelerinde Hungarian prefix kullanilmaz.
 
-## 13. LLM Kullanimi
+## 14. LLM Kullanimi
 
 LLM varsayilan olarak kapali gelir. Acmak icin OpenAI-compatible endpoint,
 tam model adi ve gerekirse API key girilir.
@@ -313,7 +377,7 @@ LLM generate akisi icinde yardimci roldedir:
 - Aday dosya deterministic QC'den gecmeden kabul edilmez.
 - Aday reddedilirse mevcut deterministic output korunur.
 
-## 14. Air-gap Notlari
+## 15. Air-gap Notlari
 
 Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
 
@@ -328,7 +392,7 @@ Source uzerinden gelistirme yapacaksan GitHub Release icindeki source archive ve
 offline dependency cache gerekir. Bu kullanici paketinin konusu degildir; source
 developer akisi icin repo dokumanlarina bakilmalidir.
 
-## 15. Desteklenen Entegreler
+## 16. Desteklenen Entegreler
 
 Bu surumde desteklenen baslica entegreler:
 
@@ -350,7 +414,7 @@ Bu surumde desteklenen baslica entegreler:
 Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
 deterministik descriptor/codegen destegi yoktur.
 
-## 16. Sorun Giderme
+## 17. Sorun Giderme
 
 **Browser aciliyor ama eski surum gibi davranıyor**
 
@@ -377,6 +441,14 @@ deterministik descriptor/codegen destegi yoktur.
 - `.xsa` path'ini kontrol et.
 - Processor adinin XSA icindeki gercek processor instance adi oldugundan emin ol.
 - `_spec2code_staging\<job>\logs\xsct_stderr.log` dosyasini oku.
+- UI'da Vitis compile hata eslestirme listesi ciktiysa kategori ve oneriyi takip et.
+
+**Test Bench karta baglanmiyor**
+
+- Kart tarafinda TCP server'in calistigindan emin ol.
+- Host/port alanlari Windows makineden ulasilabilir olmalidir.
+- Firewall veya air-gap ag kurallarini kontrol et.
+- Kart server'i gelen satiri `spec2codeTestbenchDispatchLine()` fonksiyonuna iletmeli ve response satirini geri yazmalidir.
 
 **Mock harness yok uyarisi**
 
@@ -384,7 +456,7 @@ deterministik descriptor/codegen destegi yoktur.
 - Ustteki uygulama versiyonunu kontrol et.
 - Eski backend sureclerini kapatip yeni exe ile tekrar dene.
 
-## 17. Release Dosyalari
+## 18. Release Dosyalari
 
 Executable release zip'i sade tutulur:
 

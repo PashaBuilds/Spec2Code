@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, CircleDashed, Cpu, FolderCog, Loader2, Play, TerminalSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Cpu, FolderCog, Loader2, Play, TerminalSquare } from "lucide-react";
 import { Badge, Button, Input, Label } from "@/components/ui";
 import { api, openVitisSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
-import type { JobEvent, VitisWorkspaceResult } from "@/lib/types";
+import type { JobEvent, VitisCompileIssue, VitisWorkspaceResult } from "@/lib/types";
 
 const VITIS_STAGES = [
   { id: "locate", label: "XSCT", progress: 14 },
@@ -152,6 +152,38 @@ function VitisProgress({
   );
 }
 
+function CompileIssuesPanel({ issues }: { issues: VitisCompileIssue[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-md border border-danger/30 bg-danger/10">
+      <div className="flex items-center justify-between gap-2 border-b border-danger/20 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-danger" aria-hidden />
+          <span className="text-xs font-semibold text-danger">Vitis compile hata eşleştirme</span>
+        </div>
+        <Badge tone="danger">{issues.length} issue</Badge>
+      </div>
+      <div className="divide-y divide-danger/15">
+        {issues.slice(0, 8).map((issue, index) => (
+          <div key={`${issue.category}-${index}`} className="px-3 py-2 text-[11px] leading-relaxed">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <Badge tone="danger" className="font-mono">{issue.category}</Badge>
+              {issue.symbol ? <code className="rounded border border-danger/20 bg-bg px-1 py-0.5 font-mono text-text">{issue.symbol}</code> : null}
+              {issue.file ? (
+                <span className="min-w-0 break-all font-mono text-faint">
+                  {issue.file}{issue.line ? `:${issue.line}` : ""}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-text">{issue.message}</p>
+            <p className="mt-1 text-muted">{issue.suggestion}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const project = useStore((s) => s.project);
   const defaultProcessor = useMemo(
@@ -166,6 +198,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [compileIssues, setCompileIssues] = useState<VitisCompileIssue[]>([]);
   const [result, setResult] = useState<VitisWorkspaceResult["result"] | null>(null);
   const closeSocketRef = useRef<null | (() => void)>(null);
 
@@ -179,6 +212,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     try {
       const response = await api.vitisWorkspaceResult(vitisJobId);
       setResult(response.result);
+      setCompileIssues(response.result?.compile_issues ?? []);
       if (response.error) setError(response.error);
     } catch (err) {
       setError(fieldError(err));
@@ -190,6 +224,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     closeSocketRef.current?.();
     setEvents([]);
     setResult(null);
+    setCompileIssues([]);
     setError("");
     setRunning(true);
     localStorage.setItem("spec2code.vitisPath", vitisPath.trim());
@@ -213,6 +248,9 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           setEvents((current) => [...current, event]);
           if (event.event === "vitis.error" && typeof event.message === "string") {
             setError(event.message);
+          }
+          if (event.event === "vitis.compile_errors" && Array.isArray(event.issues)) {
+            setCompileIssues(event.issues as VitisCompileIssue[]);
           }
           if (event.event === "vitis.done") {
             void refreshResult(response.vitis_job_id);
@@ -310,6 +348,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
       {(events.length > 0 || error || result) && (
         <div className="mt-3">
           <VitisProgress events={events} running={running} error={error} />
+          <CompileIssuesPanel issues={compileIssues} />
         </div>
       )}
 

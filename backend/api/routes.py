@@ -19,7 +19,9 @@ from pydantic import BaseModel, Field
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
+from backend.testbench import TestbenchCommand, send_command
 from backend.validators.wiring import validate_wiring
+from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
 from catalog.matcher import scan_folder
 from hostplat import io as hio
@@ -78,6 +80,25 @@ class VitisWorkspaceRequest(BaseModel):
     runtime: str = ""
     app_name: str = ""
     timeout_s: int = 1800
+
+
+class VitisErrorMapRequest(BaseModel):
+    log: str
+
+
+class TestbenchCommandRequest(BaseModel):
+    host: str
+    port: int
+    device: str
+    operation: str
+    command_id: int = 1
+    register_name: str = Field("", alias="register")
+    register_address: int | None = None
+    address: int | None = None
+    length: int | None = None
+    value: int | None = None
+    data_hex: str = ""
+    timeout_s: float = 5.0
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -666,6 +687,37 @@ def vitis_workspace_result(vitis_job_id: str) -> dict:
         "status": job.status,
         "error": job.error,
         "result": job.result,
+    }
+
+
+@router.post("/vitis/compile-errors/map")
+def vitis_compile_errors_map(req: VitisErrorMapRequest) -> dict:
+    return {"issues": map_vitis_errors(req.log)}
+
+
+@router.post("/testbench/command")
+def testbench_command(req: TestbenchCommandRequest) -> dict:
+    try:
+        result = send_command(TestbenchCommand(
+            host=req.host,
+            port=req.port,
+            device=req.device,
+            operation=req.operation,
+            command_id=req.command_id,
+            register=req.register_name,
+            register_address=req.register_address,
+            address=req.address,
+            length=req.length,
+            value=req.value,
+            data_hex=req.data_hex,
+            timeout_s=req.timeout_s,
+        ))
+    except OSError as exc:
+        raise HTTPException(502, {"message": "testbench tcp failed", "error": str(exc)}) from exc
+    return {
+        "request_line": result.request_line,
+        "response_line": result.response_line,
+        "parsed": result.parsed,
     }
 
 

@@ -86,6 +86,12 @@ operations:
     steps:
       - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_channels, reg: V1_MSB, count: 8 }
+  - name: current_read
+    returns: "currents[8]"
+    description: "Read all eight raw channel codes for differential/current-shunt pairs; application converts selected pairs using configured shunt values."
+    steps:
+      - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
+      - { op: read_channels, reg: V1_MSB, count: 8 }
   - name: temperature_read
     returns: "uint16"
     description: "Read the internal temperature as a raw code."

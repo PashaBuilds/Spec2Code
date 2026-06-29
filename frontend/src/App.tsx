@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Boxes, Cpu, FileInput, Play, Loader2, Library } from "lucide-react";
+import { BookOpen, Boxes, Cpu, FileInput, Play, Loader2, Library, PlugZap } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -15,8 +15,9 @@ import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DriverImport from "@/features/driver-import/DriverImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
+import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 
-type View = "flow" | "knowledge" | "catalog" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -133,6 +134,13 @@ export default function App() {
             <Library className="h-4 w-4" /> Catalog
           </Button>
           <Button
+            variant={view === "testbench" ? "outline" : "ghost"}
+            size="sm"
+            onClick={() => setView(view === "testbench" ? "flow" : "testbench")}
+          >
+            <PlugZap className="h-4 w-4" /> Test Bench
+          </Button>
+          <Button
             variant={view === "import" ? "outline" : "ghost"}
             size="sm"
             onClick={() => setView(view === "import" ? "flow" : "import")}
@@ -166,6 +174,13 @@ export default function App() {
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Entegre kataloğu</h2>
             <div className="min-h-0 flex-1">
               <CatalogPanel mode="browse" />
+            </div>
+          </div>
+        ) : view === "testbench" ? (
+          <div className="flex h-full min-h-0 flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Test Bench</h2>
+            <div className="min-h-0 flex-1">
+              <TestBenchPanel />
             </div>
           </div>
         ) : view === "import" ? (

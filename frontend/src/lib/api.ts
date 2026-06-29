@@ -11,8 +11,11 @@ import type {
   ParseResult,
   PlatformInfo,
   ProjectSpec,
+  TestbenchCommandRequest,
+  TestbenchCommandResponse,
   DriverMatch,
   SpecValidation,
+  VitisCompileIssue,
   VitisWorkspaceRequest,
   VitisWorkspaceResult,
 } from "./types";
@@ -106,6 +109,18 @@ export const api = {
 
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
+
+  mapVitisCompileErrors: (log: string) =>
+    req<{ issues: VitisCompileIssue[] }>("/api/vitis/compile-errors/map", {
+      method: "POST",
+      body: JSON.stringify({ log }),
+    }),
+
+  testbenchCommand: (payload: TestbenchCommandRequest) =>
+    req<TestbenchCommandResponse>("/api/testbench/command", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
