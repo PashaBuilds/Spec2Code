@@ -450,7 +450,10 @@ def make_descriptor_loader(root: Path = _ROOT) -> Callable[[str], dict]:
         if ref_or_part.endswith((".yaml", ".yml")) or "/" in ref_or_part:
             path = root / ref_or_part
         else:
-            path = root / "descriptors" / f"{cmodel._module_of(ref_or_part)}.yaml"
+            descriptor_name = "".join(ch.lower() for ch in ref_or_part if ch.isalnum())
+            path = root / "descriptors" / f"{descriptor_name}.yaml"
+            if not path.is_file():
+                path = root / "descriptors" / f"{cmodel._module_of(ref_or_part)}.yaml"
         key = str(path)
         if key not in cache:
             if not path.is_file():

@@ -13,7 +13,7 @@ interface ByteFrame {
   role: ByteRole;
 }
 
-const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "DS1682", "LTC2945"]);
+const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "TMP101", "SHT21", "24LC32A", "DS1682", "LTC2945"]);
 const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "ADAR1000", "LMK04832", "LMX2820", "LMX1204"]);
 
 function protocolForPart(part: string): Protocol | null {

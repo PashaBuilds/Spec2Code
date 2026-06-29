@@ -416,7 +416,7 @@ def knowledge_ask(req: KnowledgeAskRequest) -> dict:
         raise HTTPException(400, {"message": "llm invalid", "errors": llm_errors[:10]})
 
     config = LlmConfig.resolve(req.llm)
-    max_context_chars = 90_000
+    max_context_chars = 220_000
     if len(context) > max_context_chars:
         context = context[:max_context_chars] + "\n[context burada kesildi]"
 

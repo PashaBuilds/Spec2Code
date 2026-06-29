@@ -120,6 +120,9 @@ class KnowledgeInventoryTests(unittest.TestCase):
         ltc2945 = descriptor("ltc2945")
         ad7414 = descriptor("ad7414")
         adar1000 = descriptor("adar1000")
+        tmp101 = descriptor("tmp101")
+        sht21 = descriptor("sht21")
+        lc32a = descriptor("24lc32a")
 
         self.assertEqual(len(ltc2991["registers"]), 30)
         self.assertIn("PWM_T_INTERNAL_CONTROL", {row["name"] for row in ltc2991["registers"]})
@@ -138,6 +141,28 @@ class KnowledgeInventoryTests(unittest.TestCase):
         self.assertEqual(ad7414_resets["THIGH"], 0x7F)
         self.assertEqual(ad7414_resets["TLOW"], 0x80)
 
+        self.assertEqual(len(tmp101["registers"]), 4)
+        tmp101_offsets = {row["name"]: row["offset"] for row in tmp101["registers"]}
+        self.assertEqual(tmp101_offsets["TEMPERATURE"], 0x00)
+        self.assertEqual(tmp101_offsets["CONFIGURATION"], 0x01)
+        self.assertEqual(tmp101_offsets["TLOW"], 0x02)
+        self.assertEqual(tmp101_offsets["THIGH"], 0x03)
+
+        self.assertEqual(len(sht21["registers"]), 7)
+        sht21_offsets = {row["name"]: row["offset"] for row in sht21["registers"]}
+        self.assertEqual(sht21_offsets["TRIGGER_T_HOLD"], 0xE3)
+        self.assertEqual(sht21_offsets["TRIGGER_RH_HOLD"], 0xE5)
+        self.assertEqual(sht21_offsets["TRIGGER_T_NO_HOLD"], 0xF3)
+        self.assertEqual(sht21_offsets["TRIGGER_RH_NO_HOLD"], 0xF5)
+        self.assertEqual(sht21_offsets["USER_REGISTER_READ"], 0xE7)
+        self.assertEqual(sht21_offsets["USER_REGISTER_WRITE"], 0xE6)
+        self.assertEqual(sht21_offsets["SOFT_RESET"], 0xFE)
+
+        self.assertEqual(len(lc32a["registers"]), 3)
+        self.assertEqual(lc32a["memory"]["size_bytes"], 4096)
+        self.assertEqual(lc32a["memory"]["page_size"], 32)
+        self.assertEqual(lc32a["memory"]["address_bits"], 12)
+
         self.assertEqual(len(adar1000["registers"]), 78)
         adar1000_offsets = {row["name"]: row["offset"] for row in adar1000["registers"]}
         self.assertEqual(adar1000_offsets["RX_ENABLES"], 0x2E)
@@ -151,6 +176,9 @@ class KnowledgeInventoryTests(unittest.TestCase):
         ds1682 = function_section("ds1682Registers")
         ltc2991 = function_section("ltc2991Registers")
         adar1000 = section("ADAR1000_REGISTER_ROWS")
+        tmp101 = function_section("tmp101Registers")
+        sht21 = function_section("sht21Registers")
+        lc32a = function_section("lc32aRegisters")
 
         self.assertEqual(len(re.findall(r'name: "[A-Z0-9_]+"', mt25q)), 82)
         for required in [
@@ -175,6 +203,13 @@ class KnowledgeInventoryTests(unittest.TestCase):
         self.assertIn("PWM_THRESHOLD_MSB", ltc2991)
         self.assertIn("Array.from({ length: 10 }", ds1682)
         self.assertIn('registers: mt25qRegisters("MT25QU02G")', text)
+        self.assertIn("OS_ALERT", tmp101)
+        self.assertIn("R[1:0]", tmp101)
+        self.assertIn("TRIGGER_T_HOLD", sht21)
+        self.assertIn("USER_REGISTER", sht21)
+        self.assertIn("SOFT_RESET", sht21)
+        self.assertIn("PAGE_WRITE", lc32a)
+        self.assertIn("ACK_POLL", lc32a)
 
         for required in [
             "RX_ENABLES",

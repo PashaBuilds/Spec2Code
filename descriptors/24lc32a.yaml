@@ -1,0 +1,35 @@
+descriptor_version: "1.0"
+part: "24LC32A"
+manufacturer: "Microchip"
+summary: "32-Kbit I2C serial EEPROM with 12-bit word address and 32-byte page buffer."
+transport:
+  type: i2c
+  address_width: 16
+  default_address: 0x50      # A2:A0 strapped low; control code is 1010b.
+  byte_order: big
+memory:
+  size_bytes: 4096
+  page_size: 32
+  address_bits: 12
+registers:
+  - { name: MEMORY_ARRAY, offset: 0x0000, width: 32768, access: rw,
+      fields: [ { name: WORD_ADDRESS, bits: "A11:A0" }, { name: DATA, bits: "D7:D0" } ] }
+  - { name: CONTROL_BYTE, offset: 0x50, width: 8, access: rw,
+      fields: [
+        { name: CONTROL_CODE, bits: "7:4" },
+        { name: CHIP_SELECT, bits: "3:1" },
+        { name: R_W, bits: "0" } ] }
+  - { name: ACK_POLL, offset: 0x50, width: 0, access: ro }
+operations:
+  - name: device_init
+    description: "Initialize the I2C controller; EEPROM has no mandatory startup command."
+    steps:
+      - { op: comment, note: "WP pin controls whether writes are accepted." }
+  - name: data_read
+    description: "Read an arbitrary memory range using random-read addressing followed by sequential data bytes."
+  - name: byte_write
+    description: "Write one byte and wait until the internal write cycle acknowledges again."
+  - name: page_write
+    description: "Write up to 32 bytes inside one physical EEPROM page and ACK-poll the internal write cycle."
+test_hints:
+  self_test: { description: "Read 16 bytes from address 0 without modifying EEPROM contents." }

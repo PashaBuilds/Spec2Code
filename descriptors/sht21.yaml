@@ -1,0 +1,60 @@
+descriptor_version: "1.0"
+part: "SHT21"
+manufacturer: "Sensirion"
+summary: "I2C humidity and temperature sensor with command-based measurements."
+transport:
+  type: i2c
+  address_width: 8
+  default_address: 0x40
+  byte_order: big
+access_primitives:
+  read_register:  { pattern: command_then_read, width_bytes: 1 }
+  write_register: { pattern: command_then_data, width_bytes: 1 }
+registers:
+  - { name: TRIGGER_T_HOLD, offset: 0xE3, width: 24, access: ro,
+      fields: [ { name: T_RAW, bits: "23:8" }, { name: CRC8, bits: "7:0" } ] }
+  - { name: TRIGGER_RH_HOLD, offset: 0xE5, width: 24, access: ro,
+      fields: [ { name: RH_RAW, bits: "23:8" }, { name: CRC8, bits: "7:0" } ] }
+  - { name: TRIGGER_T_NO_HOLD, offset: 0xF3, width: 24, access: ro,
+      fields: [ { name: T_RAW, bits: "23:8" }, { name: CRC8, bits: "7:0" } ] }
+  - { name: TRIGGER_RH_NO_HOLD, offset: 0xF5, width: 24, access: ro,
+      fields: [ { name: RH_RAW, bits: "23:8" }, { name: CRC8, bits: "7:0" } ] }
+  - { name: USER_REGISTER_READ, offset: 0xE7, width: 8, access: ro, reset: 0x02,
+      fields: [
+        { name: RES1, bits: "7" },
+        { name: END_OF_BATTERY, bits: "6" },
+        { name: RESERVED_5_3, bits: "5:3" },
+        { name: HEATER, bits: "2" },
+        { name: OTP_RELOAD_DISABLE, bits: "1" },
+        { name: RES0, bits: "0" } ] }
+  - { name: USER_REGISTER_WRITE, offset: 0xE6, width: 8, access: wo,
+      fields: [
+        { name: RES1, bits: "7" },
+        { name: END_OF_BATTERY, bits: "6" },
+        { name: RESERVED_5_3, bits: "5:3" },
+        { name: HEATER, bits: "2" },
+        { name: OTP_RELOAD_DISABLE, bits: "1" },
+        { name: RES0, bits: "0" } ] }
+  - { name: SOFT_RESET, offset: 0xFE, width: 0, access: wo }
+operations:
+  - name: device_init
+    description: "Initialize the I2C controller; SHT21 has no mandatory startup register write."
+    steps:
+      - { op: comment, note: "Use soft reset only when the application explicitly wants to reinitialize the sensor." }
+  - name: temperature_read
+    returns: "uint32"
+    description: "Issue hold-master temperature command and read MSB, LSB/status, and CRC byte."
+    steps:
+      - { op: read_registers, reg: TRIGGER_T_HOLD, length: 3 }
+  - name: humidity_read
+    returns: "uint32"
+    description: "Issue hold-master humidity command and read MSB, LSB/status, and CRC byte."
+    steps:
+      - { op: read_registers, reg: TRIGGER_RH_HOLD, length: 3 }
+  - name: user_register_read
+    returns: "uint8"
+    description: "Read measurement resolution, battery, heater, and OTP reload bits."
+    steps:
+      - { op: read_register, reg: USER_REGISTER_READ }
+test_hints:
+  self_test: { description: "Read user register and one raw measurement frame." }

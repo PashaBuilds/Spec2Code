@@ -54,8 +54,9 @@ xparameters.h
 
 Dosya vermesen bile kod üretilebilmesinin sebebi budur: üretim, mevcut
 `descriptors/*.yaml` dosyaları ve `orchestrator/templates/*.j2` template'leri ile
-deterministik yapılır. Yani LTC2991, TCA9548A, MT25Q128, AD7414, DS1682 ve
-LTC2945 gibi desteklenen cihazlar için hazır descriptor varsa dış kaynak dosyaya
+deterministik yapılır. Yani LTC2991, TCA9548A, MT25Q128, MT25QU02G, AD7414,
+TMP101, SHT21, 24LC32A, DS1682, LTC2945, ADAR1000, LMK04832, LMX2820 ve
+LMX1204 gibi desteklenen cihazlar için hazır descriptor varsa dış kaynak dosyaya
 ihtiyaç yoktur.
 
 Senin verdiğin `.c/.h` dosyalar **Import** ekranında taranır ve parça ile
@@ -116,11 +117,14 @@ repo'ya girdikten sonra UI ve ileride codegen kararları aynı statik kaynaktan
 beslenir. Bilgi paketleri Catalog ekranındaki **Open knowledge** bölümü üzerinden
 okunabilir; schematic ekranı bağlantı ve cihaz konfigürasyonu için sade tutulur.
 
-LTC2991 knowledge panelinde ayrıca deterministik **Pin Map** sekmesi bulunur. Bu
-sekme MSOP-16 top-view pin haritasını, V1/V2..V7/V8 measurement pair gruplarını
-ve mevcut device config'e göre single-ended/differential/current/temp durumunu
-gösterir. Bu çizim AI görseli değildir; pin ve metin doğruluğu için React/SVG
-ile üretilir.
+Knowledge panelinde ayrıca deterministik **Pin Map**, **Driver view** ve
+**Bus transaction** görünümü bulunur. Bu çizimler AI görseli değildir; pin,
+register ve transaction doğruluğu için React/SVG ile üretilir.
+
+Bilgi soru merkezinde lokal OpenAI uyumlu modele en fazla 220.000 karakter
+doğrulanmış catalog context'i gönderilir. Bu limit Qwen 256K sınıfı modeller için
+tasarlanmıştır; daha küçük context window'a sahip modellerde soruyu daraltmak
+gerekebilir.
 
 ## Kodlama Standardı Nasıl Çalışır?
 

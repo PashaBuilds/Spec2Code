@@ -66,6 +66,8 @@ const ASK_STAGES = [
   },
 ] as const;
 
+const KNOWLEDGE_CONTEXT_LIMIT_CHARS = 220_000;
+
 type AskStageId = (typeof ASK_STAGES)[number]["id"] | "done" | "error";
 
 type AskProgressState = {
@@ -545,6 +547,9 @@ export default function KnowledgeAskPanel({
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
             Soru serbesttir; cevap context olarak sadece doğrulanmış katalog bilgi paketi, register, bit field, reçete ve driver view satırlarından beslenir.
+          </p>
+          <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-warn">
+            Bilgi notu: Knowledge Ask en fazla {KNOWLEDGE_CONTEXT_LIMIT_CHARS.toLocaleString("tr-TR")} karakter context gönderir. Qwen 256K için uygundur; daha küçük modellerde soru daha dar tutulmalıdır.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">

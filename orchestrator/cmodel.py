@@ -121,6 +121,8 @@ class CUnit:
 
 def _module_of(part: str) -> str:
     mod = "".join(ch.lower() for ch in part if ch.isalnum())
+    if mod and not mod[0].isalpha():
+        mod = f"dev{mod}"
     if not mod or not mod[0].isalpha():
         raise CodegenError(f"cannot derive a valid C module name from part '{part}'")
     return mod
@@ -560,6 +562,166 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         defines=defines, funcs=funcs, public_names=public, private_decls=private_decls)
 
 
+def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
+                     mux_module: Optional[str], mux_channel: Optional[int]) -> CUnit:
+    module = _module_of(device["part"])
+    htype, hvar = _handle_for(controller)
+    MOD = module.upper()
+    attach = device["attach"]
+    instance = controller["instance"]
+    addr_def = f"{MOD}_I2C_ADDR"
+    sclk_def = f"{MOD}_I2C_SCLK_HZ"
+    to_def = f"{MOD}_POLL_TIMEOUT"
+    size_def = f"{MOD}_MEMORY_SIZE_BYTES"
+    page_def = f"{MOD}_PAGE_SIZE_BYTES"
+    memory = descriptor.get("memory", {})
+    size_bytes = int(memory.get("size_bytes", 4096))
+    page_size = int(memory.get("page_size", 32))
+
+    defines = [
+        (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
+        (sclk_def, "100000U", "I2C SCL frequency (Hz)"),
+        (to_def, "100000U", "polling loop budget"),
+        (size_def, f"{size_bytes}U", "EEPROM memory size"),
+        (page_def, f"{page_size}U", "EEPROM physical page size"),
+    ]
+
+    def inject_mux(e: Emit) -> None:
+        if mux_module is not None:
+            e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({hvar}, {mux_channel}U);").check_status()
+
+    funcs: list[CFunc] = []
+    public: list[str] = []
+
+    init = Emit()
+    init.ln("int iStatus;")
+    init.ln(f"{htype}_Config* spConfig;")
+    init.blank()
+    init.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
+    init.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+    init.ln(f"iStatus = XIicPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+    init.ln(f"iStatus = XIicPs_SetSClk({hvar}, {sclk_def});").check_status()
+    init.ln("return XST_SUCCESS;")
+    funcs.append(CFunc(
+        name=_func_name(module, "device_init"), ret="int", params=[f"{htype}* {hvar}"], body=init.out(),
+        brief="Initialize the I2C controller for EEPROM access.",
+        doxy_params=[(hvar, "Initialized I2C controller handle.")],
+        doxy_return="XST_SUCCESS on success, else an XST_* error code."))
+    public.append(_func_name(module, "device_init"))
+
+    ack = Emit()
+    ack.ln("unsigned char ucArrAddress[2];")
+    ack.ln("unsigned int uiTimeout;")
+    ack.ln("int iStatus;")
+    ack.blank()
+    ack.ln("ucArrAddress[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
+    ack.ln("ucArrAddress[1] = (unsigned char)(uiAddress & 0xFFU);")
+    ack.ln(f"uiTimeout = {to_def};")
+    ack.open("do")
+    ack.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrAddress, 2, {addr_def});")
+    ack.open("if (iStatus == XST_SUCCESS)")
+    ack.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    ack.ln("return XST_SUCCESS;")
+    ack.close()
+    ack.open("if (uiTimeout == 0U)").ln("return XST_FAILURE;").close()
+    ack.ln("uiTimeout--;")
+    ack.close(" while (iStatus != XST_SUCCESS);")
+    ack.ln("return XST_FAILURE;")
+    funcs.append(CFunc(
+        name=_func_name(module, "ack_poll"), ret="int",
+        params=[f"{htype}* {hvar}", "unsigned int uiAddress"], body=ack.out(),
+        brief="Poll until the EEPROM internal write cycle accepts I2C traffic again.",
+        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "Word address used for the harmless pointer write.")],
+        doxy_return="XST_SUCCESS when the EEPROM acknowledges, else XST_FAILURE.", static=True))
+
+    read = Emit()
+    read.ln("unsigned char ucArrAddress[2];")
+    read.ln("int iStatus;")
+    read.blank()
+    read.open(f"if ((ucpBuffer == NULL) || (uiLength == 0U) || (uiAddress >= {size_def}) || ((uiAddress + uiLength) > {size_def}))")
+    read.ln("return XST_FAILURE;")
+    read.close()
+    inject_mux(read)
+    read.ln("ucArrAddress[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
+    read.ln("ucArrAddress[1] = (unsigned char)(uiAddress & 0xFFU);")
+    read.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrAddress, 2, {addr_def});").check_status()
+    read.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    read.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});").check_status()
+    read.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    read.ln("return XST_SUCCESS;")
+    funcs.append(CFunc(
+        name=_func_name(module, "data_read"), ret="int",
+        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "unsigned char* ucpBuffer", "unsigned int uiLength"],
+        body=read.out(),
+        brief="Read bytes from the EEPROM using random-read addressing followed by sequential read.",
+        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+                     ("ucpBuffer", "Output buffer."), ("uiLength", "Number of bytes to read.")],
+        doxy_return="XST_SUCCESS on success, else an XST_* error code."))
+    public.append(_func_name(module, "data_read"))
+
+    byte = Emit()
+    byte.ln("unsigned char ucArrBuffer[3];")
+    byte.ln("int iStatus;")
+    byte.blank()
+    byte.open(f"if (uiAddress >= {size_def})").ln("return XST_FAILURE;").close()
+    inject_mux(byte)
+    byte.ln("ucArrBuffer[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
+    byte.ln("ucArrBuffer[1] = (unsigned char)(uiAddress & 0xFFU);")
+    byte.ln("ucArrBuffer[2] = ucValue;")
+    byte.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 3, {addr_def});").check_status()
+    byte.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    byte.ln(f"iStatus = {_func_name(module, 'ack_poll')}({hvar}, uiAddress);").check_status()
+    byte.ln("return XST_SUCCESS;")
+    funcs.append(CFunc(
+        name=_func_name(module, "byte_write"), ret="int",
+        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "unsigned char ucValue"],
+        body=byte.out(),
+        brief="Write one EEPROM byte and poll until the internal write cycle finishes.",
+        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+                     ("ucValue", "Byte value to program.")],
+        doxy_return="XST_SUCCESS on success, else an XST_* error code."))
+    public.append(_func_name(module, "byte_write"))
+
+    page = Emit()
+    page.ln("unsigned char ucArrBuffer[34];")
+    page.ln("unsigned int uiIndex;")
+    page.ln("int iStatus;")
+    page.blank()
+    page.open(f"if ((ucpBuffer == NULL) || (uiLength == 0U) || (uiLength > {page_def}) || (uiAddress >= {size_def}) || ((uiAddress + uiLength) > {size_def}))")
+    page.ln("return XST_FAILURE;")
+    page.close()
+    page.open(f"if (((uiAddress % {page_def}) + uiLength) > {page_def})")
+    page.ln("return XST_FAILURE;")
+    page.close()
+    inject_mux(page)
+    page.ln("ucArrBuffer[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
+    page.ln("ucArrBuffer[1] = (unsigned char)(uiAddress & 0xFFU);")
+    page.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)")
+    page.ln("ucArrBuffer[uiIndex + 2U] = ucpBuffer[uiIndex];")
+    page.close()
+    page.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, (int)(uiLength + 2U), {addr_def});").check_status()
+    page.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    page.ln(f"iStatus = {_func_name(module, 'ack_poll')}({hvar}, uiAddress);").check_status()
+    page.ln("return XST_SUCCESS;")
+    funcs.append(CFunc(
+        name=_func_name(module, "page_write"), ret="int",
+        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "const unsigned char* ucpBuffer", "unsigned int uiLength"],
+        body=page.out(),
+        brief="Write up to one EEPROM page without crossing a physical page boundary.",
+        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+                     ("ucpBuffer", "Input buffer."), ("uiLength", "Number of bytes to write, maximum one page.")],
+        doxy_return="XST_SUCCESS on success, else an XST_* error code."))
+    public.append(_func_name(module, "page_write"))
+
+    includes_c = [f"{module}.h", "xparameters.h", "xstatus.h"]
+    if mux_module:
+        includes_c.insert(1, f"{mux_module}.h")
+    return CUnit(
+        module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c_eeprom",
+        header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
+        defines=defines, funcs=funcs, public_names=public)
+
+
 # --- SPI device unit (NOR flash) --------------------------------------------------------
 
 def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: str) -> list[CFunc]:
@@ -936,9 +1098,12 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     def is_array_read(name: str) -> bool:
         return any("[ucIndex]" in line for line in funcs_by_name.get(name, CFunc("", "", [], [])).body)
 
+    def has_uint_out(name: str) -> bool:
+        return any("unsigned int*" in param for param in funcs_by_name.get(name, CFunc("", "", [], [])).params)
+
     st = Emit()
     st.ln("int iStatus;")
-    if unit.transport == "i2c":
+    if unit.transport in {"i2c", "i2c_eeprom"}:
         if any(n.endswith("ConfigRead") for n in read_ops):
             st.ln("unsigned char ucConfig;")
         if any(n.endswith("StatusRead") for n in read_ops):
@@ -947,8 +1112,14 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned short usArrVoltages[8];")
         if any(n.endswith("VoltageRead") and not is_array_read(n) for n in read_ops):
             st.ln("unsigned short usVoltage;")
-        if any(n.endswith("TemperatureRead") for n in read_ops):
+        if any(n.endswith("TemperatureRead") and has_uint_out(n) for n in read_ops):
+            st.ln("unsigned int uiTemperature;")
+        if any(n.endswith("TemperatureRead") and not has_uint_out(n) for n in read_ops):
             st.ln("unsigned short usTemperature;")
+        if any(n.endswith("HumidityRead") for n in read_ops):
+            st.ln("unsigned int uiHumidity;")
+        if any(n.endswith("UserRegisterRead") for n in read_ops):
+            st.ln("unsigned char ucUser;")
         if any(n.endswith("PowerRead") for n in read_ops):
             st.ln("unsigned int uiPower;")
         if any(n.endswith("SenseRead") for n in read_ops):
@@ -961,6 +1132,8 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned int uiAlarm;")
         if any(n.endswith("EventRead") for n in read_ops):
             st.ln("unsigned int uiEvent;")
+        if any(n.endswith("DataRead") for n in read_ops):
+            st.ln("unsigned char ucArrBuffer[16];")
     else:
         if any(n.endswith("IdRead") for n in read_ops):
             st.ln("unsigned char ucArrId[3];")
@@ -983,8 +1156,18 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
                 st.ln(f"iStatus = {name}({hvar}, &usVoltage);").check_status()
                 st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)usVoltage);')
         elif name.endswith("TemperatureRead"):
-            st.ln(f"iStatus = {name}({hvar}, &usTemperature);").check_status()
-            st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)usTemperature);')
+            if has_uint_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &uiTemperature);").check_status()
+                st.ln('xil_printf("' + part + ' temperature raw = %lu\\r\\n", (unsigned long)uiTemperature);')
+            else:
+                st.ln(f"iStatus = {name}({hvar}, &usTemperature);").check_status()
+                st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)usTemperature);')
+        elif name.endswith("HumidityRead"):
+            st.ln(f"iStatus = {name}({hvar}, &uiHumidity);").check_status()
+            st.ln('xil_printf("' + part + ' humidity raw = %lu\\r\\n", (unsigned long)uiHumidity);')
+        elif name.endswith("UserRegisterRead"):
+            st.ln(f"iStatus = {name}({hvar}, &ucUser);").check_status()
+            st.ln('xil_printf("' + part + ' user register = %02X\\r\\n", ucUser);')
         elif name.endswith("PowerRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiPower);").check_status()
             st.ln('xil_printf("' + part + ' power raw = %lu\\r\\n", (unsigned long)uiPower);')
@@ -1091,7 +1274,10 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                 if mux is None:
                     raise CodegenError(f"device {device['id']} via unknown mux {via['mux_id']}")
                 mux_module, mux_channel = _module_of(mux["part"]), via["channel"]
-            unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel)
+            if descriptor.get("memory"):
+                unit = _i2c_eeprom_unit(device, controller, descriptor, mux_module, mux_channel)
+            else:
+                unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel)
         elif transport == "spi":
             if tics.has_tics_register_model(descriptor):
                 unit = _spi_register_device_unit(device, controller, descriptor)

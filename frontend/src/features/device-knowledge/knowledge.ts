@@ -151,7 +151,8 @@ const signValues = ["0: pozitif veya non-negative code", "1: negatif code"];
 const unusedValues = ["x: kullanılmaz; conversion hesabına dahil edilmez"];
 
 function cModule(part: string) {
-  return part.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const mod = part.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return mod && !/^[a-z]/.test(mod) ? `dev${mod}` : mod;
 }
 
 function cPrefix(part: string) {
@@ -1678,6 +1679,230 @@ function adar1000RegisterTransfers(reg: KnowledgeRegister): KnowledgeRegisterTra
   return transfers;
 }
 
+function tmp101TemperatureFields(prefix: string): KnowledgeRegisterField[] {
+  return [
+    { bits: "Byte1 D7:D0", name: `${prefix}[11:4]`, meaning: "12-bit two's-complement sıcaklık/threshold kodunun üst sekiz biti." },
+    { bits: "Byte2 D7:D4", name: `${prefix}[3:0]`, meaning: "12-bit sıcaklık/threshold kodunun alt dört biti." },
+    { bits: "Byte2 D3:D0", name: "ZERO_PAD", meaning: "Datasheet formatında 0 okunur/yazılır; sıcaklık hesabına dahil edilmez.", values: ["0000: normal", "diğer: kullanma / ignore"] },
+  ];
+}
+
+function tmp101Registers(): KnowledgeRegister[] {
+  return [
+    {
+      name: "TEMPERATURE",
+      address: "0x00",
+      width: "16",
+      access: "RO",
+      reset: "0x0000",
+      purpose: "Son conversion sonucunu 12-bit two's-complement sıcaklık kodu olarak verir.",
+      fields: tmp101TemperatureFields("TEMP"),
+    },
+    {
+      name: "CONFIGURATION",
+      address: "0x01",
+      width: "8",
+      access: "RW",
+      reset: "0x00; OS/ALERT readback power-up sonrası 1 olabilir",
+      purpose: "Shutdown, one-shot, resolution, fault queue, ALERT polarity ve thermostat mode ayarları.",
+      fields: [
+        {
+          bits: "D7",
+          name: "OS_ALERT",
+          meaning: "Write tarafında shutdown modundayken one-shot conversion başlatır; read tarafında comparator status/ALERT durumunu bildirir.",
+          values: [
+            "write 0: one-shot başlatma yok",
+            "write 1: SD=1 iken tek conversion başlat",
+            "read POL=0: 1 normal, 0 THIGH fault aktif",
+            "read POL=1: okunan polarite terslenir",
+          ],
+        },
+        {
+          bits: "D6:D5",
+          name: "R[1:0]",
+          meaning: "ADC resolution ve tipik conversion time seçimi.",
+          values: ["00: 9 bit, 0.5 C, 40 ms", "01: 10 bit, 0.25 C, 80 ms", "10: 11 bit, 0.125 C, 160 ms", "11: 12 bit, 0.0625 C, 320 ms"],
+        },
+        {
+          bits: "D4:D3",
+          name: "F[1:0]",
+          meaning: "ALERT üretmeden önce gereken ardışık fault measurement sayısı.",
+          values: ["00: 1 fault", "01: 2 fault", "10: 4 fault", "11: 6 fault"],
+        },
+        { bits: "D2", name: "POL", meaning: "TMP101 ALERT pininin aktif seviyesini seçer.", values: ["0: active low", "1: active high"] },
+        { bits: "D1", name: "TM", meaning: "Thermostat mode seçimi.", values: ["0: comparator mode", "1: interrupt mode; alert read/SMBus alert ile clear edilir"] },
+        { bits: "D0", name: "SD", meaning: "Shutdown mode kontrolü.", values: ["0: continuous conversion", "1: shutdown; serial interface açık kalır"] },
+      ],
+    },
+    {
+      name: "TLOW",
+      address: "0x02",
+      width: "16",
+      access: "RW",
+      reset: "0x4B00",
+      purpose: "ALERT alt eşik değeri; power-up default 75 C.",
+      fields: tmp101TemperatureFields("L"),
+    },
+    {
+      name: "THIGH",
+      address: "0x03",
+      width: "16",
+      access: "RW",
+      reset: "0x5000",
+      purpose: "ALERT üst eşik değeri; power-up default 80 C.",
+      fields: tmp101TemperatureFields("H"),
+    },
+  ];
+}
+
+const sht21MeasurementFields = (label: string): KnowledgeRegisterField[] => [
+  { bits: "Byte0 D7:D0", name: `${label}[15:8]`, meaning: "Ham ölçüm sonucunun MSB byte'ı." },
+  { bits: "Byte1 D7:D2", name: `${label}[7:2]`, meaning: "Ham ölçüm sonucunun alt data bitleri; fiziksel değere çevirmeden önce status bitleri temizlenmelidir." },
+  { bits: "Byte1 D1", name: "MEAS_TYPE", meaning: "Ölçüm tipini bildirir.", values: ["0: temperature", "1: humidity"] },
+  { bits: "Byte1 D0", name: "STATUS_RESERVED", meaning: "Şu an atanmış değildir; fiziksel hesapta 0 kabul edilmelidir.", values: ["0: normal", "1: reserved / hesapta temizle"] },
+  { bits: "Byte2 D7:D0", name: "CRC8", meaning: "MSB ve LSB/status byte'ları için CRC-8 checksum; polynomial x8 + x5 + x4 + 1." },
+];
+
+function sht21Registers(): KnowledgeRegister[] {
+  return [
+    {
+      name: "TRIGGER_T_HOLD",
+      address: "0xE3",
+      width: "24",
+      access: "RO",
+      purpose: "Hold-master temperature measurement komutu; sensör ölçüm boyunca SCL hattını tutabilir.",
+      fields: sht21MeasurementFields("T_RAW"),
+    },
+    {
+      name: "TRIGGER_RH_HOLD",
+      address: "0xE5",
+      width: "24",
+      access: "RO",
+      purpose: "Hold-master relative humidity measurement komutu; sensör ölçüm boyunca SCL hattını tutabilir.",
+      fields: sht21MeasurementFields("RH_RAW"),
+    },
+    {
+      name: "TRIGGER_T_NO_HOLD",
+      address: "0xF3",
+      width: "24",
+      access: "RO",
+      purpose: "No-hold temperature measurement komutu; master ölçüm bitene kadar read address ile ACK polling yapar.",
+      fields: sht21MeasurementFields("T_RAW"),
+    },
+    {
+      name: "TRIGGER_RH_NO_HOLD",
+      address: "0xF5",
+      width: "24",
+      access: "RO",
+      purpose: "No-hold relative humidity measurement komutu; master ölçüm bitene kadar read address ile ACK polling yapar.",
+      fields: sht21MeasurementFields("RH_RAW"),
+    },
+    {
+      name: "USER_REGISTER",
+      address: "read 0xE7 / write 0xE6",
+      width: "8",
+      access: "RW",
+      reset: "0x02",
+      purpose: "Measurement resolution, end-of-battery flag, heater ve OTP reload davranışını taşır.",
+      fields: [
+        { bits: "D7,D0", name: "RES[1:0]", meaning: "Measurement resolution seçimi.", values: ["00: RH 12 bit / T 14 bit", "01: RH 8 bit / T 12 bit", "10: RH 10 bit / T 13 bit", "11: RH 11 bit / T 11 bit"] },
+        { bits: "D6", name: "END_OF_BATTERY", meaning: "Besleme seviyesi düşük flag'i; measurement sonrasında güncellenir.", values: ["0: VDD > 2.25 V", "1: VDD < 2.25 V"] },
+        { bits: "D5:D3", name: "RESERVED", meaning: "Reserved bitlerdir; user register yazmadan önce mevcut değer okunup korunmalıdır." },
+        { bits: "D2", name: "HEATER", meaning: "On-chip heater diagnostic amaçlı enable edilir.", values: ["0: heater off", "1: heater on"] },
+        { bits: "D1", name: "OTP_RELOAD_DISABLE", meaning: "OTP reload güvenlik davranışını kontrol eder.", values: ["0: her measurement öncesi OTP reload aktif", "1: OTP reload disabled; önerilen default değildir"] },
+      ],
+    },
+    {
+      name: "SOFT_RESET",
+      address: "0xFE",
+      width: "0",
+      access: "WO",
+      purpose: "Sensörü power cycle olmadan yeniden başlatır; işlem 15 ms'den kısa sürer.",
+      fields: [{ bits: "Command", name: "0xFE", meaning: "Soft reset command byte'ıdır; data payload yoktur." }],
+    },
+  ];
+}
+
+function lc32aRegisters(): KnowledgeRegister[] {
+  return [
+    {
+      name: "CONTROL_BYTE",
+      address: "1010 A2 A1 A0 R/W",
+      width: "8",
+      access: "RW",
+      purpose: "I2C control byte formatı; A2:A0 strap pinleri slave address'i seçer.",
+      fields: [
+        { bits: "B7:B4", name: "CONTROL_CODE", meaning: "24XX32A EEPROM ailesi için sabit device type kodu.", values: ["1010: EEPROM access"] },
+        { bits: "B3:B1", name: "CHIP_SELECT A2:A0", meaning: "A2/A1/A0 pin seviyeleriyle eşleşmelidir; aynı bus üzerinde sekiz cihaza kadar seçim sağlar." },
+        { bits: "B0", name: "R_W", meaning: "Transfer yönünü seçer.", values: ["0: write", "1: read"] },
+      ],
+    },
+    {
+      name: "WORD_ADDRESS",
+      address: "A11:A0",
+      width: "16 transfer / 12 effective",
+      access: "W",
+      purpose: "Okuma/yazma için memory byte adresi; high address byte içindeki üst dört bit don't-care.",
+      fields: [
+        { bits: "High byte B7:B4", name: "DONT_CARE", meaning: "Cihaz sadece A11:A0 adres alanını kullanır; üst dört bit don't-care kabul edilir." },
+        { bits: "High byte B3:B0", name: "A11:A8", meaning: "4 Kbyte memory array adresinin üst dört biti." },
+        { bits: "Low byte B7:B0", name: "A7:A0", meaning: "Memory byte adresinin alt sekiz biti." },
+      ],
+    },
+    {
+      name: "CURRENT_ADDRESS_READ",
+      address: "internal pointer",
+      width: "8",
+      access: "RO",
+      purpose: "Internal address pointer'ın gösterdiği sonraki byte'ı okur; önceki erişimden sonra pointer otomatik artar.",
+      fields: [{ bits: "D7:D0", name: "DATA", meaning: "EEPROM'dan okunan data byte." }],
+    },
+    {
+      name: "RANDOM_READ",
+      address: "word address + repeated start",
+      width: "8",
+      access: "RO",
+      purpose: "Önce word address yazılır, repeated start sonrası read control byte ile hedef byte okunur.",
+      fields: [{ bits: "D7:D0", name: "DATA", meaning: "Seçilen memory adresinden okunan data byte." }],
+    },
+    {
+      name: "SEQUENTIAL_READ",
+      address: "word address + N bytes",
+      width: "8 x N",
+      access: "RO",
+      purpose: "Random read gibi başlar; master ACK verdikçe EEPROM sonraki adresleri gönderir ve 0xFFF sonrası 0x000'a döner.",
+      fields: [{ bits: "D7:D0", name: "DATA[n]", meaning: "Ardışık EEPROM data byte'ları." }],
+    },
+    {
+      name: "BYTE_WRITE",
+      address: "word address + 1 data",
+      width: "8",
+      access: "WO",
+      purpose: "Tek EEPROM byte'ı yazar; STOP sonrası internal write cycle başlar.",
+      fields: [{ bits: "D7:D0", name: "DATA", meaning: "Programlanacak tek EEPROM byte'ı." }],
+    },
+    {
+      name: "PAGE_WRITE",
+      address: "word address + 1..32 data",
+      width: "8 x 1..32",
+      access: "WO",
+      purpose: "Aynı physical page içinde en fazla 32 byte yazar; page boundary aşılırsa data aynı page başına wrap eder.",
+      fields: [
+        { bits: "A4:A0", name: "PAGE_OFFSET", meaning: "32-byte page içindeki byte offset; write sırasında internal counter artar." },
+        { bits: "D7:D0", name: "DATA[n]", meaning: "Page buffer'a alınan data byte'ları." },
+      ],
+    },
+    {
+      name: "ACK_POLL",
+      address: "control byte write",
+      width: "0",
+      access: "RO",
+      purpose: "Internal write cycle sırasında cihaz ACK vermez; ACK tekrar gelince sonraki operasyon güvenlidir.",
+      fields: [{ bits: "ACK", name: "WRITE_CYCLE_DONE", meaning: "Control byte write denemesi ACK alıyorsa internal write cycle bitmiştir.", values: ["NACK: write cycle devam ediyor", "ACK: cihaz hazır"] }],
+    },
+  ];
+}
+
 const PACKS: Record<string, DeviceKnowledgePack> = {
   ADAR1000: {
     part: "ADAR1000",
@@ -2288,6 +2513,239 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     },
   },
 
+  TMP101: {
+    part: "TMP101",
+    reviewedAt: "2026-06-29",
+    scope: "Sıcaklık okuma, programmable resolution, one-shot/shutdown ve ALERT threshold davranışı.",
+    sources: [
+      {
+        label: "Texas Instruments TMP100/TMP101 datasheet",
+        url: "https://www.ti.com/lit/gpn/TMP101",
+      },
+    ],
+    overview:
+      "TMP101, I2C/SMBus uyumlu dijital sıcaklık sensörüdür. TMP100 ailesiyle aynı register modelini kullanır; TMP101 tarafında tek address pin ve ALERT output bulunur.",
+    keyFacts: [
+      "TMP101 adresleri ADD0 seviyesine bağlıdır: ADD0=0 için 0x48, float için 0x49, ADD0=1 için 0x4A.",
+      "Temperature, TLOW ve THIGH register'ları 12-bit two's-complement sıcaklık formatı taşır; alt dört bit zero-pad olarak kalır.",
+      "Configuration register reset değeri 0x00'dır; OS/ALERT readback power-up sonrası 1 görülebilir.",
+      "Resolution seçimi R1:R0 alanıyla yapılır; 9/10/11/12 bit için tipik conversion süreleri 40/80/160/320 ms'dir.",
+      "I2C fast-mode 400 kHz desteklenir; high-speed mode için master code akışı gerekir, Spec2Code default 100 kHz güvenli başlar.",
+    ],
+    configuration: [
+      "Basit monitoring için init sırasında device register write gerekmez; continuous conversion default olarak aktiftir.",
+      "ALERT pini kullanılacaksa TLOW/THIGH, POL, TM ve F[1:0] birlikte düşünülmelidir.",
+      "One-shot kullanılacaksa SD=1 yapılır, OS_ALERT=1 yazılır ve seçilen resolution conversion süresi kadar beklenir.",
+    ],
+    registers: tmp101Registers(),
+    recipes: [
+      {
+        title: "Sıcaklık okuma",
+        goal: "Son conversion sonucunu raw 12-bit transfer image olarak almak.",
+        steps: [
+          "Pointer register'a TEMPERATURE adresi 0x00 yaz.",
+          "İki byte oku; MSB önce gelir.",
+          "16-bit image içinden TEMP[11:0] alanını kullan; Byte2 D3:D0 zero-pad olduğu için hesapta ignore edilir.",
+        ],
+      },
+      {
+        title: "ALERT threshold kurulumu",
+        goal: "TMP101 ALERT pinini comparator veya interrupt mode için kullanmak.",
+        steps: [
+          "TLOW ve THIGH register'larına 12-bit sıcaklık formatında threshold image yaz.",
+          "CONFIGURATION içinden POL, TM ve F[1:0] alanlarını seç.",
+          "Interrupt mode'da ALERT clear davranışını read operasyonları veya SMBus alert response akışıyla yönet.",
+        ],
+      },
+    ],
+    gotchas: [
+      "TMP101 temperature code signed'dır; negatif sıcaklıkları unsigned değer gibi yorumlama.",
+      "THIGH/TLOW karşılaştırmalarında 12 bitin tamamı kullanılır; resolution daha düşük olsa bile threshold alt bitleri ALERT davranışını etkileyebilir.",
+      "ALERT open-drain/pull-up topolojisi board üzerinde doğrulanmadan POL/TM değişikliği yapma.",
+    ],
+    codegenNotes: [
+      "Spec2Code bu parça için `tmp101DeviceInit`, `tmp101TemperatureRead` ve `tmp101ConfigRead` üretir.",
+      "Threshold write ve one-shot gibi board/application policy gerektiren ayarlar init sequence builder ile ayrıca eklenebilir.",
+    ],
+    pinMap: {
+      packageName: "SOT-23-6 / TMP101 sinyal haritası",
+      view: "Fonksiyonel görünüm",
+      verification: "TI TMP100/TMP101 datasheet package ve pin description bilgisiyle kontrol edildi; software açısından kullanılan sinyaller gösterilir.",
+      note: "Pin numarası package varyantına göre kontrol edilmelidir; ADD0 strap ve ALERT pull-up board tasarımında önemlidir.",
+      pins: [
+        { name: "SDA", role: "I2C/SMBus data", tone: "bus", side: "left" },
+        { name: "SCL", role: "I2C/SMBus clock", tone: "bus", side: "left" },
+        { name: "ADD0", role: "Address select: 0/float/1", tone: "control", side: "left" },
+        { name: "ALERT", role: "Open-drain alert / SMBus alert", tone: "control", side: "right" },
+        { name: "V+", role: "Besleme", tone: "power", side: "right" },
+        { name: "GND", role: "Toprak", tone: "ground", side: "right" },
+      ],
+      groups: [
+        { label: "I2C", pins: ["SDA", "SCL", "ADD0"], tone: "bus", description: "Register pointer write/read akışı ve slave address seçimi." },
+        { label: "Alert", pins: ["ALERT"], tone: "control", description: "Threshold, polarity ve thermostat mode ile birlikte anlam kazanır." },
+      ],
+    },
+  },
+
+  SHT21: {
+    part: "SHT21",
+    reviewedAt: "2026-06-29",
+    scope: "Temperature/RH measurement command'ları, user register, CRC ve soft reset akışları.",
+    sources: [
+      {
+        label: "Sensirion SHT21 datasheet",
+        url: "https://sensirion.com/file/datasheet_sht21",
+      },
+    ],
+    overview:
+      "SHT21, I2C üzerinden command tabanlı çalışan humidity ve temperature sensor'dür. Klasik register pointer yerine measurement command gönderilir; sonuç iki data byte + opsiyonel CRC byte olarak okunur.",
+    keyFacts: [
+      "7-bit I2C address 0x40'tır; datasheet header olarak write için 1000 0000, read için 1000 0001 gösterir.",
+      "Temperature command'ları: 0xE3 hold master, 0xF3 no-hold master.",
+      "Relative humidity command'ları: 0xE5 hold master, 0xF5 no-hold master.",
+      "User register read command 0xE7, write command 0xE6, soft reset command 0xFE'dir.",
+      "Measurement frame içindeki iki LSB status bitidir; fiziksel değere çevirmeden önce 0 yapılmalıdır.",
+      "CRC-8 polynomial x8 + x5 + x4 + 1 kullanılır.",
+    ],
+    configuration: [
+      "Default resolution RH 12 bit / T 14 bit'tir.",
+      "User register yazarken reserved bitler korunmalıdır; önce read, sonra sadece istenen bitleri değiştirerek write yap.",
+      "No-hold mode başka I2C işler için daha uygundur; ölçüm bitene kadar read address ACK polling gerekir.",
+      "Hold-master mode daha basit transaction üretir ama sensör ölçüm boyunca SCL hattını tutabilir.",
+    ],
+    registers: sht21Registers(),
+    recipes: [
+      {
+        title: "Temperature measurement",
+        goal: "Sıcaklık ham ölçüm frame'ini almak.",
+        steps: [
+          "Hold-master için 0xE3 veya no-hold için 0xF3 command byte gönder.",
+          "Hold-master modda sensör ölçüm bitene kadar SCL'i tutabilir; no-hold modda read address ACK gelene kadar poll et.",
+          "MSB, LSB/status ve CRC byte'ını oku; checksum doğrula.",
+          "Fiziksel hesap öncesi LSB içindeki status bitlerini temizle.",
+        ],
+      },
+      {
+        title: "User register güvenli yazım",
+        goal: "Resolution veya heater bitlerini reserved bitleri bozmadan değiştirmek.",
+        steps: [
+          "0xE7 ile user register oku.",
+          "Reserved bitleri aynen koru; sadece RES[1:0] veya HEATER gibi hedef alanları değiştir.",
+          "0xE6 command + yeni user register byte'ını yaz.",
+        ],
+      },
+    ],
+    gotchas: [
+      "CRC byte'ını okumadan transaction kısaltılabilir ama güvenilirlik için özellikle kablolu/noisy ortamda CRC kontrolü önerilir.",
+      "Heater diagnostic içindir; sürekli açık bırakılırsa humidity ölçümünü bilinçli olarak değiştirir.",
+      "OTP_RELOAD_DISABLE bitini production gerekçesi olmadan değiştirme.",
+      "NC pad'ler floating kalmalıdır; exposed/center pad VSS ile ilişkilidir.",
+    ],
+    codegenNotes: [
+      "Spec2Code `sht21TemperatureRead`, `sht21HumidityRead` ve `sht21UserRegisterRead` üretir.",
+      "Generated measurement helper hold-master command yolunu modellediği için no-hold polling policy application seviyesinde ayrıca ele alınabilir.",
+    ],
+    pinMap: {
+      packageName: "DFN-6 / SHT21 top-view sinyal haritası",
+      view: "Üst görünüm / fonksiyonel",
+      verification: "Sensirion SHT21 datasheet Table 2 pin assignment bilgisiyle kontrol edildi.",
+      note: "NC pinler floating kalmalıdır; SDA/SCL open-drain olduğundan pull-up gerekir.",
+      pins: [
+        { number: "1", name: "SDA", role: "I2C data", tone: "bus", side: "left" },
+        { number: "2", name: "VSS", role: "Ground", tone: "ground", side: "left" },
+        { number: "3", name: "NC", role: "No connect / floating", tone: "nc", side: "left" },
+        { number: "4", name: "NC", role: "No connect / floating", tone: "nc", side: "right" },
+        { number: "5", name: "VDD", role: "Besleme", tone: "power", side: "right" },
+        { number: "6", name: "SCL", role: "I2C clock", tone: "bus", side: "right" },
+      ],
+      groups: [
+        { label: "I2C", pins: ["SDA", "SCL"], tone: "bus", description: "Command send, measurement read ve user register access." },
+        { label: "Power", pins: ["VDD", "VSS"], tone: "power", description: "2.1 V - 3.6 V supply range içinde kullanılmalıdır." },
+      ],
+    },
+  },
+
+  "24LC32A": {
+    part: "24LC32A",
+    reviewedAt: "2026-06-29",
+    scope: "32-Kbit I2C EEPROM byte/page write, random/sequential read, ACK polling ve write protect davranışı.",
+    sources: [
+      {
+        label: "Microchip 24AA32A/24LC32A datasheet",
+        url: "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/24AA32A-24LC32A-32-Kbit-I2C-Serial-EEPROM-DS20001713.pdf",
+      },
+    ],
+    overview:
+      "24LC32A, 4096 byte memory array'e sahip 32-Kbit I2C serial EEPROM'dur. Access modeli register değil memory word address tabanlıdır; write sonrası internal programming cycle bitene kadar ACK polling gerekir.",
+    keyFacts: [
+      "Control byte formatı 1010 A2 A1 A0 R/W şeklindedir; A2:A0 pinleri 7-bit address'in alt bitlerini seçer.",
+      "Default strap A2=A1=A0=0 kabul edilirse 7-bit I2C address 0x50 olur.",
+      "Memory address 12 bittir: A11:A0. Transferde iki address byte gönderilir; high byte üst dört bit don't-care'dir.",
+      "Page buffer 32 byte'tır; page write aynı physical page içinde kalmalıdır.",
+      "STOP sonrası internal write cycle başlar; bu sırada cihaz ACK üretmez. ACK tekrar gelince sonraki işlem güvenlidir.",
+      "WP pini VCC'ye bağlıysa array write-protected olur; VSS'ye bağlıysa write enable'dır.",
+    ],
+    configuration: [
+      "Init sırasında EEPROM'a command yazılmaz; sadece I2C controller hazırlanır.",
+      "Page write yaparken `(address % 32) + length <= 32` kuralı firmware tarafında enforce edilmelidir.",
+      "Write sonrası fixed delay yerine ACK polling daha deterministik ve hızlıdır.",
+      "SOT-23 package'da address pinleri dışarıda yoktur; datasheet bu durumda A2:A1:A0 = 0 kullanımını belirtir.",
+    ],
+    registers: lc32aRegisters(),
+    recipes: [
+      {
+        title: "Random read",
+        goal: "Herhangi bir EEPROM adresinden byte veya block okumak.",
+        steps: [
+          "Write control byte ile başla ve iki byte word address gönder.",
+          "Repeated start üret.",
+          "Read control byte gönder ve data byte'larını oku.",
+          "Son byte'ta NACK + STOP ile transferi bitir.",
+        ],
+      },
+      {
+        title: "Page write",
+        goal: "Aynı physical page içinde birden fazla byte yazmak.",
+        steps: [
+          "Write control byte, high address byte ve low address byte gönder.",
+          "1..32 data byte gönder; page boundary aşılmamalıdır.",
+          "STOP ile internal write cycle'ı başlat.",
+          "Control byte write denemesi ACK alana kadar ACK polling yap.",
+        ],
+      },
+    ],
+    gotchas: [
+      "32 byte sınırı aşılırsa ya da page boundary geçilirse EEPROM aynı page başına wrap eder ve önceki data overwrite olabilir.",
+      "WP pini high ise cihaz command'ı ACK'leyebilir ama array içine data yazılmaz.",
+      "Sequential read 0xFFF adresinden sonra 0x000'a dönebilir; block read length application tarafından sınırlandırılmalıdır.",
+      "EEPROM endurance page bazlı düşünülmelidir; küçük write bile page refresh/write cycle oluşturabilir.",
+    ],
+    codegenNotes: [
+      "Spec2Code bu parça için `dev24lc32aDeviceInit`, `dev24lc32aDataRead`, `dev24lc32aByteWrite` ve `dev24lc32aPageWrite` üretir.",
+      "Function adı `dev24lc32a` prefix'iyle başlar çünkü C identifier rakamla başlayamaz.",
+    ],
+    pinMap: {
+      packageName: "8-pin package / 24LC32A sinyal haritası",
+      view: "Fonksiyonel görünüm",
+      verification: "Microchip 24AA32A/24LC32A datasheet pin function table ve device addressing bilgisiyle kontrol edildi.",
+      note: "Paket pin numarası selected package'a göre kontrol edilmelidir; burada software açısından temel sinyaller ve strap pinleri gösterilir.",
+      pins: [
+        { name: "A0", role: "Chip address input", tone: "control", side: "left" },
+        { name: "A1", role: "Chip address input", tone: "control", side: "left" },
+        { name: "A2", role: "Chip address input", tone: "control", side: "left" },
+        { name: "VSS", role: "Ground", tone: "ground", side: "left" },
+        { name: "SDA", role: "I2C data", tone: "bus", side: "right" },
+        { name: "SCL", role: "I2C clock", tone: "bus", side: "right" },
+        { name: "WP", role: "Write protect", tone: "control", side: "right" },
+        { name: "VCC", role: "Besleme", tone: "power", side: "right" },
+      ],
+      groups: [
+        { label: "I2C", pins: ["SDA", "SCL", "A0", "A1", "A2"], tone: "bus", description: "Control byte ve word address transferleri." },
+        { label: "Write protect", pins: ["WP"], tone: "control", description: "VCC: write protect, VSS: write enable." },
+      ],
+    },
+  },
+
   DS1682: {
     part: "DS1682",
     reviewedAt: "2026-06-28",
@@ -2814,6 +3272,220 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
         ];
       default:
         return i2cRegisterTransfers("AD7414", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "TMP101") {
+    switch (reg.name) {
+      case "TEMPERATURE":
+        return [
+          {
+            title: "Read temperature",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: ["TMP101_REG_TEMPERATURE (0x00)"],
+            rx: ["ucArrBytes[0]", "ucArrBytes[1]", "usTemperature"],
+            code: ["tmp101TemperatureRead(spIic, &usTemperature);"],
+            note: "İki byte MSB-first okunur; TEMP[11:0] üst 12 bittir, alt dört bit zero-pad.",
+          },
+        ];
+      case "CONFIGURATION":
+        return [
+          readonlyTransfer("TMP101", "CONFIGURATION", reg.address, "1 byte", ["ucConfig"], [
+            "tmp101ConfigRead(spIic, &ucConfig);",
+          ]),
+          writeonlyTransfer("TMP101", "CONFIGURATION", reg.address, "ucConfig"),
+        ];
+      case "TLOW":
+      case "THIGH":
+        return [
+          {
+            title: "Read threshold",
+            access: "READ",
+            txBytes: "1 byte",
+            rxBytes: "2 byte",
+            tx: [`TMP101_REG_${reg.name} (${reg.address})`],
+            rx: ["ucArrBytes[0]", "ucArrBytes[1]"],
+            code: [`tmp101RegistersRead(spIic, TMP101_REG_${reg.name}, ucArrBytes, 2U);`],
+            note: "Threshold image temperature register ile aynı 12-bit two's-complement formattadır.",
+          },
+          {
+            title: "Write threshold",
+            access: "WRITE",
+            txBytes: "3 byte",
+            rxBytes: "0 byte",
+            tx: [`TMP101_REG_${reg.name} (${reg.address})`, "ucMsb", "ucLsb"],
+            rx: ["-"],
+            code: [`tmp101RegisterWrite(spIic, TMP101_REG_${reg.name}, ucMsb);`, "/* LSB için block write helper gerekir; generated minimal API threshold write üretmez. */"],
+            note: "Generated default API threshold write üretmez; iki data byte aynı pointer transaction içinde gönderilmelidir.",
+            tone: "warn",
+          },
+        ];
+      default:
+        return i2cRegisterTransfers("TMP101", reg.name, reg.address, reg.access, "ucValue");
+    }
+  }
+
+  if (normalizedPart === "SHT21") {
+    if (reg.name === "TRIGGER_T_HOLD" || reg.name === "TRIGGER_T_NO_HOLD") {
+      return [
+        {
+          title: reg.name.endsWith("NO_HOLD") ? "No-hold temperature read" : "Hold-master temperature read",
+          access: "READ",
+          txBytes: "1 byte",
+          rxBytes: "3 byte",
+          tx: [`SHT21_REG_${reg.name} (${reg.address})`],
+          rx: ["ucArrBytes[0] MSB", "ucArrBytes[1] LSB/status", "ucArrBytes[2] CRC8"],
+          code: ["sht21TemperatureRead(spIic, &uiTemperature);"],
+          note: reg.name.endsWith("NO_HOLD")
+            ? "No-hold modda command sonrası read address ACK gelene kadar polling gerekir; generated helper hold-master path kullanır."
+            : "Hold-master modda sensör ölçüm bitene kadar SCL hattını tutabilir.",
+        },
+      ];
+    }
+    if (reg.name === "TRIGGER_RH_HOLD" || reg.name === "TRIGGER_RH_NO_HOLD") {
+      return [
+        {
+          title: reg.name.endsWith("NO_HOLD") ? "No-hold humidity read" : "Hold-master humidity read",
+          access: "READ",
+          txBytes: "1 byte",
+          rxBytes: "3 byte",
+          tx: [`SHT21_REG_${reg.name} (${reg.address})`],
+          rx: ["ucArrBytes[0] MSB", "ucArrBytes[1] LSB/status", "ucArrBytes[2] CRC8"],
+          code: ["sht21HumidityRead(spIic, &uiHumidity);"],
+          note: reg.name.endsWith("NO_HOLD")
+            ? "No-hold modda command sonrası read address ACK gelene kadar polling gerekir; generated helper hold-master path kullanır."
+            : "Hold-master modda sensör ölçüm bitene kadar SCL hattını tutabilir.",
+        },
+      ];
+    }
+    if (reg.name === "USER_REGISTER") {
+      return [
+        {
+          title: "Read user register",
+          access: "READ",
+          txBytes: "1 byte",
+          rxBytes: "1 byte",
+          tx: ["SHT21_REG_USER_REGISTER_READ (0xE7)"],
+          rx: ["ucUser"],
+          code: ["sht21UserRegisterRead(spIic, &ucUser);"],
+          note: "Reserved bitleri korumak için write öncesinde bu byte okunmalıdır.",
+        },
+        {
+          title: "Write user register",
+          access: "WRITE",
+          txBytes: "2 byte",
+          rxBytes: "0 byte",
+          tx: ["SHT21_REG_USER_REGISTER_WRITE (0xE6)", "ucUser"],
+          rx: ["-"],
+          code: ["sht21RegisterWrite(spIic, SHT21_REG_USER_REGISTER_WRITE, ucUser);"],
+          note: "Reserved bitler önceki read değerinden korunmalıdır.",
+        },
+      ];
+    }
+    if (reg.name === "SOFT_RESET") {
+      return [
+        {
+          title: "Soft reset",
+          access: "WRITE",
+          txBytes: "1 byte",
+          rxBytes: "0 byte",
+          tx: ["SHT21_REG_SOFT_RESET (0xFE)"],
+          rx: ["-"],
+          code: ["/* command-only transfer: send 0xFE, payload yok; reset < 15 ms sürer. */"],
+          note: "Generated default init bunu otomatik göndermez; application reset istiyorsa command-only helper eklenmelidir.",
+          tone: "warn",
+        },
+      ];
+    }
+    return i2cRegisterTransfers("SHT21", reg.name, reg.address, reg.access, "ucValue");
+  }
+
+  if (normalizedPart === "24LC32A") {
+    switch (reg.name) {
+      case "CONTROL_BYTE":
+        return [
+          {
+            title: "Control byte",
+            access: "READ/WRITE",
+            txBytes: "1 byte header",
+            rxBytes: "operation'a bağlı",
+            tx: ["1010 A2 A1 A0 R/W"],
+            rx: ["ACK/NACK"],
+            code: ["/* XIicPs 7-bit address olarak 0x50..0x57 kullanılır; R/W bitini controller üretir. */"],
+            note: "Firmware API'sinde 7-bit I2C address kullanılır; datasheet control byte bu adresin wire-level gösterimidir.",
+          },
+        ];
+      case "WORD_ADDRESS":
+      case "RANDOM_READ":
+        return [
+          {
+            title: "Random/block read",
+            access: "READ",
+            txBytes: "2 byte address",
+            rxBytes: "uiLength byte",
+            tx: ["(uiAddress >> 8) & 0x0F", "uiAddress & 0xFF"],
+            rx: ["ucArrBuffer[0..uiLength-1]"],
+            code: ["dev24lc32aDataRead(spIic, uiAddress, ucArrBuffer, uiLength);"],
+            note: "Write-address phase pointer'ı kurar; repeated-start/read phase data byte'larını alır.",
+          },
+        ];
+      case "SEQUENTIAL_READ":
+        return [
+          {
+            title: "Sequential read",
+            access: "READ",
+            txBytes: "2 byte start address",
+            rxBytes: "N byte",
+            tx: ["A11:A8", "A7:A0"],
+            rx: ["DATA[0..N-1]"],
+            code: ["dev24lc32aDataRead(spIic, uiAddress, ucArrBuffer, uiLength);"],
+            note: "EEPROM ACK gördükçe sonraki adresi gönderir; son byte'ta master NACK + STOP üretir.",
+          },
+        ];
+      case "BYTE_WRITE":
+        return [
+          {
+            title: "Byte write",
+            access: "WRITE",
+            txBytes: "3 byte",
+            rxBytes: "0 byte",
+            tx: ["A11:A8", "A7:A0", "ucValue"],
+            rx: ["-"],
+            code: ["dev24lc32aByteWrite(spIic, uiAddress, ucValue);"],
+            note: "STOP sonrası internal write cycle başlar; generated helper ACK polling yapar.",
+          },
+        ];
+      case "PAGE_WRITE":
+        return [
+          {
+            title: "Page write",
+            access: "WRITE",
+            txBytes: "2 byte address + 1..32 data byte",
+            rxBytes: "0 byte",
+            tx: ["A11:A8", "A7:A0", "ucpBuffer[0..uiLength-1]"],
+            rx: ["-"],
+            code: ["dev24lc32aPageWrite(spIic, uiAddress, ucpBuffer, uiLength);"],
+            note: "Generated helper page boundary aşımını reddeder; datasheet aksi halde current page başına wrap edeceğini belirtir.",
+            tone: "warn",
+          },
+        ];
+      case "ACK_POLL":
+        return [
+          {
+            title: "ACK polling",
+            access: "READ",
+            txBytes: "control byte write denemesi",
+            rxBytes: "ACK/NACK",
+            tx: ["1010 A2 A1 A0 W"],
+            rx: ["ACK: ready", "NACK: write cycle busy"],
+            code: ["/* dev24lc32aByteWrite/PageWrite içinde internal ack poll helper çağrılır. */"],
+            note: "Write cycle sırasında EEPROM ACK üretmez; ACK döndüğünde bir sonraki operasyon güvenlidir.",
+          },
+        ];
+      default:
+        return [];
     }
   }
 

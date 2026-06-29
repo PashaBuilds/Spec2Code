@@ -41,7 +41,7 @@ export default function SchematicCanvas() {
     const ctrlById = Object.fromEntries(controllers.map((c) => [c.id, c]));
     const hasDescriptor = (part: string) =>
       descriptors.some((d) => d.part === part) ||
-      ["LTC2991", "TCA9548A", "MT25Q128", "MT25QU02G", "AD7414", "DS1682", "LTC2945"].includes(part);
+      ["LTC2991", "TCA9548A", "MT25Q128", "MT25QU02G", "AD7414", "TMP101", "SHT21", "24LC32A", "DS1682", "LTC2945"].includes(part);
 
     const nodes: Node[] = [];
     for (const z of zoneRects) {
