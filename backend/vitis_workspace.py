@@ -369,7 +369,9 @@ def render_xsct_script(
     app_name: str,
     processor: str,
     os_name: str,
+    enable_lwip: bool = False,
 ) -> str:
+    lwip_flag = "1" if enable_lwip else "0"
     return (
         "# Spec2Code generated Vitis workspace script.\n"
         "# This script is intentionally plain XSCT so it works in air-gapped Windows hosts.\n"
@@ -379,6 +381,7 @@ def render_xsct_script(
         f"set app_name {{{app_name}}}\n"
         f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
+        f"set spec2code_enable_lwip {lwip_flag}\n\n"
         "puts \"[Spec2Code] workspace: $workspace_path\"\n"
         "puts \"[Spec2Code] xsa: $xsa_path\"\n"
         "puts \"[Spec2Code] source: $source_path\"\n"
@@ -388,6 +391,27 @@ def render_xsct_script(
         "    puts \"[Spec2Code] Empty Application(C) template failed: $app_err\"\n"
         "    puts \"[Spec2Code] retrying with Empty Application template\"\n"
         "    app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application}\n"
+        "}\n\n"
+        "if {$spec2code_enable_lwip == 1} {\n"
+        "    puts \"[Spec2Code] lwIP target test bench detected; enabling BSP lwIP library\"\n"
+        "    set spec2code_lwip_ok 0\n"
+        "    foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202} {\n"
+        "        if {$spec2code_lwip_ok == 0} {\n"
+        "            if {[catch {bsp setlib -name $spec2code_lwip_lib} spec2code_lwip_err]} {\n"
+        "                puts \"[Spec2Code] lwIP library $spec2code_lwip_lib not selected: $spec2code_lwip_err\"\n"
+        "            } else {\n"
+        "                set spec2code_lwip_ok 1\n"
+        "                puts \"[Spec2Code] lwIP library selected: $spec2code_lwip_lib\"\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "    if {$spec2code_lwip_ok == 1} {\n"
+        "        if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
+        "            puts \"[Spec2Code] WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err\"\n"
+        "        }\n"
+        "    } else {\n"
+        "        puts \"[Spec2Code] WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.\"\n"
+        "    }\n"
         "}\n\n"
         "puts \"[Spec2Code] importing generated sources\"\n"
         "importsources -name $app_name -path $source_path\n\n"
@@ -493,6 +517,7 @@ class VitisWorkspaceJobManager:
             "message": "Generated C/H kaynakları Vitis staging klasörüne kopyalanıyor.",
         })
         staged_files = stage_vitis_sources(job.generate_job, source_root)
+        requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
 
         script_path = staging_root / "spec2code_create_workspace.tcl"
         stdout_log = log_dir / "xsct_stdout.log"
@@ -511,6 +536,7 @@ class VitisWorkspaceJobManager:
             "app_name": app_name,
             "processor": processor,
             "os": os_name,
+            "requires_lwip": requires_lwip,
             "staged_files": staged_files,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -530,6 +556,7 @@ class VitisWorkspaceJobManager:
                 app_name=app_name,
                 processor=processor,
                 os_name=os_name,
+                enable_lwip=requires_lwip,
             ),
             encoding="utf-8",
         )

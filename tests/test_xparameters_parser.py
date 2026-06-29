@@ -61,6 +61,23 @@ class XparametersParserTests(unittest.TestCase):
         self.assertEqual(controller["instance"], "XPAR_XQSPIPSU_0")
         self.assertEqual(controller["driver"], "XQspiPsu")
 
+    def test_zynqmp_ps_ethernet_alias_uses_xemacps_driver(self) -> None:
+        text = """
+        #define XPAR_PSU_ETHERNET_3_DEVICE_ID 0
+        #define XPAR_PSU_ETHERNET_3_BASEADDR 0xFF0E0000
+        #define XPAR_XEMACPS_0_DEVICE_ID XPAR_PSU_ETHERNET_3_DEVICE_ID
+        #define XPAR_XEMACPS_0_BASEADDR 0xFF0E0000
+        """
+
+        parsed = parse_xparameters(text, PLATFORM)
+
+        self.assertEqual(len(parsed.controllers), 1)
+        controller = parsed.controllers[0]
+        self.assertEqual(controller["id"], "ps_eth_0")
+        self.assertEqual(controller["type"], "eth")
+        self.assertEqual(controller["instance"], "XPAR_XEMACPS_0")
+        self.assertEqual(controller["driver"], "XEmacPs")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,6 +79,22 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("importsources -name $app_name -path $source_path", script)
         self.assertIn("app build -name $app_name", script)
 
+    def test_xsct_script_enables_lwip_library_when_requested(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="standalone",
+            enable_lwip=True,
+        )
+
+        self.assertIn("set spec2code_enable_lwip 1", script)
+        self.assertIn("foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202}", script)
+        self.assertIn("bsp setlib -name $spec2code_lwip_lib", script)
+        self.assertIn("bsp regenerate", script)
+
     def test_workspace_job_stages_sources_and_runs_xsct(self) -> None:
         project_name = "unit_vitis_workspace"
         spec = load_sample_spec(project_name)

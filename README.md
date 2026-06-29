@@ -38,6 +38,9 @@ ve devam geliştirme.
   `.xsa` dosyası ve hedef workspace dizini verilince `xsct` otomatik bulunur,
   Vitis sürümü algılanır, kaynaklar staging'e alınır ve platform/application
   workspace build akışı progress bar ile izlenir.
+- **ZynqMP PS Ethernet test bench:** `xparameters.h` içinde PS Ethernet
+  (`XEmacPs`) varsa generate sonucu lwIP raw API tabanlı TCP test bench agent
+  üretilebilir; Windows UI karta TCP üzerinden register/operation komutu yollar.
 - **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir. Model adı
   kullanıcıdan tam olarak alınır; Kimi, Qwen veya başka bir model aynı alandan
   kullanılabilir. Timeout ve cevap uzunluğu limitleri açıktır.
@@ -270,6 +273,11 @@ ile okumaya çalışır ve workspace altında `_spec2code_staging/<job>/` klasö
 - `spec2code_create_workspace.tcl`: çalıştırılan XSCT script'i
 - `spec2code_vitis_manifest.json`: path, processor, OS ve Vitis sürümü
 - `logs/xsct_stdout.log`, `logs/xsct_stderr.log`: Vitis/XSCT çıktıları
+
+Zynq UltraScale+ PS Ethernet ile lwIP test bench dosyaları üretildiyse manifest
+`requires_lwip: true` bilgisini içerir. Script BSP tarafında `lwip220`,
+`lwip213`, `lwip211` ve `lwip202` library adlarını sırayla enable etmeyi dener;
+Vitis sürümündeki BSP library adı farklıysa lwIP'i manuel açmak gerekebilir.
 
 Headless script akışı:
 

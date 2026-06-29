@@ -19,6 +19,19 @@ def load_sample_spec(project_name: str) -> dict:
     return spec
 
 
+def add_zynqmp_ps_ethernet(spec: dict) -> None:
+    spec["controllers"].append({
+        "id": "ps_eth_0",
+        "type": "eth",
+        "instance": "XPAR_XEMACPS_0",
+        "base_address": "0xFF0B0000",
+        "device_id": 0,
+        "driver": "XEmacPs",
+        "source": "xparameters",
+        "zone": "ps",
+    })
+
+
 class OneShotHandler(socketserver.BaseRequestHandler):
     response = b"S2C|id=7|ok=1|status=0|value=0x12|data=AABB|message=ok\n"
 
@@ -137,6 +150,37 @@ class TestbenchTests(unittest.TestCase):
         self.assertTrue(ops_by_name["data_read"]["requires_address"])
         self.assertTrue(ops_by_name["data_read"]["requires_length"])
         self.assertTrue(ops_by_name["page_write"]["requires_data"])
+
+    def test_lwip_target_agent_is_generated_for_zynqmp_ps_ethernet(self) -> None:
+        spec = load_sample_spec("unit_lwip_agent")
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            lwip_header = (out_dir / "tests" / "spec2code_testbench_lwip.h").read_text(encoding="utf-8")
+            lwip_source = (out_dir / "tests" / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+            main_header = (out_dir / "tests" / "spec2code_testbench_lwip_main.h").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_lwip_main.c").read_text(encoding="utf-8")
+
+        self.assertIn("SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U", lwip_header)
+        self.assertIn("XPAR_XEMACPS_0_BASEADDR", lwip_source)
+        self.assertIn("xemac_add", lwip_source)
+        self.assertIn("tcp_bind(S_spServerPcb, IP_ADDR_ANY, usPort)", lwip_source)
+        self.assertIn("spec2codeTestbenchDispatchLine", lwip_source)
+        self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
+        self.assertIn("XSpiPs* spec2codeTestbenchSpiPsHandleGet", lwip_source)
+        self.assertIn("int main(void);", main_header)
+        self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
+
+    def test_lwip_target_agent_is_not_generated_without_ethernet(self) -> None:
+        spec = load_sample_spec("unit_no_lwip_agent")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            self.assertFalse((out_dir / "tests" / "spec2code_testbench_lwip.c").exists())
+            self.assertFalse((out_dir / "tests" / "spec2code_testbench_lwip_main.c").exists())
 
     def test_vitis_error_mapper_classifies_common_build_failures(self) -> None:
         issues = map_vitis_errors(

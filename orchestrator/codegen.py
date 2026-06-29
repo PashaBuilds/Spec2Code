@@ -736,7 +736,7 @@ def _testbench_protocol_source() -> str:
         "        }\n"
         "        iUsed += iWritten;\n"
         "    }\n"
-        "    iWritten = snprintf(&cpLine[iUsed], uiLineLength - (unsigned int)iUsed, \"|message=%s\\n\", spResponse->cArrMessage);\n"
+        "    iWritten = snprintf(&cpLine[iUsed], uiLineLength - (unsigned int)iUsed, \"|message=%s\\r\\n\", spResponse->cArrMessage);\n"
         "    if ((iWritten < 0) || ((unsigned int)(iUsed + iWritten) >= uiLineLength))\n"
         "    {\n"
         "        return XST_FAILURE;\n"
@@ -1529,16 +1529,596 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
     return "\n".join(lines)
 
 
+def _zynqmp_lwip_eth_controller(spec: dict) -> dict | None:
+    if spec.get("project", {}).get("platform") != "zynq_ultrascale":
+        return None
+    for controller in spec.get("controllers", []):
+        if controller.get("type") != "eth":
+            continue
+        if controller.get("zone") != "ps":
+            continue
+        if controller.get("driver", "XEmacPs") != "XEmacPs":
+            continue
+        return controller
+    return None
+
+
+def _testbench_lwip_enabled(spec: dict) -> bool:
+    return _zynqmp_lwip_eth_controller(spec) is not None
+
+
+def _controller_static_handle_name(controller: dict) -> str:
+    return f"S_s{_pascal_identifier(str(controller.get('id', 'controller')))}Handle"
+
+
+def _testbench_board_controller_entries(spec: dict) -> list[dict]:
+    controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
+    used_ids = {mux.get("controller_id") for mux in spec.get("muxes", [])}
+    used_ids.update(device.get("attach", {}).get("controller_id") for device in spec.get("devices", []))
+    entries: list[dict] = []
+    for controller_id in sorted(item for item in used_ids if item):
+        controller = controllers.get(controller_id)
+        if controller is None:
+            continue
+        try:
+            htype, _hvar = cmodel._handle_for(controller)
+        except cmodel.CodegenError:
+            continue
+        if htype not in {"XIicPs", "XSpiPs", "XQspiPsu"}:
+            continue
+        entries.append({
+            "id": controller_id,
+            "instance": controller.get("instance", ""),
+            "htype": htype,
+            "handle": _controller_static_handle_name(controller),
+        })
+    return entries
+
+
+def _testbench_lwip_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_lwip.h\n"
+        " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent for Spec2Code test bench.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_LWIP_H\n"
+        "#define SPEC2CODE_TESTBENCH_LWIP_H\n\n"
+        "#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_IP_ADDR0\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR0 192U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR1 168U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR2 1U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR3 10U\n"
+        "#endif\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_NETMASK_ADDR0\n"
+        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR0 255U\n"
+        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR1 255U\n"
+        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR2 255U\n"
+        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR3 0U\n"
+        "#endif\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_GATEWAY_ADDR0\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR0 192U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 168U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 1U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 1U\n"
+        "#endif\n\n"
+        "int spec2codeTestbenchBoardInit(void);\n"
+        "int spec2codeTestbenchLwipNetworkInit(void);\n"
+        "int spec2codeTestbenchLwipTcpStart(unsigned short usPort);\n"
+        "int spec2codeTestbenchLwipStart(unsigned short usPort);\n"
+        "void spec2codeTestbenchLwipInputPoll(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_LWIP_H */\n"
+    )
+
+
+def _testbench_board_handle_decls(entries: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for entry in entries:
+        lines.append(f"static {entry['htype']} {entry['handle']};")
+    if entries:
+        lines.append("")
+    return lines
+
+
+def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
+    lines = [
+        "int spec2codeTestbenchBoardInit(void)",
+        "{",
+        "    int iStatus;",
+    ]
+    if any(entry["htype"] == "XIicPs" for entry in entries):
+        lines.append("    XIicPs_Config* spIicConfig;")
+    if any(entry["htype"] == "XSpiPs" for entry in entries):
+        lines.append("    XSpiPs_Config* spSpiConfig;")
+    if any(entry["htype"] == "XQspiPsu" for entry in entries):
+        lines.append("    XQspiPsu_Config* spQspiConfig;")
+    lines.extend([
+        "",
+        "    if (S_uiBoardReady == 1U)",
+        "    {",
+        "        return XST_SUCCESS;",
+        "    }",
+    ])
+    if not entries:
+        lines.extend([
+            "    S_uiBoardReady = 1U;",
+            "    return XST_SUCCESS;",
+            "}",
+            "",
+        ])
+        return lines
+
+    for entry in entries:
+        instance = entry["instance"]
+        handle = entry["handle"]
+        if entry["htype"] == "XIicPs":
+            lines.extend([
+                f"    spIicConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);",
+                "    if (spIicConfig == NULL)",
+                "    {",
+                f'        xil_printf("Spec2Code I2C config bulunamadi: {entry["id"]}\\r\\n");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = XIicPs_CfgInitialize(&{handle}, spIicConfig, spIicConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XIicPs_SetSClk(&{handle}, 100000U);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+            ])
+        elif entry["htype"] == "XSpiPs":
+            lines.extend([
+                f"    spSpiConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);",
+                "    if (spSpiConfig == NULL)",
+                "    {",
+                f'        xil_printf("Spec2Code SPI config bulunamadi: {entry["id"]}\\r\\n");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = XSpiPs_CfgInitialize(&{handle}, spSpiConfig, spSpiConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XSpiPs_SetOptions(&{handle}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XSpiPs_SetClkPrescaler(&{handle}, XSPIPS_CLK_PRESCALE_8);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+            ])
+        elif entry["htype"] == "XQspiPsu":
+            lines.extend([
+                f"    spQspiConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);",
+                "    if (spQspiConfig == NULL)",
+                "    {",
+                f'        xil_printf("Spec2Code QSPI config bulunamadi: {entry["id"]}\\r\\n");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = XQspiPsu_CfgInitialize(&{handle}, spQspiConfig, spQspiConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XQspiPsu_SetOptions(&{handle}, XQSPIPSU_MANUAL_START_OPTION);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XQspiPsu_SetClkPrescaler(&{handle}, XQSPIPSU_CLK_PRESCALE_8);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    XQspiPsu_SelectFlash(&{handle}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);",
+            ])
+    lines.extend([
+        "    S_uiBoardReady = 1U;",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+    ])
+    return lines
+
+
+def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: str) -> list[str]:
+    lines = [
+        f"{htype}* {func_name}(const char* cpControllerId)",
+        "{",
+    ]
+    matching = [entry for entry in entries if entry["htype"] == htype]
+    for entry in matching:
+        lines.extend([
+            f"    if (spec2codeTestbenchStringEqual(cpControllerId, \"{entry['id']}\") == 1)",
+            "    {",
+            f"        return &{entry['handle']};",
+            "    }",
+        ])
+    lines.extend([
+        "    return NULL;",
+        "}",
+        "",
+    ])
+    return lines
+
+
+def _testbench_lwip_source(spec: dict) -> str:
+    eth = _zynqmp_lwip_eth_controller(spec)
+    if eth is None:
+        raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
+    project_name = spec["project"]["name"]
+    entries = _testbench_board_controller_entries(spec)
+    headers = [
+        '#include "spec2code_testbench_lwip.h"',
+        f'#include "{project_name}_testbench_ops.h"',
+        '#include "xparameters.h"',
+        '#include "xstatus.h"',
+        '#include "xil_printf.h"',
+        '#include "lwip/err.h"',
+        '#include "lwip/init.h"',
+        '#include "lwip/ip_addr.h"',
+        '#include "lwip/pbuf.h"',
+        '#include "lwip/tcp.h"',
+        '#include "netif/xadapter.h"',
+        '#include <stddef.h>',
+    ]
+    if any(entry["htype"] == "XIicPs" for entry in entries):
+        headers.append('#include "xiicps.h"')
+    if any(entry["htype"] == "XSpiPs" for entry in entries):
+        headers.append('#include "xspips.h"')
+    if any(entry["htype"] == "XQspiPsu" for entry in entries):
+        headers.append('#include "xqspipsu.h"')
+
+    lines = [
+        "/**",
+        " * @file spec2code_testbench_lwip.c",
+        " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent for Spec2Code test bench.",
+        " */",
+        *headers,
+        "",
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        "",
+        "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
+        f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
+        "#endif",
+        "",
+        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
+        "#define SPEC2CODE_TESTBENCH_MAC0 0x02U",
+        "#define SPEC2CODE_TESTBENCH_MAC1 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC2 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC4 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
+        "#endif",
+        "",
+        "static struct netif S_sNetif;",
+        "static struct tcp_pcb* S_spServerPcb;",
+        "static struct tcp_pcb* S_spClientPcb;",
+        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static unsigned char S_ucArrMac[6] =",
+        "{",
+        "    SPEC2CODE_TESTBENCH_MAC0,",
+        "    SPEC2CODE_TESTBENCH_MAC1,",
+        "    SPEC2CODE_TESTBENCH_MAC2,",
+        "    SPEC2CODE_TESTBENCH_MAC3,",
+        "    SPEC2CODE_TESTBENCH_MAC4,",
+        "    SPEC2CODE_TESTBENCH_MAC5",
+        "};",
+        "static unsigned int S_uiRequestLength;",
+        "static unsigned int S_uiBoardReady;",
+        "static unsigned int S_uiNetworkReady;",
+        "static unsigned int S_uiServerReady;",
+        "",
+        *_testbench_board_handle_decls(entries),
+        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
+        "{",
+        "    unsigned int uiLength;",
+        "",
+        "    uiLength = 0U;",
+        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
+        "    {",
+        "        uiLength++;",
+        "    }",
+        "    return uiLength;",
+        "}",
+        "",
+        "static void spec2codeTestbenchLineReset(void)",
+        "{",
+        "    S_uiRequestLength = 0U;",
+        "    S_cArrRequestLine[0] = '\\0';",
+        "}",
+        "",
+        "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb)",
+        "{",
+        "    err_t enErr;",
+        "    unsigned int uiLength;",
+        "",
+        "    uiLength = spec2codeTestbenchStringLengthLocal(S_cArrResponseLine);",
+        "    if ((spTcpPcb == NULL) || (uiLength == 0U) || (uiLength > 0xFFFFU))",
+        "    {",
+        "        return ERR_VAL;",
+        "    }",
+        "    enErr = tcp_write(spTcpPcb, S_cArrResponseLine, (unsigned short)uiLength, TCP_WRITE_FLAG_COPY);",
+        "    if (enErr == ERR_OK)",
+        "    {",
+        "        enErr = tcp_output(spTcpPcb);",
+        "    }",
+        "    return enErr;",
+        "}",
+        "",
+        "static void spec2codeTestbenchByteConsume(struct tcp_pcb* spTcpPcb, char cByte)",
+        "{",
+        "    int iStatus;",
+        "",
+        "    if (cByte == '\\r')",
+        "    {",
+        "        return;",
+        "    }",
+        "    if (cByte == '\\n')",
+        "    {",
+        "        S_cArrRequestLine[S_uiRequestLength] = '\\0';",
+        "        iStatus = spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
+        "                                                 S_cArrResponseLine,",
+        "                                                 SPEC2CODE_TESTBENCH_LINE_MAX);",
+        "        if (iStatus == XST_SUCCESS)",
+        "        {",
+        "            (void)spec2codeTestbenchResponseSend(spTcpPcb);",
+        "        }",
+        "        spec2codeTestbenchLineReset();",
+        "        return;",
+        "    }",
+        "    if (S_uiRequestLength >= (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "    {",
+        "        spec2codeTestbenchLineReset();",
+        "        return;",
+        "    }",
+        "    S_cArrRequestLine[S_uiRequestLength] = cByte;",
+        "    S_uiRequestLength++;",
+        "}",
+        "",
+        "static err_t spec2codeTestbenchTcpReceive(void* vpArg,",
+        "                                           struct tcp_pcb* spTcpPcb,",
+        "                                           struct pbuf* spPbuf,",
+        "                                           err_t enErr)",
+        "{",
+        "    struct pbuf* spCurrent;",
+        "    char* cpPayload;",
+        "    unsigned int uiIndex;",
+        "",
+        "    (void)vpArg;",
+        "    if ((enErr != ERR_OK) || (spTcpPcb == NULL))",
+        "    {",
+        "        return enErr;",
+        "    }",
+        "    if (spPbuf == NULL)",
+        "    {",
+        "        (void)tcp_close(spTcpPcb);",
+        "        S_spClientPcb = NULL;",
+        "        spec2codeTestbenchLineReset();",
+        "        return ERR_OK;",
+        "    }",
+        "    tcp_recved(spTcpPcb, spPbuf->tot_len);",
+        "    for (spCurrent = spPbuf; spCurrent != NULL; spCurrent = spCurrent->next)",
+        "    {",
+        "        cpPayload = (char*)spCurrent->payload;",
+        "        for (uiIndex = 0U; uiIndex < (unsigned int)spCurrent->len; uiIndex++)",
+        "        {",
+        "            spec2codeTestbenchByteConsume(spTcpPcb, cpPayload[uiIndex]);",
+        "        }",
+        "    }",
+        "    pbuf_free(spPbuf);",
+        "    return ERR_OK;",
+        "}",
+        "",
+        "static void spec2codeTestbenchTcpError(void* vpArg, err_t enErr)",
+        "{",
+        "    (void)vpArg;",
+        "    (void)enErr;",
+        "    S_spClientPcb = NULL;",
+        "    spec2codeTestbenchLineReset();",
+        "}",
+        "",
+        "static err_t spec2codeTestbenchTcpAccept(void* vpArg,",
+        "                                          struct tcp_pcb* spNewPcb,",
+        "                                          err_t enErr)",
+        "{",
+        "    (void)vpArg;",
+        "    if ((enErr != ERR_OK) || (spNewPcb == NULL))",
+        "    {",
+        "        return enErr;",
+        "    }",
+        "    if (S_spClientPcb != NULL)",
+        "    {",
+        "        tcp_abort(spNewPcb);",
+        "        return ERR_ABRT;",
+        "    }",
+        "    S_spClientPcb = spNewPcb;",
+        "    spec2codeTestbenchLineReset();",
+        "    tcp_arg(spNewPcb, NULL);",
+        "    tcp_recv(spNewPcb, spec2codeTestbenchTcpReceive);",
+        "    tcp_err(spNewPcb, spec2codeTestbenchTcpError);",
+        "    return ERR_OK;",
+        "}",
+        "",
+        *_testbench_board_init_lines(entries),
+        *_testbench_board_getter_lines(entries, "XIicPs", "spec2codeTestbenchIicPsHandleGet"),
+        *_testbench_board_getter_lines(entries, "XSpiPs", "spec2codeTestbenchSpiPsHandleGet"),
+        *_testbench_board_getter_lines(entries, "XQspiPsu", "spec2codeTestbenchQspiPsuHandleGet"),
+        "int spec2codeTestbenchLwipNetworkInit(void)",
+        "{",
+        "    ip_addr_t sIpAddr;",
+        "    ip_addr_t sNetmask;",
+        "    ip_addr_t sGateway;",
+        "",
+        "    if (S_uiNetworkReady == 1U)",
+        "    {",
+        "        return XST_SUCCESS;",
+        "    }",
+        "    lwip_init();",
+        "    IP4_ADDR(&sIpAddr,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR3);",
+        "    IP4_ADDR(&sNetmask,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR3);",
+        "    IP4_ADDR(&sGateway,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR3);",
+        "    if (xemac_add(&S_sNetif,",
+        "                  &sIpAddr,",
+        "                  &sNetmask,",
+        "                  &sGateway,",
+        "                  S_ucArrMac,",
+        "                  SPEC2CODE_TESTBENCH_ETH_BASEADDR) == NULL)",
+        "    {",
+        '        xil_printf("Spec2Code lwIP PS Ethernet init failed\\r\\n");',
+        "        return XST_FAILURE;",
+        "    }",
+        "    netif_set_default(&S_sNetif);",
+        "    netif_set_up(&S_sNetif);",
+        "    S_uiNetworkReady = 1U;",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "int spec2codeTestbenchLwipTcpStart(unsigned short usPort)",
+        "{",
+        "    err_t enErr;",
+        "",
+        "    if (S_uiServerReady == 1U)",
+        "    {",
+        "        return XST_SUCCESS;",
+        "    }",
+        "    S_spServerPcb = tcp_new();",
+        "    if (S_spServerPcb == NULL)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    enErr = tcp_bind(S_spServerPcb, IP_ADDR_ANY, usPort);",
+        "    if (enErr != ERR_OK)",
+        "    {",
+        "        tcp_abort(S_spServerPcb);",
+        "        S_spServerPcb = NULL;",
+        "        return XST_FAILURE;",
+        "    }",
+        "    S_spServerPcb = tcp_listen(S_spServerPcb);",
+        "    if (S_spServerPcb == NULL)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    tcp_accept(S_spServerPcb, spec2codeTestbenchTcpAccept);",
+        "    S_uiServerReady = 1U;",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "int spec2codeTestbenchLwipStart(unsigned short usPort)",
+        "{",
+        "    int iStatus;",
+        "",
+        "    iStatus = spec2codeTestbenchBoardInit();",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = spec2codeTestbenchLwipNetworkInit();",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    return spec2codeTestbenchLwipTcpStart(usPort);",
+        "}",
+        "",
+        "void spec2codeTestbenchLwipInputPoll(void)",
+        "{",
+        "    if (S_uiNetworkReady == 1U)",
+        "    {",
+        "        xemacif_input(&S_sNetif);",
+        "    }",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _testbench_lwip_main_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_lwip_main.h\n"
+        " * @brief Example main loop for the Spec2Code lwIP TCP test bench agent.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_LWIP_MAIN_H\n"
+        "#define SPEC2CODE_TESTBENCH_LWIP_MAIN_H\n\n"
+        "int spec2codeTestbenchLwipMainRun(void);\n"
+        "int main(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_LWIP_MAIN_H */\n"
+    )
+
+
+def _testbench_lwip_main_source() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_lwip_main.c\n"
+        " * @brief Example main loop for the Spec2Code lwIP TCP test bench agent.\n"
+        " */\n"
+        '#include "spec2code_testbench_lwip_main.h"\n'
+        '#include "spec2code_testbench_lwip.h"\n'
+        '#include "xil_printf.h"\n'
+        '#include "xstatus.h"\n\n'
+        "int spec2codeTestbenchLwipMainRun(void)\n"
+        "{\n"
+        "    int iStatus;\n\n"
+        "    iStatus = spec2codeTestbenchLwipStart(SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);\n"
+        "    if (iStatus != XST_SUCCESS)\n"
+        "    {\n"
+        "        xil_printf(\"Spec2Code test bench TCP agent baslatilamadi: %d\\r\\n\", iStatus);\n"
+        "        return iStatus;\n"
+        "    }\n"
+        "    xil_printf(\"Spec2Code test bench TCP agent port %u dinliyor\\r\\n\",\n"
+        "               SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);\n"
+        "    for (;;)\n"
+        "    {\n"
+        "        spec2codeTestbenchLwipInputPoll();\n"
+        "    }\n"
+        "    return XST_SUCCESS;\n"
+        "}\n\n"
+        "int main(void)\n"
+        "{\n"
+        "    return spec2codeTestbenchLwipMainRun();\n"
+        "}\n"
+    )
+
+
 def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     project_name = spec["project"]["name"]
     tests_dir = out_dir / "tests"
-    return [
+    paths = [
         tests_dir / "spec2code_testbench_protocol.h",
         tests_dir / "spec2code_testbench_protocol.c",
         tests_dir / f"{project_name}_testbench_ops.h",
         tests_dir / f"{project_name}_testbench_ops.c",
         tests_dir / "spec2code_testbench_manifest.json",
     ]
+    if _testbench_lwip_enabled(spec):
+        paths.extend([
+            tests_dir / "spec2code_testbench_lwip.h",
+            tests_dir / "spec2code_testbench_lwip.c",
+            tests_dir / "spec2code_testbench_lwip_main.h",
+            tests_dir / "spec2code_testbench_lwip_main.c",
+        ])
+    return paths
 
 
 def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[str]:
@@ -1551,6 +2131,13 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
     ]
+    if _testbench_lwip_enabled(spec):
+        contents.extend([
+            _apply_default_identifier_style(_testbench_lwip_header()),
+            _apply_default_identifier_style(_testbench_lwip_source(spec)),
+            _apply_default_identifier_style(_testbench_lwip_main_header()),
+            _apply_default_identifier_style(_testbench_lwip_main_source()),
+        ])
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 
 

@@ -71,10 +71,23 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
     { path: "tests/spec2code_mock_bus.c", kind: "mock" },
     { path: `tests/${spec.project.name}_mock_plan.h`, kind: "mock" },
     { path: `tests/${spec.project.name}_mock_plan.c`, kind: "mock" },
+    { path: "tests/spec2code_testbench_protocol.h", kind: "test" },
+    { path: "tests/spec2code_testbench_protocol.c", kind: "test" },
+    { path: `tests/${spec.project.name}_testbench_ops.h`, kind: "test" },
+    { path: `tests/${spec.project.name}_testbench_ops.c`, kind: "test" },
+    { path: "tests/spec2code_testbench_manifest.json", kind: "meta" },
     { path: ".clang-format", kind: "meta" },
     { path: "README.md", kind: "meta" },
     { path: "qc_report.json", kind: "meta" },
   );
+  if (hasZynqmpPsEthernet(spec)) {
+    files.push(
+      { path: "tests/spec2code_testbench_lwip.h", kind: "test" },
+      { path: "tests/spec2code_testbench_lwip.c", kind: "test" },
+      { path: "tests/spec2code_testbench_lwip_main.h", kind: "test" },
+      { path: "tests/spec2code_testbench_lwip_main.c", kind: "test" },
+    );
+  }
 
   return {
     connectionCount: connections.length,
@@ -167,6 +180,18 @@ function normalizeSequence(raw: unknown): InitSequenceWrite[] {
 
 function moduleOf(part: string): string {
   return part.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function hasZynqmpPsEthernet(spec: ProjectSpec): boolean {
+  return (
+    spec.project.platform === "zynq_ultrascale" &&
+    spec.controllers.some(
+      (controller) =>
+        controller.type === "eth" &&
+        controller.zone === "ps" &&
+        (!controller.driver || controller.driver === "XEmacPs"),
+    )
+  );
 }
 
 function hex(value: number): string {

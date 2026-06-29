@@ -253,6 +253,31 @@ komut gonderir. Kart tarafindaki kendi TCP server kodun bu satiri alip
 `spec2codeTestbenchDispatchLine()` fonksiyonuna vermeli ve olusan response satirini
 geri dondurmelidir.
 
+Platform `zynq_ultrascale` ise ve `xparameters.h` icinden PS Ethernet controller'i
+(`XEmacPs`) yakalandiysa Spec2Code ek olarak hazir lwIP TCP agent uretir:
+
+```text
+tests/spec2code_testbench_lwip.c/.h
+tests/spec2code_testbench_lwip_main.c/.h
+```
+
+Bu dosyalar Zynq UltraScale+ PS Ethernet uzerinden lwIP raw API ile TCP server
+acar. Varsayilan port `5000`, varsayilan IP `192.168.1.10` olarak gelir. Bunlari
+Vitis compile define veya generated header uzerinden su makrolarla degistirebilirsin:
+
+```text
+SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT
+SPEC2CODE_TESTBENCH_IP_ADDR0..3
+SPEC2CODE_TESTBENCH_NETMASK_ADDR0..3
+SPEC2CODE_TESTBENCH_GATEWAY_ADDR0..3
+SPEC2CODE_TESTBENCH_MAC0..5
+```
+
+Generated lwIP agent ayni zamanda schematic'te kullanilan `XIicPs`, `XSpiPs` ve
+`XQspiPsu` controller handle'larini initialize eder. Test bench dispatch icindeki
+weak hook'lar bu dosyada strong olarak override edilir; yani UI'dan gelen operasyon
+dogrudan generated driver fonksiyonuna gider.
+
 Komut formati:
 
 ```text
@@ -297,9 +322,10 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 
 1. Vitis/XSCT surumunu algilar.
 2. Generated kaynaklari staging klasorune kopyalar.
-3. `spec2code_create_workspace.tcl` dosyasini yazar.
-4. XSCT ile headless application workspace olusturur.
-5. `app build` calistirir.
+3. lwIP test bench dosyasi varsa BSP icin lwIP library secimini dener.
+4. `spec2code_create_workspace.tcl` dosyasini yazar.
+5. XSCT ile headless application workspace olusturur.
+6. `app build` calistirir.
 
 Workspace altinda olusan yardimci klasor:
 
@@ -320,6 +346,13 @@ bak. En sik hatalar:
 - XSA icinde beklenen processor instance adinin farkli olmasi.
 - Vitis surumunde template adinin farkli davranmasi.
 - BSP/toolchain eksigi.
+- lwIP agent uretilmis ama Vitis BSP icinde lwIP library enable edilememis olmasi.
+
+lwIP agent uretilirse Vitis panelinde `lwIP gerekli` rozeti gorunur ve staging
+manifest icinde `requires_lwip: true` yazar. Tcl script `lwip220`, `lwip213`,
+`lwip211` ve `lwip202` library adlarini sirayla dener. Kullanilan Vitis surumunde
+bu isimler farkliysa BSP/domain ayarlarindan lwIP library'yi manuel enable etmek
+gerekebilir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:
