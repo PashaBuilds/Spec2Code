@@ -350,20 +350,21 @@ function SpiChipSelectTrack() {
   return (
     <>
       <span className="justify-self-start self-center font-mono text-[9px] font-semibold uppercase text-muted">CS#</span>
-      <div className="relative h-9 font-mono text-[9px] text-faint">
-        <span className="absolute left-0 right-1 top-1 border-t border-faint/55" aria-hidden />
-        <span className="absolute left-0 top-2.5">HIGH</span>
-        <span className="absolute right-1 top-1 h-[22px] border-r border-faint/50" aria-hidden />
+      <div className="relative h-12 font-mono text-[9px] text-faint">
+        <span className="absolute left-0 right-0 top-3 border-t-2 border-faint/60" aria-hidden />
+        <span className="absolute left-0 top-0">HIGH</span>
       </div>
-      <div className="relative h-9 rounded border border-accent/20 bg-accent/5 font-mono text-[9px] text-faint">
-        <span className="absolute left-0 top-1 h-[22px] border-l border-accent/55" aria-hidden />
-        <span className="absolute left-0 right-0 bottom-1.5 border-t border-accent/85" aria-hidden />
-        <span className="absolute left-2 bottom-2.5 text-accent">LOW aktif transfer</span>
-        <span className="absolute right-0 top-1 h-[22px] border-r border-accent/55" aria-hidden />
+      <div className="relative h-12 rounded-sm bg-accent/5 font-mono text-[9px] text-faint">
+        <span className="absolute left-0 right-0 top-8 border-t-2 border-accent shadow-[0_0_10px_rgba(56,189,248,0.18)]" aria-hidden />
+        <span className="absolute left-0 top-3 h-5 border-l-2 border-accent" aria-hidden />
+        <span className="absolute right-0 top-3 h-5 border-r-2 border-accent" aria-hidden />
+        <span className="absolute left-2 top-4 text-accent">LOW aktif transfer</span>
+        <span className="absolute left-0 top-3 h-1.5 w-1.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-accent" aria-hidden />
+        <span className="absolute right-0 top-3 h-1.5 w-1.5 -translate-y-0.5 translate-x-0.5 rounded-full bg-accent" aria-hidden />
       </div>
-      <div className="relative h-9 font-mono text-[9px] text-faint">
-        <span className="absolute left-1 right-0 top-1 border-t border-faint/55" aria-hidden />
-        <span className="absolute right-0 top-2.5">HIGH</span>
+      <div className="relative h-12 font-mono text-[9px] text-faint">
+        <span className="absolute left-0 right-0 top-3 border-t-2 border-faint/60" aria-hidden />
+        <span className="absolute right-0 top-0">HIGH</span>
       </div>
     </>
   );
@@ -401,7 +402,7 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
           <span>Satırlar</span>
           <span>Her byte kartında SCK, MOSI, MISO ve clock numarası kendi satırının solunda gösterilir.</span>
         </div>
-        <div className="inline-grid min-w-max grid-cols-[44px_4rem_auto_4rem] gap-x-2 gap-y-1 rounded-md border border-border bg-bg p-2">
+        <div className="inline-grid min-w-max grid-cols-[44px_4rem_auto_4rem] gap-y-1 rounded-md border border-border bg-bg p-2">
           <SpiChipSelectTrack />
           <div className="col-start-3 col-end-4 flex items-start gap-2">
             {tx.visible.map((frame, index) => (
