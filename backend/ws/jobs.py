@@ -7,19 +7,12 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.jobs import manager
+from backend.vitis_workspace import vitis_manager
 
 ws_router = APIRouter()
 
 
-@ws_router.websocket("/ws/jobs/{job_id}")
-async def ws_jobs(websocket: WebSocket, job_id: str) -> None:
-    await websocket.accept()
-    job = manager.get(job_id)
-    if job is None:
-        await websocket.send_json({"event": "error", "message": "unknown job"})
-        await websocket.close()
-        return
-
+async def _stream_buffered_job(websocket: WebSocket, job) -> None:
     queue: asyncio.Queue = asyncio.Queue()
     job.subscribers.add(queue)
     last = -1
@@ -45,3 +38,27 @@ async def ws_jobs(websocket: WebSocket, job_id: str) -> None:
         pass
     finally:
         job.subscribers.discard(queue)
+
+
+@ws_router.websocket("/ws/jobs/{job_id}")
+async def ws_jobs(websocket: WebSocket, job_id: str) -> None:
+    await websocket.accept()
+    job = manager.get(job_id)
+    if job is None:
+        await websocket.send_json({"event": "error", "message": "unknown job"})
+        await websocket.close()
+        return
+
+    await _stream_buffered_job(websocket, job)
+
+
+@ws_router.websocket("/ws/vitis/{vitis_job_id}")
+async def ws_vitis(websocket: WebSocket, vitis_job_id: str) -> None:
+    await websocket.accept()
+    job = vitis_manager.get(vitis_job_id)
+    if job is None:
+        await websocket.send_json({"event": "error", "message": "unknown Vitis job"})
+        await websocket.close()
+        return
+
+    await _stream_buffered_job(websocket, job)

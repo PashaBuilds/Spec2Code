@@ -95,6 +95,42 @@ export interface KnowledgeAskResponse {
   grounded?: boolean;
 }
 
+export interface VitisWorkspaceRequest {
+  vitis_path: string;
+  xsa_path: string;
+  workspace_path: string;
+  processor?: string;
+  runtime?: "standalone" | "freertos" | "freertos10_xilinx" | "bare_metal";
+  app_name?: string;
+  timeout_s?: number;
+}
+
+export interface VitisWorkspaceResult {
+  vitis_job_id: string;
+  source_job_id: string;
+  status: "pending" | "running" | "done" | "error";
+  error: string | null;
+  result: {
+    vitis_job_id: string;
+    source_job_id: string;
+    project: string;
+    xsct_path: string;
+    vitis_version: string;
+    vitis_version_source: string;
+    xsa_path: string;
+    workspace_path: string;
+    source_path: string;
+    app_name: string;
+    processor: string;
+    os: string;
+    staged_files: string[];
+    script_path: string;
+    manifest_path: string;
+    stdout_log: string;
+    stderr_log: string;
+  } | null;
+}
+
 export interface ProjectSpec {
   schema_version: string;
   project: ProjectMeta;

@@ -20,6 +20,7 @@ from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
 from backend.validators.wiring import validate_wiring
+from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
@@ -67,6 +68,16 @@ class KnowledgeAskRequest(BaseModel):
     question: str
     context: str
     llm: dict = Field(default_factory=dict)
+
+
+class VitisWorkspaceRequest(BaseModel):
+    vitis_path: str
+    xsa_path: str
+    workspace_path: str
+    processor: str = ""
+    runtime: str = ""
+    app_name: str = ""
+    timeout_s: int = 1800
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -242,12 +253,12 @@ def _vitis_readme(job, files: list[str]) -> str:
         "## Klasorler\n\n"
         "- `src/drivers/`: uretilen `.c` ve `.h` suruculer.\n"
         "- `src/tests/`: secilen self-test dosyalari.\n"
-        "- `src/spec2code_selftest_main.c`: self-testleri topluca cagiran ornek runner.\n"
+        "- `src/spec2code_selftest_main.c/.h`: self-testleri topluca cagiran ornek runner.\n"
         "- `meta/project.spec.json`: bu paketi ureten canonical spec.\n"
         "- `meta/qc_report.json`: son QC raporu.\n\n"
         "## Vitis'e aktarma\n\n"
         "1. `src/drivers` altindaki `.c` ve `.h` dosyalarini Vitis application source tree'ye ekle.\n"
-        "2. Self-test kullanacaksan `src/tests` ve `src/spec2code_selftest_main.c` dosyalarini da ekle.\n"
+        "2. Self-test kullanacaksan `src/tests` ve `src/spec2code_selftest_main.c/.h` dosyalarini da ekle.\n"
         "3. Include path'e `src/drivers` klasorunu ekle.\n"
         "4. BSP tarafinda `xparameters.h` ayni donanim platformundan gelmeli.\n"
         "5. `spec2codeRunSelfTests()` fonksiyonunu kendi `main.c` veya FreeRTOS task akisin icinden cagir.\n\n"
@@ -265,6 +276,7 @@ def _vitis_selftest_main(spec: dict) -> str:
     declaration_keys: set[tuple[str, str]] = set()
     calls: list[str] = []
     includes = {
+        "spec2code_selftest_main.h",
         "xstatus.h",
         "xil_printf.h",
         "xil_types.h",
@@ -321,6 +333,19 @@ def _vitis_selftest_main(spec: dict) -> str:
         + call_block
         + "    return XST_SUCCESS;\n"
         "}\n"
+    )
+
+
+def _vitis_selftest_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_selftest_main.h\n"
+        " * @brief Public Spec2Code Vitis self-test runner API.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_SELFTEST_MAIN_H\n"
+        "#define SPEC2CODE_SELFTEST_MAIN_H\n\n"
+        "int spec2codeRunSelfTests(void);\n\n"
+        "#endif\n"
     )
 
 
@@ -575,6 +600,11 @@ def download_vitis_job(job_id: str) -> Response:
             archived.append(arcname)
 
         archive.writestr(
+            "src/spec2code_selftest_main.h",
+            hio.normalize_crlf(_vitis_selftest_header()).encode("utf-8"),
+        )
+        archived.append("src/spec2code_selftest_main.h")
+        archive.writestr(
             "src/spec2code_selftest_main.c",
             hio.normalize_crlf(_vitis_selftest_main(job.spec)).encode("utf-8"),
         )
@@ -596,6 +626,47 @@ def download_vitis_job(job_id: str) -> Response:
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/jobs/{job_id}/vitis/workspace")
+async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dict:
+    job = _job_with_result(job_id)
+    project = job.spec.get("project", {})
+    runtime = req.runtime.strip() or project.get("runtime", "bare_metal")
+    processor = req.processor.strip() or default_vitis_processor(
+        str(project.get("platform", "")),
+        str(project.get("target_core", "")),
+    )
+    try:
+        vitis_job_id = await vitis_manager.start(
+            job,
+            VitisWorkspaceConfig(
+                vitis_path=req.vitis_path,
+                xsa_path=req.xsa_path,
+                workspace_path=req.workspace_path,
+                processor=processor,
+                runtime=vitis_os(runtime),
+                app_name=req.app_name,
+                timeout_s=req.timeout_s,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"vitis_job_id": vitis_job_id}
+
+
+@router.get("/vitis/jobs/{vitis_job_id}/result")
+def vitis_workspace_result(vitis_job_id: str) -> dict:
+    job = vitis_manager.get(vitis_job_id)
+    if job is None:
+        raise HTTPException(404, "unknown Vitis job")
+    return {
+        "vitis_job_id": vitis_job_id,
+        "source_job_id": job.source_job_id,
+        "status": job.status,
+        "error": job.error,
+        "result": job.result,
+    }
 
 
 @router.get("/jobs/{job_id}/files/{file_path:path}")

@@ -32,8 +32,12 @@ ve devam geliştirme.
   varsa `reference_sources/` hiyerarşik gösterilir; tek dosya veya tüm çıktı zip
   olarak indirilebilir.
 - **Vitis-ready export:** Ayrı Vitis paketi, `src/drivers`, `src/tests`,
-  `src/spec2code_selftest_main.c`, `meta/project.spec.json` ve Türkçe entegrasyon
-  README'si içerir.
+  `src/spec2code_selftest_main.c/.h`, `meta/project.spec.json` ve Türkçe
+  entegrasyon README'si içerir.
+- **Tek tuş Vitis workspace üretimi:** Windows üzerinde kurulu Vitis dizini,
+  `.xsa` dosyası ve hedef workspace dizini verilince `xsct` otomatik bulunur,
+  Vitis sürümü algılanır, kaynaklar staging'e alınır ve platform/application
+  workspace build akışı progress bar ile izlenir.
 - **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir. Model adı
   kullanıcıdan tam olarak alınır; Kimi, Qwen veya başka bir model aynı alandan
   kullanılabilir. Timeout ve cevap uzunluğu limitleri açıktır.
@@ -50,6 +54,7 @@ xparameters.h
   -> QC
   -> drivers/tests/raporlar
   -> normal zip veya Vitis-ready zip
+  -> opsiyonel Vitis workspace build
 ```
 
 Dosya vermesen bile kod üretilebilmesinin sebebi budur: üretim, mevcut
@@ -237,6 +242,37 @@ Windows'ta geliştirmeye devam etmek için source zip'i indir:
 ```text
 spec2code-vX.Y.Z-source.zip
 ```
+
+## Vitis Workspace Üretimi
+
+Generate tamamlandıktan sonra **Vitis workspace** paneli görünür. Bu panel Windows
+makinede Vitis dizini, `.xsa` dosyası, hedef workspace dizini ve processor adını
+alır. Processor varsayılan olarak proje platformundan türetilir; gerekirse
+`psu_cortexa53_0`, `ps7_cortexa9_0` gibi gerçek Vitis processor instance adıyla
+değiştirilebilir.
+
+Backend verilen Vitis dizininden `xsct.bat`/`xsct` bulur, sürümü `xsct -version`
+ile okumaya çalışır ve workspace altında `_spec2code_staging/<job>/` klasörüne
+şunları yazar:
+
+- `src/`: generated `drivers/`, `tests/`, referans kaynaklar ve
+  `spec2code_selftest_main.c/.h`
+- `spec2code_create_workspace.tcl`: çalıştırılan XSCT script'i
+- `spec2code_vitis_manifest.json`: path, processor, OS ve Vitis sürümü
+- `logs/xsct_stdout.log`, `logs/xsct_stderr.log`: Vitis/XSCT çıktıları
+
+Headless script akışı:
+
+```text
+setws
+app create -hw <board.xsa> -proc <processor> -os <standalone|freertos10_xilinx>
+importsources
+app build
+```
+
+Bu akış GUI açmadan çalışır ve air-gap Windows ortamına uygundur. Vitis komut
+uyumluluğu kullanılan AMD Vitis/XSCT sürümüne bağlıdır; hata olursa paneldeki
+progress akışı ve staging altındaki log dosyaları hangi adımda durduğunu gösterir.
 
 Detaylı Windows setup ve air-gap akışı için:
 

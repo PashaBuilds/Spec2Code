@@ -13,6 +13,8 @@ import type {
   ProjectSpec,
   DriverMatch,
   SpecValidation,
+  VitisWorkspaceRequest,
+  VitisWorkspaceResult,
 } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -96,6 +98,15 @@ export const api = {
 
   jobVitisDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/vitis`,
 
+  createVitisWorkspace: (jobId: string, payload: VitisWorkspaceRequest) =>
+    req<{ vitis_job_id: string }>(`/api/jobs/${encodeURIComponent(jobId)}/vitis/workspace`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  vitisWorkspaceResult: (vitisJobId: string) =>
+    req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 
@@ -120,6 +131,26 @@ export function openJobSocket(
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/jobs/${jobId}`);
+  ws.onmessage = (m) => {
+    const data = JSON.parse(m.data);
+    if (data.event === "__closed__") {
+      ws.close();
+      onClose?.();
+      return;
+    }
+    onEvent(data);
+  };
+  ws.onerror = () => onClose?.();
+  return () => ws.close();
+}
+
+export function openVitisSocket(
+  vitisJobId: string,
+  onEvent: (e: import("./types").JobEvent) => void,
+  onClose?: () => void,
+): () => void {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/vitis/${vitisJobId}`);
   ws.onmessage = (m) => {
     const data = JSON.parse(m.data);
     if (data.event === "__closed__") {

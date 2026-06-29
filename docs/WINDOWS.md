@@ -112,6 +112,57 @@ Expected shape:
 }
 ```
 
+## Tek Tuş Vitis Workspace Üretimi
+
+Generate tamamlandıktan sonra Code ekranındaki **Vitis workspace** panelini kullanabilirsin.
+Bu akış Windows makinede lokal çalışan FastAPI backend üzerinden gerçek dosya path'lerine
+erişir; browser file picker yerine path'leri text olarak girmen bu yüzden yeterlidir.
+
+Gereken bilgiler:
+
+- Vitis dizini: `C:\Xilinx\Vitis\2024.2` veya `C:\Xilinx`
+- XSA dosyası: Vivado/Vitis hardware export çıktısı, örnek `D:\Board\export\system.xsa`
+- Workspace dizini: örnek `D:\VitisWorkspaces\spec2code`
+- Processor: çoğu durumda otomatik gelir; gerekirse Vitis'teki gerçek instance adıyla
+  değiştir, örnek `psu_cortexa53_0`
+
+Backend şu arama sırasıyla `xsct` bulmaya çalışır:
+
+```text
+<Vitis>\bin\xsct.bat
+<Vitis>\xsct.bat
+<Vitis>\Vitis\<version>\bin\xsct.bat
+<Vitis>\<version>\bin\xsct.bat
+```
+
+Linux/macOS geliştirme ortamında aynı mantık `xsct` dosyasını arar. Windows'ta `.bat`
+bulunursa komut `cmd.exe /c xsct.bat <script>` şeklinde çalıştırılır.
+
+Akış aşamaları UI'da progress bar ile görünür:
+
+1. XSCT path'i bulunur.
+2. `xsct -version` ile Vitis/XSCT sürümü algılanır.
+3. Generated `drivers/`, `tests/`, referans kaynaklar ve `spec2code_selftest_main.c/.h`
+   staging klasörüne kopyalanır.
+4. `spec2code_create_workspace.tcl` yazılır.
+5. XSCT headless çalıştırılır.
+6. `app build` başarılıysa workspace hazır olarak işaretlenir.
+
+Workspace altında oluşturulan yardımcı dosyalar:
+
+```text
+_spec2code_staging\<vitis_job>\
+  src\
+  spec2code_create_workspace.tcl
+  spec2code_vitis_manifest.json
+  logs\xsct_stdout.log
+  logs\xsct_stderr.log
+```
+
+Hata alırsan önce UI'daki son progress mesajına, sonra `xsct_stderr.log` dosyasına bak.
+Bu dosyalar özellikle Vitis sürüm farkı, yanlış processor instance adı, bozuk `.xsa` veya
+eksik BSP/toolchain durumlarını ayırmak için bırakılır.
+
 ## Option B: Run from source
 
 Use this when you need to inspect or modify the project.

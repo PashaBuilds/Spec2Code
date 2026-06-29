@@ -9,6 +9,7 @@ import { useStore } from "@/store/useStore";
 import type { GeneratedFile, QcViolation } from "@/lib/types";
 import { Card, Badge } from "@/components/ui";
 import { VisualBackdrop } from "@/components/visuals";
+import { VitisWorkspacePanel } from "@/features/vitis-workspace/VitisWorkspacePanel";
 
 type Tone = "neutral" | "accent" | "ok" | "warn" | "danger";
 
@@ -350,6 +351,8 @@ export default function CodeViewer() {
       </div>
 
       <MockHarnessPanel files={mockFiles} activePath={activePath} onSelect={setActive} />
+
+      {jobId ? <VitisWorkspacePanel jobId={jobId} /> : null}
 
       {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
 
