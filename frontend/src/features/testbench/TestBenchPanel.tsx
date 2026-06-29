@@ -31,6 +31,27 @@ function findManifest(files: GeneratedFile[]): TestbenchManifest | null {
   }
 }
 
+function manifestStorageKey(project: string): string {
+  return `spec2code.testbench.manifest.${project || "default"}`;
+}
+
+function loadCachedManifest(project: string): TestbenchManifest | null {
+  try {
+    const raw = localStorage.getItem(manifestStorageKey(project));
+    return raw ? (JSON.parse(raw) as TestbenchManifest) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedManifest(project: string, manifest: TestbenchManifest): void {
+  try {
+    localStorage.setItem(manifestStorageKey(project), JSON.stringify(manifest));
+  } catch {
+    // Cache is only a convenience fallback; the active generate result remains canonical.
+  }
+}
+
 function parseNumber(value: string): number | null {
   const text = value.trim();
   if (!text) return null;
@@ -150,7 +171,14 @@ function ResultPanel({ result }: { result: TestbenchCommandResponse | null }) {
 
 export default function TestBenchPanel() {
   const files = useStore((s) => s.job.files);
-  const manifest = useMemo(() => findManifest(files), [files]);
+  const previousFiles = useStore((s) => s.previousFiles);
+  const jobStatus = useStore((s) => s.job.status);
+  const projectName = useStore((s) => s.project.name);
+  const manifestFiles = files.length > 0 ? files : jobStatus === "running" ? [] : previousFiles;
+  const activeManifest = useMemo(() => findManifest(manifestFiles), [manifestFiles]);
+  const [cachedManifest, setCachedManifest] = useState<TestbenchManifest | null>(() => loadCachedManifest(projectName));
+  const manifest = activeManifest ?? (jobStatus === "running" ? null : cachedManifest);
+  const manifestSource = activeManifest ? "active" : manifest ? "cached" : "none";
   const [host, setHost] = useState(() => localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1");
   const [port, setPort] = useState(() => localStorage.getItem("spec2code.testbench.port") ?? "5000");
   const [timeout, setTimeoutValue] = useState(() => localStorage.getItem("spec2code.testbench.timeout") ?? "5");
@@ -177,8 +205,20 @@ export default function TestBenchPanel() {
   );
 
   useEffect(() => {
+    setCachedManifest(loadCachedManifest(projectName));
+  }, [projectName]);
+
+  useEffect(() => {
+    if (!activeManifest) return;
+    saveCachedManifest(projectName, activeManifest);
+    setCachedManifest(activeManifest);
+  }, [activeManifest, projectName]);
+
+  useEffect(() => {
     if (!manifest?.devices.length) return;
-    setSelectedDeviceId((current) => current || manifest.devices[0].id);
+    setSelectedDeviceId((current) =>
+      manifest.devices.some((device) => device.id === current) ? current : manifest.devices[0].id,
+    );
   }, [manifest]);
 
   useEffect(() => {
@@ -243,9 +283,13 @@ export default function TestBenchPanel() {
         <div className="flex items-start gap-3">
           <PlugZap className="mt-0.5 h-5 w-5 text-accent" aria-hidden />
           <div>
-            <h2 className="text-sm font-semibold text-text">Test Bench hazır değil</h2>
+            <h2 className="text-sm font-semibold text-text">
+              {jobStatus === "running" ? "Generate devam ediyor" : "Test Bench hazır değil"}
+            </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted">
-              Önce generate çalıştır. Generate sonucu `tests/spec2code_testbench_manifest.json` üretildiğinde bu sayfa kart üzerindeki TCP agent'a komut gönderebilir.
+              {jobStatus === "running"
+                ? "Generate tamamlandığında tests/spec2code_testbench_manifest.json üretilecek ve bu sayfa otomatik olarak aktif hale gelecek."
+                : "Önce Generate çalıştır ve console tarafında RESULT satırını gör. Generate sonucu tests/spec2code_testbench_manifest.json içerdiğinde bu sayfa kart üzerindeki TCP agent'a komut gönderebilir."}
             </p>
           </div>
         </div>
@@ -262,9 +306,18 @@ export default function TestBenchPanel() {
               <PlugZap className="h-4 w-4 text-accent" aria-hidden />
               <span className="text-sm font-semibold text-text">Target test bench</span>
             </div>
-            <Badge tone="accent">{manifest.devices.length} entegre</Badge>
+            <div className="flex items-center gap-2">
+              {manifestSource === "cached" ? <Badge tone="warn">son başarılı generate</Badge> : null}
+              <Badge tone="accent">{manifest.devices.length} entegre</Badge>
+            </div>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-faint">{manifest.protocol}</p>
+          {manifestSource === "cached" ? (
+            <p className="mt-2 rounded-md border border-warn/30 bg-warn/10 px-2 py-1.5 text-xs leading-relaxed text-warn">
+              Aktif generate sonucu tarayıcı state'inde yok; son başarılı generate manifest'i tarayıcı hafızasından yüklendi.
+              Topolojiyi değiştirdiysen tekrar Generate çalıştır.
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-3 p-3">
