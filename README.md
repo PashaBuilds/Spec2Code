@@ -293,10 +293,10 @@ Custom PL IP'ler için varsayılan policy `auto_none` değeridir. Backend XSA i�
 peripheral instance'ları custom aday sayar ve Tcl içinde bu IP'ler için
 `bsp setdriver -ip <instance> -driver none` varyantlarını dener. Vitis buna rağmen
 source'suz custom IP driver klasörünü build etmeye çalışırsa ilgili
-`libsrc/<custom_ip>*/src/make.libs` dosyası no-op hedeflerle güncellenir ve
-orijinal dosya `.spec2code_backup` olarak korunur. Şirket içinde gerçek driver'ı
-olan custom IP'leri BSP default haliyle bırakmak istiyorsan Vitis panelinde
-**BSP default'u koru** seçeneğini kullan.
+`libsrc/<custom_ip>*/src/make.libs` dosyası `bsp regenerate` ve `app build`
+öncesinde no-op hedeflerle güncellenir; orijinal dosya `.spec2code_backup` olarak
+korunur. Şirket içinde gerçek driver'ı olan custom IP'leri BSP default haliyle
+bırakmak istiyorsan Vitis panelinde **BSP default'u koru** seçeneğini kullan.
 
 Headless script akışı:
 

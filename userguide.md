@@ -367,11 +367,11 @@ icindeki `.hwh` dosyasi okunur; `VLNV` vendor'i `xilinx.com` veya `amd.com`
 olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Tcl script bu
 instance'lar icin `bsp setdriver -ip <instance> -driver none` varyantlarini dener.
 Vitis buna ragmen `libsrc/<custom_ip>*/src/make.libs` altinda source'suz driver
-build etmeye calisirsa script ilgili `make.libs` dosyasini no-op hedeflerle
-degistirir ve orijinali `.spec2code_backup` olarak saklar. Bu, driver dosyasi
-olmayan custom IP'lerin BSP build'i bozmasini engellemek icin tasarlanmistir.
-Eger custom IP gercek ve kullanilacak bir sirket driver'i ile geliyorsa Vitis
-panelinde `BSP default'u koru` secilmelidir.
+build etmeye calisirsa script ilgili `make.libs` dosyasini `bsp regenerate` ve
+`app build` oncesinde no-op hedeflerle degistirir; orijinali `.spec2code_backup`
+olarak saklanir. Bu, driver dosyasi olmayan custom IP'lerin BSP build'i bozmasini
+engellemek icin tasarlanmistir. Eger custom IP gercek ve kullanilacak bir sirket
+driver'i ile geliyorsa Vitis panelinde `BSP default'u koru` secilmelidir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

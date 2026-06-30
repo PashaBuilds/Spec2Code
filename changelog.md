@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.67 - 2026-06-30
+
+- Vitis workspace custom IP BSP bypass'i `app build` oncesiyle sinirli kalmayacak sekilde `bsp regenerate` oncesinde de calistirilir.
+- `.hwh` custom IP eslesmesi yetersiz kalsa bile, `libsrc/*/src/make.libs` icinde `*.c` literal'i bulunan ve ayni `src` klasorunde gercek `.c` dosyasi olmayan source'suz BSP driver klasorleri otomatik no-op hale getirilir.
+- FreeRTOS/lwIP BSP regenerate adimi custom IP makefile patch'i tazelendikten sonra calisir; bu, Vitis 2023.2'de gorulen `cc1.exe: fatal error: *.c: Invalid argument` hatasini daha erken asamada engeller.
+
 ## v0.1.66 - 2026-06-30
 
 - Vitis workspace akisi, `Auto: custom IP - none` seciliyken source'suz custom PL IP BSP driver klasorlerini build oncesi ikinci emniyet katmani ile bypass eder.

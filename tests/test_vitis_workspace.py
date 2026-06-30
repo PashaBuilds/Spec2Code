@@ -201,6 +201,10 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn(".PHONY: all libs include install clean", script)
         self.assertIn("${make_libs}.spec2code_backup", script)
         self.assertIn("string match \"${alias}_v*\" $libsrc_name", script)
+        self.assertIn("proc spec2codeMakeLibsLooksSourceLess", script)
+        self.assertIn("string first \"*.c\" $content", script)
+        self.assertIn("[spec2codeIsCustomIpMakeLibs $make_libs] || [spec2codeMakeLibsLooksSourceLess $make_libs]", script)
+        self.assertNotIn("[llength $spec2code_custom_ip_instances] == 0", script)
 
     def test_xsct_script_applies_custom_ip_policy_before_lwip_regenerate(self) -> None:
         script = render_xsct_script(
@@ -229,6 +233,14 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertLess(
             script.index("spec2codeDisableCustomIpBspLibsrc"),
             script.index("app build -name $app_name"),
+        )
+        self.assertLess(
+            script.index("spec2codeDisableCustomIpBspLibsrc\n            if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]}"),
+            script.index("bsp setlib -name $spec2code_lwip_lib"),
+        )
+        self.assertLess(
+            script.index("spec2codeDisableCustomIpBspLibsrc\n            if {[catch {bsp regenerate} spec2code_lwip_regen_err]}"),
+            script.index("importsources -name $app_name -path $source_path"),
         )
 
     def test_xsct_script_retries_build_after_custom_ip_bsp_bypass(self) -> None:
