@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import traceback
 import xml.etree.ElementTree as ET
 import zipfile
@@ -472,6 +473,124 @@ def _log_tail(text: str, *, limit: int = 4000) -> str:
     return clean[-limit:] if len(clean) > limit else clean
 
 
+def _normalize_custom_ip_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", value.lower()).strip("_")
+
+
+def _custom_ip_aliases(value: str) -> set[str]:
+    normalized = _normalize_custom_ip_token(value)
+    aliases = {normalized} if normalized else set()
+    match = re.fullmatch(r"(.+)_([0-9]+)", normalized)
+    if match:
+        aliases.add(match.group(1))
+    return aliases
+
+
+def _is_known_xilinx_libsrc(libsrc_name: str) -> bool:
+    if libsrc_name.startswith(("xil", "lwip", "freertos", "standalone")):
+        return True
+    return libsrc_name in {
+        "common",
+        "cpu_cortexa53",
+        "cpu_cortexr5",
+        "cpu_psu_cortexa53",
+        "cpu_psu_cortexr5",
+    }
+
+
+def _make_libs_matches_custom_ip(make_libs: Path, custom_ip_instances: list[str]) -> bool:
+    libsrc_name = _normalize_custom_ip_token(make_libs.parent.parent.name)
+    for custom_ip in custom_ip_instances:
+        for alias in _custom_ip_aliases(custom_ip):
+            if libsrc_name == alias or libsrc_name.startswith(f"{alias}_"):
+                return True
+    return False
+
+
+def _make_libs_looks_sourceless(make_libs: Path) -> bool:
+    libsrc_name = _normalize_custom_ip_token(make_libs.parent.parent.name)
+    if not libsrc_name or _is_known_xilinx_libsrc(libsrc_name):
+        return False
+    if any(make_libs.parent.glob("*.c")):
+        return False
+    try:
+        content = make_libs.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "*.c" in content
+
+
+def _write_noop_make_libs(make_libs: Path) -> bool:
+    try:
+        existing = make_libs.read_text(encoding="utf-8", errors="replace") if make_libs.is_file() else ""
+    except OSError:
+        existing = ""
+    if "Spec2Code: source-less custom PL IP BSP driver disabled." in existing:
+        return False
+
+    backup = make_libs.with_name(f"{make_libs.name}.spec2code_backup")
+    try:
+        if make_libs.is_file() and not backup.exists():
+            shutil.copy2(make_libs, backup)
+        make_libs.write_text(
+            "# Spec2Code: source-less custom PL IP BSP driver disabled.\n"
+            ".PHONY: all libs include install clean\n"
+            "all: libs\n"
+            "libs:\n"
+            "include:\n"
+            "install: libs\n"
+            "clean:\n",
+            encoding="utf-8",
+            newline="",
+        )
+    except OSError:
+        return False
+    return True
+
+
+def patch_custom_ip_make_libs(workspace_path: Path, custom_ip_instances: list[str], policy: str) -> list[str]:
+    if normalize_custom_ip_driver_policy(policy) != "auto_none" or not workspace_path.exists():
+        return []
+    patched: list[str] = []
+    for make_libs in workspace_path.rglob("make.libs"):
+        if not make_libs.is_file():
+            continue
+        if _make_libs_matches_custom_ip(make_libs, custom_ip_instances) or _make_libs_looks_sourceless(make_libs):
+            if _write_noop_make_libs(make_libs):
+                patched.append(str(make_libs))
+    return patched
+
+
+class CustomIpMakeLibsWatcher:
+    def __init__(self, root_paths: Path | list[Path], custom_ip_instances: list[str], policy: str, *, interval_s: float = 0.02) -> None:
+        self.root_paths = root_paths if isinstance(root_paths, list) else [root_paths]
+        self.custom_ip_instances = custom_ip_instances
+        self.policy = policy
+        self.interval_s = interval_s
+        self.patched_paths: list[str] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="spec2code-custom-ip-bsp-patcher", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> list[str]:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+        self._patch_once()
+        return sorted(set(self.patched_paths))
+
+    def _patch_once(self) -> None:
+        for root_path in self.root_paths:
+            for path in patch_custom_ip_make_libs(root_path, self.custom_ip_instances, self.policy):
+                self.patched_paths.append(path)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._patch_once()
+            self._stop.wait(self.interval_s)
+
+
 def _xsct_log_has_fatal_error(stdout: str, stderr: str) -> bool:
     log = f"{stdout}\n{stderr}"
     return bool(_XSCT_FATAL_RE.search(log))
@@ -925,19 +1044,28 @@ class VitisWorkspaceJobManager:
             "event": "vitis.run",
             "stage": "run",
             "progress": 72,
-            "message": "XSCT çalışıyor; platform/application oluşturulup build alınıyor.",
+            "message": "XSCT çalışıyor; platform/application oluşturulup build alınıyor. Custom IP BSP watcher aktif.",
             "script_path": str(script_path),
         })
-        completed = subprocess.run(
-            _command_for(xsct.path, str(script_path)),
-            cwd=workspace_path,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=max(60, int(config.timeout_s or 1800)),
+        watcher = CustomIpMakeLibsWatcher(
+            [workspace_path, staging_root],
+            [item.instance for item in custom_pl_ips],
+            custom_ip_driver_policy,
         )
+        watcher.start()
+        try:
+            completed = subprocess.run(
+                _command_for(xsct.path, str(script_path)),
+                cwd=workspace_path,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=max(60, int(config.timeout_s or 1800)),
+            )
+        finally:
+            host_patched_make_libs = watcher.stop()
         stdout_log.write_text(completed.stdout, encoding="utf-8")
         stderr_log.write_text(completed.stderr, encoding="utf-8")
         log_has_fatal_error = _xsct_log_has_fatal_error(completed.stdout, completed.stderr)
@@ -946,6 +1074,8 @@ class VitisWorkspaceJobManager:
             job.result["xsct_stdout_tail"] = _log_tail(completed.stdout)
             job.result["xsct_stderr_tail"] = _log_tail(completed.stderr)
             job.result["successful"] = completed.returncode == 0 and not log_has_fatal_error
+            job.result["custom_ip_make_libs_patched"] = host_patched_make_libs
+            job.result["custom_ip_make_libs_patched_count"] = len(host_patched_make_libs)
         if completed.returncode != 0 or log_has_fatal_error:
             issues = map_vitis_errors(f"{completed.stdout}\n{completed.stderr}")
             if job.result is not None:

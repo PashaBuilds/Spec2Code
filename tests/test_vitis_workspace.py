@@ -15,6 +15,7 @@ from backend.vitis_workspace import (
     discover_custom_pl_ips,
     locate_xsct,
     normalize_custom_ip_driver_policy,
+    patch_custom_ip_make_libs,
     render_xsct_script,
     vitis_lwip_api_mode,
     vitis_os,
@@ -262,6 +263,56 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("if {[catch {app build -name $app_name} spec2code_build_err]}", script)
         self.assertIn("retrying once", script)
         self.assertGreater(script.count("spec2codeDisableCustomIpBspLibsrc"), 2)
+
+    def test_host_make_libs_patcher_covers_application_pmu_and_fsbl_bsp_domains(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            domain_roots = [
+                workspace / "platform" / "export" / "platform" / "sw" / "platform" / "spec2code_test_sw_domain" / "bsp" / "psu_cortexa53_0",
+                workspace / "platform" / "export" / "platform" / "sw" / "platform" / "zynqmp_fsbl" / "bsp" / "psu_cortexa53_0",
+                workspace / "platform" / "export" / "platform" / "sw" / "platform" / "zynqmp_pmufw" / "bsp" / "psu_pmu_0",
+            ]
+            for root in domain_roots:
+                src = root / "libsrc" / "mem_pcie_intr_v1_0" / "src"
+                src.mkdir(parents=True)
+                (src / "make.libs").write_text("LIBSOURCES = *.c\nlibs:\n\t$(CC) *.c\n", encoding="utf-8")
+
+            patched = patch_custom_ip_make_libs(workspace, ["mem_pcie_intr_0"], "auto_none")
+
+            self.assertEqual(len(patched), 3)
+            for root in domain_roots:
+                make_libs = root / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
+                self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
+                self.assertTrue((make_libs.parent / "make.libs.spec2code_backup").is_file())
+
+    def test_host_make_libs_patcher_uses_sourceless_wildcard_heuristic_without_hwh_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            src = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "zynqmp_pmufw" / "bsp" / "psu_pmu_0" / "libsrc" / "company_irq_v1_0" / "src"
+            src.mkdir(parents=True)
+            (src / "make.libs").write_text("LIBSOURCES = *.c\nlibs:\n\t$(CC) *.c\n", encoding="utf-8")
+
+            patched = patch_custom_ip_make_libs(workspace, [], "auto_none")
+
+            self.assertEqual(len(patched), 1)
+            self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", (src / "make.libs").read_text(encoding="utf-8"))
+
+    def test_host_make_libs_patcher_keeps_real_driver_sources_and_known_xilinx_libs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            real_src = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "company_irq_v1_0" / "src"
+            real_src.mkdir(parents=True)
+            (real_src / "company_irq.c").write_text("int companyIrqInit(void) { return 0; }\n", encoding="utf-8")
+            (real_src / "make.libs").write_text("LIBSOURCES = *.c\n", encoding="utf-8")
+            xil_src = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "xilflash_v1_0" / "src"
+            xil_src.mkdir(parents=True)
+            (xil_src / "make.libs").write_text("LIBSOURCES = *.c\n", encoding="utf-8")
+
+            patched = patch_custom_ip_make_libs(workspace, [], "auto_none")
+
+            self.assertEqual(patched, [])
+            self.assertNotIn("Spec2Code", (real_src / "make.libs").read_text(encoding="utf-8"))
+            self.assertNotIn("Spec2Code", (xil_src / "make.libs").read_text(encoding="utf-8"))
 
     def test_xsct_script_can_keep_custom_pl_ip_bsp_defaults(self) -> None:
         script = render_xsct_script(

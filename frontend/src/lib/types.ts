@@ -155,6 +155,8 @@ export interface VitisWorkspaceResult {
     lwip_api_mode?: string | null;
     custom_ip_driver_policy?: "auto_none" | "keep";
     custom_pl_ip_candidates?: CustomPlIpCandidate[];
+    custom_ip_make_libs_patched?: string[];
+    custom_ip_make_libs_patched_count?: number;
     staged_files: string[];
     script_path: string;
     manifest_path: string;

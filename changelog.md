@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.68 - 2026-06-30
+
+- Vitis workspace akisi, XSCT calisirken host tarafinda paralel bir custom IP BSP watcher baslatir.
+- Watcher workspace altindaki application, FSBL ve PMU/PMUFW dahil tum BSP `libsrc/*/src/make.libs` dosyalarini izler; source'suz custom IP `*.c` makefile'lari olusur olusmaz no-op hale getirir.
+- `.hwh` custom IP eslesmesi hic yapilamasa bile source'suz ve `*.c` wildcard'li non-Xilinx BSP driver klasorleri patchlenir.
+- Vitis workspace UI/result artik kac adet custom IP BSP `make.libs` dosyasinin patchlendigini ve ilgili path'leri gosterir.
+
 ## v0.1.67 - 2026-06-30
 
 - Vitis workspace custom IP BSP bypass'i `app build` oncesiyle sinirli kalmayacak sekilde `bsp regenerate` oncesinde de calistirilir.
