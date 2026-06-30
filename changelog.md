@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.64 - 2026-06-30
+
+- Vitis Workspace akisi temp/staging dizinini kullanicidan zorunlu input olarak alacak sekilde guncellendi.
+- XSA kopyasi, generated kaynaklar, Tcl script, manifest ve XSCT loglari artik workspace altina varsayilan yazilmaz; kullanicinin verdigi temp dizini altindaki job klasorune yazilir.
+- Vitis Workspace sonucuna `temp_path` ve `staging_path` alanlari eklendi.
+
 ## v0.1.63 - 2026-06-30
 
 - Vitis Workspace paneli platform, system ve application proje adlarini kullanicidan alacak sekilde genisletildi.

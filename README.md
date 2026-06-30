@@ -35,9 +35,9 @@ ve devam geliştirme.
   `src/spec2code_selftest_main.c/.h`, `meta/project.spec.json` ve Türkçe
   entegrasyon README'si içerir.
 - **Tek tuş Vitis workspace üretimi:** Windows üzerinde kurulu Vitis dizini,
-  `.xsa` dosyası ve hedef workspace dizini verilince `xsct` otomatik bulunur,
-  Vitis sürümü algılanır, kaynaklar staging'e alınır ve platform/application
-  workspace build akışı progress bar ile izlenir.
+  `.xsa` dosyası, hedef workspace dizini ve temp/staging dizini verilince `xsct`
+  otomatik bulunur, Vitis sürümü algılanır, kaynaklar staging'e alınır ve
+  platform/application workspace build akışı progress bar ile izlenir.
 - **ZynqMP PS Ethernet test bench:** `xparameters.h` içinde PS Ethernet
   (`XEmacPs`) varsa generate sonucu lwIP TCP test bench agent üretilebilir;
   Windows UI karta kalici TCP session üzerinden register/operation komutu yollar.
@@ -265,15 +265,16 @@ spec2code-vX.Y.Z-source.zip
 ## Vitis Workspace Üretimi
 
 Generate tamamlandıktan sonra **Vitis workspace** paneli görünür. Bu panel Windows
-makinede Vitis dizini, `.xsa` dosyası, hedef workspace dizini ve processor adını
-alır. Processor varsayılan olarak proje platformundan türetilir; gerekirse
+makinede Vitis dizini, `.xsa` dosyası, hedef workspace dizini, temp/staging dizini
+ve processor adını alır. Processor varsayılan olarak proje platformundan türetilir; gerekirse
 `psu_cortexa53_0`, `ps7_cortexa9_0` gibi gerçek Vitis processor instance adıyla
 değiştirilebilir.
 
 Backend verilen Vitis dizininden `xsct.bat`/`xsct` bulur, sürümü `xsct -version`
-ile okumaya çalışır ve workspace altında `_spec2code_staging/<job>/` klasörüne
-şunları yazar:
+ile okumaya çalışır ve kullanıcının verdiği temp/staging dizini altında `<job>/`
+klasörüne şunları yazar:
 
+- `hw/`: staging içine kopyalanan `.xsa`
 - `src/`: generated `drivers/`, `tests/`, referans kaynaklar ve
   `spec2code_selftest_main.c/.h`
 - `spec2code_create_workspace.tcl`: çalıştırılan XSCT script'i
@@ -306,7 +307,7 @@ app build
 ```
 
 Bu akış GUI açmadan çalışır ve air-gap Windows ortamına uygundur. `.xsa` dosyası
-önce staging içine kopyalanır; XSCT script'i bu kopyayı kullanır. Vitis komut
+önce kullanıcının verdiği temp/staging dizinine kopyalanır; XSCT script'i bu kopyayı kullanır. Vitis komut
 uyumluluğu kullanılan AMD Vitis/XSCT sürümüne bağlıdır; named platform/system
 akışı desteklenmezse legacy `app create -hw` fallback'i denenir. Hata olursa
 paneldeki progress akışı ve staging altındaki log dosyaları hangi adımda

@@ -76,6 +76,7 @@ class VitisWorkspaceRequest(BaseModel):
     vitis_path: str
     xsa_path: str
     workspace_path: str
+    temp_path: str
     processor: str = ""
     runtime: str = ""
     platform_name: str = ""
@@ -680,6 +681,7 @@ async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dic
                 vitis_path=req.vitis_path,
                 xsa_path=req.xsa_path,
                 workspace_path=req.workspace_path,
+                temp_path=req.temp_path,
                 processor=processor,
                 runtime=vitis_os(runtime),
                 platform_name=req.platform_name,

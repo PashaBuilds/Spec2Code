@@ -39,6 +39,7 @@ class VitisWorkspaceConfig:
     vitis_path: str
     xsa_path: str
     workspace_path: str
+    temp_path: str
     processor: str = ""
     runtime: str = "standalone"
     platform_name: str = ""
@@ -708,7 +709,9 @@ class VitisWorkspaceJobManager:
 
         workspace_path = _clean_user_path(config.workspace_path)
         workspace_path.mkdir(parents=True, exist_ok=True)
-        staging_root = workspace_path / "_spec2code_staging" / job.id
+        temp_path = _clean_user_path(config.temp_path)
+        temp_path.mkdir(parents=True, exist_ok=True)
+        staging_root = temp_path / job.id
         source_root = staging_root / "src"
         hw_root = staging_root / "hw"
         log_dir = staging_root / "logs"
@@ -759,6 +762,8 @@ class VitisWorkspaceJobManager:
             "xsa_path": str(staged_xsa_path),
             "source_xsa_path": str(input_xsa_path),
             "workspace_path": str(workspace_path),
+            "temp_path": str(temp_path),
+            "staging_path": str(staging_root),
             "source_path": str(source_root),
             "platform_name": platform_name,
             "system_name": system_name,

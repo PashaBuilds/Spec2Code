@@ -262,11 +262,13 @@ class VitisWorkspaceTests(unittest.TestCase):
                 xsa = tmp_path / "board.xsa"
                 xsa.write_bytes(b"fake xsa")
                 workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
 
                 config = VitisWorkspaceConfig(
                     vitis_path=str(tmp_path),
                     xsa_path=str(xsa),
                     workspace_path=str(workspace),
+                    temp_path=str(temp_root),
                     processor="psu_cortexa53_0",
                     runtime="standalone",
                     platform_name="unit_platform",
@@ -288,9 +290,11 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertIsNotNone(job.result)
                 result = job.result or {}
                 self.assertEqual(result["vitis_version"], "2024.2")
-                self.assertTrue((workspace / "_spec2code_staging" / "vitis_unit" / "src" / "drivers").is_dir())
+                self.assertTrue((temp_root / "vitis_unit" / "src" / "drivers").is_dir())
                 self.assertEqual(result["source_xsa_path"], str(xsa))
-                self.assertEqual(result["xsa_path"], str(workspace / "_spec2code_staging" / "vitis_unit" / "hw" / "board.xsa"))
+                self.assertEqual(result["xsa_path"], str(temp_root / "vitis_unit" / "hw" / "board.xsa"))
+                self.assertEqual(result["temp_path"], str(temp_root))
+                self.assertEqual(result["staging_path"], str(temp_root / "vitis_unit"))
                 self.assertTrue(Path(result["xsa_path"]).is_file())
                 self.assertEqual(result["platform_name"], "unit_platform")
                 self.assertEqual(result["system_name"], "unit_system")
@@ -326,11 +330,13 @@ class VitisWorkspaceTests(unittest.TestCase):
                 xsa = tmp_path / "board.xsa"
                 xsa.write_bytes(b"fake xsa")
                 workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
 
                 config = VitisWorkspaceConfig(
                     vitis_path=str(tmp_path),
                     xsa_path=str(xsa),
                     workspace_path=str(workspace),
+                    temp_path=str(temp_root),
                     processor="psu_cortexa53_0",
                     runtime="standalone",
                     timeout_s=10,

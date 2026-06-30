@@ -207,6 +207,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const [vitisPath, setVitisPath] = useState(() => localStorage.getItem("spec2code.vitisPath") ?? "");
   const [xsaPath, setXsaPath] = useState(() => localStorage.getItem("spec2code.xsaPath") ?? "");
   const [workspacePath, setWorkspacePath] = useState(() => localStorage.getItem("spec2code.workspacePath") ?? "");
+  const [tempPath, setTempPath] = useState(() => localStorage.getItem("spec2code.tempPath") ?? "");
   const [processor, setProcessor] = useState(defaultProcessor);
   const [platformName, setPlatformName] = useState(() => localStorage.getItem("spec2code.platformName") ?? "");
   const [systemName, setSystemName] = useState(() => localStorage.getItem("spec2code.systemName") ?? "");
@@ -246,7 +247,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     const vitisInput = cleanPathInput(vitisPath);
     const xsaInput = cleanPathInput(xsaPath);
     const workspaceInput = cleanPathInput(workspacePath);
-    if (!vitisInput || !xsaInput || !workspaceInput || running) return;
+    const tempInput = cleanPathInput(tempPath);
+    if (!vitisInput || !xsaInput || !workspaceInput || !tempInput || running) return;
     if (!xsaInput.toLowerCase().endsWith(".xsa")) {
       setError("XSA alanına klasör değil, doğrudan .xsa dosyasının tam yolu verilmelidir.");
       return;
@@ -260,6 +262,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     localStorage.setItem("spec2code.vitisPath", vitisInput);
     localStorage.setItem("spec2code.xsaPath", xsaInput);
     localStorage.setItem("spec2code.workspacePath", workspaceInput);
+    localStorage.setItem("spec2code.tempPath", tempInput);
     localStorage.setItem("spec2code.platformName", platformName.trim());
     localStorage.setItem("spec2code.systemName", systemName.trim());
     localStorage.setItem("spec2code.appName", appName.trim());
@@ -270,6 +273,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         vitis_path: vitisInput,
         xsa_path: xsaInput,
         workspace_path: workspaceInput,
+        temp_path: tempInput,
         processor: processor.trim() || defaultProcessor,
         runtime: runtimeForVitis(project.runtime),
         platform_name: platformName.trim(),
@@ -310,6 +314,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     cleanPathInput(xsaPath) &&
     xsaLooksLikeFile &&
     cleanPathInput(workspacePath) &&
+    cleanPathInput(tempPath) &&
     platformName.trim() &&
     systemName.trim() &&
     appName.trim(),
@@ -361,7 +366,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           {xsaPath.trim() && !xsaLooksLikeFile ? (
             <p className="mt-1 text-[11px] text-danger">Klasör değil, doğrudan `.xsa` dosyasının tam yolunu gir.</p>
           ) : (
-            <p className="mt-1 text-[11px] text-faint">Dosya staging içine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
+            <p className="mt-1 text-[11px] text-faint">Dosya kullanıcının verdiği Temp/Staging dizinine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
           )}
         </div>
         <div>
@@ -372,6 +377,16 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             onChange={(event) => setWorkspacePath(event.target.value)}
             placeholder="D:\\VitisWorkspaces\\spec2code"
           />
+        </div>
+        <div>
+          <Label htmlFor="temp-path">Temp/Staging dizini</Label>
+          <Input
+            id="temp-path"
+            value={tempPath}
+            onChange={(event) => setTempPath(event.target.value)}
+            placeholder="D:\\VitisTemp\\spec2code"
+          />
+          <p className="mt-1 text-[11px] text-faint">XSA kopyası, generated kaynaklar, Tcl script ve loglar bu dizin altında hazırlanır.</p>
         </div>
       </div>
 
@@ -504,6 +519,10 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           <div>
             <span className="font-semibold text-ok">Workspace</span>
             <div className="mt-1 break-all font-mono text-text">{result.workspace_path}</div>
+          </div>
+          <div>
+            <span className="font-semibold text-ok">Temp/Staging</span>
+            <div className="mt-1 break-all font-mono text-text">{result.staging_path || result.temp_path}</div>
           </div>
           <div>
             <span className="font-semibold text-ok">Projeler</span>

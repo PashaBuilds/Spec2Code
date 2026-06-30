@@ -312,6 +312,7 @@ Girilmesi gereken bilgiler:
 - Vitis dizini: ornek `C:\Xilinx\Vitis\2024.2`
 - `.xsa` dosyasi: klasor degil, dogrudan dosyanin tam yolu; ornek `D:\Board\export\system.xsa`
 - Workspace dizini: ornek `D:\VitisWorkspaces\spec2code`
+- Temp/Staging dizini: ornek `D:\VitisTemp\spec2code`
 - Platform proje adi: ornek `my_io_board_platform`
 - System proje adi: ornek `my_io_board_system`
 - Application proje adi: ornek `my_io_board_app`
@@ -320,7 +321,7 @@ Girilmesi gereken bilgiler:
 Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 
 1. Vitis/XSCT surumunu algilar.
-2. `.xsa` dosyasini ve generated kaynaklari staging klasorune kopyalar.
+2. `.xsa` dosyasini ve generated kaynaklari kullanicinin verdigi temp/staging dizinine kopyalar.
 3. XSA icindeki non-Xilinx/AMD custom PL IP adaylarini `.hwh` uzerinden algilar.
 4. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
 5. Custom PL IP driver policy `auto_none` ise aday IP'lerin BSP driver'ini `none`
@@ -329,10 +330,11 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 7. XSCT ile once adlandirilmis platform/system/application akisini dener.
 8. `app build` calistirir.
 
-Workspace altinda olusan yardimci klasor:
+Temp/Staging dizini altinda olusan yardimci klasor:
 
 ```text
-_spec2code_staging\<vitis_job>\
+<temp-staging-dizini>\<vitis_job>\
+  hw\
   src\
   spec2code_create_workspace.tcl
   spec2code_vitis_manifest.json
@@ -485,8 +487,9 @@ deterministik descriptor/codegen destegi yoktur.
 
 - Vitis path'ini kontrol et.
 - `.xsa` path'ini kontrol et.
+- Temp/Staging path'inin yazilabilir oldugunu kontrol et.
 - Processor adinin XSA icindeki gercek processor instance adi oldugundan emin ol.
-- `_spec2code_staging\<job>\logs\xsct_stderr.log` dosyasini oku.
+- UI'da gorunen `staging_path` altindaki `logs\xsct_stderr.log` dosyasini oku.
 - UI'da Vitis compile hata eslestirme listesi ciktiysa kategori ve oneriyi takip et.
 
 **Test Bench karta baglanmiyor**

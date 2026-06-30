@@ -135,6 +135,7 @@ Gereken bilgiler:
 - XSA dosyası: Vivado/Vitis hardware export çıktısının doğrudan `.xsa` dosya yolu,
   örnek `D:\Board\export\system.xsa`
 - Workspace dizini: örnek `D:\VitisWorkspaces\spec2code`
+- Temp/Staging dizini: örnek `D:\VitisTemp\spec2code`
 - Platform proje adı: örnek `my_io_board_platform`
 - System proje adı: örnek `my_io_board_system`
 - Application proje adı: örnek `my_io_board_app`
@@ -158,7 +159,8 @@ Akış aşamaları UI'da progress bar ile görünür:
 1. XSCT path'i bulunur.
 2. `xsct -version` ile Vitis/XSCT sürümü algılanır.
 3. `.xsa` dosyası, generated `drivers/`, `tests/`, referans kaynaklar ve
-   `spec2code_selftest_main.c/.h` staging klasörüne kopyalanır.
+   `spec2code_selftest_main.c/.h` kullanıcının verdiği temp/staging dizinine
+   kopyalanır.
 4. XSA içindeki non-Xilinx/AMD custom PL IP adayları `.hwh` üzerinden algılanır.
 5. Varsayılan custom PL IP policy `auto_none` olduğu için bu aday IP'lerin BSP
    driver'ı `none` yapılmaya çalışılır; gerçek şirket driver'ı kullanılacaksa
@@ -170,10 +172,11 @@ Akış aşamaları UI'da progress bar ile görünür:
    akışı denenir, uyumsuz Vitis varyantında legacy `app create -hw` akışına dönülür.
 9. `app build` başarılıysa workspace hazır olarak işaretlenir.
 
-Workspace altında oluşturulan yardımcı dosyalar:
+Temp/Staging dizini altında oluşturulan yardımcı dosyalar:
 
 ```text
-_spec2code_staging\<vitis_job>\
+<temp-staging-dizini>\<vitis_job>\
+  hw\
   src\
   spec2code_create_workspace.tcl
   spec2code_vitis_manifest.json

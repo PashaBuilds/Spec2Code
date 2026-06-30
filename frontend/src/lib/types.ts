@@ -110,6 +110,7 @@ export interface VitisWorkspaceRequest {
   vitis_path: string;
   xsa_path: string;
   workspace_path: string;
+  temp_path: string;
   processor?: string;
   runtime?: "standalone" | "freertos" | "freertos10_xilinx" | "bare_metal";
   platform_name?: string;
@@ -141,6 +142,8 @@ export interface VitisWorkspaceResult {
     xsa_path: string;
     source_xsa_path?: string;
     workspace_path: string;
+    temp_path?: string;
+    staging_path?: string;
     source_path: string;
     platform_name?: string;
     system_name?: string;
