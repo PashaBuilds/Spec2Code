@@ -87,6 +87,17 @@ def _header_guard(value: str) -> str:
     return guard if guard else "SPEC2CODE_GENERATED_H"
 
 
+def _app_version() -> str:
+    text = (_ROOT / "frontend" / "src" / "lib" / "version.ts").read_text(encoding="utf-8")
+    match = re.search(r'"(v\d+\.\d+\.\d+)"', text)
+    return match.group(1) if match else "dev"
+
+
+def _c_string_literal(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _apply_default_identifier_style(text: str) -> str:
     """Apply the fixed camelCase + Hungarian identifier surface to generated C files."""
     for old, new in _TYPE_REPLACEMENTS.items():
@@ -383,7 +394,7 @@ def _testbench_protocol_source() -> str:
         "        }\n"
         "        cpToken = strtok(NULL, \"|\");\n"
         "    }\n"
-        "    if ((spRequest->cArrDevice[0] == '\\0') || (spRequest->cArrOperation[0] == '\\0'))\n"
+        "    if (spRequest->cArrOperation[0] == '\\0')\n"
         "    {\n"
         "        return XST_FAILURE;\n"
         "    }\n"
@@ -523,8 +534,9 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
     manifest = {
         "schema_version": "1.0",
         "project": spec.get("project", {}).get("name", ""),
+        "agent_version": _app_version(),
         "protocol": "S2C line protocol v1",
-        "line_format": "S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB",
+        "line_format": "S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; global: S2C|id=1|op=spec2code_version",
         "devices": [],
     }
     for device in spec.get("devices", []):
@@ -1093,6 +1105,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
 
 def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     project_name = spec["project"]["name"]
+    app_version = _app_version()
     entries = _testbench_device_entries(spec, get_descriptor)
     rows = _testbench_op_table(entries)
     includes = [
@@ -1123,6 +1136,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "#else",
         "#define SPEC2CODE_WEAK",
         "#endif",
+        "",
+        f"#define SPEC2CODE_TESTBENCH_AGENT_VERSION {_c_string_literal(app_version)}",
         "",
         "SPEC2CODE_WEAK XIicPs* spec2codeTestbenchIicPsHandleGet(const char* cpControllerId)",
         "{",
@@ -1188,6 +1203,14 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    }",
         "    spec2codeTestbenchResponseClear(spResponse);",
         "    spResponse->uiId = spRequest->uiId;",
+        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"spec2code_version\") == 1) ||",
+        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"version\") == 1))",
+        "    {",
+        "        spResponse->uiOk = 1U;",
+        "        spResponse->iStatus = XST_SUCCESS;",
+        "        spec2codeTestbenchMessageSet(spResponse, \"Spec2Code \" SPEC2CODE_TESTBENCH_AGENT_VERSION);",
+        "        return XST_SUCCESS;",
+        "    }",
     ])
     for entry in entries:
         lines.extend(_testbench_device_branch(entry))

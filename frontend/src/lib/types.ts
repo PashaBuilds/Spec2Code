@@ -192,6 +192,7 @@ export interface TestbenchManifestDevice {
 export interface TestbenchManifest {
   schema_version: string;
   project: string;
+  agent_version?: string;
   protocol: string;
   line_format: string;
   devices: TestbenchManifestDevice[];

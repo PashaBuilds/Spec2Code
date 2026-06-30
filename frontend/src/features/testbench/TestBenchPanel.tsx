@@ -206,6 +206,7 @@ export default function TestBenchPanel() {
   const [dataHex, setDataHex] = useState("");
   const [commandId, setCommandId] = useState(1);
   const [running, setRunning] = useState(false);
+  const [versionRunning, setVersionRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TestbenchCommandResponse | null>(null);
 
@@ -305,7 +306,7 @@ export default function TestBenchPanel() {
   }
 
   async function send() {
-    if (!selectedDevice || !selectedOperation || running) return;
+    if (!selectedDevice || !selectedOperation || running || versionRunning) return;
     const parsedPort = parseNumber(port);
     if (!host.trim() || parsedPort == null || parsedPort <= 0) {
       setError("Host veya port geçerli değil.");
@@ -358,6 +359,40 @@ export default function TestBenchPanel() {
     }
   }
 
+  async function queryAgentVersion() {
+    if (!isConnected || running || versionRunning) return;
+    const parsedPort = parseNumber(port);
+    if (!host.trim() || parsedPort == null || parsedPort <= 0) {
+      setError("Host veya port geçerli değil.");
+      return;
+    }
+
+    const nextCommandId = commandId;
+    setCommandId((current) => current + 1);
+    setVersionRunning(true);
+    setError("");
+
+    try {
+      const response = await api.testbenchCommand({
+        host: host.trim(),
+        port: parsedPort,
+        device: "spec2code",
+        operation: "spec2code_version",
+        command_id: nextCommandId,
+        session_id: sessionId,
+        timeout_s: parseNumber(timeout) ?? 5,
+      });
+      setResult(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setSessionStatus((current) => current ? { ...current, connected: false, last_error: message } : current);
+      setConnectionState("disconnected");
+    } finally {
+      setVersionRunning(false);
+    }
+  }
+
   if (!manifest) {
     return (
       <Card className="relative mx-auto max-w-3xl p-6">
@@ -389,6 +424,7 @@ export default function TestBenchPanel() {
             </div>
             <div className="flex items-center gap-2">
               {manifestSource === "cached" ? <Badge tone="warn">son başarılı generate</Badge> : null}
+              {manifest.agent_version ? <Badge tone="neutral">agent {manifest.agent_version}</Badge> : null}
               <Badge tone="accent">{manifest.devices.length} entegre</Badge>
             </div>
           </div>
@@ -436,6 +472,10 @@ export default function TestBenchPanel() {
               <Button size="sm" variant="outline" onClick={disconnect} disabled={connectionState !== "connected"}>
                 {connectionState === "disconnecting" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Unplug className="h-4 w-4" aria-hidden />}
                 Kes
+              </Button>
+              <Button size="sm" variant="outline" onClick={queryAgentVersion} disabled={!isConnected || running || versionRunning}>
+                {versionRunning ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
+                Sürüm sorgula
               </Button>
             </div>
             {sessionStatus?.last_error ? (
@@ -588,7 +628,7 @@ export default function TestBenchPanel() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={send} disabled={running || !isConnected}>
+                  <Button onClick={send} disabled={running || versionRunning || !isConnected}>
                     {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
                     Gönder
                   </Button>

@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.61 - 2026-06-30
+
+- Test Bench TCP session uzerinden `spec2code_version` global komutu eklendi.
+- Kart uzerinde calisan generated agent, `Spec2Code v...` cevabi dondurerek TCP/lwIP/dispatch hattinin saglikli oldugunu dogrular.
+- Test Bench arayuzune baglanti sonrasi `Surum sorgula` butonu eklendi.
+- Generate edilen Test Bench manifest artik `agent_version` bilgisini tasir.
+
 ## v0.1.60 - 2026-06-30
 
 - LMK04832 Test Bench operasyonlarina PLL1/PLL2 lock detect ve lock loss sorgulari eklendi.

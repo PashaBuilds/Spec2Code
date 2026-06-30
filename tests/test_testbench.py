@@ -1,4 +1,5 @@
 import json
+import re
 import socketserver
 import tempfile
 import threading
@@ -17,6 +18,14 @@ from orchestrator import codegen
 
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def current_app_version() -> str:
+    text = (ROOT / "frontend" / "src" / "lib" / "version.ts").read_text(encoding="utf-8")
+    match = re.search(r'"(v\d+\.\d+\.\d+)"', text)
+    if not match:
+        raise AssertionError("APP_VERSION fallback was not found")
+    return match.group(1)
 
 
 def load_sample_spec(project_name: str) -> dict:
@@ -81,6 +90,15 @@ class TestbenchTests(unittest.TestCase):
             "S2C|id=7|device=u1_ltc2991|op=register_read|reg=STATUS_HIGH|reg_addr=0x1|data=DEADBEEF\n",
         )
         self.assertEqual(parse_response("S2C|id=7|ok=1|data=AABB\n")["data"], "AABB")
+
+        version_line = format_command(BenchCommand(
+            host="127.0.0.1",
+            port=5000,
+            device="spec2code",
+            operation="spec2code_version",
+            command_id=8,
+        ))
+        self.assertEqual(version_line, "S2C|id=8|device=spec2code|op=spec2code_version\n")
 
     def test_send_command_reads_one_line_response(self) -> None:
         with socketserver.TCPServer(("127.0.0.1", 0), OneShotHandler) as server:
@@ -244,6 +262,23 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("XSpiPs* spec2codeTestbenchSpiPsHandleGet", lwip_source)
         self.assertIn("int main(void);", main_header)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
+
+    def test_testbench_agent_version_command_is_generated(self) -> None:
+        spec = load_sample_spec("unit_agent_version")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            protocol_source = (out_dir / "tests" / "spec2code_testbench_protocol.c").read_text(encoding="utf-8")
+            ops_source = (out_dir / "tests" / "unit_agent_version_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        version = current_app_version()
+        self.assertEqual(manifest["agent_version"], version)
+        self.assertIn(f'#define SPEC2CODE_TESTBENCH_AGENT_VERSION "{version}"', ops_source)
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "spec2code_version")', ops_source)
+        self.assertIn('spec2codeTestbenchMessageSet(spResponse, "Spec2Code " SPEC2CODE_TESTBENCH_AGENT_VERSION);', ops_source)
+        self.assertIn("if (spRequest->cArrOperation[0] == '\\0')", protocol_source)
 
     def test_lwip_target_agent_is_not_generated_without_ethernet(self) -> None:
         spec = load_sample_spec("unit_no_lwip_agent")
