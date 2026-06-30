@@ -114,6 +114,14 @@ export interface VitisWorkspaceRequest {
   runtime?: "standalone" | "freertos" | "freertos10_xilinx" | "bare_metal";
   app_name?: string;
   timeout_s?: number;
+  custom_ip_driver_policy?: "auto_none" | "keep";
+}
+
+export interface CustomPlIpCandidate {
+  instance: string;
+  vlnv: string;
+  ip_name: string;
+  reason: string;
 }
 
 export interface VitisWorkspaceResult {
@@ -136,6 +144,8 @@ export interface VitisWorkspaceResult {
     os: string;
     requires_lwip?: boolean;
     lwip_api_mode?: string | null;
+    custom_ip_driver_policy?: "auto_none" | "keep";
+    custom_pl_ip_candidates?: CustomPlIpCandidate[];
     staged_files: string[];
     script_path: string;
     manifest_path: string;

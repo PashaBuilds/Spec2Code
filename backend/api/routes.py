@@ -80,6 +80,7 @@ class VitisWorkspaceRequest(BaseModel):
     runtime: str = ""
     app_name: str = ""
     timeout_s: int = 1800
+    custom_ip_driver_policy: str = "auto_none"
 
 
 class VitisErrorMapRequest(BaseModel):
@@ -681,6 +682,7 @@ async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dic
                 runtime=vitis_os(runtime),
                 app_name=req.app_name,
                 timeout_s=req.timeout_s,
+                custom_ip_driver_policy=req.custom_ip_driver_policy,
             ),
         )
     except ValueError as exc:

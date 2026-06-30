@@ -13,7 +13,9 @@ import re
 import shutil
 import subprocess
 import traceback
-from dataclasses import dataclass, field
+import xml.etree.ElementTree as ET
+import zipfile
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -28,6 +30,8 @@ _XSCT_FATAL_RE = re.compile(
     r"(invalid command name|while executing|^ERROR:|traceback|exception)",
     re.IGNORECASE | re.MULTILINE,
 )
+_KNOWN_AMD_XILINX_VENDORS = {"xilinx.com", "amd.com"}
+_CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,15 @@ class VitisWorkspaceConfig:
     runtime: str = "standalone"
     app_name: str = ""
     timeout_s: int = 1800
+    custom_ip_driver_policy: str = "auto_none"
+
+
+@dataclass(frozen=True)
+class CustomPlIpCandidate:
+    instance: str
+    vlnv: str
+    ip_name: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -195,6 +208,74 @@ def vitis_lwip_api_mode(os_name: str) -> str:
     if vitis_os(os_name) == "freertos10_xilinx":
         return "SOCKET_API"
     return "RAW_API"
+
+
+def normalize_custom_ip_driver_policy(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in _CUSTOM_IP_DRIVER_POLICIES:
+        return normalized
+    return "auto_none"
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_attr(element: ET.Element, *names: str) -> str:
+    wanted = {name.lower() for name in names}
+    for key, value in element.attrib.items():
+        if _xml_local_name(key).lower() in wanted:
+            return value.strip()
+    return ""
+
+
+def _hwh_documents_from_xsa(xsa_path: Path) -> list[tuple[str, bytes]]:
+    try:
+        with zipfile.ZipFile(xsa_path) as archive:
+            docs: list[tuple[str, bytes]] = []
+            for name in archive.namelist():
+                if name.lower().endswith(".hwh"):
+                    docs.append((name, archive.read(name)))
+            return docs
+    except (OSError, zipfile.BadZipFile):
+        return []
+
+
+def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
+    candidates: dict[str, CustomPlIpCandidate] = {}
+    for hwh_name, content in _hwh_documents_from_xsa(xsa_path):
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            continue
+        for element in root.iter():
+            if _xml_local_name(element.tag).upper() != "MODULE":
+                continue
+            modtype = _xml_attr(element, "MODTYPE").upper()
+            if modtype and modtype != "PERIPHERAL":
+                continue
+            instance = _xml_attr(element, "INSTANCE", "NAME")
+            if not instance:
+                fullname = _xml_attr(element, "FULLNAME")
+                instance = fullname.rsplit("/", 1)[-1] if fullname else ""
+            vlnv = _xml_attr(element, "VLNV")
+            if not instance or not vlnv:
+                continue
+            vendor = vlnv.split(":", 1)[0].lower()
+            if vendor in _KNOWN_AMD_XILINX_VENDORS:
+                continue
+            vlnv_parts = vlnv.split(":")
+            ip_name = _xml_attr(element, "IP_NAME") or (vlnv_parts[2] if len(vlnv_parts) >= 3 else "")
+            candidates.setdefault(
+                instance,
+                CustomPlIpCandidate(
+                    instance=instance,
+                    vlnv=vlnv,
+                    ip_name=ip_name,
+                    reason=f"{hwh_name}: non-Xilinx/AMD peripheral VLNV",
+                ),
+            )
+    return [candidates[key] for key in sorted(candidates)]
 
 
 def _safe_identifier(value: str, fallback: str) -> str:
@@ -371,6 +452,10 @@ def _tcl_path(path: Path) -> str:
     return "{" + text + "}"
 
 
+def _tcl_list(values: list[str]) -> str:
+    return " ".join("{" + value.replace("\\", "\\\\").replace("}", "\\}") + "}" for value in values)
+
+
 def _tcl_put(message: str) -> str:
     return f'puts "\\[Spec2Code\\] {message}"\n'
 
@@ -394,9 +479,14 @@ def render_xsct_script(
     processor: str,
     os_name: str,
     enable_lwip: bool = False,
+    custom_ip_driver_policy: str = "auto_none",
+    custom_ip_instances: list[str] | None = None,
 ) -> str:
     lwip_flag = "1" if enable_lwip else "0"
     lwip_api_mode = vitis_lwip_api_mode(os_name) if enable_lwip else ""
+    custom_ip_driver_policy = normalize_custom_ip_driver_policy(custom_ip_driver_policy)
+    custom_ip_instances = custom_ip_instances or []
+    custom_ip_list = _tcl_list(custom_ip_instances)
     return (
         "# Spec2Code generated Vitis workspace script.\n"
         "# This script is intentionally plain XSCT so it works in air-gapped Windows hosts.\n"
@@ -408,6 +498,8 @@ def render_xsct_script(
         f"set os_name {{{os_name}}}\n\n"
         f"set spec2code_enable_lwip {lwip_flag}\n\n"
         f"set spec2code_lwip_api_mode {{{lwip_api_mode}}}\n\n"
+        f"set spec2code_custom_ip_driver_policy {{{custom_ip_driver_policy}}}\n"
+        f"set spec2code_custom_ip_instances [list {custom_ip_list}]\n\n"
         f"{_tcl_put('workspace: $workspace_path')}"
         f"{_tcl_put('xsa: $xsa_path')}"
         f"{_tcl_put('source: $source_path')}"
@@ -453,6 +545,34 @@ def render_xsct_script(
         "    } else {\n"
         f"        {_tcl_put('WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.')}"
         "    }\n"
+        "}\n\n"
+        "if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
+        f"    {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
+        "    set spec2code_custom_ip_driver_changed 0\n"
+        "    foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
+        "        set spec2code_custom_ip_ok 0\n"
+        "        foreach spec2code_none_driver {none None NONE} {\n"
+        "            if {$spec2code_custom_ip_ok == 0} {\n"
+        "                if {[catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver} spec2code_custom_ip_err]} {\n"
+        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver=$spec2code_none_driver not selected: $spec2code_custom_ip_err')}"
+        "                } else {\n"
+        "                    set spec2code_custom_ip_ok 1\n"
+        "                    set spec2code_custom_ip_driver_changed 1\n"
+        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver set to $spec2code_none_driver')}"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if {$spec2code_custom_ip_ok == 0} {\n"
+        f"            {_tcl_put('WARNING: custom IP $spec2code_custom_ip driver could not be set to none automatically; check BSP settings if build fails inside this IP driver.')}"
+        "        }\n"
+        "    }\n"
+        "    if {$spec2code_custom_ip_driver_changed == 1} {\n"
+        "        if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]} {\n"
+        f"            {_tcl_put('WARNING: BSP regenerate failed after custom IP driver policy: $spec2code_custom_ip_regen_err')}"
+        "        }\n"
+        "    }\n"
+        "} elseif {$spec2code_custom_ip_driver_policy eq \"keep\"} {\n"
+        f"    {_tcl_put('custom PL IP driver policy keeps BSP defaults')}"
         "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
@@ -543,6 +663,23 @@ class VitisWorkspaceJobManager:
         xsa_path = _clean_user_path(config.xsa_path)
         if not xsa_path.is_file() or xsa_path.suffix.lower() != ".xsa":
             raise FileNotFoundError(f"XSA file not found or invalid: {xsa_path}")
+        custom_ip_driver_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
+        custom_pl_ips = discover_custom_pl_ips(xsa_path) if custom_ip_driver_policy == "auto_none" else []
+        if custom_ip_driver_policy == "auto_none" and custom_pl_ips:
+            job.emit({
+                "event": "vitis.custom_ip_policy",
+                "stage": "stage_sources",
+                "progress": 34,
+                "message": f"{len(custom_pl_ips)} custom PL IP adayı bulundu; BSP driver none denenebilir.",
+                "custom_pl_ip_instances": [item.instance for item in custom_pl_ips],
+            })
+        elif custom_ip_driver_policy == "keep":
+            job.emit({
+                "event": "vitis.custom_ip_policy",
+                "stage": "stage_sources",
+                "progress": 34,
+                "message": "Custom PL IP driver policy BSP default değerlerini koruyacak.",
+            })
 
         workspace_path = _clean_user_path(config.workspace_path)
         workspace_path.mkdir(parents=True, exist_ok=True)
@@ -580,6 +717,8 @@ class VitisWorkspaceJobManager:
             "os": os_name,
             "requires_lwip": requires_lwip,
             "lwip_api_mode": lwip_api_mode,
+            "custom_ip_driver_policy": custom_ip_driver_policy,
+            "custom_pl_ip_candidates": [asdict(item) for item in custom_pl_ips],
             "staged_files": staged_files,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -600,6 +739,8 @@ class VitisWorkspaceJobManager:
                 processor=processor,
                 os_name=os_name,
                 enable_lwip=requires_lwip,
+                custom_ip_driver_policy=custom_ip_driver_policy,
+                custom_ip_instances=[item.instance for item in custom_pl_ips],
             ),
             encoding="utf-8",
         )

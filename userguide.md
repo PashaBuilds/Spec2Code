@@ -319,10 +319,13 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 
 1. Vitis/XSCT surumunu algilar.
 2. Generated kaynaklari staging klasorune kopyalar.
-3. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
-4. `spec2code_create_workspace.tcl` dosyasini yazar.
-5. XSCT ile headless application workspace olusturur.
-6. `app build` calistirir.
+3. XSA icindeki non-Xilinx/AMD custom PL IP adaylarini `.hwh` uzerinden algilar.
+4. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
+5. Custom PL IP driver policy `auto_none` ise aday IP'lerin BSP driver'ini `none`
+   yapmayi dener.
+6. `spec2code_create_workspace.tcl` dosyasini yazar.
+7. XSCT ile headless application workspace olusturur.
+8. `app build` calistirir.
 
 Workspace altinda olusan yardimci klasor:
 
@@ -344,6 +347,7 @@ bak. En sik hatalar:
 - Vitis surumunde template adinin farkli davranmasi.
 - BSP/toolchain eksigi.
 - lwIP agent uretilmis ama Vitis BSP icinde lwIP library/API mode enable edilememis olmasi.
+- PL tarafinda driver'i olmayan custom IP'nin BSP tarafinda driver ile build edilmeye calisilmasi.
 
 lwIP agent uretilirse Vitis panelinde `lwIP RAW_API` veya `lwIP SOCKET_API` rozeti
 gorunur ve staging manifest icinde `requires_lwip: true` ile `lwip_api_mode`
@@ -352,6 +356,14 @@ sirayla dener. Standalone icin `RAW_API`, FreeRTOS icin `SOCKET_API` secmeye
 calisir. Kullanilan Vitis surumunde bu isimler veya `api_mode` parametresi
 farkliysa BSP/domain ayarlarindan lwIP library'yi ve API mode'u manuel kontrol
 etmek gerekebilir.
+
+Custom PL IP driver policy varsayilan olarak `auto_none` gelir. Bu modda XSA
+icindeki `.hwh` dosyasi okunur; `VLNV` vendor'i `xilinx.com` veya `amd.com`
+olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Tcl script bu
+instance'lar icin `bsp setdriver -ip <instance> -driver none` varyantlarini dener.
+Bu, driver dosyasi olmayan custom IP'lerin BSP build'i bozmasini engellemek icin
+tasarlanmistir. Eger custom IP gercek ve kullanilacak bir sirket driver'i ile
+geliyorsa Vitis panelinde `BSP default'u koru` secilmelidir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

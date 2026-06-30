@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.59 - 2026-06-30
+
+- Vitis workspace akisi XSA icindeki non-Xilinx/AMD custom PL IP'leri `.hwh` uzerinden algilar.
+- Varsayilan custom PL IP driver policy `auto_none` oldu; aday IP'ler icin BSP driver `none` denenir ve build korumasi saglanir.
+- Sirket custom IP'sinin gercek driver'i kullanilacaksa Vitis workspace panelinden `BSP default'u koru` secilebilir.
+- Vitis manifest/result artik custom IP driver policy ve aday IP listesini tasir; UI rozetlerinde ozet bilgi gorunur.
+
 ## v0.1.58 - 2026-06-30
 
 - Vitis workspace akisi lwIP test bench gerektiginde BSP `api_mode` ayarini runtime'a gore otomatik secer.

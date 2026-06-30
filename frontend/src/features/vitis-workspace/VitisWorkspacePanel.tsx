@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, Cpu, FolderCog, Loader2, Play, TerminalSquare } from "lucide-react";
-import { Badge, Button, Input, Label } from "@/components/ui";
+import { AlertTriangle, CheckCircle2, CircleDashed, FolderCog, Loader2, Play, TerminalSquare } from "lucide-react";
+import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui";
 import { api, openVitisSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
@@ -16,6 +16,7 @@ const VITIS_STAGES = [
 ] as const;
 
 type VitisStageId = (typeof VITIS_STAGES)[number]["id"] | "start" | "error" | "end";
+type CustomIpDriverPolicy = "auto_none" | "keep";
 
 function defaultVitisProcessor(platform: string, targetCore: string) {
   if (platform === "zynq_ultrascale") {
@@ -35,6 +36,10 @@ function defaultVitisProcessor(platform: string, targetCore: string) {
 
 function runtimeForVitis(runtime: string) {
   return runtime === "freertos" ? "freertos10_xilinx" : "standalone";
+}
+
+function customIpDriverPolicyFromStorage(): CustomIpDriverPolicy {
+  return localStorage.getItem("spec2code.customIpDriverPolicy") === "keep" ? "keep" : "auto_none";
 }
 
 function fieldError(error: unknown) {
@@ -195,6 +200,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const [workspacePath, setWorkspacePath] = useState(() => localStorage.getItem("spec2code.workspacePath") ?? "");
   const [processor, setProcessor] = useState(defaultProcessor);
   const [appName, setAppName] = useState("");
+  const [customIpDriverPolicy, setCustomIpDriverPolicy] = useState<CustomIpDriverPolicy>(customIpDriverPolicyFromStorage);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -230,6 +236,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     localStorage.setItem("spec2code.vitisPath", vitisPath.trim());
     localStorage.setItem("spec2code.xsaPath", xsaPath.trim());
     localStorage.setItem("spec2code.workspacePath", workspacePath.trim());
+    localStorage.setItem("spec2code.customIpDriverPolicy", customIpDriverPolicy);
 
     try {
       const response = await api.createVitisWorkspace(jobId, {
@@ -240,6 +247,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         runtime: runtimeForVitis(project.runtime),
         app_name: appName.trim(),
         timeout_s: 1800,
+        custom_ip_driver_policy: customIpDriverPolicy,
       });
 
       closeSocketRef.current = openVitisSocket(
@@ -288,6 +296,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           <Badge tone="neutral">{processor || defaultProcessor}</Badge>
           {result ? <Badge tone={workspaceFailed ? "warn" : "ok"}>Vitis {result.vitis_version}</Badge> : null}
           {result?.requires_lwip ? <Badge tone="accent">lwIP {result.lwip_api_mode || "gerekli"}</Badge> : null}
+          {result?.custom_ip_driver_policy === "keep" ? <Badge tone="neutral">custom IP keep</Badge> : null}
+          {result?.custom_pl_ip_candidates?.length ? <Badge tone="warn">custom IP none {result.custom_pl_ip_candidates.length}</Badge> : null}
         </div>
       </div>
 
@@ -321,7 +331,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(240px,0.8fr)_auto]">
         <div>
           <Label htmlFor="vitis-processor">Processor</Label>
           <Input
@@ -339,6 +349,18 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             onChange={(event) => setAppName(event.target.value)}
             placeholder={`${project.name}_app`}
           />
+        </div>
+        <div>
+          <Label htmlFor="vitis-custom-ip-driver">Custom PL IP driver</Label>
+          <Select value={customIpDriverPolicy} onValueChange={(value) => setCustomIpDriverPolicy(value as CustomIpDriverPolicy)}>
+            <SelectTrigger id="vitis-custom-ip-driver">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto_none">Auto: custom IP - none</SelectItem>
+              <SelectItem value="keep">BSP default'u koru</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-end">
           <Button type="button" onClick={start} disabled={!canStart} className="w-full lg:w-auto">

@@ -155,11 +155,15 @@ Akış aşamaları UI'da progress bar ile görünür:
 2. `xsct -version` ile Vitis/XSCT sürümü algılanır.
 3. Generated `drivers/`, `tests/`, referans kaynaklar ve `spec2code_selftest_main.c/.h`
    staging klasörüne kopyalanır.
-4. lwIP test bench gerekiyorsa BSP library seçimi yapılır; standalone için
+4. XSA içindeki non-Xilinx/AMD custom PL IP adayları `.hwh` üzerinden algılanır.
+5. Varsayılan custom PL IP policy `auto_none` olduğu için bu aday IP'lerin BSP
+   driver'ı `none` yapılmaya çalışılır; gerçek şirket driver'ı kullanılacaksa
+   Vitis panelinde `BSP default'u koru` seçilmelidir.
+6. lwIP test bench gerekiyorsa BSP library seçimi yapılır; standalone için
    `RAW_API`, FreeRTOS için `SOCKET_API` mode denenir.
-5. `spec2code_create_workspace.tcl` yazılır.
-6. XSCT headless çalıştırılır.
-7. `app build` başarılıysa workspace hazır olarak işaretlenir.
+7. `spec2code_create_workspace.tcl` yazılır.
+8. XSCT headless çalıştırılır.
+9. `app build` başarılıysa workspace hazır olarak işaretlenir.
 
 Workspace altında oluşturulan yardımcı dosyalar:
 

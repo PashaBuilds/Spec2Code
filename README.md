@@ -43,6 +43,10 @@ ve devam geliştirme.
   Windows UI karta kalici TCP session üzerinden register/operation komutu yollar.
   Vitis workspace akışında standalone için `RAW_API`, FreeRTOS için `SOCKET_API`
   BSP mode seçimi denenir.
+- **Custom PL IP build koruması:** `.xsa` içindeki non-Xilinx/AMD PL IP'ler
+  otomatik aday olarak algılanır; varsayılan policy bu IP'lerin BSP driver'ını
+  `none` yapmayı dener. Gerçek şirket driver'ı kullanılacaksa Vitis panelinden
+  BSP default'u korunabilir.
 - **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir. Model adı
   kullanıcıdan tam olarak alınır; Kimi, Qwen veya başka bir model aynı alandan
   kullanılabilir. Timeout ve cevap uzunluğu limitleri açıktır.
@@ -282,6 +286,13 @@ Zynq UltraScale+ PS Ethernet ile lwIP test bench dosyaları üretildiyse manifes
 sonra standalone için `RAW_API`, FreeRTOS için `SOCKET_API` mode seçmeye çalışır.
 Vitis sürümündeki BSP library adı veya `api_mode` parametre adı farklıysa lwIP'i
 manuel açmak ve API mode'u kontrol etmek gerekebilir.
+
+Custom PL IP'ler için varsayılan policy `auto_none` değeridir. Backend XSA içindeki
+`.hwh` dosyasını okur, `VLNV` vendor'ı `xilinx.com` veya `amd.com` olmayan
+peripheral instance'ları custom aday sayar ve Tcl içinde bu IP'ler için
+`bsp setdriver -ip <instance> -driver none` varyantlarını dener. Şirket içinde
+gerçek driver'ı olan custom IP'leri BSP default haliyle bırakmak istiyorsan Vitis
+panelinde **BSP default'u koru** seçeneğini kullan.
 
 Headless script akışı:
 
