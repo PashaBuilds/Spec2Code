@@ -163,8 +163,10 @@ Akış aşamaları UI'da progress bar ile görünür:
    kopyalanır.
 4. XSA içindeki non-Xilinx/AMD custom PL IP adayları `.hwh` üzerinden algılanır.
 5. Varsayılan custom PL IP policy `auto_none` olduğu için bu aday IP'lerin BSP
-   driver'ı `none` yapılmaya çalışılır; gerçek şirket driver'ı kullanılacaksa
-   Vitis panelinde `BSP default'u koru` seçilmelidir.
+   driver'ı `none` yapılmaya çalışılır. Vitis yine de source'suz custom IP BSP
+   driver'ını build etmeye çalışırsa ilgili `make.libs` no-op hale getirilir;
+   gerçek şirket driver'ı kullanılacaksa Vitis panelinde `BSP default'u koru`
+   seçilmelidir.
 6. lwIP test bench gerekiyorsa BSP library seçimi yapılır; standalone için
    `RAW_API`, FreeRTOS için `SOCKET_API` mode denenir.
 7. `spec2code_create_workspace.tcl` yazılır.

@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.66 - 2026-06-30
+
+- Vitis workspace akisi, `Auto: custom IP - none` seciliyken source'suz custom PL IP BSP driver klasorlerini build oncesi ikinci emniyet katmani ile bypass eder.
+- `libsrc/<custom_ip>*/src/make.libs` dosyalari build'i kiran `*.c` literal derleme hatasina dusmeyecek no-op hedeflerle guncellenir; orijinal dosya `.spec2code_backup` olarak korunur.
+- `app build` ilk denemede custom IP BSP makefile nedeniyle hata verirse script bypass'i tazeleyip build'i bir kez daha dener.
+- `mem_pcie_intr_0` gibi instance adlari `mem_pcie_intr_v1_0` benzeri BSP driver klasorleriyle eslestirilecek sekilde normalize edilir.
+
 ## v0.1.65 - 2026-06-30
 
 - Windows executable icinde Generate sirasinda `frontend/src/lib/version.ts` source dosyasi aranmasindan kaynaklanan paketli exe hatasi giderildi.

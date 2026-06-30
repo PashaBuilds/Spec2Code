@@ -325,7 +325,8 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 3. XSA icindeki non-Xilinx/AMD custom PL IP adaylarini `.hwh` uzerinden algilar.
 4. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
 5. Custom PL IP driver policy `auto_none` ise aday IP'lerin BSP driver'ini `none`
-   yapmayi dener.
+   yapmayi dener; gerekirse source'suz custom IP `make.libs` dosyalarini no-op
+   hale getirerek BSP build'in `*.c` literal hatasina dusmesini engeller.
 6. `spec2code_create_workspace.tcl` dosyasini yazar.
 7. XSCT ile once adlandirilmis platform/system/application akisini dener.
 8. `app build` calistirir.
@@ -365,9 +366,12 @@ Custom PL IP driver policy varsayilan olarak `auto_none` gelir. Bu modda XSA
 icindeki `.hwh` dosyasi okunur; `VLNV` vendor'i `xilinx.com` veya `amd.com`
 olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Tcl script bu
 instance'lar icin `bsp setdriver -ip <instance> -driver none` varyantlarini dener.
-Bu, driver dosyasi olmayan custom IP'lerin BSP build'i bozmasini engellemek icin
-tasarlanmistir. Eger custom IP gercek ve kullanilacak bir sirket driver'i ile
-geliyorsa Vitis panelinde `BSP default'u koru` secilmelidir.
+Vitis buna ragmen `libsrc/<custom_ip>*/src/make.libs` altinda source'suz driver
+build etmeye calisirsa script ilgili `make.libs` dosyasini no-op hedeflerle
+degistirir ve orijinali `.spec2code_backup` olarak saklar. Bu, driver dosyasi
+olmayan custom IP'lerin BSP build'i bozmasini engellemek icin tasarlanmistir.
+Eger custom IP gercek ve kullanilacak bir sirket driver'i ile geliyorsa Vitis
+panelinde `BSP default'u koru` secilmelidir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

@@ -196,6 +196,11 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("set spec2code_custom_ip_instances [list {company_filter_0}]", script)
         self.assertIn("bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver", script)
         self.assertIn("foreach spec2code_none_driver {none None NONE}", script)
+        self.assertIn("proc spec2codeDisableCustomIpBspLibsrc", script)
+        self.assertIn("spec2codeWriteNoopMakeLibs $make_libs", script)
+        self.assertIn(".PHONY: all libs include install clean", script)
+        self.assertIn("${make_libs}.spec2code_backup", script)
+        self.assertIn("string match \"${alias}_v*\" $libsrc_name", script)
 
     def test_xsct_script_applies_custom_ip_policy_before_lwip_regenerate(self) -> None:
         script = render_xsct_script(
@@ -221,6 +226,30 @@ class VitisWorkspaceTests(unittest.TestCase):
             script.index("bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver"),
             script.index("bsp setlib -name $spec2code_lwip_lib"),
         )
+        self.assertLess(
+            script.index("spec2codeDisableCustomIpBspLibsrc"),
+            script.index("app build -name $app_name"),
+        )
+
+    def test_xsct_script_retries_build_after_custom_ip_bsp_bypass(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="freertos10_xilinx",
+            enable_lwip=True,
+            custom_ip_driver_policy="auto_none",
+            custom_ip_instances=["mem_pcie_intr_0"],
+        )
+
+        self.assertIn("if {[catch {app build -name $app_name} spec2code_build_err]}", script)
+        self.assertIn("retrying once", script)
+        self.assertGreater(script.count("spec2codeDisableCustomIpBspLibsrc"), 2)
 
     def test_xsct_script_can_keep_custom_pl_ip_bsp_defaults(self) -> None:
         script = render_xsct_script(
