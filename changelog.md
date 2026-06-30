@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.69 - 2026-06-30
+
+- Vitis workspace akisi staged `.xsa` icindeki source'suz custom IP driver `make.libs` dosyalarini Vitis platform/FSBL/PMU BSP uretimi baslamadan once patchler.
+- Runtime watcher'a ek olarak XSA pre-patch sonucu manifest/result icine yazilir; UI'da `XSA:` ve `BSP:` kaynakli patch path'leri ayri gosterilir.
+- Vitis panelindeki `BSP patch` rozeti artik patch sayisi `0` olsa bile gorunur; bu sayede watcher/pre-patch katmaninin hic dosya yakalayip yakalamadigi net okunur.
+
 ## v0.1.68 - 2026-06-30
 
 - Vitis workspace akisi, XSCT calisirken host tarafinda paralel bir custom IP BSP watcher baslatir.

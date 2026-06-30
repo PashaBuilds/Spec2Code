@@ -561,6 +561,86 @@ def patch_custom_ip_make_libs(workspace_path: Path, custom_ip_instances: list[st
     return patched
 
 
+def _zip_libsrc_name(make_libs_name: str) -> str:
+    parts = make_libs_name.replace("\\", "/").split("/")
+    if len(parts) >= 3 and parts[-1] == "make.libs" and parts[-2] == "src":
+        return _normalize_custom_ip_token(parts[-3])
+    return ""
+
+
+def _zip_make_libs_matches_custom_ip(make_libs_name: str, custom_ip_instances: list[str]) -> bool:
+    libsrc_name = _zip_libsrc_name(make_libs_name)
+    for custom_ip in custom_ip_instances:
+        for alias in _custom_ip_aliases(custom_ip):
+            if libsrc_name == alias or libsrc_name.startswith(f"{alias}_"):
+                return True
+    return False
+
+
+def _zip_make_libs_looks_sourceless(make_libs_name: str, content: str, names: set[str]) -> bool:
+    normalized_name = make_libs_name.replace("\\", "/")
+    libsrc_name = _zip_libsrc_name(normalized_name)
+    if not libsrc_name or _is_known_xilinx_libsrc(libsrc_name) or "*.c" not in content:
+        return False
+    src_dir = normalized_name.rsplit("/", 1)[0] + "/"
+    return not any(name.startswith(src_dir) and name.lower().endswith(".c") for name in names)
+
+
+def patch_xsa_custom_ip_make_libs(xsa_path: Path, custom_ip_instances: list[str], policy: str) -> list[str]:
+    if normalize_custom_ip_driver_policy(policy) != "auto_none" or not xsa_path.is_file():
+        return []
+    try:
+        is_zip = zipfile.is_zipfile(xsa_path)
+    except OSError:
+        return []
+    if not is_zip:
+        return []
+
+    patched: list[str] = []
+    temp_path = xsa_path.with_name(f"{xsa_path.name}.spec2code_patched")
+    try:
+        with zipfile.ZipFile(xsa_path, "r") as source_zip:
+            infos = source_zip.infolist()
+            names = {info.filename.replace("\\", "/") for info in infos}
+            replacements: dict[str, bytes] = {}
+            for info in infos:
+                normalized_name = info.filename.replace("\\", "/")
+                if not normalized_name.endswith("/src/make.libs"):
+                    continue
+                raw = source_zip.read(info.filename)
+                text = raw.decode("utf-8", errors="replace")
+                if (
+                    _zip_make_libs_matches_custom_ip(normalized_name, custom_ip_instances)
+                    or _zip_make_libs_looks_sourceless(normalized_name, text, names)
+                ):
+                    replacements[info.filename] = (
+                        "# Spec2Code: source-less custom PL IP BSP driver disabled in staged XSA.\n"
+                        ".PHONY: all libs include install clean\n"
+                        "all: libs\n"
+                        "libs:\n"
+                        "include:\n"
+                        "install: libs\n"
+                        "clean:\n"
+                    ).encode("utf-8")
+                    patched.append(info.filename)
+            if not replacements:
+                return []
+            with zipfile.ZipFile(temp_path, "w") as target_zip:
+                for info in infos:
+                    data = replacements.get(info.filename)
+                    if data is None:
+                        data = source_zip.read(info.filename)
+                    target_zip.writestr(info, data)
+        shutil.move(str(temp_path), str(xsa_path))
+    except (OSError, zipfile.BadZipFile):
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return []
+    return patched
+
+
 class CustomIpMakeLibsWatcher:
     def __init__(self, root_paths: Path | list[Path], custom_ip_instances: list[str], policy: str, *, interval_s: float = 0.02) -> None:
         self.root_paths = root_paths if isinstance(root_paths, list) else [root_paths]
@@ -950,6 +1030,11 @@ class VitisWorkspaceJobManager:
 
         custom_ip_driver_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
         custom_pl_ips = discover_custom_pl_ips(staged_xsa_path) if custom_ip_driver_policy == "auto_none" else []
+        xsa_patched_make_libs = patch_xsa_custom_ip_make_libs(
+            staged_xsa_path,
+            [item.instance for item in custom_pl_ips],
+            custom_ip_driver_policy,
+        )
         if custom_ip_driver_policy == "auto_none" and custom_pl_ips:
             job.emit({
                 "event": "vitis.custom_ip_policy",
@@ -964,6 +1049,14 @@ class VitisWorkspaceJobManager:
                 "stage": "stage_sources",
                 "progress": 34,
                 "message": "Custom PL IP driver policy BSP default değerlerini koruyacak.",
+            })
+        if xsa_patched_make_libs:
+            job.emit({
+                "event": "vitis.custom_ip_xsa_patch",
+                "stage": "stage_sources",
+                "progress": 36,
+                "message": f"{len(xsa_patched_make_libs)} custom IP driver make.libs staged XSA icinde patchlendi.",
+                "patched_make_libs": xsa_patched_make_libs,
             })
 
         job.emit({
@@ -1003,6 +1096,8 @@ class VitisWorkspaceJobManager:
             "lwip_api_mode": lwip_api_mode,
             "custom_ip_driver_policy": custom_ip_driver_policy,
             "custom_pl_ip_candidates": [asdict(item) for item in custom_pl_ips],
+            "custom_ip_xsa_make_libs_patched": xsa_patched_make_libs,
+            "custom_ip_xsa_make_libs_patched_count": len(xsa_patched_make_libs),
             "staged_files": staged_files,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -1076,6 +1171,7 @@ class VitisWorkspaceJobManager:
             job.result["successful"] = completed.returncode == 0 and not log_has_fatal_error
             job.result["custom_ip_make_libs_patched"] = host_patched_make_libs
             job.result["custom_ip_make_libs_patched_count"] = len(host_patched_make_libs)
+            job.result["custom_ip_bsp_patch_total_count"] = len(host_patched_make_libs) + len(xsa_patched_make_libs)
         if completed.returncode != 0 or log_has_fatal_error:
             issues = map_vitis_errors(f"{completed.stdout}\n{completed.stderr}")
             if job.result is not None:

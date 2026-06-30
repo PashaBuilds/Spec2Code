@@ -157,6 +157,9 @@ export interface VitisWorkspaceResult {
     custom_pl_ip_candidates?: CustomPlIpCandidate[];
     custom_ip_make_libs_patched?: string[];
     custom_ip_make_libs_patched_count?: number;
+    custom_ip_xsa_make_libs_patched?: string[];
+    custom_ip_xsa_make_libs_patched_count?: number;
+    custom_ip_bsp_patch_total_count?: number;
     staged_files: string[];
     script_path: string;
     manifest_path: string;

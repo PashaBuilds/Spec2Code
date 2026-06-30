@@ -16,6 +16,7 @@ from backend.vitis_workspace import (
     locate_xsct,
     normalize_custom_ip_driver_policy,
     patch_custom_ip_make_libs,
+    patch_xsa_custom_ip_make_libs,
     render_xsct_script,
     vitis_lwip_api_mode,
     vitis_os,
@@ -313,6 +314,37 @@ class VitisWorkspaceTests(unittest.TestCase):
             self.assertEqual(patched, [])
             self.assertNotIn("Spec2Code", (real_src / "make.libs").read_text(encoding="utf-8"))
             self.assertNotIn("Spec2Code", (xil_src / "make.libs").read_text(encoding="utf-8"))
+
+    def test_xsa_make_libs_patcher_rewrites_sourceless_custom_driver_before_vitis_sees_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("hw/system.hwh", "<SYSTEM />")
+                archive.writestr("ip_repo/drivers/mem_pcie_intr_v1_0/src/make.libs", "LIBSOURCES = *.c\nlibs:\n\t$(CC) *.c\n")
+                archive.writestr("ip_repo/drivers/real_driver_v1_0/src/make.libs", "LIBSOURCES = *.c\n")
+                archive.writestr("ip_repo/drivers/real_driver_v1_0/src/real_driver.c", "int realDriverInit(void) { return 0; }\n")
+
+            patched = patch_xsa_custom_ip_make_libs(xsa, ["mem_pcie_intr_0"], "auto_none")
+
+            self.assertEqual(patched, ["ip_repo/drivers/mem_pcie_intr_v1_0/src/make.libs"])
+            with zipfile.ZipFile(xsa, "r") as archive:
+                patched_text = archive.read("ip_repo/drivers/mem_pcie_intr_v1_0/src/make.libs").decode("utf-8")
+                real_text = archive.read("ip_repo/drivers/real_driver_v1_0/src/make.libs").decode("utf-8")
+            self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled in staged XSA", patched_text)
+            self.assertNotIn("Spec2Code", real_text)
+
+    def test_xsa_make_libs_patcher_uses_sourceless_heuristic_without_custom_ip_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("ip_repo/drivers/company_irq_v1_0/src/make.libs", "LIBSOURCES = *.c\nlibs:\n\t$(CC) *.c\n")
+
+            patched = patch_xsa_custom_ip_make_libs(xsa, [], "auto_none")
+
+            self.assertEqual(patched, ["ip_repo/drivers/company_irq_v1_0/src/make.libs"])
+            with zipfile.ZipFile(xsa, "r") as archive:
+                patched_text = archive.read("ip_repo/drivers/company_irq_v1_0/src/make.libs").decode("utf-8")
+            self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled in staged XSA", patched_text)
 
     def test_xsct_script_can_keep_custom_pl_ip_bsp_defaults(self) -> None:
         script = render_xsct_script(

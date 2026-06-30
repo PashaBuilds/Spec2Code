@@ -321,6 +321,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   ) && !running;
   const workspaceReady = result?.successful === true && !error;
   const workspaceFailed = Boolean(result && (error || result.successful === false));
+  const bspPatchCount = result?.custom_ip_bsp_patch_total_count
+    ?? ((result?.custom_ip_make_libs_patched_count ?? 0) + (result?.custom_ip_xsa_make_libs_patched_count ?? 0));
 
   return (
     <section className="rounded-lg border border-border bg-elev p-4">
@@ -342,7 +344,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           {result?.requires_lwip ? <Badge tone="accent">lwIP {result.lwip_api_mode || "gerekli"}</Badge> : null}
           {result?.custom_ip_driver_policy === "keep" ? <Badge tone="neutral">custom IP keep</Badge> : null}
           {result?.custom_pl_ip_candidates?.length ? <Badge tone="warn">custom IP none {result.custom_pl_ip_candidates.length}</Badge> : null}
-          {result?.custom_ip_make_libs_patched_count ? <Badge tone="warn">BSP patch {result.custom_ip_make_libs_patched_count}</Badge> : null}
+          {result && result.custom_ip_driver_policy !== "keep" ? <Badge tone={bspPatchCount ? "warn" : "neutral"}>BSP patch {bspPatchCount}</Badge> : null}
         </div>
       </div>
 
@@ -512,11 +514,14 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
               </pre>
             </div>
           ) : null}
-          {result.custom_ip_make_libs_patched?.length ? (
+          {result.custom_ip_xsa_make_libs_patched?.length || result.custom_ip_make_libs_patched?.length ? (
             <div className="mt-3">
               <span className="font-semibold text-muted">Custom IP BSP patch</span>
               <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-bg p-2 font-mono text-[11px] text-text">
-                {result.custom_ip_make_libs_patched.join("\n")}
+                {[
+                  ...(result.custom_ip_xsa_make_libs_patched ?? []).map((path) => `XSA: ${path}`),
+                  ...(result.custom_ip_make_libs_patched ?? []).map((path) => `BSP: ${path}`),
+                ].join("\n")}
               </pre>
             </div>
           ) : null}
@@ -554,11 +559,14 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             <span className="font-semibold text-ok">Log</span>
             <div className="mt-1 break-all font-mono text-text">{result.stdout_log}</div>
           </div>
-          {result.custom_ip_make_libs_patched?.length ? (
+          {result.custom_ip_xsa_make_libs_patched?.length || result.custom_ip_make_libs_patched?.length ? (
             <div className="md:col-span-2">
               <span className="font-semibold text-ok">Custom IP BSP patch</span>
               <div className="mt-1 space-y-1">
-                {result.custom_ip_make_libs_patched.slice(0, 6).map((path) => (
+                {[
+                  ...(result.custom_ip_xsa_make_libs_patched ?? []).map((path) => `XSA: ${path}`),
+                  ...(result.custom_ip_make_libs_patched ?? []).map((path) => `BSP: ${path}`),
+                ].slice(0, 8).map((path) => (
                   <div key={path} className="break-all font-mono text-text">{path}</div>
                 ))}
               </div>
