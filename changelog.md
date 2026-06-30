@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.70 - 2026-06-30
+
+- Vitis custom IP kesfi genisletildi: `xilinx.com:ip:<custom_ad>:...` seklinde gorunen ama standart Xilinx IP ailesine benzemeyen PL peripheral'lar da `Auto: custom IP - none` kapsamına alinir.
+- `axi_gpio`, `clk_wiz`, `xlconcat`, `smartconnect`, `proc_sys_reset` gibi standart Xilinx IP aileleri otomatik none politikasindan korunur.
+- Custom IP BSP watcher daha hizli calisir ve artik kullanicinin verdigi `Temp/Staging` kok dizinini de izler; Vitis'in ara klasoru farkli yerde acmasi durumunda `make.libs` patch sansi artar.
+
 ## v0.1.69 - 2026-06-30
 
 - Vitis workspace akisi staged `.xsa` icindeki source'suz custom IP driver `make.libs` dosyalarini Vitis platform/FSBL/PMU BSP uretimi baslamadan once patchler.

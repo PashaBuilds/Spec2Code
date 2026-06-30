@@ -290,7 +290,10 @@ manuel açmak ve API mode'u kontrol etmek gerekebilir.
 
 Custom PL IP'ler için varsayılan policy `auto_none` değeridir. Backend XSA içindeki
 `.hwh` dosyasını okur, `VLNV` vendor'ı `xilinx.com` veya `amd.com` olmayan
-peripheral instance'ları custom aday sayar ve Tcl içinde bu IP'ler için
+peripheral instance'ları custom aday sayar. `xilinx.com:ip:<custom_ad>` gibi
+görünen ama standart Xilinx IP ailesine benzemeyen PL peripheral'lar da
+custom-like aday kabul edilir; `axi_gpio`, `clk_wiz`, `xlconcat`, `smartconnect`
+gibi standart IP'ler korunur. Tcl içinde bu IP'ler için
 `bsp setdriver -ip <instance> -driver none` varyantlarını dener. Vitis buna rağmen
 source'suz custom IP driver klasörünü build etmeye çalışırsa ilgili
 `libsrc/<custom_ip>*/src/make.libs` dosyası staged `.xsa` içinde Vitis görmeden

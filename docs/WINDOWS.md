@@ -162,6 +162,9 @@ Akış aşamaları UI'da progress bar ile görünür:
    `spec2code_selftest_main.c/.h` kullanıcının verdiği temp/staging dizinine
    kopyalanır.
 4. XSA içindeki non-Xilinx/AMD custom PL IP adayları `.hwh` üzerinden algılanır.
+   `xilinx.com:ip:<custom_ad>` şeklinde görünen ama standart Xilinx IP ailesine
+   benzemeyen PL peripheral'lar da custom-like aday sayılır; standart Xilinx IP
+   aileleri korunur.
 5. Varsayılan custom PL IP policy `auto_none` olduğu için bu aday IP'lerin BSP
    driver'ı `none` yapılmaya çalışılır. Vitis yine de source'suz custom IP BSP
    driver'ını build etmeye çalışırsa ilgili `make.libs`, `bsp regenerate` ve

@@ -33,6 +33,61 @@ _XSCT_FATAL_RE = re.compile(
 )
 _KNOWN_AMD_XILINX_VENDORS = {"xilinx.com", "amd.com"}
 _CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep"}
+_KNOWN_XILINX_PL_IP_PREFIXES = (
+    "axi_",
+    "axis_",
+    "aurora_",
+    "blk_mem_",
+    "c_accum",
+    "c_addsub",
+    "c_compare",
+    "c_counter",
+    "c_gate",
+    "c_mux",
+    "c_reg",
+    "c_selectio",
+    "c_shift",
+    "clk_",
+    "cordic",
+    "dds_",
+    "div_",
+    "fifo_",
+    "fir_",
+    "floating_",
+    "gt_",
+    "ila",
+    "interconnect",
+    "jtag_",
+    "lmb_",
+    "mdm",
+    "microblaze",
+    "mig_",
+    "mult_",
+    "proc_",
+    "processing_",
+    "ps7_",
+    "psu_",
+    "psv_",
+    "rst_",
+    "smartconnect",
+    "system_",
+    "util_",
+    "vio",
+    "xl",
+    "xpm_",
+    "xps_",
+    "xxv_",
+    "zynq",
+)
+_KNOWN_XILINX_PL_IP_NAMES = {
+    "axi_noc",
+    "axis_data_fifo",
+    "clk_wiz",
+    "proc_sys_reset",
+    "xlconcat",
+    "xlconstant",
+    "xlslice",
+}
 
 
 @dataclass(frozen=True)
@@ -233,6 +288,15 @@ def _xml_attr(element: ET.Element, *names: str) -> str:
     return ""
 
 
+def _is_standard_xilinx_pl_ip(ip_name: str, instance: str) -> bool:
+    normalized = _normalize_custom_ip_token(ip_name or instance)
+    if not normalized:
+        return True
+    if normalized in _KNOWN_XILINX_PL_IP_NAMES:
+        return True
+    return normalized.startswith(_KNOWN_XILINX_PL_IP_PREFIXES)
+
+
 def _hwh_documents_from_xsa(xsa_path: Path) -> list[tuple[str, bytes]]:
     try:
         with zipfile.ZipFile(xsa_path) as archive:
@@ -268,12 +332,15 @@ def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
             vlnv_parts = vlnv.split(":")
             vendor = vlnv_parts[0].lower() if vlnv_parts else ""
             library = vlnv_parts[1].lower() if len(vlnv_parts) >= 2 else ""
-            if vendor in _KNOWN_AMD_XILINX_VENDORS and library != "user":
-                continue
             ip_name = _xml_attr(element, "IP_NAME") or (vlnv_parts[2] if len(vlnv_parts) >= 3 else "")
-            reason = f"{hwh_name}: non-Xilinx/AMD peripheral VLNV"
             if vendor in _KNOWN_AMD_XILINX_VENDORS and library == "user":
                 reason = f"{hwh_name}: user-packaged PL peripheral VLNV"
+            elif vendor in _KNOWN_AMD_XILINX_VENDORS:
+                if _is_standard_xilinx_pl_ip(ip_name, instance):
+                    continue
+                reason = f"{hwh_name}: Xilinx-vendor custom-like PL peripheral"
+            else:
+                reason = f"{hwh_name}: non-Xilinx/AMD peripheral VLNV"
             candidates.setdefault(
                 instance,
                 CustomPlIpCandidate(
@@ -642,7 +709,7 @@ def patch_xsa_custom_ip_make_libs(xsa_path: Path, custom_ip_instances: list[str]
 
 
 class CustomIpMakeLibsWatcher:
-    def __init__(self, root_paths: Path | list[Path], custom_ip_instances: list[str], policy: str, *, interval_s: float = 0.02) -> None:
+    def __init__(self, root_paths: Path | list[Path], custom_ip_instances: list[str], policy: str, *, interval_s: float = 0.005) -> None:
         self.root_paths = root_paths if isinstance(root_paths, list) else [root_paths]
         self.custom_ip_instances = custom_ip_instances
         self.policy = policy
@@ -1143,7 +1210,7 @@ class VitisWorkspaceJobManager:
             "script_path": str(script_path),
         })
         watcher = CustomIpMakeLibsWatcher(
-            [workspace_path, staging_root],
+            [workspace_path, staging_root, temp_path],
             [item.instance for item in custom_pl_ips],
             custom_ip_driver_policy,
         )

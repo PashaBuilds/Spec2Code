@@ -162,6 +162,8 @@ class VitisWorkspaceTests(unittest.TestCase):
             hwh = """<?xml version="1.0"?>
 <SYSTEM>
   <MODULE INSTANCE="axi_gpio_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:ip:axi_gpio:2.0" IP_NAME="axi_gpio"/>
+  <MODULE INSTANCE="mem_pcie_intr_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:ip:mem_pcie_intr:1.0" IP_NAME="mem_pcie_intr"/>
+  <MODULE INSTANCE="clk_wiz_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:ip:clk_wiz:6.0" IP_NAME="clk_wiz"/>
   <MODULE INSTANCE="mem_pcie_intr_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:user:mem_pcie_intr:1.0" IP_NAME="mem_pcie_intr"/>
   <MODULE INSTANCE="company_filter_0" MODTYPE="PERIPHERAL" VLNV="company.local:user:company_filter:1.0" IP_NAME="company_filter"/>
   <MODULE INSTANCE="custom_dma_0" MODTYPE="PERIPHERAL" VLNV="acme.com:user:custom_dma:1.0"/>
@@ -177,7 +179,9 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertEqual(candidates[0].ip_name, "company_filter")
         self.assertEqual(candidates[1].ip_name, "custom_dma")
         self.assertEqual(candidates[2].ip_name, "mem_pcie_intr")
-        self.assertIn("user-packaged", candidates[2].reason)
+        self.assertNotIn("axi_gpio_0", [item.instance for item in candidates])
+        self.assertNotIn("clk_wiz_0", [item.instance for item in candidates])
+        self.assertIn("custom-like", candidates[2].reason)
 
     def test_xsct_script_sets_custom_pl_ip_driver_none_when_auto_policy_is_used(self) -> None:
         script = render_xsct_script(

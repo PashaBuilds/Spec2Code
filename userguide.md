@@ -364,8 +364,11 @@ etmek gerekebilir.
 
 Custom PL IP driver policy varsayilan olarak `auto_none` gelir. Bu modda XSA
 icindeki `.hwh` dosyasi okunur; `VLNV` vendor'i `xilinx.com` veya `amd.com`
-olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Tcl script bu
-instance'lar icin `bsp setdriver -ip <instance> -driver none` varyantlarini dener.
+olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Ayrica
+`xilinx.com:ip:<custom_ad>` gibi gorunen ama `axi_gpio`, `clk_wiz`, `xlconcat`,
+`smartconnect` gibi standart Xilinx IP ailelerine benzemeyen PL peripheral'lar da
+custom-like adayi sayilir. Tcl script bu instance'lar icin
+`bsp setdriver -ip <instance> -driver none` varyantlarini dener.
 Vitis buna ragmen `libsrc/<custom_ip>*/src/make.libs` altinda source'suz driver
 build etmeye calisirsa Spec2Code bunu uc katmanda yakalamaya calisir: staged
 `.xsa` icindeki driver `make.libs` dosyalarini Vitis gormeden once patchler, Tcl
