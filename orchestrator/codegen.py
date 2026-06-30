@@ -6,7 +6,9 @@ templates, and writes drop-in output through hostplat.io (always CRLF). No LLM i
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -88,9 +90,39 @@ def _header_guard(value: str) -> str:
 
 
 def _app_version() -> str:
-    text = (_ROOT / "frontend" / "src" / "lib" / "version.ts").read_text(encoding="utf-8")
-    match = re.search(r'"(v\d+\.\d+\.\d+)"', text)
-    return match.group(1) if match else "dev"
+    for name in ("SPEC2CODE_VERSION", "VITE_SPEC2CODE_VERSION", "RELEASE_VERSION"):
+        value = os.environ.get(name, "").strip()
+        if re.fullmatch(r"v\d+\.\d+\.\d+", value):
+            return value
+
+    roots = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(Path(meipass))
+    roots.extend([_ROOT, Path.cwd(), Path(sys.executable).resolve().parent])
+
+    for root in roots:
+        version_file = root / "spec2code_version.txt"
+        if version_file.is_file():
+            value = version_file.read_text(encoding="utf-8", errors="replace").strip()
+            if re.fullmatch(r"v\d+\.\d+\.\d+", value):
+                return value
+
+    source_version = _ROOT / "frontend" / "src" / "lib" / "version.ts"
+    if source_version.is_file():
+        text = source_version.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r'"(v\d+\.\d+\.\d+)"', text)
+        if match:
+            return match.group(1)
+
+    changelog = _ROOT / "changelog.md"
+    if changelog.is_file():
+        text = changelog.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"^##\s+(v\d+\.\d+\.\d+)\s+", text, re.MULTILINE)
+        if match:
+            return match.group(1)
+
+    return "dev"
 
 
 def _c_string_literal(value: str) -> str:

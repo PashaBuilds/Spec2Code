@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.65 - 2026-06-30
+
+- Windows executable icinde Generate sirasinda `frontend/src/lib/version.ts` source dosyasi aranmasindan kaynaklanan paketli exe hatasi giderildi.
+- Test Bench agent version bilgisi artik paketlenmis `spec2code_version.txt` metadata dosyasindan, environment degiskenlerinden veya gelistirme ortaminda source fallback'lerinden okunur.
+- PyInstaller build akisi release version metadata dosyasini exe icine ekler.
+
 ## v0.1.64 - 2026-06-30
 
 - Vitis Workspace akisi temp/staging dizinini kullanicidan zorunlu input olarak alacak sekilde guncellendi.

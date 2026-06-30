@@ -95,6 +95,12 @@ def _data_arg(source: str) -> str:
     return f"{path}{os.pathsep}{source}"
 
 
+def _data_file_arg(source: Path, target_name: str) -> str:
+    if not source.is_file():
+        raise FileNotFoundError(f"required release data file is missing: {source}")
+    return f"{source}{os.pathsep}{target_name}"
+
+
 def _copy_release_docs(bundle_dir: Path) -> None:
     for name in ("changelog.md", "userguide.md"):
         source = ROOT / name
@@ -117,6 +123,9 @@ def main() -> int:
     app_name = "Spec2Code"
     work_path = ROOT / "build" / "pyinstaller"
     dist_path = ROOT / "build" / "pyinstaller-dist"
+    metadata_path = ROOT / "build" / "spec2code_version.txt"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(version + "\n", encoding="utf-8")
     shutil.rmtree(work_path, ignore_errors=True)
     shutil.rmtree(dist_path, ignore_errors=True)
 
@@ -136,6 +145,7 @@ def main() -> int:
     ]
     for source in DATA_DIRS:
         command.extend(["--add-data", _data_arg(source)])
+    command.extend(["--add-data", _data_file_arg(metadata_path, "spec2code_version.txt")])
     for hidden in HIDDEN_IMPORTS:
         command.extend(["--hidden-import", hidden])
     command.append(str(ROOT / "run_spec2code.py"))

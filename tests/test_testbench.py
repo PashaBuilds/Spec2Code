@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import socketserver
 import tempfile
@@ -279,6 +280,24 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "spec2code_version")', ops_source)
         self.assertIn('spec2codeTestbenchMessageSet(spResponse, "Spec2Code " SPEC2CODE_TESTBENCH_AGENT_VERSION);', ops_source)
         self.assertIn("if (spRequest->cArrOperation[0] == '\\0')", protocol_source)
+
+    def test_app_version_can_be_read_from_packaged_metadata_without_frontend_source(self) -> None:
+        version_file = ROOT / "spec2code_version.txt"
+        source_version = ROOT / "frontend" / "src" / "lib" / "version.ts"
+        backup = source_version.with_suffix(".ts.testbak")
+        self.assertFalse(backup.exists())
+        old_env = {name: os.environ.pop(name, None) for name in ("SPEC2CODE_VERSION", "VITE_SPEC2CODE_VERSION", "RELEASE_VERSION")}
+        try:
+            version_file.write_text("v9.8.7\n", encoding="utf-8")
+            source_version.rename(backup)
+            self.assertEqual(codegen._app_version(), "v9.8.7")
+        finally:
+            if backup.exists():
+                backup.rename(source_version)
+            version_file.unlink(missing_ok=True)
+            for name, value in old_env.items():
+                if value is not None:
+                    os.environ[name] = value
 
     def test_lwip_target_agent_is_not_generated_without_ethernet(self) -> None:
         spec = load_sample_spec("unit_no_lwip_agent")
