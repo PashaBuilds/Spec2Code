@@ -268,6 +268,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   }
 
   const canStart = Boolean(vitisPath.trim() && xsaPath.trim() && workspacePath.trim()) && !running;
+  const workspaceReady = result?.successful === true && !error;
+  const workspaceFailed = Boolean(result && (error || result.successful === false));
 
   return (
     <section className="rounded-lg border border-border bg-elev p-4">
@@ -284,7 +286,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <Badge tone="neutral">{runtimeForVitis(project.runtime)}</Badge>
           <Badge tone="neutral">{processor || defaultProcessor}</Badge>
-          {result ? <Badge tone="ok">Vitis {result.vitis_version}</Badge> : null}
+          {result ? <Badge tone={workspaceFailed ? "warn" : "ok"}>Vitis {result.vitis_version}</Badge> : null}
           {result?.requires_lwip ? <Badge tone="accent">lwIP gerekli</Badge> : null}
         </div>
       </div>
@@ -372,7 +374,45 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         </div>
       )}
 
-      {result && (
+      {workspaceFailed && result && (
+        <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 p-3 text-[11px] leading-relaxed text-muted">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-danger" aria-hidden />
+            <span className="font-semibold text-danger">Workspace tamamlanmadı</span>
+            {typeof result.xsct_exit_code === "number" ? (
+              <Badge tone={result.xsct_exit_code === 0 ? "warn" : "danger"}>exit {result.xsct_exit_code}</Badge>
+            ) : null}
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div>
+              <span className="font-semibold text-danger">stderr log</span>
+              <div className="mt-1 break-all font-mono text-text">{result.stderr_log}</div>
+            </div>
+            <div>
+              <span className="font-semibold text-danger">stdout log</span>
+              <div className="mt-1 break-all font-mono text-text">{result.stdout_log}</div>
+            </div>
+          </div>
+          {result.xsct_stderr_tail ? (
+            <div className="mt-3">
+              <span className="font-semibold text-danger">stderr son satırlar</span>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-danger/20 bg-bg p-2 font-mono text-[11px] text-text">
+                {result.xsct_stderr_tail}
+              </pre>
+            </div>
+          ) : null}
+          {result.xsct_stdout_tail ? (
+            <div className="mt-3">
+              <span className="font-semibold text-muted">stdout son satırlar</span>
+              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-bg p-2 font-mono text-[11px] text-text">
+                {result.xsct_stdout_tail}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {workspaceReady && result && (
         <div className="mt-3 grid gap-2 rounded-md border border-ok/30 bg-ok/10 p-3 text-[11px] leading-relaxed text-muted md:grid-cols-2">
           <div>
             <span className="font-semibold text-ok">Workspace</span>

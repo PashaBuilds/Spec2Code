@@ -140,6 +140,10 @@ export interface VitisWorkspaceResult {
     manifest_path: string;
     stdout_log: string;
     stderr_log: string;
+    xsct_exit_code?: number;
+    xsct_stdout_tail?: string;
+    xsct_stderr_tail?: string;
+    successful?: boolean;
     compile_issues?: VitisCompileIssue[];
   } | null;
 }

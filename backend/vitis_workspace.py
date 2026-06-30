@@ -24,6 +24,10 @@ from hostplat import io as hio
 _ROOT = Path(__file__).resolve().parent.parent
 _OUTPUTS = _ROOT / "outputs"
 _VERSION_RE = re.compile(r"(20\d{2}\.\d+(?:\.\d+)?)")
+_XSCT_FATAL_RE = re.compile(
+    r"(invalid command name|while executing|^ERROR:|traceback|exception)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -361,6 +365,20 @@ def _tcl_path(path: Path) -> str:
     return "{" + text + "}"
 
 
+def _tcl_put(message: str) -> str:
+    return f'puts "\\[Spec2Code\\] {message}"\n'
+
+
+def _log_tail(text: str, *, limit: int = 4000) -> str:
+    clean = text.strip()
+    return clean[-limit:] if len(clean) > limit else clean
+
+
+def _xsct_log_has_fatal_error(stdout: str, stderr: str) -> bool:
+    log = f"{stdout}\n{stderr}"
+    return bool(_XSCT_FATAL_RE.search(log))
+
+
 def render_xsct_script(
     *,
     workspace_path: Path,
@@ -382,42 +400,42 @@ def render_xsct_script(
         f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
         f"set spec2code_enable_lwip {lwip_flag}\n\n"
-        "puts \"[Spec2Code] workspace: $workspace_path\"\n"
-        "puts \"[Spec2Code] xsa: $xsa_path\"\n"
-        "puts \"[Spec2Code] source: $source_path\"\n"
+        f"{_tcl_put('workspace: $workspace_path')}"
+        f"{_tcl_put('xsa: $xsa_path')}"
+        f"{_tcl_put('source: $source_path')}"
         "setws $workspace_path\n\n"
-        "puts \"[Spec2Code] creating platform/application from XSA\"\n"
+        f"{_tcl_put('creating platform/application from XSA')}"
         "if {[catch {app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application(C)}} app_err]} {\n"
-        "    puts \"[Spec2Code] Empty Application(C) template failed: $app_err\"\n"
-        "    puts \"[Spec2Code] retrying with Empty Application template\"\n"
+        f"    {_tcl_put('Empty Application(C) template failed: $app_err')}"
+        f"    {_tcl_put('retrying with Empty Application template')}"
         "    app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application}\n"
         "}\n\n"
         "if {$spec2code_enable_lwip == 1} {\n"
-        "    puts \"[Spec2Code] lwIP target test bench detected; enabling BSP lwIP library\"\n"
+        f"    {_tcl_put('lwIP target test bench detected; enabling BSP lwIP library')}"
         "    set spec2code_lwip_ok 0\n"
         "    foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202} {\n"
         "        if {$spec2code_lwip_ok == 0} {\n"
         "            if {[catch {bsp setlib -name $spec2code_lwip_lib} spec2code_lwip_err]} {\n"
-        "                puts \"[Spec2Code] lwIP library $spec2code_lwip_lib not selected: $spec2code_lwip_err\"\n"
+        f"                {_tcl_put('lwIP library $spec2code_lwip_lib not selected: $spec2code_lwip_err')}"
         "            } else {\n"
         "                set spec2code_lwip_ok 1\n"
-        "                puts \"[Spec2Code] lwIP library selected: $spec2code_lwip_lib\"\n"
+        f"                {_tcl_put('lwIP library selected: $spec2code_lwip_lib')}"
         "            }\n"
         "        }\n"
         "    }\n"
         "    if {$spec2code_lwip_ok == 1} {\n"
         "        if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
-        "            puts \"[Spec2Code] WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err\"\n"
+        f"            {_tcl_put('WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err')}"
         "        }\n"
         "    } else {\n"
-        "        puts \"[Spec2Code] WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.\"\n"
+        f"        {_tcl_put('WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.')}"
         "    }\n"
         "}\n\n"
-        "puts \"[Spec2Code] importing generated sources\"\n"
+        f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
-        "puts \"[Spec2Code] building application\"\n"
+        f"{_tcl_put('building application')}"
         "app build -name $app_name\n"
-        "puts \"[Spec2Code] done\"\n"
+        f"{_tcl_put('done')}"
         "exit\n"
     )
 
@@ -588,10 +606,17 @@ class VitisWorkspaceJobManager:
         )
         stdout_log.write_text(completed.stdout, encoding="utf-8")
         stderr_log.write_text(completed.stderr, encoding="utf-8")
-        if completed.returncode != 0:
+        log_has_fatal_error = _xsct_log_has_fatal_error(completed.stdout, completed.stderr)
+        if job.result is not None:
+            job.result["xsct_exit_code"] = completed.returncode
+            job.result["xsct_stdout_tail"] = _log_tail(completed.stdout)
+            job.result["xsct_stderr_tail"] = _log_tail(completed.stderr)
+            job.result["successful"] = completed.returncode == 0 and not log_has_fatal_error
+        if completed.returncode != 0 or log_has_fatal_error:
             issues = map_vitis_errors(f"{completed.stdout}\n{completed.stderr}")
             if job.result is not None:
                 job.result["compile_issues"] = issues
+                job.result["successful"] = False
             job.emit({
                 "event": "vitis.compile_errors",
                 "stage": "run",
@@ -599,13 +624,15 @@ class VitisWorkspaceJobManager:
                 "message": f"Vitis build log {len(issues)} issue ile eşleştirildi.",
                 "issues": issues,
             })
+            reason = f"exit={completed.returncode}" if completed.returncode != 0 else "XSCT log hata içeriyor"
             raise RuntimeError(
                 "XSCT workspace üretimi hata ile bitti "
-                f"(exit={completed.returncode}). Log: {stderr_log}"
+                f"({reason}). Log: {stderr_log}"
             )
 
         if job.result is not None:
             job.result["compile_issues"] = []
+            job.result["successful"] = True
         job.emit({
             "event": "vitis.done",
             "stage": "done",

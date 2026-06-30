@@ -37,6 +37,16 @@ class VitisIssue:
 
 _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (
+        re.compile(r"invalid command name\s+\"(?P<symbol>[^\"]+)\"", re.I),
+        "xsct_tcl_command",
+        "XSCT Tcl script içinde literal yazı komut gibi yorumlanmış. Script quoting/escaping kontrol edilmeli; generated script güncel sürümle tekrar üretilmeli.",
+    ),
+    (
+        re.compile(r"while executing", re.I),
+        "xsct_tcl_stack",
+        "XSCT Tcl script çalışırken hata oluştu. Hemen üstteki Tcl hata satırı ve script line bilgisini kontrol et.",
+    ),
+    (
         re.compile(r"(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s+fatal error:\s+(?P<header>[^:]+): No such file", re.I),
         "missing_include",
         "Header bulunamadı. BSP include path, generated driver include path veya Vitis domain ayarı eksik olabilir.",
