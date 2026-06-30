@@ -287,7 +287,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           <Badge tone="neutral">{runtimeForVitis(project.runtime)}</Badge>
           <Badge tone="neutral">{processor || defaultProcessor}</Badge>
           {result ? <Badge tone={workspaceFailed ? "warn" : "ok"}>Vitis {result.vitis_version}</Badge> : null}
-          {result?.requires_lwip ? <Badge tone="accent">lwIP gerekli</Badge> : null}
+          {result?.requires_lwip ? <Badge tone="accent">lwIP {result.lwip_api_mode || "gerekli"}</Badge> : null}
         </div>
       </div>
 

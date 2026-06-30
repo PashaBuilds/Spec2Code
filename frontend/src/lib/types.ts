@@ -135,6 +135,7 @@ export interface VitisWorkspaceResult {
     processor: string;
     os: string;
     requires_lwip?: boolean;
+    lwip_api_mode?: string | null;
     staged_files: string[];
     script_path: string;
     manifest_path: string;

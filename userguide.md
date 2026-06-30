@@ -252,8 +252,10 @@ tests/spec2code_testbench_lwip.c/.h
 tests/spec2code_testbench_lwip_main.c/.h
 ```
 
-Bu dosyalar Zynq UltraScale+ PS Ethernet uzerinden lwIP raw API ile TCP server
-acar. Varsayilan port `5000`, varsayilan IP `192.168.1.10` olarak gelir. Bunlari
+Bu dosyalar Zynq UltraScale+ PS Ethernet uzerinden lwIP TCP server acar. Vitis
+workspace uretiminde standalone runtime icin BSP `RAW_API`, FreeRTOS runtime icin
+BSP `SOCKET_API` mode secimi denenir. Varsayilan port `5000`, varsayilan IP
+`192.168.1.10` olarak gelir. Bunlari
 Vitis compile define veya generated header uzerinden su makrolarla degistirebilirsin:
 
 ```text
@@ -317,7 +319,7 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 
 1. Vitis/XSCT surumunu algilar.
 2. Generated kaynaklari staging klasorune kopyalar.
-3. lwIP test bench dosyasi varsa BSP icin lwIP library secimini dener.
+3. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
 4. `spec2code_create_workspace.tcl` dosyasini yazar.
 5. XSCT ile headless application workspace olusturur.
 6. `app build` calistirir.
@@ -341,13 +343,15 @@ bak. En sik hatalar:
 - XSA icinde beklenen processor instance adinin farkli olmasi.
 - Vitis surumunde template adinin farkli davranmasi.
 - BSP/toolchain eksigi.
-- lwIP agent uretilmis ama Vitis BSP icinde lwIP library enable edilememis olmasi.
+- lwIP agent uretilmis ama Vitis BSP icinde lwIP library/API mode enable edilememis olmasi.
 
-lwIP agent uretilirse Vitis panelinde `lwIP gerekli` rozeti gorunur ve staging
-manifest icinde `requires_lwip: true` yazar. Tcl script `lwip220`, `lwip213`,
-`lwip211` ve `lwip202` library adlarini sirayla dener. Kullanilan Vitis surumunde
-bu isimler farkliysa BSP/domain ayarlarindan lwIP library'yi manuel enable etmek
-gerekebilir.
+lwIP agent uretilirse Vitis panelinde `lwIP RAW_API` veya `lwIP SOCKET_API` rozeti
+gorunur ve staging manifest icinde `requires_lwip: true` ile `lwip_api_mode`
+yazar. Tcl script `lwip220`, `lwip213`, `lwip211` ve `lwip202` library adlarini
+sirayla dener. Standalone icin `RAW_API`, FreeRTOS icin `SOCKET_API` secmeye
+calisir. Kullanilan Vitis surumunde bu isimler veya `api_mode` parametresi
+farkliysa BSP/domain ayarlarindan lwIP library'yi ve API mode'u manuel kontrol
+etmek gerekebilir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

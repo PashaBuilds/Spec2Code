@@ -191,6 +191,12 @@ def vitis_os(runtime: str) -> str:
     return "standalone"
 
 
+def vitis_lwip_api_mode(os_name: str) -> str:
+    if vitis_os(os_name) == "freertos10_xilinx":
+        return "SOCKET_API"
+    return "RAW_API"
+
+
 def _safe_identifier(value: str, fallback: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_")
     return safe or fallback
@@ -390,6 +396,7 @@ def render_xsct_script(
     enable_lwip: bool = False,
 ) -> str:
     lwip_flag = "1" if enable_lwip else "0"
+    lwip_api_mode = vitis_lwip_api_mode(os_name) if enable_lwip else ""
     return (
         "# Spec2Code generated Vitis workspace script.\n"
         "# This script is intentionally plain XSCT so it works in air-gapped Windows hosts.\n"
@@ -400,6 +407,7 @@ def render_xsct_script(
         f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
         f"set spec2code_enable_lwip {lwip_flag}\n\n"
+        f"set spec2code_lwip_api_mode {{{lwip_api_mode}}}\n\n"
         f"{_tcl_put('workspace: $workspace_path')}"
         f"{_tcl_put('xsa: $xsa_path')}"
         f"{_tcl_put('source: $source_path')}"
@@ -424,6 +432,21 @@ def render_xsct_script(
         "        }\n"
         "    }\n"
         "    if {$spec2code_lwip_ok == 1} {\n"
+        f"        {_tcl_put('configuring lwIP API mode: $spec2code_lwip_api_mode')}"
+        "        set spec2code_lwip_api_mode_ok 0\n"
+        "        foreach spec2code_lwip_api_name {api_mode API_MODE} {\n"
+        "            if {$spec2code_lwip_api_mode_ok == 0} {\n"
+        "                if {[catch {bsp config $spec2code_lwip_api_name $spec2code_lwip_api_mode} spec2code_lwip_api_err]} {\n"
+        f"                    {_tcl_put('lwIP API mode $spec2code_lwip_api_name=$spec2code_lwip_api_mode not selected: $spec2code_lwip_api_err')}"
+        "                } else {\n"
+        "                    set spec2code_lwip_api_mode_ok 1\n"
+        f"                    {_tcl_put('lwIP API mode selected: $spec2code_lwip_api_name=$spec2code_lwip_api_mode')}"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if {$spec2code_lwip_api_mode_ok == 0} {\n"
+        f"            {_tcl_put('WARNING: lwIP API mode could not be set automatically; check BSP api_mode manually before relying on this workspace.')}"
+        "        }\n"
         "        if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
         f"            {_tcl_put('WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err')}"
         "        }\n"
@@ -536,6 +559,7 @@ class VitisWorkspaceJobManager:
         })
         staged_files = stage_vitis_sources(job.generate_job, source_root)
         requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
+        lwip_api_mode = vitis_lwip_api_mode(os_name) if requires_lwip else None
 
         script_path = staging_root / "spec2code_create_workspace.tcl"
         stdout_log = log_dir / "xsct_stdout.log"
@@ -555,6 +579,7 @@ class VitisWorkspaceJobManager:
             "processor": processor,
             "os": os_name,
             "requires_lwip": requires_lwip,
+            "lwip_api_mode": lwip_api_mode,
             "staged_files": staged_files,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

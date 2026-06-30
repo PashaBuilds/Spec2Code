@@ -13,6 +13,7 @@ from backend.vitis_workspace import (
     detect_xsct,
     locate_xsct,
     render_xsct_script,
+    vitis_lwip_api_mode,
     vitis_os,
 )
 from orchestrator import codegen
@@ -80,6 +81,8 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertEqual(default_vitis_processor("zynq_7000", "ps7_cortexa9_0"), "ps7_cortexa9_0")
         self.assertEqual(vitis_os("freertos"), "freertos10_xilinx")
         self.assertEqual(vitis_os("bare_metal"), "standalone")
+        self.assertEqual(vitis_lwip_api_mode("freertos10_xilinx"), "SOCKET_API")
+        self.assertEqual(vitis_lwip_api_mode("standalone"), "RAW_API")
 
     def test_xsct_script_contains_workspace_creation_steps(self) -> None:
         script = render_xsct_script(
@@ -110,9 +113,27 @@ class VitisWorkspaceTests(unittest.TestCase):
         )
 
         self.assertIn("set spec2code_enable_lwip 1", script)
+        self.assertIn("set spec2code_lwip_api_mode {RAW_API}", script)
         self.assertIn("foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202}", script)
         self.assertIn("bsp setlib -name $spec2code_lwip_lib", script)
+        self.assertIn("bsp config $spec2code_lwip_api_name $spec2code_lwip_api_mode", script)
         self.assertIn("bsp regenerate", script)
+
+    def test_xsct_script_selects_socket_api_for_freertos_lwip(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="freertos10_xilinx",
+            enable_lwip=True,
+        )
+
+        self.assertIn("set spec2code_enable_lwip 1", script)
+        self.assertIn("set spec2code_lwip_api_mode {SOCKET_API}", script)
+        self.assertIn("foreach spec2code_lwip_api_name {api_mode API_MODE}", script)
+        self.assertIn("lwIP API mode selected: $spec2code_lwip_api_name=$spec2code_lwip_api_mode", script)
 
     def test_workspace_job_stages_sources_and_runs_xsct(self) -> None:
         project_name = "unit_vitis_workspace"
