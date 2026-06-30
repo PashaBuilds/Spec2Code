@@ -187,14 +187,23 @@ Temp/Staging dizini altında oluşturulan yardımcı dosyalar:
   hw\
   src\
   spec2code_create_workspace.tcl
+  spec2code_self_heal_workspace.tcl
   spec2code_vitis_manifest.json
   logs\xsct_stdout.log
   logs\xsct_stderr.log
+  logs\xsct_self_heal_stdout.log
+  logs\xsct_self_heal_stderr.log
 ```
 
 Hata alırsan önce UI'daki son progress mesajına, sonra `xsct_stderr.log` dosyasına bak.
 Bu dosyalar özellikle Vitis sürüm farkı, yanlış processor instance adı, bozuk `.xsa` veya
 eksik BSP/toolchain durumlarını ayırmak için bırakılır.
+
+Vitis panelindeki **Vitis Doctor** lokal çalışır ve otomatik olarak dışarı log,
+zip veya tanı paketi çıkarmaz. Airgap ortamda sadece `S2C-VITIS-...` hata kodunu,
+custom IP aday sayısını veya `BSP patch N` gibi soyut bilgileri paylaşman yeterli
+olacak şekilde tasarlanmıştır. Custom IP BSP `*.c Invalid argument` hatasında
+uygulama workspace/temp altını tekrar patchleyip self-heal recovery build dener.
 
 ## Option B: Run from source
 

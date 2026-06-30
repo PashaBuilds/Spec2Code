@@ -17,6 +17,7 @@ from backend.vitis_workspace import (
     normalize_custom_ip_driver_policy,
     patch_custom_ip_make_libs,
     patch_xsa_custom_ip_make_libs,
+    render_xsct_recovery_script,
     render_xsct_script,
     vitis_lwip_api_mode,
     vitis_os,
@@ -59,6 +60,34 @@ def write_failing_xsct(path: Path, version: str = "2024.2") -> None:
         "echo 'invalid command name \"Spec2Code\"' >&2\n"
         "echo '    while executing' >&2\n"
         "echo '\"Spec2Code\"' >&2\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
+def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-version\" ]; then\n"
+        f"  echo \"xsct version {version}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "count_file=\"$PWD/spec2code_xsct_count\"\n"
+        "count=0\n"
+        "if [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\n"
+        "next=$((count + 1))\n"
+        "echo \"$next\" > \"$count_file\"\n"
+        "if [ \"$count\" = \"0\" ]; then\n"
+        "  src=\"$PWD/platform/export/platform/sw/platform/unit_platform/unit_application_domain/bsp/psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src\"\n"
+        "  mkdir -p \"$src\"\n"
+        "  printf 'LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n' > \"$src/make.libs\"\n"
+        "  echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
+        "  echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "echo 'self-heal recovery build ok'\n"
         "exit 0\n",
         encoding="utf-8",
     )
@@ -269,6 +298,24 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("retrying once", script)
         self.assertGreater(script.count("spec2codeDisableCustomIpBspLibsrc"), 2)
 
+    def test_xsct_recovery_script_reuses_existing_workspace(self) -> None:
+        script = render_xsct_recovery_script(
+            workspace_path=Path("/tmp/ws"),
+            platform_name="unit_platform",
+            domain_name="unit_domain",
+            app_name="unit_app",
+            custom_ip_driver_policy="auto_none",
+            custom_ip_instances=["mem_pcie_intr_0"],
+        )
+
+        self.assertIn("Spec2Code generated Vitis self-heal script", script)
+        self.assertIn("setws $workspace_path", script)
+        self.assertIn("catch {platform active $platform_name}", script)
+        self.assertIn("catch {domain active $domain_name}", script)
+        self.assertIn("bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver", script)
+        self.assertIn("app build -name $app_name", script)
+        self.assertNotIn("platform create", script)
+
     def test_host_make_libs_patcher_covers_application_pmu_and_fsbl_bsp_domains(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "workspace"
@@ -433,6 +480,73 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertEqual(result["xsct_exit_code"], 0)
                 self.assertIn("spec2code_selftest_main.h", result["staged_files"])
                 self.assertIn("spec2code_selftest_main.c", result["staged_files"])
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_job_self_heals_custom_ip_make_libs_failure(self) -> None:
+        project_name = "unit_vitis_workspace_self_heal"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_self_heal",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_self_healing_xsct(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                hwh = """<?xml version="1.0"?>
+<SYSTEM>
+  <MODULE INSTANCE="mem_pcie_intr_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:ip:mem_pcie_intr:1.0" IP_NAME="mem_pcie_intr"/>
+</SYSTEM>
+"""
+                with zipfile.ZipFile(xsa, "w") as archive:
+                    archive.writestr("hw/system.hwh", hwh)
+                workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path=str(xsa),
+                    workspace_path=str(workspace),
+                    temp_path=str(temp_root),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_self_heal",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                manager._blocking(job)
+
+                self.assertIsNotNone(job.result)
+                result = job.result or {}
+                self.assertTrue(result["successful"])
+                self.assertEqual(result["xsct_initial_exit_code"], 2)
+                self.assertEqual(result["xsct_exit_code"], 0)
+                self.assertTrue(result["self_heal"]["attempted"])
+                self.assertTrue(result["self_heal"]["successful"])
+                self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
+                self.assertGreater(result["custom_ip_make_libs_patched_count"], 0)
+                make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
+                self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 

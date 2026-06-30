@@ -304,6 +304,13 @@ olarak korunur. Şirket içinde gerçek driver'ı olan custom IP'leri BSP defaul
 haliyle bırakmak istiyorsan Vitis panelinde **BSP default'u koru** seçeneğini
 kullan.
 
+Vitis panelindeki **Vitis Doctor** bölümü lokal tanı sağlar; otomatik log/zip
+export etmez. Custom IP adayları, XSA/workspace `make.libs` sayıları, riskli
+source'suz driver durumu, `S2C-VITIS-...` hata kodları ve self-heal sonucu burada
+görünür. Custom IP BSP `*.c Invalid argument` hatası yakalanırsa Spec2Code mevcut
+workspace üzerinde recovery Tcl ile `bsp regenerate` ve `app build` denemesi
+yapar.
+
 Headless script akışı:
 
 ```text

@@ -127,6 +127,54 @@ export interface CustomPlIpCandidate {
   reason: string;
 }
 
+export interface VitisDoctorCheck {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "error" | "neutral" | string;
+  detail: string;
+}
+
+export interface VitisMakeLibsSample {
+  driver?: string;
+  path_tail?: string;
+  custom_match?: boolean;
+  sourceless?: boolean;
+  patched?: boolean;
+}
+
+export interface VitisMakeLibsDiagnostic {
+  scope: string;
+  is_zip?: boolean;
+  hwh_count?: number;
+  total: number;
+  custom_match: number;
+  sourceless: number;
+  risky: number;
+  samples: VitisMakeLibsSample[];
+}
+
+export interface VitisSelfHeal {
+  attempted: boolean;
+  successful: boolean;
+  reason?: string;
+  message?: string;
+  patched_make_libs?: string[];
+  recovery_script_path?: string;
+  stdout_log?: string;
+  stderr_log?: string;
+}
+
+export interface VitisDoctor {
+  status: "ok" | "warn" | "error" | string;
+  privacy?: string;
+  error_codes: string[];
+  checks: VitisDoctorCheck[];
+  hints: string[];
+  custom_ip_candidates?: Array<Pick<CustomPlIpCandidate, "instance" | "ip_name" | "reason">>;
+  xsa_make_libs?: VitisMakeLibsDiagnostic;
+  workspace_make_libs?: VitisMakeLibsDiagnostic | null;
+}
+
 export interface VitisWorkspaceResult {
   vitis_job_id: string;
   source_job_id: string;
@@ -155,6 +203,10 @@ export interface VitisWorkspaceResult {
     lwip_api_mode?: string | null;
     custom_ip_driver_policy?: "auto_none" | "keep";
     custom_pl_ip_candidates?: CustomPlIpCandidate[];
+    xsa_make_libs_preflight?: VitisMakeLibsDiagnostic;
+    workspace_make_libs_diagnostic?: VitisMakeLibsDiagnostic;
+    vitis_doctor?: VitisDoctor;
+    self_heal?: VitisSelfHeal;
     custom_ip_make_libs_patched?: string[];
     custom_ip_make_libs_patched_count?: number;
     custom_ip_xsa_make_libs_patched?: string[];
@@ -165,6 +217,10 @@ export interface VitisWorkspaceResult {
     manifest_path: string;
     stdout_log: string;
     stderr_log: string;
+    recovery_script_path?: string;
+    recovery_stdout_log?: string;
+    recovery_stderr_log?: string;
+    xsct_initial_exit_code?: number;
     xsct_exit_code?: number;
     xsct_stdout_tail?: string;
     xsct_stderr_tail?: string;

@@ -338,9 +338,12 @@ Temp/Staging dizini altinda olusan yardimci klasor:
   hw\
   src\
   spec2code_create_workspace.tcl
+  spec2code_self_heal_workspace.tcl
   spec2code_vitis_manifest.json
   logs\xsct_stdout.log
   logs\xsct_stderr.log
+  logs\xsct_self_heal_stdout.log
+  logs\xsct_self_heal_stderr.log
 ```
 
 Hata olursa once UI'daki son progress mesajina, sonra `xsct_stderr.log` dosyasina
@@ -380,6 +383,31 @@ tasarlanmistir. Vitis panelindeki `BSP patch N` rozeti toplam patch sayisini
 gosterir; `BSP patch 0` hic patch uygulanmadigi anlamina gelir. Eger custom IP
 gercek ve kullanilacak bir sirket driver'i ile geliyorsa Vitis panelinde
 `BSP default'u koru` secilmelidir.
+
+### Vitis Doctor ve Lokal Self-Heal
+
+Vitis workspace panelindeki **Vitis Doctor** bolumu tamamen lokal calisir ve
+otomatik olarak disari dosya, log veya zip aktarmaz. Airgap kullaniminda buradaki
+soyut bilgiler debug surecini hizlandirmak icin tasarlanmistir:
+
+- `S2C-VITIS-...` hata kodlari.
+- Custom IP aday sayisi.
+- XSA icinde kac `make.libs` bulundugu.
+- Workspace/FSBL/PMU/application BSP tarafinda kac riskli `make.libs` goruldugu.
+- `BSP patch N` sayisi.
+- Self-heal denenip denenmedigi ve sonucu.
+
+Bu bilgilerden yalnizca hata kodunu veya sayisal ozeti paylasmak genelde yeterli
+olur; sirket icindeki path, IP adi veya log dosyasini disari cikarmak gerekmez.
+
+Custom IP BSP kaynakli `*.c Invalid argument` hatasi gorulurse Spec2Code ilk
+build sonrasinda workspace/temp altini tekrar tarar. Patchlenecek source'suz
+`make.libs` bulunursa mevcut workspace'i bozmadan
+`spec2code_self_heal_workspace.tcl` calistirilir. Bu recovery script
+platform/application projesini bastan kurmaz; mevcut workspace uzerinde
+driver-none, `bsp regenerate` ve `app build` dener. Self-heal basarili olursa
+panelde `self-heal gecti` rozeti gorunur. Basarisiz olursa Doctor panelindeki
+hata kodu ve sayilar kok sebebi anlamak icin kalir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

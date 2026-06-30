@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.71 - 2026-06-30
+
+- Vitis workspace paneline lokal `Vitis Doctor` tanisi eklendi; custom IP adaylari, XSA/workspace `make.libs` sayilari, riskli source'suz driver durumu, hata kodlari ve self-heal sonucu UI icinde gosterilir.
+- Airgap kullanimi icin Doctor bilgisi otomatik disari aktarilmaz; kullanici sadece `S2C-VITIS-...` hata kodlarini veya soyut sayilari paylasarak debug surecini ilerletebilir.
+- Custom IP BSP `*.c Invalid argument` hatasi gorulurse Spec2Code workspace/temp altini tekrar patchleyip mevcut workspace uzerinden recovery Tcl ile `bsp regenerate` ve `app build` denemesi yapar.
+- Release paketi yine yalnizca `Spec2Code.exe`, `changelog.md` ve `userguide.md` icerir.
+
 ## v0.1.70 - 2026-06-30
 
 - Vitis custom IP kesfi genisletildi: `xilinx.com:ip:<custom_ad>:...` seklinde gorunen ama standart Xilinx IP ailesine benzemeyen PL peripheral'lar da `Auto: custom IP - none` kapsamına alinir.
