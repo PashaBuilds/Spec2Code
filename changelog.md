@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.63 - 2026-06-30
+
+- Vitis Workspace paneli platform, system ve application proje adlarini kullanicidan alacak sekilde genisletildi.
+- Vitis dizini, XSA dosyasi ve workspace dizini alanlari uzun Windows path'leri icin alt alta yerlestirildi.
+- XSA girdisi artik dogrudan `.xsa` dosyasi olarak dogrulanir ve XSCT script'i orijinal path yerine staging altindaki XSA kopyasini kullanir.
+- XSCT script'i once adlandirilmis platform/system/application akisini dener; uyumsuz Vitis varyantlarinda legacy `app create -hw` akisi fallback olarak korunur.
+
 ## v0.1.62 - 2026-06-30
 
 - Vitis workspace custom PL IP tespiti `xilinx.com:user:*` gibi user-packaged IP'leri de kapsayacak sekilde genisletildi.

@@ -112,6 +112,8 @@ export interface VitisWorkspaceRequest {
   workspace_path: string;
   processor?: string;
   runtime?: "standalone" | "freertos" | "freertos10_xilinx" | "bare_metal";
+  platform_name?: string;
+  system_name?: string;
   app_name?: string;
   timeout_s?: number;
   custom_ip_driver_policy?: "auto_none" | "keep";
@@ -137,8 +139,12 @@ export interface VitisWorkspaceResult {
     vitis_version: string;
     vitis_version_source: string;
     xsa_path: string;
+    source_xsa_path?: string;
     workspace_path: string;
     source_path: string;
+    platform_name?: string;
+    system_name?: string;
+    domain_name?: string;
     app_name: string;
     processor: string;
     os: string;

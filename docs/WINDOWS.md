@@ -132,8 +132,12 @@ erişir; browser file picker yerine path'leri text olarak girmen bu yüzden yete
 Gereken bilgiler:
 
 - Vitis dizini: `C:\Xilinx\Vitis\2024.2` veya `C:\Xilinx`
-- XSA dosyası: Vivado/Vitis hardware export çıktısı, örnek `D:\Board\export\system.xsa`
+- XSA dosyası: Vivado/Vitis hardware export çıktısının doğrudan `.xsa` dosya yolu,
+  örnek `D:\Board\export\system.xsa`
 - Workspace dizini: örnek `D:\VitisWorkspaces\spec2code`
+- Platform proje adı: örnek `my_io_board_platform`
+- System proje adı: örnek `my_io_board_system`
+- Application proje adı: örnek `my_io_board_app`
 - Processor: çoğu durumda otomatik gelir; gerekirse Vitis'teki gerçek instance adıyla
   değiştir, örnek `psu_cortexa53_0`
 
@@ -153,8 +157,8 @@ Akış aşamaları UI'da progress bar ile görünür:
 
 1. XSCT path'i bulunur.
 2. `xsct -version` ile Vitis/XSCT sürümü algılanır.
-3. Generated `drivers/`, `tests/`, referans kaynaklar ve `spec2code_selftest_main.c/.h`
-   staging klasörüne kopyalanır.
+3. `.xsa` dosyası, generated `drivers/`, `tests/`, referans kaynaklar ve
+   `spec2code_selftest_main.c/.h` staging klasörüne kopyalanır.
 4. XSA içindeki non-Xilinx/AMD custom PL IP adayları `.hwh` üzerinden algılanır.
 5. Varsayılan custom PL IP policy `auto_none` olduğu için bu aday IP'lerin BSP
    driver'ı `none` yapılmaya çalışılır; gerçek şirket driver'ı kullanılacaksa
@@ -162,7 +166,8 @@ Akış aşamaları UI'da progress bar ile görünür:
 6. lwIP test bench gerekiyorsa BSP library seçimi yapılır; standalone için
    `RAW_API`, FreeRTOS için `SOCKET_API` mode denenir.
 7. `spec2code_create_workspace.tcl` yazılır.
-8. XSCT headless çalıştırılır.
+8. XSCT headless çalıştırılır; önce adlandırılmış platform/system/application
+   akışı denenir, uyumsuz Vitis varyantında legacy `app create -hw` akışına dönülür.
 9. `app build` başarılıysa workspace hazır olarak işaretlenir.
 
 Workspace altında oluşturulan yardımcı dosyalar:

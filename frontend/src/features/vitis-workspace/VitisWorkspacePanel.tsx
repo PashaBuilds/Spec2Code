@@ -38,6 +38,14 @@ function runtimeForVitis(runtime: string) {
   return runtime === "freertos" ? "freertos10_xilinx" : "standalone";
 }
 
+function safeProjectName(value: string, fallback: string) {
+  return value.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || fallback;
+}
+
+function cleanPathInput(value: string) {
+  return value.trim().replace(/^["']|["']$/g, "");
+}
+
 function customIpDriverPolicyFromStorage(): CustomIpDriverPolicy {
   return localStorage.getItem("spec2code.customIpDriverPolicy") === "keep" ? "keep" : "auto_none";
 }
@@ -191,6 +199,7 @@ function CompileIssuesPanel({ issues }: { issues: VitisCompileIssue[] }) {
 
 export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const project = useStore((s) => s.project);
+  const defaultNameBase = useMemo(() => safeProjectName(project.name, "spec2code"), [project.name]);
   const defaultProcessor = useMemo(
     () => defaultVitisProcessor(project.platform, project.target_core),
     [project.platform, project.target_core],
@@ -199,7 +208,9 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const [xsaPath, setXsaPath] = useState(() => localStorage.getItem("spec2code.xsaPath") ?? "");
   const [workspacePath, setWorkspacePath] = useState(() => localStorage.getItem("spec2code.workspacePath") ?? "");
   const [processor, setProcessor] = useState(defaultProcessor);
-  const [appName, setAppName] = useState("");
+  const [platformName, setPlatformName] = useState(() => localStorage.getItem("spec2code.platformName") ?? "");
+  const [systemName, setSystemName] = useState(() => localStorage.getItem("spec2code.systemName") ?? "");
+  const [appName, setAppName] = useState(() => localStorage.getItem("spec2code.appName") ?? "");
   const [customIpDriverPolicy, setCustomIpDriverPolicy] = useState<CustomIpDriverPolicy>(customIpDriverPolicyFromStorage);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
@@ -211,6 +222,12 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   useEffect(() => {
     setProcessor((current) => current || defaultProcessor);
   }, [defaultProcessor]);
+
+  useEffect(() => {
+    setPlatformName((current) => current || `${defaultNameBase}_platform`);
+    setSystemName((current) => current || `${defaultNameBase}_system`);
+    setAppName((current) => current || `${defaultNameBase}_app`);
+  }, [defaultNameBase]);
 
   useEffect(() => () => closeSocketRef.current?.(), []);
 
@@ -226,25 +243,37 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   }
 
   async function start() {
-    if (!vitisPath.trim() || !xsaPath.trim() || !workspacePath.trim() || running) return;
+    const vitisInput = cleanPathInput(vitisPath);
+    const xsaInput = cleanPathInput(xsaPath);
+    const workspaceInput = cleanPathInput(workspacePath);
+    if (!vitisInput || !xsaInput || !workspaceInput || running) return;
+    if (!xsaInput.toLowerCase().endsWith(".xsa")) {
+      setError("XSA alanına klasör değil, doğrudan .xsa dosyasının tam yolu verilmelidir.");
+      return;
+    }
     closeSocketRef.current?.();
     setEvents([]);
     setResult(null);
     setCompileIssues([]);
     setError("");
     setRunning(true);
-    localStorage.setItem("spec2code.vitisPath", vitisPath.trim());
-    localStorage.setItem("spec2code.xsaPath", xsaPath.trim());
-    localStorage.setItem("spec2code.workspacePath", workspacePath.trim());
+    localStorage.setItem("spec2code.vitisPath", vitisInput);
+    localStorage.setItem("spec2code.xsaPath", xsaInput);
+    localStorage.setItem("spec2code.workspacePath", workspaceInput);
+    localStorage.setItem("spec2code.platformName", platformName.trim());
+    localStorage.setItem("spec2code.systemName", systemName.trim());
+    localStorage.setItem("spec2code.appName", appName.trim());
     localStorage.setItem("spec2code.customIpDriverPolicy", customIpDriverPolicy);
 
     try {
       const response = await api.createVitisWorkspace(jobId, {
-        vitis_path: vitisPath.trim(),
-        xsa_path: xsaPath.trim(),
-        workspace_path: workspacePath.trim(),
+        vitis_path: vitisInput,
+        xsa_path: xsaInput,
+        workspace_path: workspaceInput,
         processor: processor.trim() || defaultProcessor,
         runtime: runtimeForVitis(project.runtime),
+        platform_name: platformName.trim(),
+        system_name: systemName.trim(),
         app_name: appName.trim(),
         timeout_s: 1800,
         custom_ip_driver_policy: customIpDriverPolicy,
@@ -275,7 +304,16 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     }
   }
 
-  const canStart = Boolean(vitisPath.trim() && xsaPath.trim() && workspacePath.trim()) && !running;
+  const xsaLooksLikeFile = cleanPathInput(xsaPath).toLowerCase().endsWith(".xsa");
+  const canStart = Boolean(
+    cleanPathInput(vitisPath) &&
+    cleanPathInput(xsaPath) &&
+    xsaLooksLikeFile &&
+    cleanPathInput(workspacePath) &&
+    platformName.trim() &&
+    systemName.trim() &&
+    appName.trim(),
+  ) && !running;
   const workspaceReady = result?.successful === true && !error;
   const workspaceFailed = Boolean(result && (error || result.successful === false));
 
@@ -294,6 +332,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <Badge tone="neutral">{runtimeForVitis(project.runtime)}</Badge>
           <Badge tone="neutral">{processor || defaultProcessor}</Badge>
+          <Badge tone="neutral">{platformName || `${defaultNameBase}_platform`}</Badge>
           {result ? <Badge tone={workspaceFailed ? "warn" : "ok"}>Vitis {result.vitis_version}</Badge> : null}
           {result?.requires_lwip ? <Badge tone="accent">lwIP {result.lwip_api_mode || "gerekli"}</Badge> : null}
           {result?.custom_ip_driver_policy === "keep" ? <Badge tone="neutral">custom IP keep</Badge> : null}
@@ -301,7 +340,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3">
         <div>
           <Label htmlFor="vitis-path">Vitis dizini</Label>
           <Input
@@ -319,6 +358,11 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             onChange={(event) => setXsaPath(event.target.value)}
             placeholder="D:\\Projects\\board\\export\\board.xsa"
           />
+          {xsaPath.trim() && !xsaLooksLikeFile ? (
+            <p className="mt-1 text-[11px] text-danger">Klasör değil, doğrudan `.xsa` dosyasının tam yolunu gir.</p>
+          ) : (
+            <p className="mt-1 text-[11px] text-faint">Dosya staging içine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
+          )}
         </div>
         <div>
           <Label htmlFor="workspace-path">Workspace dizini</Label>
@@ -331,7 +375,37 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(240px,0.8fr)_auto]">
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        <div>
+          <Label htmlFor="vitis-platform-name">Platform proje adı</Label>
+          <Input
+            id="vitis-platform-name"
+            value={platformName}
+            onChange={(event) => setPlatformName(event.target.value)}
+            placeholder={`${defaultNameBase}_platform`}
+          />
+        </div>
+        <div>
+          <Label htmlFor="vitis-system-name">System proje adı</Label>
+          <Input
+            id="vitis-system-name"
+            value={systemName}
+            onChange={(event) => setSystemName(event.target.value)}
+            placeholder={`${defaultNameBase}_system`}
+          />
+        </div>
+        <div>
+          <Label htmlFor="vitis-app-name">Application proje adı</Label>
+          <Input
+            id="vitis-app-name"
+            value={appName}
+            onChange={(event) => setAppName(event.target.value)}
+            placeholder={`${defaultNameBase}_app`}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(240px,0.8fr)_auto]">
         <div>
           <Label htmlFor="vitis-processor">Processor</Label>
           <Input
@@ -339,15 +413,6 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             value={processor}
             onChange={(event) => setProcessor(event.target.value)}
             placeholder={defaultProcessor}
-          />
-        </div>
-        <div>
-          <Label htmlFor="vitis-app-name">Application adı</Label>
-          <Input
-            id="vitis-app-name"
-            value={appName}
-            onChange={(event) => setAppName(event.target.value)}
-            placeholder={`${project.name}_app`}
           />
         </div>
         <div>
@@ -441,8 +506,14 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             <div className="mt-1 break-all font-mono text-text">{result.workspace_path}</div>
           </div>
           <div>
-            <span className="font-semibold text-ok">Application</span>
+            <span className="font-semibold text-ok">Projeler</span>
             <div className="mt-1 flex flex-wrap items-center gap-2">
+              {result.platform_name ? (
+                <code className="rounded border border-ok/30 bg-bg px-1 py-0.5 font-mono text-text">{result.platform_name}</code>
+              ) : null}
+              {result.system_name ? (
+                <code className="rounded border border-ok/30 bg-bg px-1 py-0.5 font-mono text-text">{result.system_name}</code>
+              ) : null}
               <code className="rounded border border-ok/30 bg-bg px-1 py-0.5 font-mono text-text">{result.app_name}</code>
               <code className="rounded border border-ok/30 bg-bg px-1 py-0.5 font-mono text-text">{result.processor}</code>
             </div>

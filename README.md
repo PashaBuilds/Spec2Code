@@ -298,14 +298,19 @@ Headless script akışı:
 
 ```text
 setws
-app create -hw <board.xsa> -proc <processor> -os <standalone|freertos10_xilinx>
+platform create -name <platform> -hw <staged-board.xsa>
+domain create -name <application-domain> -proc <processor> -os <standalone|freertos10_xilinx>
+app create -name <application> -platform <platform> -domain <domain> -sysproj <system>
 importsources
 app build
 ```
 
-Bu akış GUI açmadan çalışır ve air-gap Windows ortamına uygundur. Vitis komut
-uyumluluğu kullanılan AMD Vitis/XSCT sürümüne bağlıdır; hata olursa paneldeki
-progress akışı ve staging altındaki log dosyaları hangi adımda durduğunu gösterir.
+Bu akış GUI açmadan çalışır ve air-gap Windows ortamına uygundur. `.xsa` dosyası
+önce staging içine kopyalanır; XSCT script'i bu kopyayı kullanır. Vitis komut
+uyumluluğu kullanılan AMD Vitis/XSCT sürümüne bağlıdır; named platform/system
+akışı desteklenmezse legacy `app create -hw` fallback'i denenir. Hata olursa
+paneldeki progress akışı ve staging altındaki log dosyaları hangi adımda
+durduğunu gösterir.
 
 Detaylı Windows setup ve air-gap akışı için:
 

@@ -78,6 +78,8 @@ class VitisWorkspaceRequest(BaseModel):
     workspace_path: str
     processor: str = ""
     runtime: str = ""
+    platform_name: str = ""
+    system_name: str = ""
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
@@ -680,6 +682,8 @@ async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dic
                 workspace_path=req.workspace_path,
                 processor=processor,
                 runtime=vitis_os(runtime),
+                platform_name=req.platform_name,
+                system_name=req.system_name,
                 app_name=req.app_name,
                 timeout_s=req.timeout_s,
                 custom_ip_driver_policy=req.custom_ip_driver_policy,

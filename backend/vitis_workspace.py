@@ -41,6 +41,8 @@ class VitisWorkspaceConfig:
     workspace_path: str
     processor: str = ""
     runtime: str = "standalone"
+    platform_name: str = ""
+    system_name: str = ""
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
@@ -479,6 +481,9 @@ def render_xsct_script(
     workspace_path: Path,
     xsa_path: Path,
     source_root: Path,
+    platform_name: str,
+    system_name: str,
+    domain_name: str,
     app_name: str,
     processor: str,
     os_name: str,
@@ -491,12 +496,84 @@ def render_xsct_script(
     custom_ip_driver_policy = normalize_custom_ip_driver_policy(custom_ip_driver_policy)
     custom_ip_instances = custom_ip_instances or []
     custom_ip_list = _tcl_list(custom_ip_instances)
+    bsp_config_script = (
+        "proc spec2codeConfigureBsp {} {\n"
+        "    global spec2code_enable_lwip spec2code_lwip_api_mode spec2code_custom_ip_driver_policy spec2code_custom_ip_instances\n"
+        "    if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
+        f"        {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
+        "        set spec2code_custom_ip_driver_changed 0\n"
+        "        foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
+        "            set spec2code_custom_ip_ok 0\n"
+        "            foreach spec2code_none_driver {none None NONE} {\n"
+        "                if {$spec2code_custom_ip_ok == 0} {\n"
+        "                    if {[catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver} spec2code_custom_ip_err]} {\n"
+        f"                        {_tcl_put('custom IP $spec2code_custom_ip driver=$spec2code_none_driver not selected: $spec2code_custom_ip_err')}"
+        "                    } else {\n"
+        "                        set spec2code_custom_ip_ok 1\n"
+        "                        set spec2code_custom_ip_driver_changed 1\n"
+        f"                        {_tcl_put('custom IP $spec2code_custom_ip driver set to $spec2code_none_driver')}"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "            if {$spec2code_custom_ip_ok == 0} {\n"
+        f"                {_tcl_put('WARNING: custom IP $spec2code_custom_ip driver could not be set to none automatically; check BSP settings if build fails inside this IP driver.')}"
+        "            }\n"
+        "        }\n"
+        "        if {$spec2code_custom_ip_driver_changed == 1} {\n"
+        "            if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]} {\n"
+        f"                {_tcl_put('WARNING: BSP regenerate failed after custom IP driver policy: $spec2code_custom_ip_regen_err')}"
+        "            }\n"
+        "        }\n"
+        "    } elseif {$spec2code_custom_ip_driver_policy eq \"keep\"} {\n"
+        f"        {_tcl_put('custom PL IP driver policy keeps BSP defaults')}"
+        "    }\n\n"
+        "    if {$spec2code_enable_lwip == 1} {\n"
+        f"        {_tcl_put('lwIP target test bench detected; enabling BSP lwIP library')}"
+        "        set spec2code_lwip_ok 0\n"
+        "        foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202} {\n"
+        "            if {$spec2code_lwip_ok == 0} {\n"
+        "                if {[catch {bsp setlib -name $spec2code_lwip_lib} spec2code_lwip_err]} {\n"
+        f"                    {_tcl_put('lwIP library $spec2code_lwip_lib not selected: $spec2code_lwip_err')}"
+        "                } else {\n"
+        "                    set spec2code_lwip_ok 1\n"
+        f"                    {_tcl_put('lwIP library selected: $spec2code_lwip_lib')}"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if {$spec2code_lwip_ok == 1} {\n"
+        f"            {_tcl_put('configuring lwIP API mode: $spec2code_lwip_api_mode')}"
+        "            set spec2code_lwip_api_mode_ok 0\n"
+        "            foreach spec2code_lwip_api_name {api_mode API_MODE} {\n"
+        "                if {$spec2code_lwip_api_mode_ok == 0} {\n"
+        "                    if {[catch {bsp config $spec2code_lwip_api_name $spec2code_lwip_api_mode} spec2code_lwip_api_err]} {\n"
+        f"                        {_tcl_put('lwIP API mode $spec2code_lwip_api_name=$spec2code_lwip_api_mode not selected: $spec2code_lwip_api_err')}"
+        "                    } else {\n"
+        "                        set spec2code_lwip_api_mode_ok 1\n"
+        f"                        {_tcl_put('lwIP API mode selected: $spec2code_lwip_api_name=$spec2code_lwip_api_mode')}"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "            if {$spec2code_lwip_api_mode_ok == 0} {\n"
+        f"                {_tcl_put('WARNING: lwIP API mode could not be set automatically; check BSP api_mode manually before relying on this workspace.')}"
+        "            }\n"
+        "            if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
+        f"                {_tcl_put('WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err')}"
+        "            }\n"
+        "        } else {\n"
+        f"            {_tcl_put('WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.')}"
+        "        }\n"
+        "    }\n"
+        "}\n\n"
+    )
     return (
         "# Spec2Code generated Vitis workspace script.\n"
         "# This script is intentionally plain XSCT so it works in air-gapped Windows hosts.\n"
         f"set workspace_path {_tcl_path(workspace_path)}\n"
         f"set xsa_path {_tcl_path(xsa_path)}\n"
         f"set source_path {_tcl_path(source_root)}\n"
+        f"set platform_name {{{platform_name}}}\n"
+        f"set system_name {{{system_name}}}\n"
+        f"set domain_name {{{domain_name}}}\n"
         f"set app_name {{{app_name}}}\n"
         f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
@@ -504,79 +581,36 @@ def render_xsct_script(
         f"set spec2code_lwip_api_mode {{{lwip_api_mode}}}\n\n"
         f"set spec2code_custom_ip_driver_policy {{{custom_ip_driver_policy}}}\n"
         f"set spec2code_custom_ip_instances [list {custom_ip_list}]\n\n"
+        f"{bsp_config_script}"
         f"{_tcl_put('workspace: $workspace_path')}"
         f"{_tcl_put('xsa: $xsa_path')}"
         f"{_tcl_put('source: $source_path')}"
+        f"{_tcl_put('platform: $platform_name')}"
+        f"{_tcl_put('system: $system_name')}"
+        f"{_tcl_put('application: $app_name')}"
         "setws $workspace_path\n\n"
-        f"{_tcl_put('creating platform/application from XSA')}"
-        "if {[catch {app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application(C)}} app_err]} {\n"
-        f"    {_tcl_put('Empty Application(C) template failed: $app_err')}"
-        f"    {_tcl_put('retrying with Empty Application template')}"
-        "    app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application}\n"
-        "}\n\n"
-        "if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
-        f"    {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
-        "    set spec2code_custom_ip_driver_changed 0\n"
-        "    foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
-        "        set spec2code_custom_ip_ok 0\n"
-        "        foreach spec2code_none_driver {none None NONE} {\n"
-        "            if {$spec2code_custom_ip_ok == 0} {\n"
-        "                if {[catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver} spec2code_custom_ip_err]} {\n"
-        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver=$spec2code_none_driver not selected: $spec2code_custom_ip_err')}"
-        "                } else {\n"
-        "                    set spec2code_custom_ip_ok 1\n"
-        "                    set spec2code_custom_ip_driver_changed 1\n"
-        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver set to $spec2code_none_driver')}"
-        "                }\n"
-        "            }\n"
-        "        }\n"
-        "        if {$spec2code_custom_ip_ok == 0} {\n"
-        f"            {_tcl_put('WARNING: custom IP $spec2code_custom_ip driver could not be set to none automatically; check BSP settings if build fails inside this IP driver.')}"
-        "        }\n"
+        f"{_tcl_put('creating named platform/system/application from XSA')}"
+        "if {[catch {\n"
+        "    platform create -name $platform_name -hw $xsa_path\n"
+        "    platform active $platform_name\n"
+        "    domain create -name $domain_name -proc $processor -os $os_name\n"
+        "    domain active $domain_name\n"
+        "    if {[catch {app create -name $app_name -platform $platform_name -domain $domain_name -sysproj $system_name -lang C -template {Empty Application(C)}} app_err]} {\n"
+        f"        {_tcl_put('Empty Application(C) template failed: $app_err')}"
+        f"        {_tcl_put('retrying with Empty Application template')}"
+        "        app create -name $app_name -platform $platform_name -domain $domain_name -sysproj $system_name -lang C -template {Empty Application}\n"
         "    }\n"
-        "    if {$spec2code_custom_ip_driver_changed == 1} {\n"
-        "        if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]} {\n"
-        f"            {_tcl_put('WARNING: BSP regenerate failed after custom IP driver policy: $spec2code_custom_ip_regen_err')}"
-        "        }\n"
+        "    domain active $domain_name\n"
+        "    spec2codeConfigureBsp\n"
+        "} spec2code_create_err]} {\n"
+        f"    {_tcl_put('named platform/system flow failed: $spec2code_create_err')}"
+        f"    {_tcl_put('retrying with legacy app create flow')}"
+        "    if {[catch {app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application(C)}} app_err]} {\n"
+        f"        {_tcl_put('Empty Application(C) template failed: $app_err')}"
+        f"        {_tcl_put('retrying with Empty Application template')}"
+        "        app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application}\n"
         "    }\n"
-        "} elseif {$spec2code_custom_ip_driver_policy eq \"keep\"} {\n"
-        f"    {_tcl_put('custom PL IP driver policy keeps BSP defaults')}"
-        "}\n\n"
-        "if {$spec2code_enable_lwip == 1} {\n"
-        f"    {_tcl_put('lwIP target test bench detected; enabling BSP lwIP library')}"
-        "    set spec2code_lwip_ok 0\n"
-        "    foreach spec2code_lwip_lib {lwip220 lwip213 lwip211 lwip202} {\n"
-        "        if {$spec2code_lwip_ok == 0} {\n"
-        "            if {[catch {bsp setlib -name $spec2code_lwip_lib} spec2code_lwip_err]} {\n"
-        f"                {_tcl_put('lwIP library $spec2code_lwip_lib not selected: $spec2code_lwip_err')}"
-        "            } else {\n"
-        "                set spec2code_lwip_ok 1\n"
-        f"                {_tcl_put('lwIP library selected: $spec2code_lwip_lib')}"
-        "            }\n"
-        "        }\n"
-        "    }\n"
-        "    if {$spec2code_lwip_ok == 1} {\n"
-        f"        {_tcl_put('configuring lwIP API mode: $spec2code_lwip_api_mode')}"
-        "        set spec2code_lwip_api_mode_ok 0\n"
-        "        foreach spec2code_lwip_api_name {api_mode API_MODE} {\n"
-        "            if {$spec2code_lwip_api_mode_ok == 0} {\n"
-        "                if {[catch {bsp config $spec2code_lwip_api_name $spec2code_lwip_api_mode} spec2code_lwip_api_err]} {\n"
-        f"                    {_tcl_put('lwIP API mode $spec2code_lwip_api_name=$spec2code_lwip_api_mode not selected: $spec2code_lwip_api_err')}"
-        "                } else {\n"
-        "                    set spec2code_lwip_api_mode_ok 1\n"
-        f"                    {_tcl_put('lwIP API mode selected: $spec2code_lwip_api_name=$spec2code_lwip_api_mode')}"
-        "                }\n"
-        "            }\n"
-        "        }\n"
-        "        if {$spec2code_lwip_api_mode_ok == 0} {\n"
-        f"            {_tcl_put('WARNING: lwIP API mode could not be set automatically; check BSP api_mode manually before relying on this workspace.')}"
-        "        }\n"
-        "        if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
-        f"            {_tcl_put('WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err')}"
-        "        }\n"
-        "    } else {\n"
-        f"        {_tcl_put('WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.')}"
-        "    }\n"
+        "    spec2codeConfigureBsp\n"
         "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
@@ -650,7 +684,11 @@ class VitisWorkspaceJobManager:
             str(project.get("target_core", "")),
         )
         os_name = vitis_os(config.runtime or str(project.get("runtime", "")))
-        app_name = _safe_identifier(config.app_name or f"{job.source_project}_app_{job.id}", f"spec2code_app_{job.id}")
+        name_base = _safe_identifier(job.source_project, "spec2code")
+        platform_name = _safe_identifier(config.platform_name or f"{name_base}_platform", f"spec2code_platform_{job.id}")
+        system_name = _safe_identifier(config.system_name or f"{name_base}_system", f"spec2code_system_{job.id}")
+        app_name = _safe_identifier(config.app_name or f"{name_base}_app", f"spec2code_app_{job.id}")
+        domain_name = _safe_identifier(f"{app_name}_domain", f"spec2code_domain_{job.id}")
 
         job.emit({"event": "vitis.locate", "stage": "locate", "progress": 14, "message": "XSCT aranıyor."})
         xsct = detect_xsct(config.vitis_path)
@@ -664,11 +702,23 @@ class VitisWorkspaceJobManager:
             "version_source": xsct.version_source,
         })
 
-        xsa_path = _clean_user_path(config.xsa_path)
-        if not xsa_path.is_file() or xsa_path.suffix.lower() != ".xsa":
-            raise FileNotFoundError(f"XSA file not found or invalid: {xsa_path}")
+        input_xsa_path = _clean_user_path(config.xsa_path)
+        if not input_xsa_path.is_file() or input_xsa_path.suffix.lower() != ".xsa":
+            raise FileNotFoundError(f"XSA file not found or invalid: {input_xsa_path}")
+
+        workspace_path = _clean_user_path(config.workspace_path)
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        staging_root = workspace_path / "_spec2code_staging" / job.id
+        source_root = staging_root / "src"
+        hw_root = staging_root / "hw"
+        log_dir = staging_root / "logs"
+        hw_root.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        staged_xsa_path = hw_root / input_xsa_path.name
+        shutil.copy2(input_xsa_path, staged_xsa_path)
+
         custom_ip_driver_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
-        custom_pl_ips = discover_custom_pl_ips(xsa_path) if custom_ip_driver_policy == "auto_none" else []
+        custom_pl_ips = discover_custom_pl_ips(staged_xsa_path) if custom_ip_driver_policy == "auto_none" else []
         if custom_ip_driver_policy == "auto_none" and custom_pl_ips:
             job.emit({
                 "event": "vitis.custom_ip_policy",
@@ -685,18 +735,11 @@ class VitisWorkspaceJobManager:
                 "message": "Custom PL IP driver policy BSP default değerlerini koruyacak.",
             })
 
-        workspace_path = _clean_user_path(config.workspace_path)
-        workspace_path.mkdir(parents=True, exist_ok=True)
-        staging_root = workspace_path / "_spec2code_staging" / job.id
-        source_root = staging_root / "src"
-        log_dir = staging_root / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
         job.emit({
             "event": "vitis.stage_sources",
             "stage": "stage_sources",
             "progress": 40,
-            "message": "Generated C/H kaynakları Vitis staging klasörüne kopyalanıyor.",
+            "message": "XSA kopyası ve generated C/H kaynakları Vitis staging klasörüne hazırlanıyor.",
         })
         staged_files = stage_vitis_sources(job.generate_job, source_root)
         requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
@@ -713,9 +756,13 @@ class VitisWorkspaceJobManager:
             "xsct_path": str(xsct.path),
             "vitis_version": xsct.version,
             "vitis_version_source": xsct.version_source,
-            "xsa_path": str(xsa_path),
+            "xsa_path": str(staged_xsa_path),
+            "source_xsa_path": str(input_xsa_path),
             "workspace_path": str(workspace_path),
             "source_path": str(source_root),
+            "platform_name": platform_name,
+            "system_name": system_name,
+            "domain_name": domain_name,
             "app_name": app_name,
             "processor": processor,
             "os": os_name,
@@ -737,8 +784,11 @@ class VitisWorkspaceJobManager:
         script_path.write_text(
             render_xsct_script(
                 workspace_path=workspace_path,
-                xsa_path=xsa_path,
+                xsa_path=staged_xsa_path,
                 source_root=source_root,
+                platform_name=platform_name,
+                system_name=system_name,
+                domain_name=domain_name,
                 app_name=app_name,
                 processor=processor,
                 os_name=os_name,
@@ -809,6 +859,8 @@ class VitisWorkspaceJobManager:
             "progress": 100,
             "message": "Vitis workspace hazır.",
             "workspace_path": str(workspace_path),
+            "platform_name": platform_name,
+            "system_name": system_name,
             "app_name": app_name,
         })
 

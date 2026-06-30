@@ -94,6 +94,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="standalone",
@@ -102,7 +105,12 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("setws $workspace_path", script)
         self.assertIn('puts "\\[Spec2Code\\] workspace: $workspace_path"', script)
         self.assertNotIn('puts "[Spec2Code]', script)
-        self.assertIn("app create -name $app_name -hw $xsa_path -proc $processor -os $os_name", script)
+        self.assertIn("set platform_name {my_platform}", script)
+        self.assertIn("set system_name {my_system}", script)
+        self.assertIn("platform create -name $platform_name -hw $xsa_path", script)
+        self.assertIn("domain create -name $domain_name -proc $processor -os $os_name", script)
+        self.assertIn("app create -name $app_name -platform $platform_name -domain $domain_name -sysproj $system_name", script)
+        self.assertIn("retrying with legacy app create flow", script)
         self.assertIn("importsources -name $app_name -path $source_path", script)
         self.assertIn("app build -name $app_name", script)
 
@@ -111,6 +119,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="standalone",
@@ -129,6 +140,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="freertos10_xilinx",
@@ -168,6 +182,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="standalone",
@@ -185,6 +202,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="freertos10_xilinx",
@@ -207,6 +227,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             workspace_path=Path("/tmp/ws"),
             xsa_path=Path("/tmp/board.xsa"),
             source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
             app_name="my_app",
             processor="psu_cortexa53_0",
             os_name="standalone",
@@ -246,6 +269,9 @@ class VitisWorkspaceTests(unittest.TestCase):
                     workspace_path=str(workspace),
                     processor="psu_cortexa53_0",
                     runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
                     timeout_s=10,
                 )
                 manager = VitisWorkspaceJobManager()
@@ -263,6 +289,12 @@ class VitisWorkspaceTests(unittest.TestCase):
                 result = job.result or {}
                 self.assertEqual(result["vitis_version"], "2024.2")
                 self.assertTrue((workspace / "_spec2code_staging" / "vitis_unit" / "src" / "drivers").is_dir())
+                self.assertEqual(result["source_xsa_path"], str(xsa))
+                self.assertEqual(result["xsa_path"], str(workspace / "_spec2code_staging" / "vitis_unit" / "hw" / "board.xsa"))
+                self.assertTrue(Path(result["xsa_path"]).is_file())
+                self.assertEqual(result["platform_name"], "unit_platform")
+                self.assertEqual(result["system_name"], "unit_system")
+                self.assertEqual(result["app_name"], "unit_application")
                 self.assertTrue(Path(result["script_path"]).is_file())
                 self.assertTrue(Path(result["stdout_log"]).read_text(encoding="utf-8").startswith("fake xsct ran"))
                 self.assertTrue(result["successful"])

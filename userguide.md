@@ -310,21 +310,23 @@ Generate tamamlandiktan sonra **Vitis workspace** paneli gorunur.
 Girilmesi gereken bilgiler:
 
 - Vitis dizini: ornek `C:\Xilinx\Vitis\2024.2`
-- `.xsa` dosyasi: ornek `D:\Board\export\system.xsa`
+- `.xsa` dosyasi: klasor degil, dogrudan dosyanin tam yolu; ornek `D:\Board\export\system.xsa`
 - Workspace dizini: ornek `D:\VitisWorkspaces\spec2code`
+- Platform proje adi: ornek `my_io_board_platform`
+- System proje adi: ornek `my_io_board_system`
+- Application proje adi: ornek `my_io_board_app`
 - Processor: ornek `psu_cortexa53_0`
-- Application adi: bos birakilabilir
 
 Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 
 1. Vitis/XSCT surumunu algilar.
-2. Generated kaynaklari staging klasorune kopyalar.
+2. `.xsa` dosyasini ve generated kaynaklari staging klasorune kopyalar.
 3. XSA icindeki non-Xilinx/AMD custom PL IP adaylarini `.hwh` uzerinden algilar.
 4. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
 5. Custom PL IP driver policy `auto_none` ise aday IP'lerin BSP driver'ini `none`
    yapmayi dener.
 6. `spec2code_create_workspace.tcl` dosyasini yazar.
-7. XSCT ile headless application workspace olusturur.
+7. XSCT ile once adlandirilmis platform/system/application akisini dener.
 8. `app build` calistirir.
 
 Workspace altinda olusan yardimci klasor:
