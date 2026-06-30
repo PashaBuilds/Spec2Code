@@ -13,6 +13,8 @@ import type {
   ProjectSpec,
   TestbenchCommandRequest,
   TestbenchCommandResponse,
+  TestbenchSessionConnectRequest,
+  TestbenchSessionStatus,
   DriverMatch,
   SpecValidation,
   VitisCompileIssue,
@@ -121,6 +123,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  testbenchConnect: (payload: TestbenchSessionConnectRequest) =>
+    req<TestbenchSessionStatus>("/api/testbench/session/connect", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  testbenchDisconnect: (sessionId: string) =>
+    req<TestbenchSessionStatus>("/api/testbench/session/disconnect", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    }),
+
+  testbenchSessionStatus: (sessionId: string) =>
+    req<TestbenchSessionStatus>(`/api/testbench/session/${encodeURIComponent(sessionId)}`),
 
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,

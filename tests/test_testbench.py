@@ -5,7 +5,13 @@ import threading
 import unittest
 from pathlib import Path
 
-from backend.testbench import TestbenchCommand, format_command, parse_response, send_command
+from backend.testbench import (
+    TestbenchCommand as BenchCommand,
+    TestbenchSessionManager as SessionManager,
+    format_command,
+    parse_response,
+    send_command,
+)
 from backend.vitis_errors import map_vitis_errors
 from orchestrator import codegen
 
@@ -40,9 +46,26 @@ class OneShotHandler(socketserver.BaseRequestHandler):
         self.request.sendall(self.response)
 
 
+class PersistentHandler(socketserver.BaseRequestHandler):
+    requests: list[str] = []
+    responses = [
+        b"S2C|id=1|ok=1|status=0|value=0x11|message=first\n",
+        b"S2C|id=2|ok=1|status=0|value=0x22|message=second\n",
+    ]
+
+    def handle(self) -> None:
+        reader = self.request.makefile("rb")
+        for response in self.responses:
+            line = reader.readline()
+            if not line:
+                break
+            self.__class__.requests.append(line.decode("ascii", errors="replace").strip())
+            self.request.sendall(response)
+
+
 class TestbenchTests(unittest.TestCase):
     def test_command_formatter_and_response_parser(self) -> None:
-        line = format_command(TestbenchCommand(
+        line = format_command(BenchCommand(
             host="127.0.0.1",
             port=5000,
             device="u1_ltc2991",
@@ -63,7 +86,7 @@ class TestbenchTests(unittest.TestCase):
         with socketserver.TCPServer(("127.0.0.1", 0), OneShotHandler) as server:
             thread = threading.Thread(target=server.handle_request, daemon=True)
             thread.start()
-            result = send_command(TestbenchCommand(
+            result = send_command(BenchCommand(
                 host="127.0.0.1",
                 port=server.server_address[1],
                 device="u1_ltc2991",
@@ -74,6 +97,38 @@ class TestbenchTests(unittest.TestCase):
 
         self.assertEqual(result.parsed["ok"], "1")
         self.assertEqual(result.parsed["data"], "AABB")
+
+    def test_session_manager_reuses_one_tcp_connection(self) -> None:
+        PersistentHandler.requests = []
+        manager = SessionManager()
+        with socketserver.TCPServer(("127.0.0.1", 0), PersistentHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager.connect("unit_persistent", "127.0.0.1", server.server_address[1], 2)
+            try:
+                first = manager.send("unit_persistent", BenchCommand(
+                    host="127.0.0.1",
+                    port=server.server_address[1],
+                    device="u1_ltc2991",
+                    operation="status_read",
+                    command_id=1,
+                ))
+                second = manager.send("unit_persistent", BenchCommand(
+                    host="127.0.0.1",
+                    port=server.server_address[1],
+                    device="u1_ltc2991",
+                    operation="voltage_read",
+                    command_id=2,
+                ))
+            finally:
+                manager.disconnect("unit_persistent")
+                thread.join(timeout=2)
+
+        self.assertEqual(first.parsed["value"], "0x11")
+        self.assertEqual(second.parsed["value"], "0x22")
+        self.assertEqual(len(PersistentHandler.requests), 2)
+        self.assertIn("op=status_read", PersistentHandler.requests[0])
+        self.assertIn("op=voltage_read", PersistentHandler.requests[1])
 
     def test_codegen_filters_testbench_to_requested_operations(self) -> None:
         spec = load_sample_spec("unit_testbench_filter")

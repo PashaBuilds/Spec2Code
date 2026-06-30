@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
-from backend.testbench import TestbenchCommand, send_command
+from backend.testbench import TestbenchCommand, TestbenchSessionError, send_command, testbench_sessions
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
@@ -92,6 +92,7 @@ class TestbenchCommandRequest(BaseModel):
     device: str
     operation: str
     command_id: int = 1
+    session_id: str = ""
     register_name: str = Field("", alias="register")
     register_address: int | None = None
     address: int | None = None
@@ -99,6 +100,17 @@ class TestbenchCommandRequest(BaseModel):
     value: int | None = None
     data_hex: str = ""
     timeout_s: float = 5.0
+
+
+class TestbenchConnectRequest(BaseModel):
+    session_id: str
+    host: str
+    port: int
+    timeout_s: float = 5.0
+
+
+class TestbenchSessionRequest(BaseModel):
+    session_id: str
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -698,7 +710,7 @@ def vitis_compile_errors_map(req: VitisErrorMapRequest) -> dict:
 @router.post("/testbench/command")
 def testbench_command(req: TestbenchCommandRequest) -> dict:
     try:
-        result = send_command(TestbenchCommand(
+        command = TestbenchCommand(
             host=req.host,
             port=req.port,
             device=req.device,
@@ -711,7 +723,10 @@ def testbench_command(req: TestbenchCommandRequest) -> dict:
             value=req.value,
             data_hex=req.data_hex,
             timeout_s=req.timeout_s,
-        ))
+        )
+        result = testbench_sessions.send(req.session_id, command) if req.session_id else send_command(command)
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench tcp session is not connected", "error": str(exc)}) from exc
     except OSError as exc:
         raise HTTPException(502, {"message": "testbench tcp failed", "error": str(exc)}) from exc
     return {
@@ -719,6 +734,32 @@ def testbench_command(req: TestbenchCommandRequest) -> dict:
         "response_line": result.response_line,
         "parsed": result.parsed,
     }
+
+
+@router.post("/testbench/session/connect")
+def testbench_session_connect(req: TestbenchConnectRequest) -> dict:
+    try:
+        return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s).__dict__
+    except TestbenchSessionError as exc:
+        raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "testbench tcp connect failed", "error": str(exc)}) from exc
+
+
+@router.post("/testbench/session/disconnect")
+def testbench_session_disconnect(req: TestbenchSessionRequest) -> dict:
+    try:
+        return testbench_sessions.disconnect(req.session_id).__dict__
+    except TestbenchSessionError as exc:
+        raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+
+
+@router.get("/testbench/session/{session_id}")
+def testbench_session_status(session_id: str) -> dict:
+    try:
+        return testbench_sessions.status(session_id).__dict__
+    except TestbenchSessionError as exc:
+        raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
 
 
 @router.get("/jobs/{job_id}/files/{file_path:path}")

@@ -239,10 +239,10 @@ tests/<project>_testbench_ops.c/.h
 ```
 
 Bu agent dosyalari kart tarafinda `spec2codeTestbenchDispatchLine()` fonksiyonunu
-sunar. Windows UI dogrudan donanima baglanmaz; TCP uzerinden karta bir satir
-komut gonderir. Kart tarafindaki kendi TCP server kodun bu satiri alip
-`spec2codeTestbenchDispatchLine()` fonksiyonuna vermeli ve olusan response satirini
-geri dondurmelidir.
+sunar. Windows UI dogrudan donanim bus'ina dokunmaz; TCP uzerinden karta baglanir
+ve komut satirlarini bu baglanti uzerinden gonderir. Kart tarafindaki TCP server
+kodu gelen her satiri `spec2codeTestbenchDispatchLine()` fonksiyonuna vermeli ve
+olusan response satirini ayni TCP baglantisi uzerinden geri dondurmelidir.
 
 Platform `zynq_ultrascale` ise ve `xparameters.h` icinden PS Ethernet controller'i
 (`XEmacPs`) yakalandiysa Spec2Code ek olarak hazir lwIP TCP agent uretir:
@@ -278,11 +278,15 @@ S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=
 Test Bench sayfasinda:
 
 - Host, port ve timeout girilir.
+- **Baglan** ile kart tarafindaki TCP agent'a tek session acilir.
 - Generate edilmis manifest icindeki entegre secilir.
 - Entegre icin gercekten uretilmis operasyonlar listelenir.
 - Register read/write icin register adi veya manuel register address verilebilir.
 - Flash/EEPROM gibi adresli islemlerde address, length ve data hex alanlari kullanilir.
 - Riskli islemler (`init`, `write`, `program`, `erase`) gonderilmeden once onay ister.
+- **Gonder** ile komutlar mevcut TCP session uzerinden gider; her komutta yeni
+  baglanti acilmaz.
+- Baglanti koparsa UI bunu hata olarak gosterir ve tekrar **Baglan** gerekir.
 - Response icindeki `ok`, `status`, `value`, `data` ve `message` alanlari okunabilir sekilde gosterilir.
 
 LTC2991 icin test bench uzerinden tipik faydali operasyonlar:
@@ -472,7 +476,8 @@ deterministik descriptor/codegen destegi yoktur.
 - Kart tarafinda TCP server'in calistigindan emin ol.
 - Host/port alanlari Windows makineden ulasilabilir olmalidir.
 - Firewall veya air-gap ag kurallarini kontrol et.
-- Kart server'i gelen satiri `spec2codeTestbenchDispatchLine()` fonksiyonuna iletmeli ve response satirini geri yazmalidir.
+- Kart server'i gelen satirlari `spec2codeTestbenchDispatchLine()` fonksiyonuna iletmeli ve response satirlarini ayni TCP baglantisindan geri yazmalidir.
+- UI once **Baglan** demeden **Gonder** komutunu aktif etmez; baglanti durumu kopuksa yeniden baglan.
 
 ## 18. Release Dosyalari
 

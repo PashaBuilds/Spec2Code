@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Send, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Link2, Loader2, PlugZap, Send, ShieldCheck, Unplug, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,10 @@ import type {
   TestbenchManifestDevice,
   TestbenchOperation,
   TestbenchRegister,
+  TestbenchSessionStatus,
 } from "@/lib/types";
+
+type ConnectionState = "disconnected" | "connecting" | "connected" | "disconnecting";
 
 function generatedPath(file: GeneratedFile): string {
   if (file.relative_path) return file.relative_path;
@@ -69,6 +72,14 @@ function cleanHexData(value: string): string {
 
 function byteGroups(data: string): string[] {
   return cleanHexData(data).match(/.{1,2}/g) ?? [];
+}
+
+function makeSessionId(): string {
+  const globalCrypto = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return `tb_${globalCrypto.randomUUID()}`;
+  }
+  return `tb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
 function needsRegister(op: TestbenchOperation): boolean {
@@ -182,6 +193,9 @@ export default function TestBenchPanel() {
   const [host, setHost] = useState(() => localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1");
   const [port, setPort] = useState(() => localStorage.getItem("spec2code.testbench.port") ?? "5000");
   const [timeout, setTimeoutValue] = useState(() => localStorage.getItem("spec2code.testbench.timeout") ?? "5");
+  const [sessionId] = useState(makeSessionId);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
+  const [sessionStatus, setSessionStatus] = useState<TestbenchSessionStatus | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [selectedOperationName, setSelectedOperationName] = useState("");
   const [registerName, setRegisterName] = useState("");
@@ -203,6 +217,11 @@ export default function TestBenchPanel() {
     () => selectedDevice?.operations.find((op) => op.name === selectedOperationName) ?? selectedDevice?.operations[0] ?? null,
     [selectedDevice, selectedOperationName],
   );
+  const isConnected = connectionState === "connected" && Boolean(sessionStatus?.connected);
+  const connectionBusy = connectionState === "connecting" || connectionState === "disconnecting";
+  const connectionLocked = isConnected || connectionBusy;
+  const connectionTone = isConnected ? "ok" : connectionBusy ? "warn" : "neutral";
+  const connectionLabel = isConnected ? "bağlı" : connectionState === "connecting" ? "bağlanıyor" : connectionState === "disconnecting" ? "kesiliyor" : "kopuk";
 
   useEffect(() => {
     setCachedManifest(loadCachedManifest(projectName));
@@ -231,11 +250,69 @@ export default function TestBenchPanel() {
     );
   }, [selectedDevice]);
 
+  useEffect(() => {
+    return () => {
+      void api.testbenchDisconnect(sessionId).catch(() => undefined);
+    };
+  }, [sessionId]);
+
+  async function connect() {
+    if (connectionBusy || isConnected) return;
+    const parsedPort = parseNumber(port);
+    const parsedTimeout = parseNumber(timeout) ?? 5;
+    if (!host.trim() || parsedPort == null || parsedPort <= 0) {
+      setError("Host veya port geçerli değil.");
+      return;
+    }
+
+    localStorage.setItem("spec2code.testbench.host", host.trim());
+    localStorage.setItem("spec2code.testbench.port", port.trim());
+    localStorage.setItem("spec2code.testbench.timeout", timeout.trim());
+
+    setConnectionState("connecting");
+    setError("");
+    try {
+      const status = await api.testbenchConnect({
+        session_id: sessionId,
+        host: host.trim(),
+        port: parsedPort,
+        timeout_s: parsedTimeout,
+      });
+      setSessionStatus(status);
+      setConnectionState(status.connected ? "connected" : "disconnected");
+      if (!status.connected) {
+        setError(status.last_error || "TCP bağlantısı kurulamadı.");
+      }
+    } catch (err) {
+      setSessionStatus(null);
+      setConnectionState("disconnected");
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function disconnect() {
+    if (connectionState === "disconnected" || connectionState === "connecting") return;
+    setConnectionState("disconnecting");
+    setError("");
+    try {
+      const status = await api.testbenchDisconnect(sessionId);
+      setSessionStatus(status);
+    } catch (err) {
+      setSessionStatus((current) => current ? { ...current, connected: false, last_error: err instanceof Error ? err.message : String(err) } : current);
+    } finally {
+      setConnectionState("disconnected");
+    }
+  }
+
   async function send() {
     if (!selectedDevice || !selectedOperation || running) return;
     const parsedPort = parseNumber(port);
     if (!host.trim() || parsedPort == null || parsedPort <= 0) {
       setError("Host veya port geçerli değil.");
+      return;
+    }
+    if (!isConnected) {
+      setError("Önce kart ile TCP bağlantısı kur.");
       return;
     }
     if (selectedOperation.risk === "risky") {
@@ -261,6 +338,7 @@ export default function TestBenchPanel() {
         device: selectedDevice.id,
         operation: selectedOperation.name,
         command_id: nextCommandId,
+        session_id: sessionId,
         register: register?.name ?? registerName,
         register_address: register?.offset ?? manualRegister,
         address: needsAddress(selectedOperation) ? parseNumber(address) : null,
@@ -271,7 +349,10 @@ export default function TestBenchPanel() {
       });
       setResult(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setSessionStatus((current) => current ? { ...current, connected: false, last_error: message } : current);
+      setConnectionState("disconnected");
     } finally {
       setRunning(false);
     }
@@ -324,16 +405,42 @@ export default function TestBenchPanel() {
           <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
             <div>
               <Label>Host</Label>
-              <Input value={host} onChange={(event) => setHost(event.target.value)} />
+              <Input value={host} onChange={(event) => setHost(event.target.value)} disabled={connectionLocked} />
             </div>
             <div>
               <Label>Port</Label>
-              <Input value={port} onChange={(event) => setPort(event.target.value)} />
+              <Input value={port} onChange={(event) => setPort(event.target.value)} disabled={connectionLocked} />
             </div>
           </div>
           <div>
             <Label>Timeout sn</Label>
-            <Input value={timeout} onChange={(event) => setTimeoutValue(event.target.value)} />
+            <Input value={timeout} onChange={(event) => setTimeoutValue(event.target.value)} disabled={connectionLocked} />
+          </div>
+
+          <div className={cn(
+            "rounded-md border px-3 py-2",
+            isConnected ? "border-ok/30 bg-ok/10" : connectionBusy ? "border-warn/30 bg-warn/10" : "border-border bg-inset",
+          )}>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <Badge tone={connectionTone}>{connectionLabel}</Badge>
+              <span className="font-mono text-[10px] text-faint">{sessionId.slice(0, 11)}</span>
+            </div>
+            <p className="mb-3 text-xs leading-relaxed text-muted">
+              Komutlar tek TCP session üzerinden satır satır gönderilir; bağlantı koparsa tekrar Bağlan gerekir.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={connect} disabled={connectionBusy || isConnected}>
+                {connectionState === "connecting" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
+                Bağlan
+              </Button>
+              <Button size="sm" variant="outline" onClick={disconnect} disabled={connectionState !== "connected"}>
+                {connectionState === "disconnecting" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Unplug className="h-4 w-4" aria-hidden />}
+                Kes
+              </Button>
+            </div>
+            {sessionStatus?.last_error ? (
+              <p className="mt-2 break-all text-[11px] text-danger">{sessionStatus.last_error}</p>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
@@ -481,7 +588,7 @@ export default function TestBenchPanel() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={send} disabled={running}>
+                  <Button onClick={send} disabled={running || !isConnected}>
                     {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
                     Gönder
                   </Button>

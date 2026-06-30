@@ -40,7 +40,8 @@ ve devam geliştirme.
   workspace build akışı progress bar ile izlenir.
 - **ZynqMP PS Ethernet test bench:** `xparameters.h` içinde PS Ethernet
   (`XEmacPs`) varsa generate sonucu lwIP raw API tabanlı TCP test bench agent
-  üretilebilir; Windows UI karta TCP üzerinden register/operation komutu yollar.
+  üretilebilir; Windows UI karta kalici TCP session üzerinden register/operation
+  komutu yollar.
 - **Opsiyonel LLM:** OpenAI-compatible lokal endpoint kullanılabilir. Model adı
   kullanıcıdan tam olarak alınır; Kimi, Qwen veya başka bir model aynı alandan
   kullanılabilir. Timeout ve cevap uzunluğu limitleri açıktır.

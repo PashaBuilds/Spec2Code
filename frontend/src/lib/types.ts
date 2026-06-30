@@ -188,6 +188,7 @@ export interface TestbenchCommandRequest {
   device: string;
   operation: string;
   command_id?: number;
+  session_id?: string;
   register?: string;
   register_address?: number | null;
   address?: number | null;
@@ -201,6 +202,23 @@ export interface TestbenchCommandResponse {
   request_line: string;
   response_line: string;
   parsed: Record<string, string>;
+}
+
+export interface TestbenchSessionConnectRequest {
+  session_id: string;
+  host: string;
+  port: number;
+  timeout_s?: number;
+}
+
+export interface TestbenchSessionStatus {
+  session_id: string;
+  host: string;
+  port: number;
+  connected: boolean;
+  connected_at?: number | null;
+  last_used_at?: number | null;
+  last_error?: string;
 }
 
 export interface ProjectSpec {
