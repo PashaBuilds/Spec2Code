@@ -85,6 +85,14 @@ const DEFAULT_PROJECT: ProjectMeta = {
 };
 
 const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";
+const DEFAULT_SAFE_OPERATIONS_BY_PART: Record<string, string[]> = {
+  LMK04832: [
+    "pll1_lock_detect",
+    "pll1_lock_loss",
+    "pll2_lock_detect",
+    "pll2_lock_loss",
+  ],
+};
 const DEFAULT_LLM: LlmConfig = {
   enabled: false,
   base_url: "",
@@ -105,6 +113,32 @@ function inferCounter(muxes: Mux[], devices: Device[]): number {
       return match ? Number(match[1]) : 0;
     }),
   );
+}
+
+function withDefaultSafeOperations(devices: Device[], descriptors: DescriptorMeta[]): Device[] {
+  if (!devices.length || !descriptors.length) return devices;
+  const operationsByPart = new Map(
+    descriptors.map((descriptor) => [descriptor.part.toUpperCase(), descriptor.operations]),
+  );
+
+  return devices.map((device) => {
+    const part = device.part.toUpperCase();
+    const defaultOps = DEFAULT_SAFE_OPERATIONS_BY_PART[part] ?? [];
+    if (!defaultOps.length) return device;
+
+    const descriptorOps = operationsByPart.get(part) ?? [];
+    const selectableOps = defaultOps.filter((op) => descriptorOps.includes(op));
+    if (!selectableOps.length) return device;
+
+    const requested = device.operations_requested ?? [];
+    const hasOnlyInit = requested.length === 1 && requested[0] === "device_init";
+    if (!hasOnlyInit) return device;
+
+    const nextRequested = descriptorOps.filter(
+      (op) => op === "device_init" || selectableOps.includes(op),
+    );
+    return { ...device, operations_requested: nextRequested };
+  });
 }
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -155,7 +189,7 @@ export const useStore = create<StoreState>((set, get) => ({
       cores: context?.cores ?? [],
       controllers: spec.controllers ?? [],
       muxes: spec.muxes ?? [],
-      devices: spec.devices ?? [],
+      devices: withDefaultSafeOperations(spec.devices ?? [], get().descriptors),
       unmatched: [],
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
@@ -164,7 +198,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }),
 
   setCatalog: (catalog) => set({ catalog }),
-  setDescriptors: (descriptors) => set({ descriptors }),
+  setDescriptors: (descriptors) =>
+    set((s) => ({ descriptors, devices: withDefaultSafeOperations(s.devices, descriptors) })),
   select: (selectedId) => set({ selectedId }),
 
   addMux: (m) => {
@@ -215,7 +250,7 @@ export const useStore = create<StoreState>((set, get) => ({
         ? s.llm
         : { enabled: false },
       controllers: s.controllers,
-      devices: s.devices,
+      devices: withDefaultSafeOperations(s.devices, s.descriptors),
       muxes: s.muxes,
       generation_options: { qc_max_rounds: 3, include_doxygen: true, line_ending: "crlf" },
     };

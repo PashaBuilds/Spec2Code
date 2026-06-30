@@ -145,6 +145,39 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             retired_fragments = ("spec2code_" + "mo" + "ck", "_" + "mo" + "ck" + "_plan")
             self.assertFalse(any(any(fragment in path.lower() for fragment in retired_fragments) for path in written))
 
+    def test_lmk_pll_lock_status_operations_are_generated_for_testbench(self) -> None:
+        spec = tics_spec()
+        spec["project"]["name"] = "unit_lmk_pll_status"
+        spec["devices"] = [spec["devices"][0]]
+        spec["devices"][0]["operations_requested"] = [
+            "device_init",
+            "pll1_lock_detect",
+            "pll1_lock_loss",
+            "pll2_lock_detect",
+            "pll2_lock_loss",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+
+            codegen.generate(spec, out_dir)
+
+            lmk_header = (out_dir / "drivers" / "lmk04832.h").read_text(encoding="utf-8")
+            lmk_source = (out_dir / "drivers" / "lmk04832.c").read_text(encoding="utf-8")
+            ops_source = (out_dir / "tests" / "unit_lmk_pll_status_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        lmk_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
+        for op_name in ("pll1_lock_detect", "pll1_lock_loss", "pll2_lock_detect", "pll2_lock_loss"):
+            self.assertIn(op_name, lmk_ops)
+            self.assertEqual(lmk_ops[op_name]["fixed_read_length"], 1)
+            self.assertEqual(lmk_ops[op_name]["risk"], "safe")
+        self.assertIn("#define LMK04832_REG_RB_PLL_STATUS 0x183U", lmk_header)
+        self.assertIn("int lmk04832Pll1LockDetect(XSpiPs* spSpi, unsigned char* ucpPll1);", lmk_header)
+        self.assertIn("uiWord = ((unsigned int)1U << 23U) | (((unsigned int)uiReg & 0x7FFFU) << 8U);", lmk_source)
+        self.assertIn("iStatus = lmk04832RegisterRead(spSpi, LMK04832_REG_RB_PLL_STATUS, &ucArrBytes[0U]);", lmk_source)
+        self.assertIn("*ucpPll1 = (unsigned char)((((unsigned char)ucArrBytes[0U] & 0x4U) >> 2U));", lmk_source)
+        self.assertIn("lmk04832Pll2LockLoss(spSpi, &ucValue);", ops_source)
+
 
 if __name__ == "__main__":
     unittest.main()

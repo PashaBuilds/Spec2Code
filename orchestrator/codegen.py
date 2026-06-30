@@ -447,7 +447,13 @@ def _testbench_label(part: str, op_name: str) -> str:
         },
         "TMP101": {"temperature_read": "Sıcaklık oku"},
         "SHT21": {"temperature_read": "Sıcaklık oku"},
-        "LMK04832": {"device_init": "TICS Pro init sequence uygula"},
+        "LMK04832": {
+            "device_init": "TICS Pro init sequence uygula",
+            "pll1_lock_detect": "PLL1 lock detect oku",
+            "pll1_lock_loss": "PLL1 lock loss oku",
+            "pll2_lock_detect": "PLL2 lock detect oku",
+            "pll2_lock_loss": "PLL2 lock loss oku",
+        },
         "LMX2820": {"device_init": "TICS Pro init sequence uygula"},
         "LMX1204": {"device_init": "TICS Pro init sequence uygula"},
     }

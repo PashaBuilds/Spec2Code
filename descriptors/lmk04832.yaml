@@ -30,10 +30,40 @@ registers:
   - { name: PLL2_N_1, offset: 0x167, width: 8, access: rw }
   - { name: PLL2_N_2, offset: 0x168, width: 8, access: rw }
   - { name: PLL2_PD, offset: 0x173, width: 8, access: rw }
+  - { name: PLL_LOCK_LOST_CLEAR, offset: 0x182, width: 8, access: rw,
+      fields: [
+        { name: CLR_PLL1_LD_LOST, bits: "1" },
+        { name: CLR_PLL2_LD_LOST, bits: "0" } ] }
+  - { name: RB_PLL_STATUS, offset: 0x183, width: 8, access: ro,
+      fields: [
+        { name: RB_PLL1_DLD_LOST, bits: "3" },
+        { name: RB_PLL1_DLD, bits: "2" },
+        { name: RB_PLL2_DLD_LOST, bits: "1" },
+        { name: RB_PLL2_DLD, bits: "0" } ] }
 operations:
   - name: device_init
     description: "Apply the ordered TICS Pro 24-bit register array over SPI."
     steps:
       - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes." }
+  - name: pll1_lock_detect
+    returns: "uint8"
+    description: "PLL1 digital lock detect anlık durumunu oku; 1 değeri PLL1 lock detect assert anlamına gelir."
+    steps:
+      - { op: read_register, reg: RB_PLL_STATUS, mask: 0x04, right_shift: 2 }
+  - name: pll1_lock_loss
+    returns: "uint8"
+    description: "PLL1 digital lock detect düşüşüyle set olan latched lock-loss durumunu oku."
+    steps:
+      - { op: read_register, reg: RB_PLL_STATUS, mask: 0x08, right_shift: 3 }
+  - name: pll2_lock_detect
+    returns: "uint8"
+    description: "PLL2 digital lock detect anlık durumunu oku; 1 değeri PLL2 lock detect assert anlamına gelir."
+    steps:
+      - { op: read_register, reg: RB_PLL_STATUS, mask: 0x01, right_shift: 0 }
+  - name: pll2_lock_loss
+    returns: "uint8"
+    description: "PLL2 digital lock detect düşüşüyle set olan latched lock-loss durumunu oku."
+    steps:
+      - { op: read_register, reg: RB_PLL_STATUS, mask: 0x02, right_shift: 1 }
 test_hints:
   self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

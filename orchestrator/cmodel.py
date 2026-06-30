@@ -214,8 +214,11 @@ def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
         for p in pieces:
             idx = p["index"]
             mask = p.get("mask", 0xFF)
+            right_shift = p.get("right_shift", 0)
             shift = p.get("shift", 0)
             term = f"(({cast})ucArrBytes[{idx}U] & {_hexu32(mask)})"
+            if right_shift:
+                term = f"({term} >> {right_shift}U)"
             if shift:
                 term = f"({term} << {shift}U)"
             terms.append(term)
@@ -837,6 +840,56 @@ def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, f
     )
 
 
+def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
+                            frame_def: str, model: dict) -> CFunc:
+    frame_bits = int(model.get("frame_bits", 24) or 24)
+    address_bits = int(model.get("address_bits", 15) or 15)
+    address_shift = int(model.get("address_shift", 8) or 8)
+    rw_bit = int(model.get("rw_bit", frame_bits - 1) or (frame_bits - 1))
+    write_value = int(model.get("write_value", 0) or 0)
+    read_value = 0 if write_value else 1
+    address_mask = (1 << address_bits) - 1
+
+    rd = Emit()
+    rd.ln(f"unsigned char ucArrTx[{frame_def}];")
+    rd.ln(f"unsigned char ucArrRx[{frame_def}];")
+    rd.ln("unsigned int uiWord;")
+    rd.ln("int iStatus;")
+    if _is_qspipsu(htype):
+        rd.ln("XQspiPsu_Msg sArrMessage[1];")
+    rd.blank()
+    rd.open("if (ucpValue == NULL)").ln("return XST_FAILURE;").close()
+    rd.ln(
+        f"uiWord = ((unsigned int){read_value}U << {rw_bit}U) | "
+        f"(((unsigned int)uiReg & {_hexu32(address_mask)}) << {address_shift}U);"
+    )
+    rd.ln("ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);")
+    rd.ln("ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);")
+    rd.ln("ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);")
+    rd.ln("ucArrRx[0] = 0U;")
+    rd.ln("ucArrRx[1] = 0U;")
+    rd.ln("ucArrRx[2] = 0U;")
+    if _is_qspipsu(htype):
+        rd.ln("sArrMessage[0].TxBfrPtr = ucArrTx;")
+        rd.ln("sArrMessage[0].RxBfrPtr = ucArrRx;")
+        rd.ln(f"sArrMessage[0].ByteCount = {frame_def};")
+        rd.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        rd.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX;")
+        rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
+    else:
+        rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+        rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, {frame_def});").check_status()
+    rd.ln("*ucpValue = ucArrRx[2];")
+    rd.ln("return XST_SUCCESS;")
+    return CFunc(
+        _func_name(module, "register_read"),
+        "int",
+        [f"{htype}* {hvar}", "unsigned int uiReg", "unsigned char* ucpValue"],
+        rd.out(),
+        static=True,
+    )
+
+
 def _delay_func(module: str) -> CFunc:
     body = Emit()
     body.ln("unsigned int uiIndex;")
@@ -889,60 +942,118 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
         defines.append((f"{MOD}_POST_INIT_DELAY_MS", f"{rewrite_delay_ms}U", "delay before post-init calibration write"))
 
     private_decls = _private_spi_register_init_sequence(module, MOD, words)
+    requested = device.get("operations_requested") or [op["name"] for op in descriptor["operations"]]
+    ops_by_name = {op["name"]: op for op in descriptor["operations"]}
+    needs_register_read = any(
+        any(step.get("op") == "read_register" for step in ops_by_name.get(op_name, {}).get("steps", []))
+        for op_name in requested
+    )
+
     funcs = [_spi_register_write_func(module, htype, hvar, sel_def, frame_def)]
+    if needs_register_read:
+        funcs.append(_spi_register_read_func(module, htype, hvar, sel_def, frame_def, model))
     if rewrite_word is not None:
         funcs.append(_delay_func(module))
 
     public: list[str] = []
-    ops_by_name = {op["name"]: op for op in descriptor["operations"]}
-    requested = device.get("operations_requested") or list(ops_by_name)
 
     for op_name in requested:
         op = ops_by_name.get(op_name)
         if op is None:
             continue
-        if op_name != "device_init":
-            continue
+        returns = op.get("returns", "")
+        is_init = op_name == "device_init"
 
         e = Emit()
         e.ln("int iStatus;")
-        e.ln(f"{htype}_Config* spConfig;")
-        if words:
+        out_c_type = ""
+        out_param = None
+        scalar_combine = bool(returns) and "[" not in returns
+        read_seen = 0
+        scalar_pieces: list[dict[str, int]] = []
+        if returns:
+            out_c_type, out_param = _return_param(op_name, returns)
+        if is_init:
+            e.ln(f"{htype}_Config* spConfig;")
+        if is_init and words:
             e.ln("unsigned int uiIndex;")
+        if scalar_combine:
+            e.ln("unsigned char ucArrBytes[4];")
         e.blank()
 
-        if _is_qspipsu(htype):
-            e.ln(f"spConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
-        else:
-            e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
-        e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-        if _is_qspipsu(htype):
-            e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-            e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
-            e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
-            e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
-        else:
-            e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-            e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
-            e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+        if out_param:
+            e.open(f"if ({out_param} == NULL)").ln("return XST_FAILURE;").close()
 
-        if words:
+        if is_init:
+            if _is_qspipsu(htype):
+                e.ln(f"spConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
+            else:
+                e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
+            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+            if _is_qspipsu(htype):
+                e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+                e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
+                e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
+                e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
+            else:
+                e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+                e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
+                e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+
+        if is_init and words:
             e.open(f"for (uiIndex = 0U; uiIndex < {MOD}_INIT_SEQUENCE_COUNT; uiIndex++)")
             e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {seq_name}[uiIndex]);").check_status()
             e.close()
-        if rewrite_word is not None:
+        if is_init and rewrite_word is not None:
             e.ln(f"{_func_name(module, 'delay_ms')}({MOD}_POST_INIT_DELAY_MS);")
             e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {tics.c_word(rewrite_word.word)});").check_status()
+        if not is_init:
+            if not scalar_combine:
+                continue
+            for step in op["steps"]:
+                sop = step.get("op")
+                if sop == "comment":
+                    e.ln(f"/* {step.get('note', '')} */")
+                elif sop == "read_register":
+                    piece = {"index": read_seen}
+                    if "mask" in step:
+                        piece["mask"] = int(step["mask"])
+                    if "right_shift" in step:
+                        piece["right_shift"] = int(step["right_shift"])
+                    if "shift" in step:
+                        piece["shift"] = int(step["shift"])
+                    scalar_pieces.append(piece)
+                    e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, {MOD}_REG_{step['reg']}, &ucArrBytes[{read_seen}U]);").check_status()
+                    read_seen += 1
+            if out_param:
+                expr = _scalar_assign_expr(
+                    read_seen,
+                    out_c_type,
+                    descriptor.get("transport", {}).get("byte_order", "big"),
+                    scalar_pieces,
+                )
+                e.ln(f"*{out_param} = ({out_c_type})({expr});")
 
         e.ln("return XST_SUCCESS;")
+        params = [f"{htype}* {hvar}"]
+        if out_param:
+            params.append(f"{out_c_type}* {out_param}")
+        doxy_params = [(
+            hvar,
+            "Initialized SPI controller handle."
+            if not is_init
+            else "Uninitialized SPI controller handle; this routine initializes it.",
+        )]
+        if out_param:
+            doxy_params.append((out_param, f"Out parameter: {returns}."))
 
         funcs.append(CFunc(
             name=_func_name(module, op_name),
             ret="int",
-            params=[f"{htype}* {hvar}"],
+            params=params,
             body=e.out(),
             brief=op.get("description", op_name.replace("_", " ")),
-            doxy_params=[(hvar, "Uninitialized SPI controller handle; this routine initializes it.")],
+            doxy_params=doxy_params,
             doxy_return="XST_SUCCESS on success, else an XST_* error code.",
         ))
         public.append(_func_name(module, op_name))
