@@ -146,6 +146,7 @@ class VitisWorkspaceTests(unittest.TestCase):
             hwh = """<?xml version="1.0"?>
 <SYSTEM>
   <MODULE INSTANCE="axi_gpio_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:ip:axi_gpio:2.0" IP_NAME="axi_gpio"/>
+  <MODULE INSTANCE="mem_pcie_intr_0" MODTYPE="PERIPHERAL" VLNV="xilinx.com:user:mem_pcie_intr:1.0" IP_NAME="mem_pcie_intr"/>
   <MODULE INSTANCE="company_filter_0" MODTYPE="PERIPHERAL" VLNV="company.local:user:company_filter:1.0" IP_NAME="company_filter"/>
   <MODULE INSTANCE="custom_dma_0" MODTYPE="PERIPHERAL" VLNV="acme.com:user:custom_dma:1.0"/>
   <MODULE INSTANCE="psu_cortexa53_0" MODTYPE="PROCESSOR" VLNV="xilinx.com:ip:psu_cortexa53:1.0"/>
@@ -156,9 +157,11 @@ class VitisWorkspaceTests(unittest.TestCase):
 
             candidates = discover_custom_pl_ips(xsa)
 
-        self.assertEqual([item.instance for item in candidates], ["company_filter_0", "custom_dma_0"])
+        self.assertEqual([item.instance for item in candidates], ["company_filter_0", "custom_dma_0", "mem_pcie_intr_0"])
         self.assertEqual(candidates[0].ip_name, "company_filter")
         self.assertEqual(candidates[1].ip_name, "custom_dma")
+        self.assertEqual(candidates[2].ip_name, "mem_pcie_intr")
+        self.assertIn("user-packaged", candidates[2].reason)
 
     def test_xsct_script_sets_custom_pl_ip_driver_none_when_auto_policy_is_used(self) -> None:
         script = render_xsct_script(
@@ -176,6 +179,28 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("set spec2code_custom_ip_instances [list {company_filter_0}]", script)
         self.assertIn("bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver", script)
         self.assertIn("foreach spec2code_none_driver {none None NONE}", script)
+
+    def test_xsct_script_applies_custom_ip_policy_before_lwip_regenerate(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="freertos10_xilinx",
+            enable_lwip=True,
+            custom_ip_driver_policy="auto_none",
+            custom_ip_instances=["mem_pcie_intr_0"],
+        )
+
+        self.assertLess(
+            script.index("custom PL IP candidates detected"),
+            script.index("lwIP target test bench detected"),
+        )
+        self.assertLess(
+            script.index("bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver"),
+            script.index("bsp setlib -name $spec2code_lwip_lib"),
+        )
 
     def test_xsct_script_can_keep_custom_pl_ip_bsp_defaults(self) -> None:
         script = render_xsct_script(

@@ -295,11 +295,14 @@ class TestbenchTests(unittest.TestCase):
             "collect2.exe: error: ld returned 1 exit status\n"
             "undefined reference to `ltc2991VccRead'\n"
             "main.c:8:5: error: 'XPAR_XIICPS_0_DEVICE_ID' undeclared\n"
+            "cc1.exe: fatal error: *.c: Invalid argument\n"
+            "make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2\n"
         )
         categories = {issue["category"] for issue in issues}
         self.assertIn("missing_include", categories)
         self.assertIn("undefined_reference", categories)
         self.assertIn("missing_xparameter", categories)
+        self.assertIn("custom_ip_bsp_driver", categories)
 
 
 if __name__ == "__main__":

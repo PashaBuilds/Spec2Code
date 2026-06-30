@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.62 - 2026-06-30
+
+- Vitis workspace custom PL IP tespiti `xilinx.com:user:*` gibi user-packaged IP'leri de kapsayacak sekilde genisletildi.
+- Custom PL IP driver `none` policy artik lwIP BSP regenerate adimindan once uygulanir.
+- `libsrc/<driver>/src/make.libs` ve `fatal error: *.c: Invalid argument` Vitis loglari custom IP BSP driver hatasi olarak aciklanir.
+
 ## v0.1.61 - 2026-06-30
 
 - Test Bench TCP session uzerinden `spec2code_version` global komutu eklendi.

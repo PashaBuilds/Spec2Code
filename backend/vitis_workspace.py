@@ -261,18 +261,22 @@ def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
             vlnv = _xml_attr(element, "VLNV")
             if not instance or not vlnv:
                 continue
-            vendor = vlnv.split(":", 1)[0].lower()
-            if vendor in _KNOWN_AMD_XILINX_VENDORS:
-                continue
             vlnv_parts = vlnv.split(":")
+            vendor = vlnv_parts[0].lower() if vlnv_parts else ""
+            library = vlnv_parts[1].lower() if len(vlnv_parts) >= 2 else ""
+            if vendor in _KNOWN_AMD_XILINX_VENDORS and library != "user":
+                continue
             ip_name = _xml_attr(element, "IP_NAME") or (vlnv_parts[2] if len(vlnv_parts) >= 3 else "")
+            reason = f"{hwh_name}: non-Xilinx/AMD peripheral VLNV"
+            if vendor in _KNOWN_AMD_XILINX_VENDORS and library == "user":
+                reason = f"{hwh_name}: user-packaged PL peripheral VLNV"
             candidates.setdefault(
                 instance,
                 CustomPlIpCandidate(
                     instance=instance,
                     vlnv=vlnv,
                     ip_name=ip_name,
-                    reason=f"{hwh_name}: non-Xilinx/AMD peripheral VLNV",
+                    reason=reason,
                 ),
             )
     return [candidates[key] for key in sorted(candidates)]
@@ -510,6 +514,34 @@ def render_xsct_script(
         f"    {_tcl_put('retrying with Empty Application template')}"
         "    app create -name $app_name -hw $xsa_path -proc $processor -os $os_name -lang C -template {Empty Application}\n"
         "}\n\n"
+        "if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
+        f"    {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
+        "    set spec2code_custom_ip_driver_changed 0\n"
+        "    foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
+        "        set spec2code_custom_ip_ok 0\n"
+        "        foreach spec2code_none_driver {none None NONE} {\n"
+        "            if {$spec2code_custom_ip_ok == 0} {\n"
+        "                if {[catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver} spec2code_custom_ip_err]} {\n"
+        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver=$spec2code_none_driver not selected: $spec2code_custom_ip_err')}"
+        "                } else {\n"
+        "                    set spec2code_custom_ip_ok 1\n"
+        "                    set spec2code_custom_ip_driver_changed 1\n"
+        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver set to $spec2code_none_driver')}"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        if {$spec2code_custom_ip_ok == 0} {\n"
+        f"            {_tcl_put('WARNING: custom IP $spec2code_custom_ip driver could not be set to none automatically; check BSP settings if build fails inside this IP driver.')}"
+        "        }\n"
+        "    }\n"
+        "    if {$spec2code_custom_ip_driver_changed == 1} {\n"
+        "        if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]} {\n"
+        f"            {_tcl_put('WARNING: BSP regenerate failed after custom IP driver policy: $spec2code_custom_ip_regen_err')}"
+        "        }\n"
+        "    }\n"
+        "} elseif {$spec2code_custom_ip_driver_policy eq \"keep\"} {\n"
+        f"    {_tcl_put('custom PL IP driver policy keeps BSP defaults')}"
+        "}\n\n"
         "if {$spec2code_enable_lwip == 1} {\n"
         f"    {_tcl_put('lwIP target test bench detected; enabling BSP lwIP library')}"
         "    set spec2code_lwip_ok 0\n"
@@ -545,34 +577,6 @@ def render_xsct_script(
         "    } else {\n"
         f"        {_tcl_put('WARNING: lwIP BSP library could not be enabled automatically; enable it manually if build reports missing lwIP headers.')}"
         "    }\n"
-        "}\n\n"
-        "if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
-        f"    {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
-        "    set spec2code_custom_ip_driver_changed 0\n"
-        "    foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
-        "        set spec2code_custom_ip_ok 0\n"
-        "        foreach spec2code_none_driver {none None NONE} {\n"
-        "            if {$spec2code_custom_ip_ok == 0} {\n"
-        "                if {[catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver} spec2code_custom_ip_err]} {\n"
-        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver=$spec2code_none_driver not selected: $spec2code_custom_ip_err')}"
-        "                } else {\n"
-        "                    set spec2code_custom_ip_ok 1\n"
-        "                    set spec2code_custom_ip_driver_changed 1\n"
-        f"                    {_tcl_put('custom IP $spec2code_custom_ip driver set to $spec2code_none_driver')}"
-        "                }\n"
-        "            }\n"
-        "        }\n"
-        "        if {$spec2code_custom_ip_ok == 0} {\n"
-        f"            {_tcl_put('WARNING: custom IP $spec2code_custom_ip driver could not be set to none automatically; check BSP settings if build fails inside this IP driver.')}"
-        "        }\n"
-        "    }\n"
-        "    if {$spec2code_custom_ip_driver_changed == 1} {\n"
-        "        if {[catch {bsp regenerate} spec2code_custom_ip_regen_err]} {\n"
-        f"            {_tcl_put('WARNING: BSP regenerate failed after custom IP driver policy: $spec2code_custom_ip_regen_err')}"
-        "        }\n"
-        "    }\n"
-        "} elseif {$spec2code_custom_ip_driver_policy eq \"keep\"} {\n"
-        f"    {_tcl_put('custom PL IP driver policy keeps BSP defaults')}"
         "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"

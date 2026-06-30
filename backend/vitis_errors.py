@@ -37,6 +37,16 @@ class VitisIssue:
 
 _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (
+        re.compile(r"libsrc[/\\](?P<symbol>[^/\\\s]+)[/\\]src[/\\]make\.libs", re.I),
+        "custom_ip_bsp_driver",
+        "BSP build custom PL IP driver klasorunde patlamis. Bu genelde user-packaged/custom IP'nin gercek driver source'u olmadan BSP'ye driver gibi eklenmesinden olur. Vitis Workspace panelinde `Auto: custom IP - none` secili sekilde workspace'i yeniden uret; gerekiyorsa BSP Settings > drivers altinda ilgili IP driver'ini `none` yap.",
+    ),
+    (
+        re.compile(r"fatal error:\s+\*\.c:\s+Invalid argument", re.I),
+        "custom_ip_bsp_driver",
+        "Windows GCC literal `*.c` girdisini derlemeye calismis. Bu genelde source'suz custom PL IP BSP driver makefile'inda gorulur. Custom IP driver policy `auto_none` ile workspace'i yeniden uret.",
+    ),
+    (
         re.compile(r"invalid command name\s+\"(?P<symbol>[^\"]+)\"", re.I),
         "xsct_tcl_command",
         "XSCT Tcl script içinde literal yazı komut gibi yorumlanmış. Script quoting/escaping kontrol edilmeli; generated script güncel sürümle tekrar üretilmeli.",
