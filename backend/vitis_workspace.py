@@ -1402,6 +1402,26 @@ def render_xsct_script(
         "        }\n"
         "    }\n"
         "}\n\n"
+        "proc spec2codeSynchronizeBeforeAppBuild {} {\n"
+        "    global platform_name domain_name\n"
+        f"    {_tcl_put('synchronizing platform/domain before application build')}"
+        "    catch {platform active $platform_name} spec2code_platform_active_err\n"
+        "    catch {domain active $domain_name} spec2code_domain_active_err\n"
+        "    spec2codeDisableCustomIpBspLibsrc\n"
+        "    if {[catch {bsp regenerate} spec2code_bsp_regen_before_app_err]} {\n"
+        f"        {_tcl_put('WARNING: BSP regenerate before app build failed or was unsupported: $spec2code_bsp_regen_before_app_err')}"
+        "    } else {\n"
+        f"        {_tcl_put('BSP regenerate before app build completed')}"
+        "    }\n"
+        "    spec2codeDisableCustomIpBspLibsrc\n"
+        "    if {[catch {platform build} spec2code_platform_build_before_app_err]} {\n"
+        f"        {_tcl_put('WARNING: platform build before app build failed or was unsupported: $spec2code_platform_build_before_app_err')}"
+        "    } else {\n"
+        f"        {_tcl_put('platform build before app build completed')}"
+        "    }\n"
+        "    spec2codeDisableCustomIpBspLibsrc\n"
+        "    after 1000\n"
+        "}\n\n"
     )
     return (
         "# Spec2Code generated Vitis workspace script.\n"
@@ -1454,11 +1474,13 @@ def render_xsct_script(
         "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
+        "spec2codeSynchronizeBeforeAppBuild\n"
         f"{_tcl_put('building application')}"
         "spec2codeDisableCustomIpBspLibsrc\n"
         "if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
         f"    {_tcl_put('app build failed; refreshing custom IP BSP make.libs bypass and retrying once: $spec2code_build_err')}"
         "    spec2codeDisableCustomIpBspLibsrc\n"
+        "    spec2codeSynchronizeBeforeAppBuild\n"
         "    app build -name $app_name\n"
         "}\n"
         f"{_tcl_put('done')}"
@@ -1925,7 +1947,17 @@ class VitisWorkspaceJobManager:
         final_has_fatal_error = _xsct_log_has_fatal_error(final_completed.stdout, final_completed.stderr)
         build_failed = final_completed.returncode != 0 or final_has_fatal_error
         artifact_issues: list[dict] = []
-        if not build_failed and int(elf_artifacts.get("application", 0)) == 0:
+        if int(elf_artifacts.get("application", 0)) == 0:
+            if build_failed:
+                missing_elf_message = (
+                    f"Vitis build hata verdi ve application ELF bulunamadı. "
+                    f"Beklenen application adı: {app_name}"
+                )
+            else:
+                missing_elf_message = (
+                    f"Vitis build hata vermedi ama application ELF bulunamadı. "
+                    f"Beklenen application adı: {app_name}"
+                )
             artifact_issues.append({
                 "file": str(workspace_path),
                 "line": 0,
@@ -1933,10 +1965,7 @@ class VitisWorkspaceJobManager:
                 "rule": "spec2code-vitis-artifact",
                 "severity": "error",
                 "category": "missing_elf",
-                "message": (
-                    f"Vitis build hata vermedi ama application ELF bulunamadı. "
-                    f"Beklenen application adı: {app_name}"
-                ),
+                "message": missing_elf_message,
                 "source": "Spec2Code",
             })
         recovered_issues = initial_issues if self_heal.get("successful") else []
@@ -1971,7 +2000,8 @@ class VitisWorkspaceJobManager:
             job.result["self_heal"] = self_heal
             job.result["vitis_doctor"] = vitis_doctor
         if build_failed:
-            issues = final_issues or initial_issues or map_vitis_errors(f"{final_stdout}\n{final_stderr}")
+            mapped_issues = final_issues or initial_issues or map_vitis_errors(f"{final_stdout}\n{final_stderr}")
+            issues = mapped_issues + artifact_issues
             if job.result is not None:
                 job.result["compile_issues"] = issues
                 job.result["successful"] = False

@@ -3,6 +3,21 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.78 - 2026-07-01
+
+- Vitis workspace Tcl akisi `importsources` sonrasi application build'e gecmeden
+  once `bsp regenerate` ve `platform build` ile platform/domain senkronizasyonu
+  dener. Bu, Vitis 2023.2 + FreeRTOS/lwIP akisinda app build'in sessizce erken
+  atlanmasi riskini azaltir.
+- XSCT hata ile donse bile application ELF bulunamazsa `S2C-VITIS-ELF-009`
+  artik aktif issue listesine eklenir; FSBL/PMU ELF uretimi workspace hazir gibi
+  yorumlanmaz.
+- `aarch64-none-elf-ar: creating ../../lib/libfreertos.a` gibi normal FreeRTOS
+  BSP archive satirlari tek basina root cause gibi gosterilmez.
+- `kimi_vitis_debug_guide.md` icine mevcut Windows debug dizinleri icin hazir
+  komutlar eklendi: `D:\Projects\claude\Spec2Code\0_temp` ve
+  `D:\Projects\claude\Spec2Code\0_workspace`.
+
 ## v0.1.77 - 2026-07-01
 
 - `kimi_vitis_debug_guide.md` icine ZCU102/custom IP yok/application ELF yok

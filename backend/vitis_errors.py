@@ -108,6 +108,14 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
+_BENIGN_TAIL_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\b(?:aarch64-none-elf-)?ar(?:\.exe)?:\s+creating\b", re.I),
+]
+
+
+def _looks_like_benign_tail(line: str) -> bool:
+    return any(pattern.search(line) for pattern in _BENIGN_TAIL_PATTERNS)
+
 
 def map_vitis_errors(log_text: str, *, limit: int = 40) -> list[dict]:
     issues: list[VitisIssue] = []
@@ -144,12 +152,28 @@ def map_vitis_errors(log_text: str, *, limit: int = 40) -> list[dict]:
             break
 
     if not issues and log_text.strip():
-        tail = [line.strip() for line in log_text.splitlines() if line.strip()][-1]
+        non_empty_lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+        tail = non_empty_lines[-1]
+        useful_tail = next(
+            (line for line in reversed(non_empty_lines) if not _looks_like_benign_tail(line)),
+            "",
+        )
+        if useful_tail:
+            message = useful_tail
+            raw = useful_tail
+            suggestion = "Raw Vitis/XSCT log içinde ilk ERROR veya compiler error satırını incele. Bu hata sınıfı henüz mapper tarafından tanınmıyor."
+        else:
+            message = "Vitis/XSCT hata döndürdü ama log sonunda açık compiler/linker hata satırı bulunamadı."
+            raw = tail
+            suggestion = (
+                "Application build loglarını ve ELF artifact listesini kontrol et. "
+                "`ar: creating libfreertos.a` gibi BSP archive satırları tek başına root cause değildir."
+            )
         issues.append(VitisIssue(
             severity="error",
             category="unclassified",
-            message=tail,
-            suggestion="Raw Vitis/XSCT log içinde ilk ERROR veya compiler error satırını incele. Bu hata sınıfı henüz mapper tarafından tanınmıyor.",
-            raw=tail,
+            message=message,
+            suggestion=suggestion,
+            raw=raw,
         ))
     return [issue.as_dict() for issue in issues]

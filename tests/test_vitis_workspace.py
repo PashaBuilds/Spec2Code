@@ -72,6 +72,22 @@ def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
     path.chmod(path.stat().st_mode | 0o111)
 
 
+def write_archive_only_failing_xsct(path: Path, version: str = "2024.2") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-version\" ]; then\n"
+        f"  echo \"xsct version {version}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "echo '[Spec2Code] building application'\n"
+        "echo 'aarch64-none-elf-ar: creating ../../lib/libfreertos.a' >&2\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
 def write_failing_xsct(path: Path, version: str = "2024.2") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -394,6 +410,32 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("retrying once", script)
         self.assertGreater(script.count("spec2codeDisableCustomIpBspLibsrc"), 2)
 
+    def test_xsct_script_synchronizes_platform_before_app_build(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="freertos10_xilinx",
+            enable_lwip=True,
+        )
+
+        self.assertIn("proc spec2codeSynchronizeBeforeAppBuild", script)
+        self.assertIn("bsp regenerate", script)
+        self.assertIn("platform build", script)
+        self.assertLess(
+            script.index("importsources -name $app_name -path $source_path"),
+            script.index("spec2codeSynchronizeBeforeAppBuild\n"),
+        )
+        self.assertLess(
+            script.index("spec2codeSynchronizeBeforeAppBuild\n"),
+            script.index("if {[catch {app build -name $app_name} spec2code_build_err]}"),
+        )
+
     def test_xsct_recovery_script_reuses_existing_workspace(self) -> None:
         script = render_xsct_recovery_script(
             workspace_path=Path("/tmp/ws"),
@@ -696,6 +738,65 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertEqual(result["xsct_exit_code"], 0)
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 0)
                 self.assertIn("S2C-VITIS-ELF-009", result["vitis_doctor"]["error_codes"])
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_job_reports_missing_elf_even_when_xsct_returns_error(self) -> None:
+        project_name = "unit_vitis_workspace_missing_elf_with_error"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_missing_elf_with_error",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_archive_only_failing_xsct(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                xsa.write_bytes(b"fake xsa")
+                workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path=str(xsa),
+                    workspace_path=str(workspace),
+                    temp_path=str(temp_root),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_missing_elf_with_error",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                with self.assertRaisesRegex(RuntimeError, "XSCT workspace üretimi hata"):
+                    manager._blocking(job)
+
+                self.assertIsNotNone(job.result)
+                result = job.result or {}
+                categories = {issue["category"] for issue in result["compile_issues"]}
+                self.assertIn("unclassified", categories)
+                self.assertIn("missing_elf", categories)
+                self.assertIn("S2C-VITIS-ELF-009", result["vitis_doctor"]["error_codes"])
+                self.assertIn("S2C-VITIS-UNCLASSIFIED-099", result["vitis_doctor"]["error_codes"])
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 0)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 

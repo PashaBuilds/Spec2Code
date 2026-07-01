@@ -323,6 +323,14 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("missing_xparameter", categories)
         self.assertIn("custom_ip_bsp_driver", categories)
 
+    def test_vitis_error_mapper_does_not_treat_freertos_archive_tail_as_root_cause(self) -> None:
+        issues = map_vitis_errors("aarch64-none-elf-ar: creating ../../lib/libfreertos.a\n")
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["category"], "unclassified")
+        self.assertNotIn("aarch64-none-elf-ar", issues[0]["message"])
+        self.assertIn("BSP archive", issues[0]["suggestion"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -228,6 +228,31 @@ dir /S /B "D:\path\to\temp\*.log"
 dir /S /B "D:\path\to\temp\*.tcl"
 ```
 
+Mevcut Spec2Code debug dizinleri `D:\Projects\claude\Spec2Code` altinda
+kullaniliyorsa Kimi'ye su path'leri soyle:
+
+```text
+Spec2Code kok dizin:
+D:\Projects\claude\Spec2Code
+
+Temp/Staging dizini:
+D:\Projects\claude\Spec2Code\0_temp
+
+Workspace dizini:
+D:\Projects\claude\Spec2Code\0_workspace
+```
+
+Bu path'lerle dogrudan calistirilacak komutlar:
+
+```bat
+dir /S /B "D:\Projects\claude\Spec2Code\0_workspace\*.elf"
+dir /S /B "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+dir /S /B "D:\Projects\claude\Spec2Code\0_workspace\*spec2code_test_sw*"
+dir /S /B "D:\Projects\claude\Spec2Code\0_temp\*.elf"
+dir /S /B "D:\Projects\claude\Spec2Code\0_temp\*.log"
+dir /S /B "D:\Projects\claude\Spec2Code\0_temp\*.tcl"
+```
+
 Application build ve import izlerini aramak icin:
 
 ```bat
@@ -237,6 +262,19 @@ findstr /S /N /I /C:"building application" "D:\path\to\temp\*.log"
 findstr /S /N /I /C:"app build" "D:\path\to\temp\*.log"
 findstr /S /N /I /C:"Empty Application" "D:\path\to\temp\*.log"
 findstr /S /N /I /C:"named platform/system flow failed" "D:\path\to\temp\*.log"
+```
+
+Mevcut debug dizinleri icin:
+
+```bat
+findstr /S /N /I /C:"set app_name" "D:\Projects\claude\Spec2Code\0_temp\*.tcl"
+findstr /S /N /I /C:"importing generated sources" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"building application" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"app build" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"platform build" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"BSP regenerate before app build" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"Empty Application" "D:\Projects\claude\Spec2Code\0_temp\*.log"
+findstr /S /N /I /C:"named platform/system flow failed" "D:\Projects\claude\Spec2Code\0_temp\*.log"
 ```
 
 Workspace altindaki gercek app build hatalarini aramak icin:
@@ -249,6 +287,18 @@ findstr /S /N /I /C:"No rule to make target" "D:\path\to\workspace\*.log"
 findstr /S /N /I /C:"Nothing to be done" "D:\path\to\workspace\*.log"
 findstr /S /N /I /C:"main" "D:\path\to\workspace\*.log"
 findstr /S /N /I /C:"spec2code_test_sw" "D:\path\to\workspace\*.log"
+```
+
+Mevcut debug dizinleri icin:
+
+```bat
+findstr /S /N /I /C:"error:" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"fatal error" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"undefined reference" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"No rule to make target" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"Nothing to be done" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"main" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
+findstr /S /N /I /C:"spec2code_test_sw" "D:\Projects\claude\Spec2Code\0_workspace\*.log"
 ```
 
 Bu komutlar hata bulmazsa Kimi su noktayi acik yazmali:
