@@ -160,6 +160,36 @@ def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> No
     path.chmod(path.stat().st_mode | 0o111)
 
 
+def write_false_green_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-version\" ]; then\n"
+        f"  echo \"xsct version {version}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "count_file=\"$PWD/spec2code_xsct_count\"\n"
+        "count=0\n"
+        "if [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\n"
+        "next=$((count + 1))\n"
+        "echo \"$next\" > \"$count_file\"\n"
+        "src=\"$PWD/platform/export/platform/sw/platform/unit_platform/unit_application_domain/bsp/psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src\"\n"
+        "mkdir -p \"$src\"\n"
+        "printf 'LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n' > \"$src/make.libs\"\n"
+        "echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
+        "echo 'compilation terminated.' >&2\n"
+        "echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
+        "echo 'Failed to build the bsp sources for domain - unit_application_domain' >&2\n"
+        "if [ \"$count\" = \"0\" ]; then\n"
+        "  exit 2\n"
+        "fi\n"
+        "# Vitis/XSCT can occasionally return success while stderr still contains build-fatal lines.\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
 class VitisWorkspaceTests(unittest.TestCase):
     def test_locates_xsct_under_versioned_vitis_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -797,6 +827,66 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
                 self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_job_does_not_mark_self_heal_success_when_recovery_log_still_has_build_fatal(self) -> None:
+        project_name = "unit_vitis_workspace_false_green_self_heal"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_false_green_self_heal",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_false_green_self_healing_xsct(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                xsa.write_bytes(b"fake xsa")
+                workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path=str(xsa),
+                    workspace_path=str(workspace),
+                    temp_path=str(temp_root),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_false_green_self_heal",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                with self.assertRaisesRegex(RuntimeError, "XSCT log hata içeriyor"):
+                    manager._blocking(job)
+
+                self.assertIsNotNone(job.result)
+                result = job.result or {}
+                self.assertFalse(result["successful"])
+                self.assertEqual(result["xsct_initial_exit_code"], 2)
+                self.assertEqual(result["xsct_exit_code"], 0)
+                self.assertTrue(result["self_heal"]["attempted"])
+                self.assertFalse(result["self_heal"]["successful"])
+                self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
+                self.assertNotIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["recovered_error_codes"])
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 

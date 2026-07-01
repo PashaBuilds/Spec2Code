@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.75 - 2026-07-01
+
+- Vitis self-heal basari kontrolu sertlestirildi: XSCT `exit 0` donse bile log icinde `cc1.exe fatal error`, `make: ***`, `Failed to build`, `compilation terminated` veya linker fatal imzasi varsa build basarisiz sayilir.
+- Recovery stderr logunda `mem_pcie_intr_v1_0/src/make.libs` gibi custom IP build hatasi kalirsa artik `self-heal gecti` olarak isaretlenmez.
+- Recovery build basarisizsa hata mesaji artik ilk deneme logu yerine aktif recovery stderr log path'ini isaret eder.
+
 ## v0.1.74 - 2026-07-01
 
 - Vitis Doctor aktif hata kodlari ile self-heal tarafindan kapanmis hata kodlarini ayirdi.

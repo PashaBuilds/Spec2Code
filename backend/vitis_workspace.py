@@ -31,6 +31,16 @@ _XSCT_FATAL_RE = re.compile(
     r"(invalid command name|while executing|^ERROR:|traceback|exception)",
     re.IGNORECASE | re.MULTILINE,
 )
+_VITIS_BUILD_FATAL_RE = re.compile(
+    r"("
+    r"\bcc1(?:plus)?(?:\.exe)?:\s+fatal error:"
+    r"|\b(?:make|gmake)(?:\[\d+\])?:\s+\*\*\*"
+    r"|Failed to build\b"
+    r"|\bcompilation terminated\b"
+    r"|\bcollect2(?:\.exe)?:\s+error:"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
 _MAKE_LIBS_TARGET_RE = re.compile(
     r"(?P<processor>[^/\\\s:\]]+)[/\\]libsrc[/\\](?P<driver>[^/\\\s:\]]+)[/\\]src[/\\]make\.libs",
     re.IGNORECASE,
@@ -993,7 +1003,7 @@ class CustomIpMakeLibsWatcher:
 
 def _xsct_log_has_fatal_error(stdout: str, stderr: str) -> bool:
     log = f"{stdout}\n{stderr}"
-    return bool(_XSCT_FATAL_RE.search(log))
+    return bool(_XSCT_FATAL_RE.search(log) or _VITIS_BUILD_FATAL_RE.search(log))
 
 
 def _issue_error_codes(issues: list[dict]) -> list[str]:
@@ -1858,6 +1868,7 @@ class VitisWorkspaceJobManager:
         final_completed = completed
         final_stdout = completed.stdout
         final_stderr = completed.stderr
+        final_stderr_log_path = stderr_log
         final_issues = initial_issues
         recovery_patched_make_libs: list[str] = []
         synthesized_make_libs: list[str] = []
@@ -1901,6 +1912,7 @@ class VitisWorkspaceJobManager:
                 final_completed = recovery_completed
                 final_stdout = f"{completed.stdout}\n\n[Spec2Code self-heal stdout]\n{recovery_completed.stdout}"
                 final_stderr = f"{completed.stderr}\n\n[Spec2Code self-heal stderr]\n{recovery_completed.stderr}"
+                final_stderr_log_path = recovery_stderr_log
                 final_issues = map_vitis_errors(f"{recovery_completed.stdout}\n{recovery_completed.stderr}") if (recovery_completed.returncode != 0 or recovery_fatal) else []
                 self_heal["successful"] = recovery_completed.returncode == 0 and not recovery_fatal
                 self_heal["message"] = "Recovery build geçti." if self_heal["successful"] else "Recovery build de hata verdi."
@@ -1974,7 +1986,7 @@ class VitisWorkspaceJobManager:
             reason = f"exit={final_completed.returncode}" if final_completed.returncode != 0 else "XSCT log hata içeriyor"
             raise RuntimeError(
                 "XSCT workspace üretimi hata ile bitti "
-                f"({reason}). Log: {stderr_log}"
+                f"({reason}). Log: {final_stderr_log_path}"
             )
         if artifact_issues:
             if job.result is not None:

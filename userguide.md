@@ -418,8 +418,10 @@ platform/application projesini bastan kurmaz; mevcut workspace uzerinde
 driver-none, `bsp regenerate` ve `app build` dener. Log'da `make.libs` hedefi
 olup dosya taramada yoksa self-heal sentetik no-op `make.libs` olusturabilir; bu
 path `Sentetik make.libs` olarak gorunur. Self-heal basarili olursa panelde
-`self-heal gecti` rozeti gorunur. Basarisiz olursa Doctor panelindeki hata kodu
-ve sayilar kok sebebi anlamak icin kalir.
+`self-heal gecti` rozeti gorunur. Bu rozet icin recovery XSCT donus kodunun
+basarili olmasi yetmez; recovery logunda `cc1.exe fatal error`, `make: ***`,
+`Failed to build` veya benzer build-fatal imzalari kalmamali. Basarisiz olursa
+Doctor panelindeki hata kodu ve sayilar kok sebebi anlamak icin kalir.
 
 XSCT/app build hata vermese bile application adiyla eslesen `.elf` dosyasi
 bulunamazsa workspace `hazir` sayilmaz. Bu durumda `S2C-VITIS-ELF-009` hata kodu
