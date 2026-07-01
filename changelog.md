@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.77 - 2026-07-01
+
+- `kimi_vitis_debug_guide.md` icine ZCU102/custom IP yok/application ELF yok
+  senaryosu icin hedefli debug bolumu eklendi.
+- Kimi'ye dogrudan verilecek prompt, gerekli `dir`/`findstr` komutlari ve
+  `aarch64-none-elf-ar: creating ../../lib/libfreertos.a` satirinin nasil
+  yorumlanacagi dokumante edildi.
+- Source kod istemeden once application project, source import, app build logu ve
+  ELF listesi uzerinden debug edilmesi gereken kanit akisi netlestirildi.
+
 ## v0.1.76 - 2026-07-01
 
 - Release paketlerine `kimi_vitis_debug_guide.md` eklendi.

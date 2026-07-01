@@ -93,7 +93,187 @@ Custom IP policy: Auto: custom IP - none veya keep
 Sirket icindeki path'ler veya IP isimleri gizli kabul ediliyorsa path'leri
 sanitize edebilirsin. Ancak dosya adi, log satiri ve hata imzasi korunmali.
 
-## 3. Windows'ta Hizli Dosya Listesi Cikarma
+## 3. ZCU102 / Custom IP Yok / Application ELF Yok Senaryosu
+
+Bu senaryo custom PL IP probleminden farklidir. Tipik durum:
+
+```text
+XSA: ZCU102 veya custom IP icermeyen temiz XSA
+Custom IP adaylari: 0
+XSA make.libs: 0
+Workspace BSP make.libs: 0
+FSBL/PMU gibi ELF dosyalari var
+Beklenen application ELF yok: spec2code_test_sw.elf
+XSCT stderr icinde belirgin compiler error yok
+UI'da unclassified olarak normal gorunebilecek bir satir cikmis olabilir:
+aarch64-none-elf-ar: creating ../../lib/libfreertos.a
+```
+
+Bu durumda Kimi custom IP tarafina odaklanmamali. Oncelik application project
+olustu mu, generated source import edildi mi, app build gercekten calisti mi ve
+application build logu nerede sorularidir.
+
+### 3.1 Kimi'ye Verilecek Hedefli Prompt
+
+Asagidaki metni Kimi'ye aynen ver:
+
+```text
+Bu debug oturumu custom PL IP hatasi degil. XSA ZCU102 / custom IP yok gibi
+gorunuyor. Spec2Code Doctor'da custom IP aday sayisi 0, XSA make.libs 0,
+workspace make.libs 0. FSBL/PMU ELF dosyalari uretilmis, fakat beklenen
+application ELF uretilmemis.
+
+Beklenen application ELF:
+spec2code_test_sw.elf
+
+Gorunen onemli ipucu:
+aarch64-none-elf-ar: creating ../../lib/libfreertos.a
+
+Bu satiri tek basina hata kabul etme; FreeRTOS BSP library olusurken normal
+bir archive creation satiri olabilir. Asil hata application build logunda,
+application import/build adiminda veya app proje hedefinde olabilir.
+
+Sadece sana verdigim log, Tcl script, manifest ve dosya listelerini kullan.
+Dis bilgi uydurma. Source kod verilmediyse source kod hakkinda tahmin yapma.
+
+Onceliklerin:
+1. spec2code_create_workspace.tcl icinde app_name, platform_name, system_name,
+   domain_name ve processor degerlerini cikar.
+2. xsct_stdout.log ve xsct_stderr.log icinde su adimlarin gecip gecmedigini
+   kanit satirlariyla kontrol et:
+   - creating named platform/system/application from XSA
+   - importing generated sources
+   - building application
+   - done
+3. Workspace dosya listesinde app proje klasoru var mi kontrol et.
+4. Workspace dosya listesinde app Debug/Release klasoru ve app build loglari
+   var mi kontrol et.
+5. Tum *.elf listesini incele; FSBL/PMU ELF ile application ELF'i ayir.
+6. Application ELF yoksa bunun nedeni:
+   - app build hic calismamis,
+   - app build calismis ama hata logu ayrica workspace altinda kalmis,
+   - sources import edilmemis,
+   - app name/path beklenenden farkli,
+   - app link asamasina gecmemis,
+   seceneklerinden hangisine daha yakin?
+7. aarch64-none-elf-ar libfreertos.a satirini sadece FreeRTOS BSP build
+   kaniti olarak yorumla; baska fatal imza yoksa bunu root cause yapma.
+
+Cikti formatin su olsun:
+
+VERDICT:
+- PASS/FAIL:
+- Aktif blokaj:
+- Custom IP ile ilgili mi: Evet/Hayir
+
+KANIT:
+- app_name:
+- processor:
+- runtime/os:
+- XSCT adim kanitlari:
+- Application proje klasoru kaniti:
+- Application build log kaniti:
+- ELF listesi kaniti:
+
+ELF DURUMU:
+- Beklenen ELF:
+- Bulunan application disi ELF'ler:
+- Application ELF eslesmesi var mi:
+
+KOK SEBEP ADAYI:
+- En olasi neden:
+- Alternatif nedenler:
+- Bunu destekleyen log/path kaniti:
+
+KIMI'NIN ISTEDIGI EK DOSYALAR:
+- Source kod istemeden once eksik olan log/path listesi:
+
+SPEC2CODE ICIN ONERI:
+- UI/backend hangi ek logu gostermeli?
+- Missing application ELF durumunda hangi workspace klasorleri taranmali?
+- Mapper hangi satiri yanlis unclassified hata gibi yorumlamis olabilir?
+```
+
+### 3.2 Bu Senaryoda Verilecek Dosyalar
+
+Kimi'ye source koddan once su dosyalari ve komut ciktilari ver:
+
+```text
+<temp_or_staging>/spec2code_vitis_manifest.json
+<temp_or_staging>/spec2code_create_workspace.tcl
+<temp_or_staging>/logs/xsct_stdout.log
+<temp_or_staging>/logs/xsct_stderr.log
+Vitis Doctor ekran goruntusu veya metin ozeti
+Workspace altindaki *.elf listesi
+Workspace altindaki *.log listesi
+Workspace altindaki app_name iceren path listesi
+Temp/Staging altindaki *.elf listesi
+Temp/Staging altindaki *.log listesi
+```
+
+Bu durumda `xsct_self_heal_*` dosyalari yoksa sorun degil; self-heal gerekmemis
+olabilir. Varsa yine de ver, ama custom IP aday sayisi 0 ise Kimi bunu ana yol
+haline getirmemeli.
+
+### 3.3 Windows Komutlari
+
+Path'leri kendi workspace ve temp dizinine gore duzenle:
+
+```bat
+dir /S /B "D:\path\to\workspace\*.elf"
+dir /S /B "D:\path\to\workspace\*.log"
+dir /S /B "D:\path\to\workspace\*spec2code_test_sw*"
+dir /S /B "D:\path\to\temp\*.elf"
+dir /S /B "D:\path\to\temp\*.log"
+dir /S /B "D:\path\to\temp\*.tcl"
+```
+
+Application build ve import izlerini aramak icin:
+
+```bat
+findstr /S /N /I /C:"set app_name" "D:\path\to\temp\*.tcl"
+findstr /S /N /I /C:"importing generated sources" "D:\path\to\temp\*.log"
+findstr /S /N /I /C:"building application" "D:\path\to\temp\*.log"
+findstr /S /N /I /C:"app build" "D:\path\to\temp\*.log"
+findstr /S /N /I /C:"Empty Application" "D:\path\to\temp\*.log"
+findstr /S /N /I /C:"named platform/system flow failed" "D:\path\to\temp\*.log"
+```
+
+Workspace altindaki gercek app build hatalarini aramak icin:
+
+```bat
+findstr /S /N /I /C:"error:" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"fatal error" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"undefined reference" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"No rule to make target" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"Nothing to be done" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"main" "D:\path\to\workspace\*.log"
+findstr /S /N /I /C:"spec2code_test_sw" "D:\path\to\workspace\*.log"
+```
+
+Bu komutlar hata bulmazsa Kimi su noktayi acik yazmali:
+
+```text
+Verilen loglarda application build'in neden ELF uretmedigi kanitlanamiyor.
+Workspace icindeki app project metadata, build loglari veya Vitis GUI project
+tree bilgisi gerekiyor. Source kod istemek icin henuz yeterli kanit yok.
+```
+
+### 3.4 Bu Senaryoda Source Kodu Ne Zaman Verilmeli?
+
+Source kod sadece su kanitlardan biri varsa verilmeli:
+
+```text
+Workspace app build logunda generated .c/.h dosyasina ait compile error var.
+Link logunda undefined reference veya missing main var.
+Application source import edilmis ama belirli source dosyasi compile etmiyor.
+xparameters.h macro uyumsuzlugu application compile logunda gorunuyor.
+```
+
+Bu kanit yoksa once app build loglari, project path'leri ve generated source'un
+Vitis app projesine import edilip edilmedigi bulunmali.
+
+## 4. Windows'ta Hizli Dosya Listesi Cikarma
 
 Bu komutlar Windows ortaminda lokal olarak calistirilip ciktisi Kimi'ye
 verilebilir. Path'leri kendi workspace/temp dizinine gore duzenle.
@@ -117,9 +297,9 @@ findstr /S /N /I /C:"mem_pcie_intr" "D:\path\to\temp\*.log"
 findstr /S /N /I /C:"set app_name" "D:\path\to\temp\*.tcl"
 ```
 
-## 4. Analiz Kurallari
+## 5. Analiz Kurallari
 
-### 4.1 Initial hata ve final hata ayrimi
+### 5.1 Initial hata ve final hata ayrimi
 
 `xsct_stderr.log` ilk denemeyi gosterir. Burada custom IP hatasi gorunebilir.
 Bu tek basina aktif blokaj demek degildir.
@@ -136,7 +316,7 @@ custom IP hatasi recovered kabul edilebilir.
 
 Recovery loglarinda fatal imza varsa, initial hata recovered sayilmaz.
 
-### 4.2 Returncode 0 tek basina basari degildir
+### 5.2 Returncode 0 tek basina basari degildir
 
 Vitis/XSCT bazi durumlarda ic build hatalarina ragmen process seviyesinde `0`
 donebilir. Bu nedenle log icinde su imzalar varsa build basarisiz sayilmalidir:
@@ -151,7 +331,7 @@ compilation terminated
 collect2.exe: error
 ```
 
-### 4.3 Custom PL IP make.libs hatasi
+### 5.3 Custom PL IP make.libs hatasi
 
 Tipik imza:
 
@@ -180,7 +360,7 @@ Patch kaniti olarak su metin aranabilir:
 Spec2Code: source-less custom PL IP BSP driver disabled
 ```
 
-### 4.4 Missing ELF hatasi
+### 5.4 Missing ELF hatasi
 
 Spec2Code icin workspace basarili sayilmak zorunda olan artifact application
 ELF'tir. FSBL veya PMU ELF'i tek basina yeterli degildir.
@@ -204,7 +384,7 @@ Application source import edilmemis olabilir.
 Application build hedefi calismamis olabilir.
 ```
 
-### 4.5 lwIP ve FreeRTOS kontrolu
+### 5.5 lwIP ve FreeRTOS kontrolu
 
 FreeRTOS kullaniliyorsa Test Bench TCP agent icin lwIP API mode `SOCKET_API`
 olmali. `RAW_API` FreeRTOS socket kullanan agent icin yanlis secimdir.
@@ -213,7 +393,7 @@ Kimi sadece logda bu konuya dair hata varsa bunu aktif kok sebep yapsin.
 Sadece uyari olarak gorunuyorsa missing ELF veya custom IP fatal yerine
 gecirmesin.
 
-## 5. Kimi'nin Vermesi Gereken Sonuc
+## 6. Kimi'nin Vermesi Gereken Sonuc
 
 Kimi uzun genel aciklama yazmamali. Beklenen cevap boyle olmali:
 
@@ -248,7 +428,7 @@ SPEC2CODE ICIN ONERI:
   tekrar patchle; build-fatal imzasi varsa self-heal basarili sayma.
 ```
 
-## 6. Source Kodu Ne Zaman Verilmeli?
+## 7. Source Kodu Ne Zaman Verilmeli?
 
 Ilk asamada source kod verilmemeli. Source kod ancak su durumlardan biri varsa
 verilmeli:
