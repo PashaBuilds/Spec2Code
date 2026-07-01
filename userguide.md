@@ -377,10 +377,15 @@ build etmeye calisirsa Spec2Code bunu uc katmanda yakalamaya calisir: staged
 `.xsa` icindeki driver `make.libs` dosyalarini Vitis gormeden once patchler, Tcl
 script `bsp regenerate`/`app build` oncesi workspace'i tarar ve XSCT calisirken
 host watcher application, FSBL ve PMU/PMUFW BSP `libsrc` klasorlerini izler.
-Orijinal `make.libs` dosyalari `.spec2code_backup` olarak saklanir. Bu, driver
-dosyasi olmayan custom IP'lerin BSP build'i bozmasini engellemek icin
+Vitis build log'u `psu_cortexa53_0/libsrc/<driver>/src/make.libs` gibi bir hedef
+gosteriyor ama taramada fiziksel dosya bulunmuyorsa self-heal ayni processor BSP
+koku altinda sentetik no-op `make.libs` olusturup recovery build'i dener.
+Orijinal var olan `make.libs` dosyalari `.spec2code_backup` olarak saklanir. Bu,
+driver dosyasi olmayan custom IP'lerin BSP build'i bozmasini engellemek icin
 tasarlanmistir. Vitis panelindeki `BSP patch N` rozeti toplam patch sayisini
-gosterir; `BSP patch 0` hic patch uygulanmadigi anlamina gelir. Eger custom IP
+gosterir; Doctor icindeki `Log make.libs hedefleri` ise log'da gorulen hedefleri
+ayrica listeler. `BSP patch 0`, hic patch uygulanmadigi veya hedefin ancak
+self-heal sirasinda sentetik olusturulabildigi anlamina gelebilir. Eger custom IP
 gercek ve kullanilacak bir sirket driver'i ile geliyorsa Vitis panelinde
 `BSP default'u koru` secilmelidir.
 
@@ -405,9 +410,11 @@ build sonrasinda workspace/temp altini tekrar tarar. Patchlenecek source'suz
 `make.libs` bulunursa mevcut workspace'i bozmadan
 `spec2code_self_heal_workspace.tcl` calistirilir. Bu recovery script
 platform/application projesini bastan kurmaz; mevcut workspace uzerinde
-driver-none, `bsp regenerate` ve `app build` dener. Self-heal basarili olursa
-panelde `self-heal gecti` rozeti gorunur. Basarisiz olursa Doctor panelindeki
-hata kodu ve sayilar kok sebebi anlamak icin kalir.
+driver-none, `bsp regenerate` ve `app build` dener. Log'da `make.libs` hedefi
+olup dosya taramada yoksa self-heal sentetik no-op `make.libs` olusturabilir; bu
+path `Sentetik make.libs` olarak gorunur. Self-heal basarili olursa panelde
+`self-heal gecti` rozeti gorunur. Basarisiz olursa Doctor panelindeki hata kodu
+ve sayilar kok sebebi anlamak icin kalir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:

@@ -31,6 +31,10 @@ _XSCT_FATAL_RE = re.compile(
     r"(invalid command name|while executing|^ERROR:|traceback|exception)",
     re.IGNORECASE | re.MULTILINE,
 )
+_MAKE_LIBS_TARGET_RE = re.compile(
+    r"(?P<processor>[^/\\\s:\]]+)[/\\]libsrc[/\\](?P<driver>[^/\\\s:\]]+)[/\\]src[/\\]make\.libs",
+    re.IGNORECASE,
+)
 _KNOWN_AMD_XILINX_VENDORS = {"xilinx.com", "amd.com"}
 _CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep"}
 _VITIS_ERROR_CODES = {
@@ -581,6 +585,24 @@ def _is_known_xilinx_libsrc(libsrc_name: str) -> bool:
     }
 
 
+def make_libs_targets_from_log(log_text: str) -> list[dict]:
+    targets: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for match in _MAKE_LIBS_TARGET_RE.finditer(log_text):
+        processor = match.group("processor")
+        driver = match.group("driver")
+        key = (processor.lower(), driver.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        targets.append({
+            "processor": processor,
+            "driver": driver,
+            "path_tail": f"{processor}/libsrc/{driver}/src/make.libs",
+        })
+    return targets
+
+
 def _make_libs_matches_custom_ip(make_libs: Path, custom_ip_instances: list[str]) -> bool:
     libsrc_name = _normalize_custom_ip_token(make_libs.parent.parent.name)
     for custom_ip in custom_ip_instances:
@@ -649,6 +671,58 @@ def patch_custom_ip_make_libs_many(root_paths: list[Path], custom_ip_instances: 
     for root_path in root_paths:
         patched.extend(patch_custom_ip_make_libs(root_path, custom_ip_instances, policy))
     return sorted(set(patched))
+
+
+def synthesize_make_libs_from_log_targets(root_paths: list[Path], log_text: str, policy: str) -> list[str]:
+    if normalize_custom_ip_driver_policy(policy) != "auto_none":
+        return []
+    created: list[str] = []
+    targets = make_libs_targets_from_log(log_text)
+    if not targets:
+        return []
+
+    root_resolved: list[Path] = []
+    for root_path in root_paths:
+        if root_path.exists():
+            try:
+                root_resolved.append(root_path.resolve())
+            except OSError:
+                continue
+
+    for target in targets:
+        driver = _normalize_custom_ip_token(str(target["driver"]))
+        if not driver or _is_known_xilinx_libsrc(driver):
+            continue
+        processor = str(target["processor"])
+        path_tail = str(target["path_tail"])
+        processor_dirs: list[Path] = []
+        for root_path in root_paths:
+            if not root_path.exists():
+                continue
+            for candidate in root_path.rglob(processor):
+                if candidate.is_dir() and candidate.name == processor:
+                    processor_dirs.append(candidate)
+            for makefile in root_path.rglob("Makefile"):
+                if not makefile.is_file():
+                    continue
+                try:
+                    text = makefile.read_text(encoding="utf-8", errors="replace").replace("\\", "/")
+                except OSError:
+                    continue
+                if path_tail in text:
+                    processor_dirs.append(makefile.parent / processor)
+        for processor_dir in sorted(set(processor_dirs)):
+            make_libs = processor_dir / "libsrc" / str(target["driver"]) / "src" / "make.libs"
+            try:
+                resolved = make_libs.resolve()
+                if not any(resolved.is_relative_to(root) for root in root_resolved):
+                    continue
+            except OSError:
+                continue
+            make_libs.parent.mkdir(parents=True, exist_ok=True)
+            if _write_noop_make_libs(make_libs):
+                created.append(str(make_libs))
+    return sorted(set(created))
 
 
 def inspect_filesystem_make_libs(root_paths: list[Path], custom_ip_instances: list[str], policy: str) -> dict:
@@ -885,6 +959,7 @@ def build_vitis_doctor(
     custom_pl_ips: list[CustomPlIpCandidate],
     xsa_make_libs: dict,
     workspace_make_libs: dict | None = None,
+    log_make_libs_targets: list[dict] | None = None,
     xsa_patched_count: int = 0,
     host_patched_count: int = 0,
     requires_lwip: bool = False,
@@ -893,6 +968,7 @@ def build_vitis_doctor(
     self_heal: dict | None = None,
 ) -> dict:
     issues = issues or []
+    log_make_libs_targets = log_make_libs_targets or []
     error_codes = _issue_error_codes(issues)
     checks: list[dict] = []
     hints: list[str] = []
@@ -952,6 +1028,15 @@ def build_vitis_doctor(
             "detail": f"{workspace_make_libs.get('total', 0)} make.libs, {workspace_make_libs.get('risky', 0)} riskli.",
         })
 
+    if log_make_libs_targets:
+        labels = ", ".join(str(item.get("driver", "")) for item in log_make_libs_targets[:4])
+        checks.append({
+            "id": "log_make_libs_targets",
+            "label": "Log make.libs hedefleri",
+            "status": "warn",
+            "detail": f"Build log {len(log_make_libs_targets)} make.libs hedefi gösteriyor: {labels}.",
+        })
+
     if requires_lwip:
         checks.append({
             "id": "lwip",
@@ -994,6 +1079,8 @@ def build_vitis_doctor(
 
     if any(issue.get("category") == "custom_ip_bsp_driver" for issue in issues):
         hints.append("Custom IP BSP driver source'suz görünüyor; `Auto: custom IP - none` ve temiz workspace/temp ile tekrar dene.")
+    if log_make_libs_targets and workspace_make_libs and workspace_make_libs.get("total", 0) == 0:
+        hints.append("Build log make.libs hedefi gösteriyor ama dosya taramada yok; self-heal sentetik no-op make.libs üretmeyi dener.")
     if not custom_pl_ips and custom_ip_driver_policy == "auto_none":
         hints.append("Custom IP listesi 0 ise HWH custom IP'yi standart IP gibi gösteriyor olabilir; Doctor panelindeki XSA make.libs risk sayısını kontrol et.")
     if requires_lwip and lwip_api_mode:
@@ -1018,6 +1105,7 @@ def build_vitis_doctor(
         ],
         "xsa_make_libs": xsa_make_libs,
         "workspace_make_libs": workspace_make_libs,
+        "log_make_libs_targets": log_make_libs_targets,
     }
 
 
@@ -1659,14 +1747,17 @@ class VitisWorkspaceJobManager:
             host_patched_make_libs = watcher.stop()
         stdout_log.write_text(completed.stdout, encoding="utf-8")
         stderr_log.write_text(completed.stderr, encoding="utf-8")
+        initial_log_text = f"{completed.stdout}\n{completed.stderr}"
+        log_make_libs_targets = make_libs_targets_from_log(initial_log_text)
         log_has_fatal_error = _xsct_log_has_fatal_error(completed.stdout, completed.stderr)
-        initial_issues = map_vitis_errors(f"{completed.stdout}\n{completed.stderr}") if (completed.returncode != 0 or log_has_fatal_error) else []
+        initial_issues = map_vitis_errors(initial_log_text) if (completed.returncode != 0 or log_has_fatal_error) else []
         self_heal = {
             "attempted": False,
             "successful": False,
             "reason": "",
             "message": "Self-heal gerekli olmadı.",
             "patched_make_libs": [],
+            "synthesized_make_libs": [],
             "recovery_script_path": str(recovery_script_path),
             "stdout_log": str(recovery_stdout_log),
             "stderr_log": str(recovery_stderr_log),
@@ -1676,6 +1767,7 @@ class VitisWorkspaceJobManager:
         final_stderr = completed.stderr
         final_issues = initial_issues
         recovery_patched_make_libs: list[str] = []
+        synthesized_make_libs: list[str] = []
 
         if initial_issues and _should_retry_custom_ip_self_heal(initial_issues, custom_ip_driver_policy):
             self_heal["attempted"] = True
@@ -1691,8 +1783,15 @@ class VitisWorkspaceJobManager:
                 custom_ip_instances,
                 custom_ip_driver_policy,
             )
-            self_heal["patched_make_libs"] = [_path_tail(path) for path in sorted(set(host_patched_make_libs + recovery_patched_make_libs))]
-            if host_patched_make_libs or recovery_patched_make_libs:
+            synthesized_make_libs = synthesize_make_libs_from_log_targets(
+                patch_roots,
+                initial_log_text,
+                custom_ip_driver_policy,
+            )
+            all_self_heal_paths = sorted(set(host_patched_make_libs + recovery_patched_make_libs + synthesized_make_libs))
+            self_heal["patched_make_libs"] = [_path_tail(path) for path in all_self_heal_paths]
+            self_heal["synthesized_make_libs"] = [_path_tail(path) for path in synthesized_make_libs]
+            if all_self_heal_paths:
                 recovery_completed = subprocess.run(
                     _command_for(xsct.path, str(recovery_script_path)),
                     cwd=workspace_path,
@@ -1715,13 +1814,14 @@ class VitisWorkspaceJobManager:
             else:
                 self_heal["message"] = "Recovery denenmedi; patchlenecek make.libs bulunamadı."
 
-        host_patched_make_libs = sorted(set(host_patched_make_libs + recovery_patched_make_libs))
+        host_patched_make_libs = sorted(set(host_patched_make_libs + recovery_patched_make_libs + synthesized_make_libs))
         workspace_make_libs = inspect_filesystem_make_libs(patch_roots, custom_ip_instances, custom_ip_driver_policy)
         vitis_doctor = build_vitis_doctor(
             custom_ip_driver_policy=custom_ip_driver_policy,
             custom_pl_ips=custom_pl_ips,
             xsa_make_libs=xsa_make_libs_preflight,
             workspace_make_libs=workspace_make_libs,
+            log_make_libs_targets=log_make_libs_targets,
             xsa_patched_count=len(xsa_patched_make_libs),
             host_patched_count=len(host_patched_make_libs),
             requires_lwip=requires_lwip,
@@ -1740,6 +1840,7 @@ class VitisWorkspaceJobManager:
             job.result["custom_ip_make_libs_patched_count"] = len(host_patched_make_libs)
             job.result["custom_ip_bsp_patch_total_count"] = len(host_patched_make_libs) + len(xsa_patched_make_libs)
             job.result["workspace_make_libs_diagnostic"] = workspace_make_libs
+            job.result["log_make_libs_targets"] = log_make_libs_targets
             job.result["self_heal"] = self_heal
             job.result["vitis_doctor"] = vitis_doctor
         if final_completed.returncode != 0 or final_has_fatal_error:

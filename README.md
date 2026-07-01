@@ -300,16 +300,18 @@ source'suz custom IP driver klasörünü build etmeye çalışırsa ilgili
 önce, Tcl akışında `bsp regenerate` / `app build` öncesinde ve XSCT çalışırken
 host watcher ile no-op hedeflere çevrilir. Host watcher application, FSBL ve
 PMU/PMUFW BSP `libsrc` klasörlerini de izler; orijinal dosya `.spec2code_backup`
-olarak korunur. Şirket içinde gerçek driver'ı olan custom IP'leri BSP default
-haliyle bırakmak istiyorsan Vitis panelinde **BSP default'u koru** seçeneğini
-kullan.
+olarak korunur. Build log'u `psu_cortexa53_0/libsrc/<driver>/src/make.libs`
+hedefi gösterdiği halde fiziksel dosya taramada yoksa self-heal bu hedefe göre
+sentetik no-op `make.libs` oluşturup recovery build'i dener. Şirket içinde gerçek
+driver'ı olan custom IP'leri BSP default haliyle bırakmak istiyorsan Vitis
+panelinde **BSP default'u koru** seçeneğini kullan.
 
 Vitis panelindeki **Vitis Doctor** bölümü lokal tanı sağlar; otomatik log/zip
 export etmez. Custom IP adayları, XSA/workspace `make.libs` sayıları, riskli
-source'suz driver durumu, `S2C-VITIS-...` hata kodları ve self-heal sonucu burada
-görünür. Custom IP BSP `*.c Invalid argument` hatası yakalanırsa Spec2Code mevcut
-workspace üzerinde recovery Tcl ile `bsp regenerate` ve `app build` denemesi
-yapar.
+source'suz driver durumu, log'da görülen `make.libs` hedefleri,
+`S2C-VITIS-...` hata kodları ve self-heal sonucu burada görünür. Custom IP BSP
+`*.c Invalid argument` hatası yakalanırsa Spec2Code mevcut workspace üzerinde
+recovery Tcl ile `bsp regenerate` ve `app build` denemesi yapar.
 
 Headless script akışı:
 

@@ -212,6 +212,7 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
   const checks = doctor?.checks ?? [];
   const xsa = doctor?.xsa_make_libs;
   const workspace = doctor?.workspace_make_libs;
+  const logTargets = doctor?.log_make_libs_targets ?? [];
 
   return (
     <div className="mt-3 rounded-md border border-border bg-inset/80">
@@ -252,10 +253,33 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
                   ))}
                 </div>
               ) : null}
+              {selfHeal.synthesized_make_libs?.length ? (
+                <div className="mt-2 rounded border border-accent/25 bg-bg/40 px-2 py-1.5">
+                  <div className="mb-1 text-[10px] font-semibold text-accent">Sentetik make.libs</div>
+                  <div className="space-y-1">
+                    {selfHeal.synthesized_make_libs.slice(0, 4).map((path) => (
+                      <div key={path} className="break-all font-mono text-[10px] text-text">{path}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
         <div className="space-y-2">
+          {logTargets.length ? (
+            <div className="rounded border border-warn/35 bg-warn/10 px-3 py-2 text-[11px]">
+              <div className="mb-1 font-semibold text-text">Log make.libs hedefleri</div>
+              <div className="space-y-1">
+                {logTargets.slice(0, 6).map((item) => (
+                  <div key={`${item.processor}-${item.driver}`} className="min-w-0">
+                    <div className="font-mono text-text">{item.driver}</div>
+                    <div className="break-all font-mono text-[10px] text-muted">{item.path_tail}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {xsa ? (
             <div className="rounded border border-border bg-bg/50 px-3 py-2 text-[11px]">
               <div className="mb-1 font-semibold text-text">XSA preflight</div>

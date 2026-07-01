@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.72 - 2026-07-01
+
+- Vitis Doctor artik build log icindeki `psu_cortexa53_0/libsrc/<driver>/src/make.libs` hedeflerini ayrica cikarir ve UI'da `Log make.libs hedefleri` olarak gosterir.
+- Custom IP self-heal, Vitis log'u `make.libs` hedefi gosterdigi halde workspace/temp taramasinda fiziksel dosya bulamazsa ilgili processor BSP koku altinda sentetik no-op `make.libs` olusturup recovery build'i dener.
+- Bu fallback, `Workspace BSP make.libs=0` gorunurken log'da `mem_pcie_intr_v1_0/src/make.libs` hatasi bulunan airgap Windows senaryosunu daha dogru handle eder.
+- Self-heal sonucunda normal patchlenen ve sentetik olusturulan `make.libs` path'leri UI'da ayrilastirildi.
+
 ## v0.1.71 - 2026-06-30
 
 - Vitis workspace paneline lokal `Vitis Doctor` tanisi eklendi; custom IP adaylari, XSA/workspace `make.libs` sayilari, riskli source'suz driver durumu, hata kodlari ve self-heal sonucu UI icinde gosterilir.

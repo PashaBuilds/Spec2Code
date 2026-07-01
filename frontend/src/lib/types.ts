@@ -159,9 +159,16 @@ export interface VitisSelfHeal {
   reason?: string;
   message?: string;
   patched_make_libs?: string[];
+  synthesized_make_libs?: string[];
   recovery_script_path?: string;
   stdout_log?: string;
   stderr_log?: string;
+}
+
+export interface VitisLogMakeLibsTarget {
+  processor: string;
+  driver: string;
+  path_tail: string;
 }
 
 export interface VitisDoctor {
@@ -173,6 +180,7 @@ export interface VitisDoctor {
   custom_ip_candidates?: Array<Pick<CustomPlIpCandidate, "instance" | "ip_name" | "reason">>;
   xsa_make_libs?: VitisMakeLibsDiagnostic;
   workspace_make_libs?: VitisMakeLibsDiagnostic | null;
+  log_make_libs_targets?: VitisLogMakeLibsTarget[];
 }
 
 export interface VitisWorkspaceResult {
