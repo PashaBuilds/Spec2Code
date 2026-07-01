@@ -398,6 +398,8 @@ otomatik olarak disari dosya, log veya zip aktarmaz. Airgap kullaniminda buradak
 soyut bilgiler debug surecini hizlandirmak icin tasarlanmistir:
 
 - `S2C-VITIS-...` hata kodlari.
+- Self-heal ile kapanmis hata kodlari; bunlar aktif blokaj degil, onceki denemede
+  gorulup recovery build ile asilmis durumlardir.
 - Custom IP aday sayisi.
 - XSA icinde kac `make.libs` bulundugu.
 - Workspace/FSBL/PMU/application BSP tarafinda kac riskli `make.libs` goruldugu.

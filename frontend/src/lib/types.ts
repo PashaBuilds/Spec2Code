@@ -189,6 +189,7 @@ export interface VitisDoctor {
   status: "ok" | "warn" | "error" | string;
   privacy?: string;
   error_codes: string[];
+  recovered_error_codes?: string[];
   checks: VitisDoctorCheck[];
   hints: string[];
   custom_ip_candidates?: Array<Pick<CustomPlIpCandidate, "instance" | "ip_name" | "reason">>;

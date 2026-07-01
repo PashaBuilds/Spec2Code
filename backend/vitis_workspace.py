@@ -1024,11 +1024,14 @@ def build_vitis_doctor(
     requires_lwip: bool = False,
     lwip_api_mode: str | None = None,
     issues: list[dict] | None = None,
+    recovered_issues: list[dict] | None = None,
     self_heal: dict | None = None,
 ) -> dict:
     issues = issues or []
+    recovered_issues = recovered_issues or []
     log_make_libs_targets = log_make_libs_targets or []
     error_codes = _issue_error_codes(issues)
+    recovered_error_codes = _issue_error_codes(recovered_issues)
     checks: list[dict] = []
     hints: list[str] = []
 
@@ -1143,8 +1146,16 @@ def build_vitis_doctor(
         checks.append({
             "id": "error_codes",
             "label": "Hata kodları",
-            "status": "warn" if self_heal_success else "error",
+            "status": "error",
             "detail": ", ".join(error_codes),
+        })
+
+    if recovered_error_codes:
+        checks.append({
+            "id": "recovered_error_codes",
+            "label": "Self-heal ile kapanan hata kodları",
+            "status": "ok" if self_heal_success else "warn",
+            "detail": ", ".join(recovered_error_codes),
         })
 
     if self_heal:
@@ -1173,6 +1184,7 @@ def build_vitis_doctor(
         "status": status,
         "privacy": "Tanı bilgisi lokal UI içindir; otomatik dışarı aktarım yapılmaz.",
         "error_codes": error_codes,
+        "recovered_error_codes": recovered_error_codes,
         "checks": checks,
         "hints": hints[:6],
         "custom_ip_candidates": [
@@ -1915,7 +1927,8 @@ class VitisWorkspaceJobManager:
                 ),
                 "source": "Spec2Code",
             })
-        doctor_issues = (final_issues or initial_issues) + artifact_issues
+        recovered_issues = initial_issues if self_heal.get("successful") else []
+        doctor_issues = final_issues + artifact_issues
         vitis_doctor = build_vitis_doctor(
             custom_ip_driver_policy=custom_ip_driver_policy,
             custom_pl_ips=custom_pl_ips,
@@ -1928,6 +1941,7 @@ class VitisWorkspaceJobManager:
             requires_lwip=requires_lwip,
             lwip_api_mode=lwip_api_mode,
             issues=doctor_issues,
+            recovered_issues=recovered_issues,
             self_heal=self_heal,
         )
         if job.result is not None:

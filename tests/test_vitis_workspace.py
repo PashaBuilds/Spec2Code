@@ -729,7 +729,8 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertEqual(result["xsct_exit_code"], 0)
                 self.assertTrue(result["self_heal"]["attempted"])
                 self.assertTrue(result["self_heal"]["successful"])
-                self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
+                self.assertNotIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
+                self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["recovered_error_codes"])
                 self.assertGreater(result["custom_ip_make_libs_patched_count"], 0)
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
@@ -790,6 +791,8 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertTrue(result["self_heal"]["attempted"])
                 self.assertTrue(result["self_heal"]["successful"])
                 self.assertEqual(result["vitis_doctor"]["log_make_libs_targets"][0]["driver"], "mem_pcie_intr_v1_0")
+                self.assertNotIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
+                self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["recovered_error_codes"])
                 self.assertTrue(result["self_heal"]["synthesized_make_libs"])
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"

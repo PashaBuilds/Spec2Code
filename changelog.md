@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.74 - 2026-07-01
+
+- Vitis Doctor aktif hata kodlari ile self-heal tarafindan kapanmis hata kodlarini ayirdi.
+- Custom IP `make.libs` hatasi recovery build ile kapanmissa artik kirmizi aktif hata gibi degil, `kapandi S2C-VITIS-CUSTOM-IP-MAKELIBS-001` olarak gosterilir.
+- Application ELF yoksa aktif hata listesinde yalnizca `S2C-VITIS-ELF-009` kalir; boylece `xsct_stderr.log` icindeki ilk deneme hatalari ile son blokaj birbirine karismaz.
+
 ## v0.1.73 - 2026-07-01
 
 - Vitis workspace akisi artik XSCT/app build basarili donse bile application ELF dosyasini ayrica dogrular.

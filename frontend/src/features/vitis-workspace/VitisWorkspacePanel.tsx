@@ -209,6 +209,7 @@ function doctorTone(status: string): BadgeTone {
 function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal?: VitisSelfHeal }) {
   if (!doctor && !selfHeal) return null;
   const codes = doctor?.error_codes ?? [];
+  const recoveredCodes = doctor?.recovered_error_codes ?? [];
   const checks = doctor?.checks ?? [];
   const xsa = doctor?.xsa_make_libs;
   const workspace = doctor?.workspace_make_libs;
@@ -226,6 +227,7 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
         <div className="flex flex-wrap items-center gap-1.5">
           {doctor ? <Badge tone={doctorTone(doctor.status)}>doctor {doctor.status}</Badge> : null}
           {selfHeal?.attempted ? <Badge tone={selfHeal.successful ? "ok" : "warn"}>self-heal {selfHeal.successful ? "geçti" : "denendi"}</Badge> : null}
+          {recoveredCodes.map((code) => <Badge key={`recovered-${code}`} tone="ok" className="font-mono">kapandı {code}</Badge>)}
           {codes.map((code) => <Badge key={code} tone="danger" className="font-mono">{code}</Badge>)}
         </div>
       </div>
