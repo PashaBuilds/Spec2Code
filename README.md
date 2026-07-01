@@ -281,6 +281,10 @@ klasörüne şunları yazar:
 - `spec2code_vitis_manifest.json`: path, processor, OS ve Vitis sürümü
 - `logs/xsct_stdout.log`, `logs/xsct_stderr.log`: Vitis/XSCT çıktıları
 
+Build tamamlandıktan sonra workspace ve staging dizinleri içinde application
+adıyla eşleşen `.elf` ayrıca doğrulanır. ELF bulunamazsa XSCT hata vermemiş olsa
+bile workspace hazır sayılmaz.
+
 Zynq UltraScale+ PS Ethernet ile lwIP test bench dosyaları üretildiyse manifest
 `requires_lwip: true` bilgisini içerir. Script BSP tarafında `lwip220`,
 `lwip213`, `lwip211` ve `lwip202` library adlarını sırayla enable etmeyi dener;
@@ -309,9 +313,11 @@ panelinde **BSP default'u koru** seçeneğini kullan.
 Vitis panelindeki **Vitis Doctor** bölümü lokal tanı sağlar; otomatik log/zip
 export etmez. Custom IP adayları, XSA/workspace `make.libs` sayıları, riskli
 source'suz driver durumu, log'da görülen `make.libs` hedefleri,
-`S2C-VITIS-...` hata kodları ve self-heal sonucu burada görünür. Custom IP BSP
-`*.c Invalid argument` hatası yakalanırsa Spec2Code mevcut workspace üzerinde
-recovery Tcl ile `bsp regenerate` ve `app build` denemesi yapar.
+application ELF doğrulaması, `S2C-VITIS-...` hata kodları ve self-heal sonucu
+burada görünür. Custom IP BSP `*.c Invalid argument` hatası yakalanırsa Spec2Code
+mevcut workspace üzerinde recovery Tcl ile `bsp regenerate` ve `app build`
+denemesi yapar. `S2C-VITIS-ELF-009`, build komutu hata vermediği halde
+application ELF bulunamadığı anlamına gelir.
 
 Headless script akışı:
 

@@ -171,6 +171,20 @@ export interface VitisLogMakeLibsTarget {
   path_tail: string;
 }
 
+export interface VitisElfArtifactSample {
+  name: string;
+  path_tail: string;
+  application_match: boolean;
+}
+
+export interface VitisElfArtifacts {
+  total: number;
+  application: number;
+  expected_names: string[];
+  samples: VitisElfArtifactSample[];
+  application_samples: VitisElfArtifactSample[];
+}
+
 export interface VitisDoctor {
   status: "ok" | "warn" | "error" | string;
   privacy?: string;
@@ -181,6 +195,7 @@ export interface VitisDoctor {
   xsa_make_libs?: VitisMakeLibsDiagnostic;
   workspace_make_libs?: VitisMakeLibsDiagnostic | null;
   log_make_libs_targets?: VitisLogMakeLibsTarget[];
+  elf_artifacts?: VitisElfArtifacts | null;
 }
 
 export interface VitisWorkspaceResult {
@@ -213,6 +228,7 @@ export interface VitisWorkspaceResult {
     custom_pl_ip_candidates?: CustomPlIpCandidate[];
     xsa_make_libs_preflight?: VitisMakeLibsDiagnostic;
     workspace_make_libs_diagnostic?: VitisMakeLibsDiagnostic;
+    vitis_elf_artifacts?: VitisElfArtifacts;
     vitis_doctor?: VitisDoctor;
     self_heal?: VitisSelfHeal;
     custom_ip_make_libs_patched?: string[];

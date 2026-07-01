@@ -46,6 +46,7 @@ _VITIS_ERROR_CODES = {
     "xsct_tcl_command": "S2C-VITIS-XSCT-TCL-006",
     "undefined_reference": "S2C-VITIS-LINK-007",
     "missing_library": "S2C-VITIS-LIBRARY-008",
+    "missing_elf": "S2C-VITIS-ELF-009",
     "unclassified": "S2C-VITIS-UNCLASSIFIED-099",
 }
 _KNOWN_XILINX_PL_IP_PREFIXES = (
@@ -430,7 +431,7 @@ def vitis_selftest_header() -> str:
     )
 
 
-def vitis_selftest_source(spec: dict) -> str:
+def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     devices = spec.get("devices", [])
     declarations: list[str] = []
@@ -479,6 +480,15 @@ def vitis_selftest_source(spec: dict) -> str:
     include_lines = [f'#include "{name}"' for name in sorted(includes) if name.endswith(".h")]
     declaration_block = "\n".join(declarations) or "/* No self-test functions were selected. */"
     call_block = "\n".join(calls) if calls else "    xil_printf(\"No Spec2Code self-tests selected.\\r\\n\");\n"
+    main_block = (
+        "\n"
+        "int main(void)\n"
+        "{\n"
+        "    return spec2codeRunSelfTests();\n"
+        "}\n"
+        if emit_main
+        else ""
+    )
     return (
         "/**\n"
         " * @file spec2code_selftest_main.c\n"
@@ -494,6 +504,7 @@ def vitis_selftest_source(spec: dict) -> str:
         + call_block
         + "    return XST_SUCCESS;\n"
         "}\n"
+        + main_block
     )
 
 
@@ -526,9 +537,10 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
         shutil.copy2(source, target)
         staged.append(target.relative_to(source_root).as_posix())
 
+    emit_selftest_main = "tests/spec2code_testbench_lwip_main.c" not in staged
     for name, content in {
         "spec2code_selftest_main.h": vitis_selftest_header(),
-        "spec2code_selftest_main.c": vitis_selftest_source(job.spec),
+        "spec2code_selftest_main.c": vitis_selftest_source(job.spec, emit_main=emit_selftest_main),
     }.items():
         target = source_root / name
         target.write_text(hio.normalize_crlf(content), encoding="utf-8", newline="")
@@ -769,6 +781,52 @@ def inspect_filesystem_make_libs(root_paths: list[Path], custom_ip_instances: li
     return summary
 
 
+def inspect_vitis_elf_artifacts(root_paths: list[Path], app_name: str) -> dict:
+    app_name_lower = app_name.lower()
+    expected_name = f"{app_name_lower}.elf" if app_name_lower else ""
+    summary = {
+        "total": 0,
+        "application": 0,
+        "expected_names": [expected_name] if expected_name else [],
+        "samples": [],
+        "application_samples": [],
+    }
+    samples: list[dict] = []
+    application_samples: list[dict] = []
+    seen: set[str] = set()
+    for root_path in root_paths:
+        if not root_path.exists():
+            continue
+        for elf_path in root_path.rglob("*.elf"):
+            if not elf_path.is_file():
+                continue
+            resolved = str(elf_path)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            parts_lower = [part.lower() for part in elf_path.parts]
+            name_lower = elf_path.name.lower()
+            is_application = bool(app_name_lower) and (
+                name_lower == expected_name
+                or app_name_lower in parts_lower
+            )
+            item = {
+                "name": elf_path.name,
+                "path_tail": _path_tail(elf_path, parts=10),
+                "application_match": is_application,
+            }
+            summary["total"] += 1
+            if len(samples) < 16:
+                samples.append(item)
+            if is_application:
+                summary["application"] += 1
+                if len(application_samples) < 8:
+                    application_samples.append(item)
+    summary["samples"] = samples
+    summary["application_samples"] = application_samples
+    return summary
+
+
 def _zip_libsrc_name(make_libs_name: str) -> str:
     parts = make_libs_name.replace("\\", "/").split("/")
     if len(parts) >= 3 and parts[-1] == "make.libs" and parts[-2] == "src":
@@ -960,6 +1018,7 @@ def build_vitis_doctor(
     xsa_make_libs: dict,
     workspace_make_libs: dict | None = None,
     log_make_libs_targets: list[dict] | None = None,
+    elf_artifacts: dict | None = None,
     xsa_patched_count: int = 0,
     host_patched_count: int = 0,
     requires_lwip: bool = False,
@@ -1037,6 +1096,25 @@ def build_vitis_doctor(
             "detail": f"Build log {len(log_make_libs_targets)} make.libs hedefi gösteriyor: {labels}.",
         })
 
+    if elf_artifacts is not None:
+        application_count = int(elf_artifacts.get("application", 0))
+        total_count = int(elf_artifacts.get("total", 0))
+        if application_count:
+            status = "ok"
+            detail = f"{application_count} application ELF bulundu."
+        elif total_count:
+            status = "warn"
+            detail = f"{total_count} ELF bulundu ama application adıyla eşleşen ELF bulunamadı."
+        else:
+            status = "error"
+            detail = "Application ELF bulunamadı; Vitis build çıktı üretmemiş olabilir."
+        checks.append({
+            "id": "elf_artifacts",
+            "label": "Application ELF",
+            "status": status,
+            "detail": detail,
+        })
+
     if requires_lwip:
         checks.append({
             "id": "lwip",
@@ -1085,6 +1163,8 @@ def build_vitis_doctor(
         hints.append("Custom IP listesi 0 ise HWH custom IP'yi standart IP gibi gösteriyor olabilir; Doctor panelindeki XSA make.libs risk sayısını kontrol et.")
     if requires_lwip and lwip_api_mode:
         hints.append(f"lwIP gerekiyorsa Vitis BSP içinde API mode değerinin {lwip_api_mode} olduğundan emin ol.")
+    if elf_artifacts is not None and int(elf_artifacts.get("application", 0)) == 0:
+        hints.append("Application ELF bulunamazsa workspace tamam sayılmamalıdır; app build logunu ve application proje adını kontrol et.")
 
     severity_order = {"error": 3, "warn": 2, "neutral": 1, "ok": 0}
     severity = max((severity_order.get(check["status"], 0) for check in checks), default=0)
@@ -1106,6 +1186,7 @@ def build_vitis_doctor(
         "xsa_make_libs": xsa_make_libs,
         "workspace_make_libs": workspace_make_libs,
         "log_make_libs_targets": log_make_libs_targets,
+        "elf_artifacts": elf_artifacts,
     }
 
 
@@ -1816,34 +1897,54 @@ class VitisWorkspaceJobManager:
 
         host_patched_make_libs = sorted(set(host_patched_make_libs + recovery_patched_make_libs + synthesized_make_libs))
         workspace_make_libs = inspect_filesystem_make_libs(patch_roots, custom_ip_instances, custom_ip_driver_policy)
+        elf_artifacts = inspect_vitis_elf_artifacts([workspace_path, staging_root], app_name)
+        final_has_fatal_error = _xsct_log_has_fatal_error(final_completed.stdout, final_completed.stderr)
+        build_failed = final_completed.returncode != 0 or final_has_fatal_error
+        artifact_issues: list[dict] = []
+        if not build_failed and int(elf_artifacts.get("application", 0)) == 0:
+            artifact_issues.append({
+                "file": str(workspace_path),
+                "line": 0,
+                "column": 0,
+                "rule": "spec2code-vitis-artifact",
+                "severity": "error",
+                "category": "missing_elf",
+                "message": (
+                    f"Vitis build hata vermedi ama application ELF bulunamadı. "
+                    f"Beklenen application adı: {app_name}"
+                ),
+                "source": "Spec2Code",
+            })
+        doctor_issues = (final_issues or initial_issues) + artifact_issues
         vitis_doctor = build_vitis_doctor(
             custom_ip_driver_policy=custom_ip_driver_policy,
             custom_pl_ips=custom_pl_ips,
             xsa_make_libs=xsa_make_libs_preflight,
             workspace_make_libs=workspace_make_libs,
             log_make_libs_targets=log_make_libs_targets,
+            elf_artifacts=elf_artifacts,
             xsa_patched_count=len(xsa_patched_make_libs),
             host_patched_count=len(host_patched_make_libs),
             requires_lwip=requires_lwip,
             lwip_api_mode=lwip_api_mode,
-            issues=final_issues or initial_issues,
+            issues=doctor_issues,
             self_heal=self_heal,
         )
-        final_has_fatal_error = _xsct_log_has_fatal_error(final_completed.stdout, final_completed.stderr)
         if job.result is not None:
             job.result["xsct_initial_exit_code"] = completed.returncode
             job.result["xsct_exit_code"] = final_completed.returncode
             job.result["xsct_stdout_tail"] = _log_tail(final_stdout)
             job.result["xsct_stderr_tail"] = _log_tail(final_stderr)
-            job.result["successful"] = final_completed.returncode == 0 and not final_has_fatal_error
+            job.result["successful"] = not build_failed and not artifact_issues
             job.result["custom_ip_make_libs_patched"] = host_patched_make_libs
             job.result["custom_ip_make_libs_patched_count"] = len(host_patched_make_libs)
             job.result["custom_ip_bsp_patch_total_count"] = len(host_patched_make_libs) + len(xsa_patched_make_libs)
             job.result["workspace_make_libs_diagnostic"] = workspace_make_libs
             job.result["log_make_libs_targets"] = log_make_libs_targets
+            job.result["vitis_elf_artifacts"] = elf_artifacts
             job.result["self_heal"] = self_heal
             job.result["vitis_doctor"] = vitis_doctor
-        if final_completed.returncode != 0 or final_has_fatal_error:
+        if build_failed:
             issues = final_issues or initial_issues or map_vitis_errors(f"{final_stdout}\n{final_stderr}")
             if job.result is not None:
                 job.result["compile_issues"] = issues
@@ -1860,6 +1961,22 @@ class VitisWorkspaceJobManager:
             raise RuntimeError(
                 "XSCT workspace üretimi hata ile bitti "
                 f"({reason}). Log: {stderr_log}"
+            )
+        if artifact_issues:
+            if job.result is not None:
+                job.result["compile_issues"] = artifact_issues
+                job.result["successful"] = False
+            job.emit({
+                "event": "vitis.compile_errors",
+                "stage": "run",
+                "progress": 98,
+                "message": "Vitis build geçti ama application ELF doğrulanamadı.",
+                "issues": artifact_issues,
+                "error_codes": _issue_error_codes(artifact_issues),
+            })
+            raise RuntimeError(
+                "Vitis build geçti ama application ELF bulunamadı. "
+                f"Workspace: {workspace_path}"
             )
 
         if job.result is not None:

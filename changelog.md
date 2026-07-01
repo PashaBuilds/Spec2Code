@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.73 - 2026-07-01
+
+- Vitis workspace akisi artik XSCT/app build basarili donse bile application ELF dosyasini ayrica dogrular.
+- Application adiyla eslesen `.elf` bulunamazsa workspace `hazir` sayilmaz ve `S2C-VITIS-ELF-009` hata kodu gosterilir.
+- Vitis Doctor ve workspace sonucunda bulunan ELF sayisi, application ELF sayisi, beklenen ELF adi ve bulunan ELF path ornekleri gosterilir.
+- lwIP test bench main'i yoksa Vitis staging icindeki `spec2code_selftest_main.c` artik default `main()` entry point uretir.
+- Bu degisiklik `BSP patch` basarili gorunmesine ragmen `Debug` altinda ELF bulunamayan durumlari acik ve aksiyon alinabilir hale getirir.
+
 ## v0.1.72 - 2026-07-01
 
 - Vitis Doctor artik build log icindeki `psu_cortexa53_0/libsrc/<driver>/src/make.libs` hedeflerini ayrica cikarir ve UI'da `Log make.libs hedefleri` olarak gosterir.

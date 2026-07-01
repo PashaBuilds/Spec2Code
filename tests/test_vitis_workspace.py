@@ -13,6 +13,7 @@ from backend.vitis_workspace import (
     default_vitis_processor,
     detect_xsct,
     discover_custom_pl_ips,
+    inspect_vitis_elf_artifacts,
     locate_xsct,
     make_libs_targets_from_log,
     normalize_custom_ip_driver_policy,
@@ -44,7 +45,27 @@ def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
         f"  echo \"xsct version {version}\"\n"
         "  exit 0\n"
         "fi\n"
+        "app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
+        "if [ -n \"$app_name\" ]; then\n"
+        "  mkdir -p \"$PWD/$app_name/Debug\"\n"
+        "  printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
+        "fi\n"
         "echo \"fake xsct ran $@\"\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+
+
+def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-version\" ]; then\n"
+        f"  echo \"xsct version {version}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "echo \"fake xsct ran without elf $@\"\n"
         "exit 0\n",
         encoding="utf-8",
     )
@@ -89,6 +110,11 @@ def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
         "  echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
         "  exit 2\n"
         "fi\n"
+        "app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
+        "if [ -n \"$app_name\" ]; then\n"
+        "  mkdir -p \"$PWD/$app_name/Debug\"\n"
+        "  printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
+        "fi\n"
         "echo 'self-heal recovery build ok'\n"
         "exit 0\n",
         encoding="utf-8",
@@ -118,6 +144,11 @@ def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> No
         "  exit 2\n"
         "fi\n"
         "if [ -f \"$src/make.libs\" ]; then\n"
+        "  app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
+        "  if [ -n \"$app_name\" ]; then\n"
+        "    mkdir -p \"$PWD/$app_name/Debug\"\n"
+        "    printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
+        "  fi\n"
         "  echo 'synthetic make.libs recovery build ok'\n"
         "  exit 0\n"
         "fi\n"
@@ -426,6 +457,22 @@ class VitisWorkspaceTests(unittest.TestCase):
             self.assertEqual(created, [str(make_libs)])
             self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
 
+    def test_vitis_elf_artifact_inspector_identifies_application_elf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            app_elf = workspace / "spec2code_test_sw" / "Debug" / "spec2code_test_sw.elf"
+            fsbl_elf = workspace / "spec2code_test_hw" / "zynqmp_fsbl" / "Debug" / "zynqmp_fsbl.elf"
+            app_elf.parent.mkdir(parents=True)
+            fsbl_elf.parent.mkdir(parents=True)
+            app_elf.write_text("fake app elf\n", encoding="utf-8")
+            fsbl_elf.write_text("fake fsbl elf\n", encoding="utf-8")
+
+            artifacts = inspect_vitis_elf_artifacts([workspace], "spec2code_test_sw")
+
+            self.assertEqual(artifacts["total"], 2)
+            self.assertEqual(artifacts["application"], 1)
+            self.assertEqual(artifacts["application_samples"][0]["name"], "spec2code_test_sw.elf")
+
     def test_host_make_libs_patcher_keeps_real_driver_sources_and_known_xilinx_libs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "workspace"
@@ -557,6 +604,68 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertEqual(result["xsct_exit_code"], 0)
                 self.assertIn("spec2code_selftest_main.h", result["staged_files"])
                 self.assertIn("spec2code_selftest_main.c", result["staged_files"])
+                selftest_source = (Path(result["source_path"]) / "spec2code_selftest_main.c").read_text(encoding="utf-8")
+                if "tests/spec2code_testbench_lwip_main.c" not in result["staged_files"]:
+                    self.assertIn("int main(void)", selftest_source)
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
+                self.assertTrue((workspace / "unit_application" / "Debug" / "unit_application.elf").is_file())
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_job_fails_when_xsct_succeeds_but_application_elf_is_missing(self) -> None:
+        project_name = "unit_vitis_workspace_missing_elf"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_missing_elf",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_fake_xsct_without_elf(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                xsa.write_bytes(b"fake xsa")
+                workspace = tmp_path / "workspace"
+                temp_root = tmp_path / "temp"
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path=str(xsa),
+                    workspace_path=str(workspace),
+                    temp_path=str(temp_root),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_missing_elf",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                with self.assertRaisesRegex(RuntimeError, "application ELF bulunamadı"):
+                    manager._blocking(job)
+
+                self.assertIsNotNone(job.result)
+                result = job.result or {}
+                self.assertFalse(result["successful"])
+                self.assertEqual(result["xsct_exit_code"], 0)
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 0)
+                self.assertIn("S2C-VITIS-ELF-009", result["vitis_doctor"]["error_codes"])
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -622,6 +731,7 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertTrue(result["self_heal"]["successful"])
                 self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
                 self.assertGreater(result["custom_ip_make_libs_patched_count"], 0)
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
                 self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
         finally:
@@ -681,6 +791,7 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertTrue(result["self_heal"]["successful"])
                 self.assertEqual(result["vitis_doctor"]["log_make_libs_targets"][0]["driver"], "mem_pcie_intr_v1_0")
                 self.assertTrue(result["self_heal"]["synthesized_make_libs"])
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 make_libs = workspace / "platform" / "export" / "platform" / "sw" / "platform" / "unit_platform" / "unit_application_domain" / "bsp" / "psu_cortexa53_0" / "libsrc" / "mem_pcie_intr_v1_0" / "src" / "make.libs"
                 self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs.read_text(encoding="utf-8"))
         finally:

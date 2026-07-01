@@ -213,6 +213,7 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
   const xsa = doctor?.xsa_make_libs;
   const workspace = doctor?.workspace_make_libs;
   const logTargets = doctor?.log_make_libs_targets ?? [];
+  const elf = doctor?.elf_artifacts;
 
   return (
     <div className="mt-3 rounded-md border border-border bg-inset/80">
@@ -278,6 +279,24 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
                   </div>
                 ))}
               </div>
+            </div>
+          ) : null}
+          {elf ? (
+            <div className="rounded border border-border bg-bg/50 px-3 py-2 text-[11px]">
+              <div className="mb-1 font-semibold text-text">Application ELF</div>
+              <div className="grid grid-cols-2 gap-1 text-muted">
+                <span>application</span><span className="font-mono text-text">{elf.application}</span>
+                <span>toplam</span><span className="font-mono text-text">{elf.total}</span>
+              </div>
+              {elf.application_samples?.length ? (
+                <div className="mt-2 space-y-1">
+                  {elf.application_samples.slice(0, 3).map((item) => (
+                    <div key={item.path_tail} className="break-all font-mono text-[10px] text-text">{item.path_tail}</div>
+                  ))}
+                </div>
+              ) : elf.expected_names?.length ? (
+                <div className="mt-2 break-all font-mono text-[10px] text-danger">beklenen: {elf.expected_names.join(", ")}</div>
+              ) : null}
             </div>
           ) : null}
           {xsa ? (
@@ -453,6 +472,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   ) && !running;
   const workspaceReady = result?.successful === true && !error;
   const workspaceFailed = Boolean(result && (error || result.successful === false));
+  const elfApplicationCount = result?.vitis_elf_artifacts?.application ?? result?.vitis_doctor?.elf_artifacts?.application ?? 0;
   const bspPatchCount = result?.custom_ip_bsp_patch_total_count
     ?? ((result?.custom_ip_make_libs_patched_count ?? 0) + (result?.custom_ip_xsa_make_libs_patched_count ?? 0));
 
@@ -477,6 +497,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           {result?.custom_ip_driver_policy === "keep" ? <Badge tone="neutral">custom IP keep</Badge> : null}
           {result?.custom_pl_ip_candidates?.length ? <Badge tone="warn">custom IP none {result.custom_pl_ip_candidates.length}</Badge> : null}
           {result && result.custom_ip_driver_policy !== "keep" ? <Badge tone={bspPatchCount ? "warn" : "neutral"}>BSP patch {bspPatchCount}</Badge> : null}
+          {result ? <Badge tone={elfApplicationCount ? "ok" : "warn"}>ELF {elfApplicationCount}</Badge> : null}
           {result?.vitis_doctor ? <Badge tone={doctorTone(result.vitis_doctor.status)}>Doctor {result.vitis_doctor.status}</Badge> : null}
           {result?.self_heal?.attempted ? <Badge tone={result.self_heal.successful ? "ok" : "warn"}>self-heal</Badge> : null}
         </div>
@@ -649,6 +670,19 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
               </pre>
             </div>
           ) : null}
+          {result.vitis_elf_artifacts ? (
+            <div className="mt-3">
+              <span className="font-semibold text-danger">ELF doğrulama</span>
+              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-danger/20 bg-bg p-2 font-mono text-[11px] text-text">
+                {[
+                  `application: ${result.vitis_elf_artifacts.application}`,
+                  `toplam: ${result.vitis_elf_artifacts.total}`,
+                  ...(result.vitis_elf_artifacts.expected_names ?? []).map((name) => `beklenen: ${name}`),
+                  ...(result.vitis_elf_artifacts.samples ?? []).slice(0, 8).map((item) => `bulunan: ${item.path_tail}`),
+                ].join("\n")}
+              </pre>
+            </div>
+          ) : null}
           {result.custom_ip_xsa_make_libs_patched?.length || result.custom_ip_make_libs_patched?.length ? (
             <div className="mt-3">
               <span className="font-semibold text-muted">Custom IP BSP patch</span>
@@ -694,6 +728,16 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             <span className="font-semibold text-ok">Log</span>
             <div className="mt-1 break-all font-mono text-text">{result.stdout_log}</div>
           </div>
+          {result.vitis_elf_artifacts?.application_samples?.length ? (
+            <div className="md:col-span-2">
+              <span className="font-semibold text-ok">Application ELF</span>
+              <div className="mt-1 space-y-1">
+                {result.vitis_elf_artifacts.application_samples.slice(0, 4).map((item) => (
+                  <div key={item.path_tail} className="break-all font-mono text-text">{item.path_tail}</div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {result.custom_ip_xsa_make_libs_patched?.length || result.custom_ip_make_libs_patched?.length ? (
             <div className="md:col-span-2">
               <span className="font-semibold text-ok">Custom IP BSP patch</span>

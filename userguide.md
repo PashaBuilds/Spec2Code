@@ -330,6 +330,8 @@ Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
 6. `spec2code_create_workspace.tcl` dosyasini yazar.
 7. XSCT ile once adlandirilmis platform/system/application akisini dener.
 8. `app build` calistirir.
+9. Workspace ve staging dizinlerinde application adiyla eslesen `.elf` dosyasini
+   dogrular.
 
 Temp/Staging dizini altinda olusan yardimci klasor:
 
@@ -401,6 +403,7 @@ soyut bilgiler debug surecini hizlandirmak icin tasarlanmistir:
 - Workspace/FSBL/PMU/application BSP tarafinda kac riskli `make.libs` goruldugu.
 - `BSP patch N` sayisi.
 - Self-heal denenip denenmedigi ve sonucu.
+- Application ELF sayisi ve beklenen ELF adi.
 
 Bu bilgilerden yalnizca hata kodunu veya sayisal ozeti paylasmak genelde yeterli
 olur; sirket icindeki path, IP adi veya log dosyasini disari cikarmak gerekmez.
@@ -415,6 +418,12 @@ olup dosya taramada yoksa self-heal sentetik no-op `make.libs` olusturabilir; bu
 path `Sentetik make.libs` olarak gorunur. Self-heal basarili olursa panelde
 `self-heal gecti` rozeti gorunur. Basarisiz olursa Doctor panelindeki hata kodu
 ve sayilar kok sebebi anlamak icin kalir.
+
+XSCT/app build hata vermese bile application adiyla eslesen `.elf` dosyasi
+bulunamazsa workspace `hazir` sayilmaz. Bu durumda `S2C-VITIS-ELF-009` hata kodu
+gosterilir ve Doctor panelinde beklenen ELF adi ile bulunan diger `.elf`
+ornekleri listelenir. Bu ozellikle `BSP patch` basarili gorunup `Debug` altinda
+application ELF bulunamayan durumlari ayirt etmek icindir.
 
 Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
 ayri liste olarak gosterir:
