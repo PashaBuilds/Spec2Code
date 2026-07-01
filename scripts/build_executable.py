@@ -102,7 +102,7 @@ def _data_file_arg(source: Path, target_name: str) -> str:
 
 
 def _copy_release_docs(bundle_dir: Path) -> None:
-    for name in ("changelog.md", "userguide.md"):
+    for name in ("changelog.md", "userguide.md", "kimi_vitis_debug_guide.md"):
         source = ROOT / name
         if not source.is_file():
             raise FileNotFoundError(f"required release document is missing: {name}")

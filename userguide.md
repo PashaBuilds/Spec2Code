@@ -24,12 +24,13 @@ Ana hedefler:
 
 ## 2. Windows'ta Calistirma
 
-Release paketini acinca uc dosya gorursun:
+Release paketini acinca bu dosyalari gorursun:
 
 ```text
 Spec2Code.exe
 changelog.md
 userguide.md
+kimi_vitis_debug_guide.md
 ```
 
 Calistirmak icin:
@@ -492,6 +493,7 @@ Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
 - `Spec2Code.exe`
 - `changelog.md`
 - `userguide.md`
+- `kimi_vitis_debug_guide.md`
 - Opsiyonel LLVM/Cppcheck kurulumlari
 - Opsiyonel Vitis kurulumu
 - Opsiyonel lokal/internal LLM endpoint'i
@@ -568,7 +570,10 @@ Executable release zip'i sade tutulur:
 Spec2Code.exe
 changelog.md
 userguide.md
+kimi_vitis_debug_guide.md
 ```
 
 `changelog.md` en yeni surumden baslayarak tum gecmis release degisikliklerini
-icerir. `userguide.md` bu dosyadir.
+icerir. `userguide.md` bu dosyadir. `kimi_vitis_debug_guide.md`, Vitis/XSCT
+hatasi alindiginda lokal Kimi/Qwen gibi airgap LLM'lere source koddan once
+verilecek standart debug brief'idir.

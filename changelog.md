@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.76 - 2026-07-01
+
+- Release paketlerine `kimi_vitis_debug_guide.md` eklendi.
+- Bu dokuman lokal Kimi/Qwen gibi airgap LLM'lere source koddan once verilecek
+  Vitis debug brief'ini, gerekli log/Tcl dosyalarini, fatal imza listesini ve
+  beklenen analiz cikti formatini tanimlar.
+- Executable release zip'leri artik `Spec2Code`, `changelog.md`, `userguide.md`
+  ve `kimi_vitis_debug_guide.md` icerir.
+
 ## v0.1.75 - 2026-07-01
 
 - Vitis self-heal basari kontrolu sertlestirildi: XSCT `exit 0` donse bile log icinde `cc1.exe fatal error`, `make: ***`, `Failed to build`, `compilation terminated` veya linker fatal imzasi varsa build basarisiz sayilir.

@@ -34,7 +34,7 @@ class ReleaseDocsTests(unittest.TestCase):
         for tag in completed.stdout.splitlines():
             self.assertIn(f"## {tag} ", changelog, f"missing changelog entry for {tag}")
 
-    def test_userguide_is_packaged_for_executable_release(self) -> None:
+    def test_release_docs_are_packaged_for_executable_release(self) -> None:
         with TemporaryDirectory() as tmp:
             bundle_dir = Path(tmp) / "bundle"
             bundle_dir.mkdir()
@@ -51,7 +51,7 @@ class ReleaseDocsTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as zf:
                 self.assertEqual(
                     sorted(zf.namelist()),
-                    ["Spec2Code.exe", "changelog.md", "userguide.md"],
+                    ["Spec2Code.exe", "changelog.md", "kimi_vitis_debug_guide.md", "userguide.md"],
                 )
 
 
