@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import sys
 import threading
 import time
@@ -26,6 +27,24 @@ def _open_browser_later(url: str) -> None:
     threading.Thread(target=worker, daemon=True).start()
 
 
+def pick_listen_port(host: str, preferred: int, *, attempts: int = 30) -> int:
+    """Return `preferred` when it is free, otherwise the next free port.
+
+    A stale Spec2Code (or anything else) already listening on 8077 used to
+    kill the new instance with a raw `[WinError 10048]` bind error; scanning
+    forward keeps the app usable and the chosen port is printed clearly.
+    """
+    for offset in range(max(1, attempts)):
+        candidate = preferred + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind((host, candidate))
+        except OSError:
+            continue
+        return candidate
+    return preferred
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Spec2Code locally")
     parser.add_argument("--host", default=os.environ.get("SPEC2CODE_HOST", "127.0.0.1"))
@@ -33,13 +52,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-browser", action="store_true", help="do not open the web UI automatically")
     args = parser.parse_args(argv)
 
-    url = f"http://{args.host}:{args.port}"
+    port = pick_listen_port(args.host, args.port)
+    if port != args.port:
+        print(
+            f"Port {args.port} zaten kullanımda (muhtemelen eski bir Spec2Code hâlâ açık); "
+            f"{port} portuna geçildi."
+        )
+        print(
+            f"Eski instance'ı kapatmak için: netstat -ano | findstr :{args.port} "
+            "ile PID'i bulup taskkill /PID <pid> /F çalıştırabilirsin."
+        )
+
+    url = f"http://{args.host}:{port}"
     print(f"Spec2Code is starting on {url}")
     print("Press Ctrl+C to stop.")
     if not args.no_browser:
         _open_browser_later(url)
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(app, host=args.host, port=port, log_level="info")
     return 0
 
 

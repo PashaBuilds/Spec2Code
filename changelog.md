@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.81 - 2026-07-02
+
+- Secilen port (varsayilan 8077) doluysa uygulama artik `[WinError 10048]`
+  bind hatasiyla kapanmak yerine sonraki bos portu secip acilir. Tipik neden
+  arka planda acik kalmis eski bir Spec2Code instance'idir; konsola hangi
+  porta gecildigi ve eski instance'in nasil kapatilacagi
+  (`netstat -ano | findstr :8077` + `taskkill /PID <pid> /F`) yazilir.
+  Taryici da dogru (yeni) portta acilir.
+
 ## v0.1.80 - 2026-07-02
 
 - Custom PL IP kesfi gercek Vivado `.hwh` formatiyla duzeltildi. Gercek
