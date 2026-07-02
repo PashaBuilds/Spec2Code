@@ -396,14 +396,74 @@ class VitisWorkspaceTests(unittest.TestCase):
                 makefile = archive.read("drivers/mem_pcie_intr_v1_0/src/Makefile").decode("utf-8")
                 other = archive.read("drivers/other_ip_v1_0/src/Makefile").decode("utf-8")
 
-        self.assertEqual(neutralized, ["drivers/mem_pcie_intr_v1_0"])
+        # Every embedded non-Xilinx driver is neutralized under auto_none,
+        # candidate match or not: an embedded driver is custom by construction.
+        self.assertEqual(neutralized, ["drivers/mem_pcie_intr_v1_0", "drivers/other_ip_v1_0"])
         # Repository layout must stay intact for hsi.
         self.assertIn("drivers/mem_pcie_intr_v1_0/data/mem_pcie_intr.mdd", names)
         self.assertIn("drivers/mem_pcie_intr_v1_0/src/mem_pcie_intr.h", names)
         self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", makefile)
         self.assertNotIn("$(COMPILER) *.c", makefile)
-        # Unrelated drivers keep their build recipe.
-        self.assertIn("$(COMPILER) *.c", other)
+        self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", other)
+
+    def test_neutralize_creates_missing_src_for_driver_packaged_without_sources(self) -> None:
+        # Company IPs are sometimes packaged with data/ only (no src/ at all);
+        # hsi then errors with `[Hsi 55-1562] Source directory ... does not
+        # exist` and the generated BSP compiles a literal `*.c`. The embedded
+        # non-Xilinx driver must be matched WITHOUT any candidate list and the
+        # missing no-op build files must be added.
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("design_1.hwh", "<EDKSYSTEM/>")
+                archive.writestr("drivers/axi_mem_space_v1_0/data/axi_mem_space.mdd", "mdd")
+                archive.writestr("drivers/axi_mem_space_v1_0/data/axi_mem_space.tcl", "tcl")
+                archive.writestr("psu_init.c", "int a;")
+
+            neutralized = neutralize_custom_ip_drivers_in_xsa(xsa, [], "auto_none")
+            with zipfile.ZipFile(xsa) as archive:
+                names = set(archive.namelist())
+                makefile = archive.read("drivers/axi_mem_space_v1_0/src/Makefile").decode("utf-8")
+                make_libs = archive.read("drivers/axi_mem_space_v1_0/src/make.libs").decode("utf-8")
+
+        self.assertEqual(neutralized, ["drivers/axi_mem_space_v1_0"])
+        self.assertIn("drivers/axi_mem_space_v1_0/data/axi_mem_space.mdd", names)
+        self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", makefile)
+        self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", make_libs)
+
+    def test_neutralize_leaves_known_xilinx_driver_names_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("drivers/xilsecure_v4_0/src/Makefile", "libs:\n\t$(COMPILER) *.c\n")
+
+            neutralized = neutralize_custom_ip_drivers_in_xsa(xsa, [], "auto_none")
+            with zipfile.ZipFile(xsa) as archive:
+                makefile = archive.read("drivers/xilsecure_v4_0/src/Makefile").decode("utf-8")
+
+        self.assertEqual(neutralized, [])
+        self.assertIn("$(COMPILER) *.c", makefile)
+
+    def test_discovery_flags_axi_named_ip_when_xsa_embeds_its_driver(self) -> None:
+        # A company IP called `axi_mem_space` packaged under a Xilinx vendor
+        # VLNV would slip through the standard `axi_*` family allowlist; the
+        # embedded driver folder in the XSA is the authoritative signal.
+        hwh = """<?xml version="1.0" encoding="UTF-8"?>
+<EDKSYSTEM>
+  <MODULE INSTANCE="axi_mem_space_0" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="axi_mem_space" VLNV="xilinx.com:ip:axi_mem_space:1.0"/>
+  <MODULE INSTANCE="axi_gpio_0" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="axi_gpio" VLNV="xilinx.com:ip:axi_gpio:2.0"/>
+</EDKSYSTEM>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("design_1.hwh", hwh)
+                archive.writestr("drivers/axi_mem_space_v1_0/data/axi_mem_space.mdd", "mdd")
+
+            candidates = discover_custom_pl_ips(xsa)
+
+        self.assertEqual([item.instance for item in candidates], ["axi_mem_space_0"])
+        self.assertIn("embeds a non-Xilinx driver", candidates[0].reason)
 
     def test_neutralize_custom_ip_drivers_is_noop_for_keep_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

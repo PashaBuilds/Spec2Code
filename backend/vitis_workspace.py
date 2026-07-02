@@ -614,8 +614,45 @@ def _hwh_documents_from_xsa(xsa_path: Path) -> list[tuple[str, bytes]]:
         return []
 
 
+def _driver_dir_base_name(dirname: str) -> str:
+    """`axi_mem_space_v1_0` -> `axi_mem_space`."""
+    token = _normalize_custom_ip_token(dirname)
+    return re.sub(r"_v\d+(?:_\d+)?$", "", token)
+
+
+def embedded_driver_base_names(xsa_path: Path) -> set[str]:
+    """Base names of non-Xilinx driver folders embedded in the XSA.
+
+    Standard Xilinx drivers ship with the Vitis install; a `drivers/<name>/`
+    folder inside an exported XSA is a user-packaged IP driver by
+    construction. This is a stronger custom-IP signal than VLNV heuristics:
+    a company IP named e.g. `axi_mem_space` packaged under a Xilinx vendor
+    VLNV would otherwise be mistaken for a standard `axi_*` family IP.
+    """
+    try:
+        if not xsa_path.is_file() or not zipfile.is_zipfile(xsa_path):
+            return set()
+    except OSError:
+        return set()
+    names: set[str] = set()
+    try:
+        with zipfile.ZipFile(xsa_path) as archive:
+            for entry in archive.namelist():
+                parts = entry.replace("\\", "/").split("/")
+                for index, part in enumerate(parts[:-1]):
+                    if part != "drivers" or index + 1 >= len(parts):
+                        continue
+                    base = _driver_dir_base_name(parts[index + 1])
+                    if base and not _is_known_xilinx_libsrc(base):
+                        names.add(base)
+    except (OSError, zipfile.BadZipFile):
+        return set()
+    return names
+
+
 def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
     candidates: dict[str, CustomPlIpCandidate] = {}
+    embedded_drivers = embedded_driver_base_names(xsa_path)
     for hwh_name, content in _hwh_documents_from_xsa(xsa_path):
         try:
             root = ET.fromstring(content)
@@ -654,7 +691,10 @@ def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
                 ip_name = modtype
             if not ip_name and len(vlnv_parts) >= 3:
                 ip_name = vlnv_parts[2]
-            if vendor in _KNOWN_AMD_XILINX_VENDORS and library == "user":
+            has_embedded_driver = _normalize_custom_ip_token(ip_name) in embedded_drivers
+            if has_embedded_driver:
+                reason = f"{hwh_name}: XSA embeds a non-Xilinx driver for this IP"
+            elif vendor in _KNOWN_AMD_XILINX_VENDORS and library == "user":
                 reason = f"{hwh_name}: user-packaged PL peripheral VLNV"
             elif vendor in _KNOWN_AMD_XILINX_VENDORS:
                 if _is_standard_xilinx_pl_ip(ip_name, instance):
@@ -1309,8 +1349,6 @@ def neutralize_custom_ip_drivers_in_xsa(xsa_path: Path, custom_ip_instances: lis
     """
     if normalize_custom_ip_driver_policy(policy) != "auto_none" or not xsa_path.is_file():
         return []
-    if not custom_ip_instances:
-        return []
     try:
         if not zipfile.is_zipfile(xsa_path):
             return []
@@ -1320,15 +1358,18 @@ def neutralize_custom_ip_drivers_in_xsa(xsa_path: Path, custom_ip_instances: lis
     aliases: set[str] = set()
     for instance in custom_ip_instances:
         aliases |= _custom_ip_aliases(instance)
-    if not aliases:
-        return []
 
     def _matched_driver_dir(name: str) -> str | None:
         parts = name.replace("\\", "/").split("/")
         for index, part in enumerate(parts[:-1]):
             if part != "drivers" or index + 1 >= len(parts):
                 continue
-            driver_dir = _normalize_custom_ip_token(parts[index + 1])
+            dirname = parts[index + 1]
+            # Any non-Xilinx driver embedded in an XSA is a packaged custom
+            # IP driver by construction, independent of VLNV heuristics.
+            if not _is_known_xilinx_libsrc(_driver_dir_base_name(dirname)):
+                return "/".join(parts[: index + 2])
+            driver_dir = _normalize_custom_ip_token(dirname)
             for alias in aliases:
                 if driver_dir == alias or driver_dir.startswith(f"{alias}_v") or driver_dir.startswith(f"{alias}_"):
                     return "/".join(parts[: index + 2])
@@ -1339,16 +1380,27 @@ def neutralize_custom_ip_drivers_in_xsa(xsa_path: Path, custom_ip_instances: lis
     try:
         with zipfile.ZipFile(xsa_path, "r") as source_zip:
             infos = source_zip.infolist()
+            existing_names = {info.filename.replace("\\", "/") for info in infos}
+            noop = _NOOP_DRIVER_MAKEFILE.encode("utf-8")
             replacements: dict[str, bytes] = {}
             for info in infos:
                 normalized = info.filename.replace("\\", "/")
                 driver_dir = _matched_driver_dir(normalized)
                 if not driver_dir:
                     continue
+                neutralized_dirs.add(driver_dir)
                 if normalized.endswith(("/src/Makefile", "/src/makefile", "/src/make.libs")):
-                    replacements[info.filename] = _NOOP_DRIVER_MAKEFILE.encode("utf-8")
-                    neutralized_dirs.add(driver_dir)
-            if not replacements:
+                    replacements[info.filename] = noop
+            # Company drivers are sometimes packaged without a src/ folder at
+            # all; hsi then fails with `[Hsi 55-1562] Source directory ...
+            # does not exist` and the generated BSP compiles a literal `*.c`.
+            # Adding no-op build files keeps hsi happy and the build inert.
+            additions: dict[str, bytes] = {}
+            for driver_dir in neutralized_dirs:
+                for missing in (f"{driver_dir}/src/Makefile", f"{driver_dir}/src/make.libs"):
+                    if missing not in existing_names:
+                        additions[missing] = noop
+            if not replacements and not additions:
                 return []
             with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as target_zip:
                 for info in infos:
@@ -1356,6 +1408,8 @@ def neutralize_custom_ip_drivers_in_xsa(xsa_path: Path, custom_ip_instances: lis
                     if data is None:
                         data = source_zip.read(info.filename)
                     target_zip.writestr(info, data)
+                for name, data in sorted(additions.items()):
+                    target_zip.writestr(name, data)
         shutil.move(str(temp_path), str(xsa_path))
     except (OSError, zipfile.BadZipFile):
         try:

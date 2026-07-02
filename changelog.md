@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.82 - 2026-07-02
+
+- Custom PL IP korumasi iki bosluga karsi genisletildi (airgap sahadaki
+  `[Hsi 55-1562] Source directory ... drivers\<ip>_v1_0/src does not exist`
+  ciktisiyla dogrulandi):
+  1. XSA'ya gomulu driver'da `src/` klasoru hic yoksa (yalniz `data/` ile
+     paketlenmis sirket IP'leri) staged XSA'ya artik no-op `src/Makefile` ve
+     `src/make.libs` EKLENIR; hsi hatasi kaybolur ve BSP kopyalari no-op
+     derlenir. Onceden neutralize yalnizca var olan dosyalari degistirdigi
+     icin bu durumda hic devreye girmiyordu.
+  2. Neutralize ve aday tespiti artik hwh VLNV sezgilerinden bagimsiz olarak
+     "XSA icinde gomulu non-Xilinx driver" sinyalini kullanir. Boylece
+     `axi_mem_space` gibi `axi_*` onekiyle standart Xilinx ailesine benzeyen
+     ve/veya `xilinx.com:ip:` VLNV ile paketlenmis sirket IP'leri de yakalanir;
+     gomulu tum non-Xilinx driver'lar auto_none altinda etkisizlestirilir.
+- Bu senaryo lokalde, driver'i yalniz `data/` iceren (src'siz) gercek bir
+  custom-IP XSA'siyla uctan uca dogrulandi: `Hsi 55-1562` yok, `*.c Invalid
+  argument` yok, application ELF uretildi.
+
 ## v0.1.81 - 2026-07-02
 
 - Secilen port (varsayilan 8077) doluysa uygulama artik `[WinError 10048]`
