@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5199"],
       "port": 5199
+    },
+    {
+      "name": "app",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": ["run_spec2code.py", "--no-browser", "--port", "8078"],
+      "port": 8078
     }
   ]
 }

@@ -364,6 +364,41 @@ export interface RunOnBoardRequest {
   timeout_s?: number;
 }
 
+export interface BringupStepResult {
+  index: number;
+  device_id: string;
+  part: string;
+  operation: string;
+  label: string;
+  category: string;
+  risk: string;
+  ok: boolean;
+  status: string | null;
+  value: string;
+  data: string;
+  response_message: string;
+  error: string;
+  duration_ms: number;
+}
+
+export interface BringupResult {
+  bringup_job_id: string;
+  status: string;
+  error: string | null;
+  result: {
+    project: string;
+    agent_version: string;
+    transport_agent: string | null;
+    include_init: boolean;
+    started_at: number;
+    finished_at: number;
+    total: number;
+    passed: number;
+    failed: number;
+    steps: BringupStepResult[];
+  } | null;
+}
+
 export interface RunOnBoardResult {
   runboard_job_id: string;
   status: string;

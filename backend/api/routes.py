@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel, Field
 
@@ -26,6 +26,7 @@ from backend.testbench import (
     send_command,
     testbench_sessions,
 )
+from backend.bringup import BringupConfig, bringup_manager, render_certificate_html
 from backend.run_on_board import RunOnBoardConfig, runboard_manager
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
@@ -849,6 +850,48 @@ def testbench_session_disconnect(req: TestbenchSessionRequest) -> dict:
         return testbench_sessions.disconnect(req.session_id).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+
+
+class BringupStartRequest(BaseModel):
+    session_id: str
+    manifest: dict
+    include_init: bool = True
+    timeout_s: float = 5.0
+
+
+@router.post("/bringup/start")
+async def bringup_start(req: BringupStartRequest) -> dict:
+    job_id = await bringup_manager.start(BringupConfig(
+        session_id=req.session_id,
+        manifest=req.manifest,
+        include_init=req.include_init,
+        timeout_s=req.timeout_s,
+    ))
+    return {"bringup_job_id": job_id}
+
+
+@router.get("/bringup/{job_id}/result")
+def bringup_result(job_id: str) -> dict:
+    job = bringup_manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown bring-up job")
+    return {
+        "bringup_job_id": job_id,
+        "status": job.status,
+        "error": job.error,
+        "result": job.result,
+    }
+
+
+@router.get("/bringup/{job_id}/certificate")
+def bringup_certificate(job_id: str) -> HTMLResponse:
+    job = bringup_manager.get(job_id)
+    if job is None or not job.result:
+        raise HTTPException(404, "bring-up result is not ready")
+    return HTMLResponse(
+        content=render_certificate_html(job.result),
+        headers={"Content-Disposition": f'attachment; filename="board_birth_certificate_{job_id}.html"'},
+    )
 
 
 @router.get("/testbench/session/{session_id}")

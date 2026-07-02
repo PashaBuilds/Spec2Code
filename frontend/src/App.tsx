@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Boxes, Cable, Cpu, FileInput, Play, Loader2, Library, PlugZap } from "lucide-react";
+import { BookOpen, Boxes, Cable, Cpu, FileInput, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -17,8 +17,9 @@ import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
+import BringupPanel from "@/features/bringup/BringupPanel";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "bringup" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -149,6 +150,13 @@ export default function App() {
             <Cable className="h-4 w-4" /> UART
           </Button>
           <Button
+            variant={view === "bringup" ? "outline" : "ghost"}
+            size="sm"
+            onClick={() => setView(view === "bringup" ? "flow" : "bringup")}
+          >
+            <Rocket className="h-4 w-4" /> Bring-up
+          </Button>
+          <Button
             variant={view === "import" ? "outline" : "ghost"}
             size="sm"
             onClick={() => setView(view === "import" ? "flow" : "import")}
@@ -196,6 +204,13 @@ export default function App() {
             <h2 className="mb-3 shrink-0 text-sm font-semibold">UART konsolu</h2>
             <div className="min-h-0 flex-1">
               <UartConsolePanel />
+            </div>
+          </div>
+        ) : view === "bringup" ? (
+          <div className="flex h-full min-h-0 flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Bring-up — Mission Control</h2>
+            <div className="min-h-0 flex-1">
+              <BringupPanel />
             </div>
           </div>
         ) : view === "import" ? (

@@ -4,8 +4,8 @@ import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
+import { findManifest, loadCachedManifest, saveCachedManifest } from "./manifest";
 import type {
-  GeneratedFile,
   TestbenchCommandResponse,
   TestbenchManifest,
   TestbenchManifestDevice,
@@ -15,45 +15,6 @@ import type {
 } from "@/lib/types";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "disconnecting";
-
-function generatedPath(file: GeneratedFile): string {
-  if (file.relative_path) return file.relative_path;
-  const normalized = file.path.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts[0] === "outputs" && parts.length > 2) return parts.slice(2).join("/");
-  return parts[parts.length - 1] ?? file.name;
-}
-
-function findManifest(files: GeneratedFile[]): TestbenchManifest | null {
-  const file = files.find((item) => generatedPath(item) === "tests/spec2code_testbench_manifest.json");
-  if (!file?.content) return null;
-  try {
-    return JSON.parse(file.content) as TestbenchManifest;
-  } catch {
-    return null;
-  }
-}
-
-function manifestStorageKey(project: string): string {
-  return `spec2code.testbench.manifest.${project || "default"}`;
-}
-
-function loadCachedManifest(project: string): TestbenchManifest | null {
-  try {
-    const raw = localStorage.getItem(manifestStorageKey(project));
-    return raw ? (JSON.parse(raw) as TestbenchManifest) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveCachedManifest(project: string, manifest: TestbenchManifest): void {
-  try {
-    localStorage.setItem(manifestStorageKey(project), JSON.stringify(manifest));
-  } catch {
-    // Cache is only a convenience fallback; the active generate result remains canonical.
-  }
-}
 
 function parseNumber(value: string): number | null {
   const text = value.trim();

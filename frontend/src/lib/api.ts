@@ -163,6 +163,17 @@ export const api = {
   runOnBoardResult: (jobId: string) =>
     req<import("./types").RunOnBoardResult>(`/api/vitis/run-on-board/${encodeURIComponent(jobId)}/result`),
 
+  bringupStart: (payload: { session_id: string; manifest: import("./types").TestbenchManifest; include_init?: boolean; timeout_s?: number }) =>
+    req<{ bringup_job_id: string }>("/api/bringup/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  bringupResult: (jobId: string) =>
+    req<import("./types").BringupResult>(`/api/bringup/${encodeURIComponent(jobId)}/result`),
+
+  bringupCertificateUrl: (jobId: string) => `/api/bringup/${encodeURIComponent(jobId)}/certificate`,
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 
@@ -187,6 +198,26 @@ export function openJobSocket(
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/jobs/${jobId}`);
+  ws.onmessage = (m) => {
+    const data = JSON.parse(m.data);
+    if (data.event === "__closed__") {
+      ws.close();
+      onClose?.();
+      return;
+    }
+    onEvent(data);
+  };
+  ws.onerror = () => onClose?.();
+  return () => ws.close();
+}
+
+export function openBringupSocket(
+  jobId: string,
+  onEvent: (e: import("./types").JobEvent) => void,
+  onClose?: () => void,
+): () => void {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/bringup/${jobId}`);
   ws.onmessage = (m) => {
     const data = JSON.parse(m.data);
     if (data.event === "__closed__") {

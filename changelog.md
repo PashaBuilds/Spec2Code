@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.87 - 2026-07-02
+
+Faz 3: Bring-up sihirbazi (Mission Control) ve board birth certificate.
+
+- Bring-up plani test bench manifest'inden bagimlilik sirasiyla kurulur:
+  guc/izleme -> sensorler -> saat agaci -> bellekler -> RF -> diger
+  (backend/bringup.py `build_plan`). Cihaz basina once opsiyonel
+  `device_init`, sonra guvenli okuma operasyonlari (id/status/lock
+  oncelikli); elle adres/veri isteyen operasyonlar gozetimsiz plana
+  alinmaz. Hata bir adimi durdurmaz - sertifika tam resmi ister; yalnizca
+  baglanti koptugunda kalan adimlar "atlandi" olarak isaretlenir.
+- Yurutme mevcut TCP/seri test bench session'i uzerinden adim adim S2C
+  komutlariyla yapilir; canli akis ws://.../ws/bringup/{id}. API:
+  `POST /api/bringup/start`, `GET /api/bringup/{id}/result`,
+  `GET /api/bringup/{id}/certificate`.
+- Mission Control ekrani (Bring-up butonu): TCP/seri baglanti, tek tusla
+  kosum, kategori bazli "stage light" panolari (bekliyor/calisiyor/gecti/
+  hata LED'leri), adim degerleri (orn. JEDEC ID, lock bitleri) satirda
+  gosterilir; sonunda gecti/kaldi ozeti.
+- Board birth certificate: tek dosyalik, yazdirilabilir HTML raporu -
+  proje, tarih, agent surumu/transport, kategori gruplu adim tablosu,
+  GECTI/KOSULLU damgasi. Indirme başligiyla servis edilir.
+- Dogrulama: 93/93 test (plan kurucu + sahte seri oturumla kosum +
+  sertifika iceriği); ayrica gercek backend + sahte TCP agent ile
+  tarayicida uctan uca kosuldu (8/8 adim yesil, sertifika indirilebilir;
+  seri yol socket:// pyserial URL'i ile ayni ajanla dogrulandi).
+
 ## v0.1.86 - 2026-07-02
 
 Faz 2: UART test bench transportu, JTAG ile board'a yukleme (Build & Run)
