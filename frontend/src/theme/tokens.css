@@ -1,24 +1,48 @@
-/* Spec2Code design tokens (Brief 9.3): dark engineering-tool aesthetic. */
+/* Spec2Code design tokens: PCB-inspired dark engineering aesthetic.
+ *
+ * Identity: graphite substrate, copper traces (primary accent), phosphor
+ * green for healthy signals, amber for warnings. Every bus type carries one
+ * canonical color across the whole app (schematic wires, badges, logs,
+ * knowledge views) - see src/lib/busColors.ts.
+ */
 :root {
-  --bg: #0e0f12;
-  --elev: #16181d;
-  --inset: #1c1f26;
-  --border: #262a33;
-  --text: #e6e8eb;
-  --muted: #9ba1ac;
-  --faint: #5c6370;
+  /* substrate */
+  --bg: #0b0d10;
+  --elev: #12151a;
+  --inset: #171b21;
+  --border: #262d36;
+  --text: #e2e8ee;
+  --muted: #96a1ad;
+  --faint: #5b6672;
 
-  /* the single vivid color: primary action + active + data signal */
-  --accent: #4c8dff;
-  --accent-dim: #23344f;
+  /* copper: primary action + active + selection */
+  --accent: #d98e4f;
+  --accent-bright: #e8a468;
+  --accent-dim: #3a2d20;
 
-  --ok: #3fb950;
-  --warn: #d29922;
-  --danger: #f85149;
+  --ok: #3ddc84;      /* phosphor green */
+  --warn: #ffb454;    /* amber */
+  --danger: #ff5370;
+
+  /* canonical bus colors - keep in sync with src/lib/busColors.ts */
+  --bus-i2c: #ffb454;
+  --bus-spi: #4dd0e1;
+  --bus-qspi: #b388ff;
+  --bus-eth: #66bb6a;
+  --bus-uart: #f78c6c;
+  --bus-can: #ef6a9e;
+  --bus-sdio: #90a4ae;
+  --bus-gpio: #a1887f;
 
   /* low-saturation, distinct zone tones (PS / PL / NoC / AIE) */
   --zone-ps: #4a6d8c;
   --zone-pl: #5e8c4a;
   --zone-noc: #8c6fb0;
   --zone-aie: #b0894a;
+
+  /* silkscreen + copper pad tints for chip packages */
+  --silk: #c7d0d9;
+  --pad: #8f6a45;
+  --chip-body: #1b2027;
+  --chip-body-edge: #2c353f;
 }

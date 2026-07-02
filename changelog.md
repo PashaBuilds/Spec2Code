@@ -3,6 +3,36 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.85 - 2026-07-02
+
+Gorsel yenileme Faz 1: PCB tasarim dili ve sematik glow-up.
+
+- Yeni tasarim paleti: grafit substrat + bakir (copper) vurgu rengi, fosfor
+  yesili saglik LED'i, amber uyari. Tum tema token'lari
+  `frontend/src/theme/tokens.css`'te yeniden duzenlendi.
+- Kanonik bus renk dili: her transport tek renk tasir (I2C amber, SPI cyan,
+  QSPI mor, ETH yesil, UART turuncu, CAN pembe, SDIO/GPIO notr) ve uygulama
+  genelinde tek kaynaktan gelir (`src/lib/busColors.ts`). Sematikteki
+  kablolar, node rozetleri ve baglanti noktalari (handle) ayni rengi
+  paylasir.
+- Sematik cizim dili: cihaz ve mux node'lari artik entegre paketi gibi
+  cizilir - cip govdesi, kenar pin pad'leri, pin-1 noktasi, silkscreen
+  tipografisi (JetBrains Mono, genis harf araligi). Descriptor durumu
+  parlayan LED ile gosterilir. Kablolar dik acili (smoothstep) PCB izi
+  olarak yonlendirilir; secili kablo "yuruyen karinca" animasyonu ve ayni
+  renkte glow alir. Secili node bakir cerceve + halo ile vurgulanir.
+- Detay seviyesi (LOD): zoom 0.55 altina inince node'lar ikincil detaylari
+  gizleyip yalnizca parca adini buyuk gosterir; uzaktan bakista kart
+  okunabilir kalir.
+- MiniMap eklendi (cip renkleriyle stillendirilmis, pan/zoom destekli).
+- Fontlar artik pakete gomulu: Inter (variable) ve JetBrains Mono woff2
+  olarak `frontend/public/fonts/` altinda, OFL lisanslariyla birlikte.
+  Google Fonts CDN linkleri kaldirildi - hava bosluklu (air-gapped)
+  makinelerde tipografi artik ayni gorunur.
+- Gelistirici onizlemesi: `?demo` URL parametresi backend'siz temsili bir
+  sema yukler (2xI2C + mux fan-out + QSPI flash + GEM); gorsel regresyon
+  kontrolu icin.
+
 ## v0.1.84 - 2026-07-02
 
 Kalite denetimi surumu: 14 destekli entegrenin tamami icin uretilen kod

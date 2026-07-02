@@ -3,6 +3,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  MiniMap,
   ReactFlow,
   useReactFlow,
   type Edge,
@@ -23,8 +24,21 @@ import { useStore } from "@/store/useStore";
 import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
 import { zoneColor } from "@/lib/utils";
+import { busColor } from "@/lib/busColors";
 import { VisualBackdrop } from "@/components/visuals";
 import { ltc2991NodeSummary } from "@/features/device-config/ltc2991Model";
+
+// One bus = one color, wire included. `color` (CSS currentColor) feeds the
+// selection drop-shadow in index.css so the glow matches the trace.
+function wireProps(transport: string): Partial<Edge> {
+  const stroke = busColor(transport);
+  return {
+    type: "smoothstep",
+    pathOptions: { borderRadius: 14 },
+    style: { stroke, color: stroke },
+    labelStyle: { fill: stroke },
+  } as Partial<Edge>;
+}
 
 export default function SchematicCanvas() {
   const zones = useStore((s) => s.zones);
@@ -113,20 +127,38 @@ export default function SchematicCanvas() {
     const edges: Edge[] = [];
     for (const m of muxes) {
       if (ctrlById[m.controller_id]) {
-        edges.push({ id: `e-${m.controller_id}-${m.id}`, source: m.controller_id, target: m.id, label: "I2C" });
+        edges.push({
+          id: `e-${m.controller_id}-${m.id}`,
+          source: m.controller_id,
+          target: m.id,
+          label: "I2C",
+          ...wireProps("i2c"),
+        });
       }
     }
     for (const d of devices) {
       const via = d.attach.via_mux;
       const ctrl = ctrlById[d.attach.controller_id];
       if (via) {
-        edges.push({ id: `e-${via.mux_id}-${d.id}`, source: via.mux_id, target: d.id, label: `ch ${via.channel}` });
+        edges.push({
+          id: `e-${via.mux_id}-${d.id}`,
+          source: via.mux_id,
+          target: d.id,
+          label: `ch ${via.channel}`,
+          ...wireProps(ctrl?.type ?? "i2c"),
+        });
       } else if (ctrl) {
         const lbl =
           ctrl.type === "spi" || ctrl.type === "qspi"
-            ? `SPI CS${d.attach.spi_chip_select ?? 0}`
+            ? `${ctrl.type.toUpperCase()} CS${d.attach.spi_chip_select ?? 0}`
             : "I2C";
-        edges.push({ id: `e-${ctrl.id}-${d.id}`, source: ctrl.id, target: d.id, label: lbl });
+        edges.push({
+          id: `e-${ctrl.id}-${d.id}`,
+          source: ctrl.id,
+          target: d.id,
+          label: lbl,
+          ...wireProps(ctrl.type),
+        });
       }
     }
     return { nodes, edges };
@@ -163,6 +195,15 @@ export default function SchematicCanvas() {
         <FitView signature={`${controllers.length}-${muxes.length}-${devices.length}`} />
         <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
         <Controls showInteractive={false} className="!bg-elev !border-border" />
+        <MiniMap
+          pannable
+          zoomable
+          nodeStrokeWidth={2}
+          nodeColor={(n) => (n.type === "zone" ? "transparent" : "var(--chip-body)")}
+          nodeStrokeColor={(n) =>
+            n.type === "zone" ? "var(--border)" : n.selected ? "var(--accent)" : "var(--chip-body-edge)"
+          }
+        />
       </ReactFlow>
     </div>
   );

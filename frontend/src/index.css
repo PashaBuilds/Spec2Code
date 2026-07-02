@@ -3,6 +3,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Bundled fonts (SIL OFL, licenses alongside the files) - air-gap safe. */
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/InterVariable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   * {
     border-color: var(--border);
@@ -35,23 +65,44 @@
 @layer utilities {
   .font-mono {
     font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
   }
   .text-balance {
     text-wrap: balance;
   }
+  /* silkscreen: uppercase widely-tracked part labels on chip packages */
+  .text-silk {
+    color: var(--silk);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
 }
 
-/* React Flow theming to match the dark engineering aesthetic */
+/* React Flow theming: PCB aesthetic. Wires carry their bus color via the
+   per-edge inline style set in SchematicCanvas; the rules below only handle
+   selection/hover emphasis and label chrome. */
 .react-flow {
   background: transparent;
 }
 .react-flow__edge-path {
   stroke: var(--faint);
   stroke-width: 1.5;
+  transition: stroke-width 140ms ease, filter 140ms ease;
 }
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+/* marching-ants signal flow on selected/hovered wires */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-dasharray: 7 5;
+  animation: flow-dash 0.9s linear infinite;
+}
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
 }
 .react-flow__edge-text {
   fill: var(--text);
@@ -77,10 +128,38 @@
   stroke: var(--accent);
 }
 .react-flow__handle {
-  background: var(--accent);
-  border: 1px solid var(--bg);
+  background: var(--pad);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--bg));
   width: 8px;
   height: 8px;
+  border-radius: 2px; /* copper pads are square-ish */
+}
+.react-flow__node:hover .react-flow__handle {
+  background: var(--accent);
+}
+.react-flow__minimap {
+  background: color-mix(in srgb, var(--elev) 92%, black) !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__minimap-mask {
+  fill: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--elev);
+  border-bottom: 1px solid var(--border);
+  fill: var(--muted);
+}
+.react-flow__controls-button:hover {
+  background: var(--inset);
+  fill: var(--accent);
 }
 .react-flow__attribution {
   display: none;
