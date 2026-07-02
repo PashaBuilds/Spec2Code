@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.83 - 2026-07-02
+
+- Application ELF uretilmis, exit code 0 ve compiler/make/linker hatasi yoksa
+  workspace artik basarili sayilir. Onceden Tcl akisinin yakalayip kurtardigi
+  hsi probe'lari bile (ornegin BSP'de olmayan bir instance icin `bsp
+  setdriver` denemesinin stderr'e bastigi `ERROR: [Hsi 55-1464] Hardware
+  instance ... not found in the design`) `^ERROR:` imzasina takilip ELF'e
+  ragmen job'u `S2C-VITIS-XSA-PLATFORM-005` ile basarisiz gosteriyordu. Bu
+  satirlar artik Vitis Doctor'da `recovered` olarak raporlanir; gercek
+  hatalar (nonzero exit, compiler/make/linker fatal, ELF yoklugu) davranisi
+  degismedi.
+- `bsp setdriver -driver none` denemeleri artik `bsp getdrivers` listesinde
+  olan instance'larla sinirli; BSP'de karsiligi olmayan adaylar (PHY/stream
+  IP'leri, smartconnect ic dugumleri) icin hsi ERROR spami olusmaz.
+- Custom aday listesi gurultusu azaltildi: `jesd204*`, `sc_node` ve `xdma`
+  standart Xilinx ailesi olarak tanınir. XSA'ya gomulu driver'i olan IP'ler
+  bu listeden bagimsiz olarak aday kalmaya devam eder.
+
 ## v0.1.82 - 2026-07-02
 
 - Custom PL IP korumasi iki bosluga karsi genisletildi (airgap sahadaki

@@ -105,6 +105,7 @@ _KNOWN_XILINX_PL_IP_PREFIXES = (
     "gt_",
     "ila",
     "interconnect",
+    "jesd204",
     "jtag_",
     "lmb_",
     "mdm",
@@ -132,6 +133,8 @@ _KNOWN_XILINX_PL_IP_NAMES = {
     "axis_data_fifo",
     "clk_wiz",
     "proc_sys_reset",
+    "sc_node",
+    "xdma",
     "xlconcat",
     "xlconstant",
     "xlslice",
@@ -1788,7 +1791,16 @@ def render_xsct_script(
         "    if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
         f"        {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
         "        set spec2code_custom_ip_driver_changed 0\n"
+        "        # setdriver on an instance that is not part of the BSP makes hsi\n"
+        "        # print an `ERROR: [Hsi 55-1464] Hardware instance ... not found`\n"
+        "        # line to stderr even though the Tcl error is caught; skip those.\n"
+        "        set spec2code_bsp_driver_listing {}\n"
+        "        catch {set spec2code_bsp_driver_listing [bsp getdrivers]}\n"
         "        foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
+        "            if {$spec2code_bsp_driver_listing ne {} && [string first $spec2code_custom_ip $spec2code_bsp_driver_listing] < 0} {\n"
+        f"                {_tcl_put('custom IP $spec2code_custom_ip is not part of the processor BSP; skipping driver override')}"
+        "                continue\n"
+        "            }\n"
         "            set spec2code_custom_ip_ok 0\n"
         "            foreach spec2code_none_driver {none None NONE} {\n"
         "                if {$spec2code_custom_ip_ok == 0} {\n"
@@ -2092,7 +2104,12 @@ def render_xsct_recovery_script(
         "catch {platform active $platform_name} spec2code_platform_err\n"
         "catch {domain active $domain_name} spec2code_domain_err\n"
         "if {$spec2code_custom_ip_driver_policy eq \"auto_none\"} {\n"
+        "    set spec2code_bsp_driver_listing {}\n"
+        "    catch {set spec2code_bsp_driver_listing [bsp getdrivers]}\n"
         "    foreach spec2code_custom_ip $spec2code_custom_ip_instances {\n"
+        "        if {$spec2code_bsp_driver_listing ne {} && [string first $spec2code_custom_ip $spec2code_bsp_driver_listing] < 0} {\n"
+        "            continue\n"
+        "        }\n"
         "        foreach spec2code_none_driver {none None NONE} {\n"
         "            catch {bsp setdriver -ip $spec2code_custom_ip -driver $spec2code_none_driver}\n"
         "        }\n"
@@ -2498,13 +2515,35 @@ class VitisWorkspaceJobManager:
         host_patched_make_libs = sorted(set(host_patched_make_libs + recovery_patched_make_libs + synthesized_make_libs))
         workspace_make_libs = inspect_filesystem_make_libs(patch_roots, custom_ip_instances, custom_ip_driver_policy)
         elf_artifacts = inspect_vitis_elf_artifacts([workspace_path, staging_root], app_name)
+        final_log_text = f"{final_completed.stdout}\n{final_completed.stderr}"
+        final_has_build_fatal = bool(_VITIS_BUILD_FATAL_RE.search(final_log_text))
         final_has_fatal_error = _xsct_log_has_fatal_error(final_completed.stdout, final_completed.stderr)
+        application_elf_found = int(elf_artifacts.get("application", 0)) > 0
+        # hsi prints `ERROR:` lines to stderr even for failures the Tcl flow
+        # catches and recovers from (e.g. `bsp setdriver` probing an instance
+        # that is not part of the BSP prints `[Hsi 55-1464] Hardware instance
+        # ... not found`). A clean exit that produced the application ELF and
+        # shows no compiler/make/linker fatal must not fail on those lines;
+        # they are surfaced as recovered issues instead.
+        xsct_noise_recovered = (
+            final_has_fatal_error
+            and not final_has_build_fatal
+            and final_completed.returncode == 0
+            and application_elf_found
+            and not bool(getattr(final_completed, "timed_out", False))
+            and not bool(getattr(final_completed, "stalled", False))
+        )
         build_failed = (
             final_completed.returncode != 0
-            or final_has_fatal_error
+            or final_has_build_fatal
+            or (final_has_fatal_error and not xsct_noise_recovered)
             or bool(getattr(final_completed, "timed_out", False))
             or bool(getattr(final_completed, "stalled", False))
         )
+        xsct_recovered_log_issues: list[dict] = []
+        if xsct_noise_recovered:
+            xsct_recovered_log_issues = final_issues or map_vitis_errors(final_log_text)
+            final_issues = []
         artifact_issues: list[dict] = []
         if int(elf_artifacts.get("application", 0)) == 0:
             if build_failed:
@@ -2527,7 +2566,7 @@ class VitisWorkspaceJobManager:
                 "message": missing_elf_message,
                 "source": "Spec2Code",
             })
-        recovered_issues = initial_issues if self_heal.get("successful") else []
+        recovered_issues = (initial_issues if self_heal.get("successful") else []) + xsct_recovered_log_issues
         doctor_issues = final_issues + artifact_issues
         vitis_doctor = build_vitis_doctor(
             custom_ip_driver_policy=custom_ip_driver_policy,
@@ -2550,6 +2589,7 @@ class VitisWorkspaceJobManager:
             job.result["xsct_stdout_tail"] = _log_tail(final_stdout)
             job.result["xsct_stderr_tail"] = _log_tail(final_stderr)
             job.result["successful"] = not build_failed and not artifact_issues
+            job.result["xsct_recovered_log_issues"] = xsct_recovered_log_issues
             job.result["custom_ip_make_libs_patched"] = host_patched_make_libs
             job.result["custom_ip_make_libs_patched_count"] = len(host_patched_make_libs)
             job.result["custom_ip_bsp_patch_total_count"] = len(host_patched_make_libs) + len(xsa_patched_make_libs)

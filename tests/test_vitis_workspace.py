@@ -208,6 +208,23 @@ def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> No
     )
 
 
+def write_hsi_noise_xsct(path: Path, version: str = "2024.2") -> None:
+    """XSCT that emits a caught-and-recovered hsi ERROR line but builds the ELF.
+
+    Mirrors `bsp setdriver` probing an instance that is not part of the BSP:
+    hsi prints `ERROR: [Hsi 55-1464] ...` to stderr although the Tcl flow
+    continues and the application ELF is produced with exit code 0.
+    """
+    _write_fake_xsct(
+        path,
+        'print("ERROR: [Hsi 55-1464] Hardware instance jesd_jesd204_phy_0 not found in the design", file=sys.stderr)\n'
+        'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'print("[Spec2Code] done")\n'
+        "sys.exit(0)\n",
+        version,
+    )
+
+
 def write_false_green_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
     _write_fake_xsct(
         path,
@@ -358,6 +375,10 @@ class VitisWorkspaceTests(unittest.TestCase):
   <MODULE INSTANCE="zynq_ultra_ps_e_0" IPTYPE="PROCESSOR" MODCLASS="PROCESSOR" MODTYPE="zynq_ultra_ps_e" VLNV="xilinx.com:ip:zynq_ultra_ps_e:3.5"/>
   <MODULE INSTANCE="axi_smc" IPTYPE="BUS" MODCLASS="BUS" MODTYPE="smartconnect" VLNV="xilinx.com:ip:smartconnect:1.0"/>
   <MODULE INSTANCE="rst_ps8_0_99M" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="proc_sys_reset" VLNV="xilinx.com:ip:proc_sys_reset:5.0"/>
+  <MODULE INSTANCE="jesd_jesd204_phy_0" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="jesd204_phy" VLNV="xilinx.com:ip:jesd204_phy:4.0"/>
+  <MODULE INSTANCE="jesd_jesd_rx" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="jesd204c" VLNV="xilinx.com:ip:jesd204c:4.2"/>
+  <MODULE INSTANCE="m00_nodes_m00_aw_node" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="sc_node" VLNV="xilinx.com:ip:sc_node:1.0"/>
+  <MODULE INSTANCE="PCIe_xdma_0" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="xdma" VLNV="xilinx.com:ip:xdma:4.1"/>
 </EDKSYSTEM>
 """
         with tempfile.TemporaryDirectory() as tmp:
@@ -367,6 +388,8 @@ class VitisWorkspaceTests(unittest.TestCase):
 
             candidates = discover_custom_pl_ips(xsa)
 
+        # Xilinx families that used to slip through as custom-like noise
+        # (jesd204*, smartconnect sc_node internals, xdma) stay excluded.
         self.assertEqual([item.instance for item in candidates], ["mem_pcie_intr_0"])
         self.assertEqual(candidates[0].ip_name, "mem_pcie_intr")
         self.assertEqual(candidates[0].vlnv, "user.org:user:mem_pcie_intr:1.0")
@@ -627,6 +650,10 @@ class VitisWorkspaceTests(unittest.TestCase):
         # source subdirs must be configured explicitly after importsources.
         self.assertIn("app config -name $app_name -add include-path", script)
         self.assertIn("[list {drivers} {tests}]", script)
+        # setdriver probes must be limited to instances the BSP actually
+        # lists; otherwise hsi spams stderr with [Hsi 55-1464] ERROR lines.
+        self.assertIn("bsp getdrivers", script)
+        self.assertIn("skipping driver override", script)
         self.assertLess(
             script.index("importsources -name $app_name -path $source_path"),
             script.index("app config -name $app_name -add include-path"),
@@ -1189,6 +1216,65 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertFalse(result["self_heal"]["successful"])
                 self.assertIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["error_codes"])
                 self.assertNotIn("S2C-VITIS-CUSTOM-IP-MAKELIBS-001", result["vitis_doctor"]["recovered_error_codes"])
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_job_succeeds_when_hsi_noise_lines_but_elf_is_built(self) -> None:
+        # hsi prints ERROR lines to stderr even for probes the Tcl flow
+        # catches (setdriver on a non-BSP instance). A clean exit with the
+        # application ELF present must be a green job; the noise is reported
+        # as recovered, not as an active failure.
+        project_name = "unit_vitis_hsi_noise"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_hsi_noise",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_hsi_noise_xsct(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                xsa.write_bytes(b"fake xsa")
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path=str(xsa),
+                    workspace_path=str(tmp_path / "workspace"),
+                    temp_path=str(tmp_path / "temp"),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_hsi_noise",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                manager._blocking(job)
+
+                result = job.result or {}
+                self.assertTrue(result["successful"])
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
+                self.assertTrue(result["xsct_recovered_log_issues"])
+                doctor = result["vitis_doctor"]
+                self.assertIn("S2C-VITIS-XSA-PLATFORM-005", doctor["recovered_error_codes"])
+                self.assertNotIn("S2C-VITIS-XSA-PLATFORM-005", doctor["error_codes"])
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
