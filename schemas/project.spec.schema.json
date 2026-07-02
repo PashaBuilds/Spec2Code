@@ -20,7 +20,13 @@
         },
         "target_core": { "type": "string", "minLength": 1 },
         "runtime": { "type": "string", "enum": ["bare_metal", "freertos"] },
-        "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" }
+        "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" },
+        "testbench_transport": {
+          "type": "string",
+          "enum": ["auto", "eth", "uart"],
+          "default": "auto",
+          "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART."
+        }
       }
     },
     "coding_standard_ref": { "type": "string" },

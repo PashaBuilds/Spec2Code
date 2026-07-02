@@ -82,6 +82,7 @@ const DEFAULT_PROJECT: ProjectMeta = {
   target_core: "a53_0",
   runtime: "freertos",
   output_mode: "dropin",
+  testbench_transport: "auto",
 };
 
 const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";

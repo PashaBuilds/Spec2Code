@@ -68,6 +68,8 @@ export interface ProjectMeta {
   target_core: string;
   runtime: Runtime;
   output_mode?: string;
+  /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART. */
+  testbench_transport?: "auto" | "eth" | "uart";
 }
 export interface LlmConfig {
   enabled: boolean;
@@ -290,6 +292,8 @@ export interface TestbenchManifest {
   agent_version?: string;
   protocol: string;
   line_format: string;
+  transport_agent?: "lwip" | "uart" | null;
+  uart?: { instance: string; baud: number };
   devices: TestbenchManifestDevice[];
 }
 
@@ -317,8 +321,11 @@ export interface TestbenchCommandResponse {
 
 export interface TestbenchSessionConnectRequest {
   session_id: string;
-  host: string;
-  port: number;
+  transport?: "tcp" | "serial";
+  host?: string;
+  port?: number;
+  serial_port?: string;
+  baud?: number;
   timeout_s?: number;
 }
 
@@ -330,6 +337,45 @@ export interface TestbenchSessionStatus {
   connected_at?: number | null;
   last_used_at?: number | null;
   last_error?: string;
+  transport?: "tcp" | "serial";
+  serial_port?: string;
+  baud?: number;
+}
+
+export interface SerialPortInfo {
+  device: string;
+  description: string;
+  hwid: string;
+}
+
+export interface SerialConsoleEntry {
+  seq: number;
+  at: number;
+  line: string;
+}
+
+export interface RunOnBoardRequest {
+  vitis_path: string;
+  workspace_path: string;
+  platform_name: string;
+  app_name: string;
+  processor?: string;
+  program_fpga?: "auto" | "yes" | "no";
+  timeout_s?: number;
+}
+
+export interface RunOnBoardResult {
+  runboard_job_id: string;
+  status: string;
+  error: string | null;
+  result: {
+    elf: string;
+    psu_init: string;
+    bitstream: string | null;
+    markers: string[];
+    stdout_log: string;
+    stderr_log: string;
+  } | null;
 }
 
 export interface ProjectSpec {

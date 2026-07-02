@@ -193,6 +193,11 @@ export default function TestBenchPanel() {
   const [host, setHost] = useState(() => localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1");
   const [port, setPort] = useState(() => localStorage.getItem("spec2code.testbench.port") ?? "5000");
   const [timeout, setTimeoutValue] = useState(() => localStorage.getItem("spec2code.testbench.timeout") ?? "5");
+  const [transport, setTransport] = useState<"tcp" | "serial">(() =>
+    localStorage.getItem("spec2code.testbench.transport") === "serial" ? "serial" : "tcp");
+  const [serialPort, setSerialPort] = useState(() => localStorage.getItem("spec2code.testbench.serialPort") ?? "");
+  const [baud, setBaud] = useState(() => localStorage.getItem("spec2code.testbench.baud") ?? "115200");
+  const [serialPorts, setSerialPorts] = useState<import("@/lib/types").SerialPortInfo[]>([]);
   const [sessionId] = useState(makeSessionId);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [sessionStatus, setSessionStatus] = useState<TestbenchSessionStatus | null>(null);
@@ -257,32 +262,72 @@ export default function TestBenchPanel() {
     };
   }, [sessionId]);
 
+  // UART agent'lı manifest'te varsayılan transport seri olsun (kullanıcı
+  // daha önce elle seçmediyse).
+  useEffect(() => {
+    if (localStorage.getItem("spec2code.testbench.transport")) return;
+    if (manifest?.transport_agent === "uart") setTransport("serial");
+  }, [manifest]);
+
+  const refreshSerialPorts = async () => {
+    try {
+      const ports = await api.testbenchSerialPorts();
+      setSerialPorts(ports);
+      if (!serialPort && ports.length > 0) setSerialPort(ports[0].device);
+    } catch {
+      setSerialPorts([]);
+    }
+  };
+
+  useEffect(() => {
+    if (transport === "serial") void refreshSerialPorts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transport]);
+
   async function connect() {
     if (connectionBusy || isConnected) return;
     const parsedPort = parseNumber(port);
     const parsedTimeout = parseNumber(timeout) ?? 5;
-    if (!host.trim() || parsedPort == null || parsedPort <= 0) {
+    if (transport === "tcp" && (!host.trim() || parsedPort == null || parsedPort <= 0)) {
       setError("Host veya port geçerli değil.");
+      return;
+    }
+    if (transport === "serial" && !serialPort.trim()) {
+      setError("Seri port seç (ör. COM4).");
       return;
     }
 
     localStorage.setItem("spec2code.testbench.host", host.trim());
     localStorage.setItem("spec2code.testbench.port", port.trim());
     localStorage.setItem("spec2code.testbench.timeout", timeout.trim());
+    localStorage.setItem("spec2code.testbench.transport", transport);
+    localStorage.setItem("spec2code.testbench.serialPort", serialPort.trim());
+    localStorage.setItem("spec2code.testbench.baud", baud.trim());
 
     setConnectionState("connecting");
     setError("");
     try {
-      const status = await api.testbenchConnect({
-        session_id: sessionId,
-        host: host.trim(),
-        port: parsedPort,
-        timeout_s: parsedTimeout,
-      });
+      const status = await api.testbenchConnect(
+        transport === "serial"
+          ? {
+              session_id: sessionId,
+              transport: "serial",
+              serial_port: serialPort.trim(),
+              baud: parseNumber(baud) ?? 115200,
+              timeout_s: parsedTimeout,
+            }
+          : {
+              session_id: sessionId,
+              transport: "tcp",
+              host: host.trim(),
+              port: parsedPort ?? 0,
+              timeout_s: parsedTimeout,
+            },
+      );
       setSessionStatus(status);
       setConnectionState(status.connected ? "connected" : "disconnected");
       if (!status.connected) {
-        setError(status.last_error || "TCP bağlantısı kurulamadı.");
+        setError(status.last_error || (transport === "serial" ? "Seri bağlantı kurulamadı." : "TCP bağlantısı kurulamadı."));
       }
     } catch (err) {
       setSessionStatus(null);
@@ -307,13 +352,13 @@ export default function TestBenchPanel() {
 
   async function send() {
     if (!selectedDevice || !selectedOperation || running || versionRunning) return;
-    const parsedPort = parseNumber(port);
-    if (!host.trim() || parsedPort == null || parsedPort <= 0) {
+    const parsedPort = transport === "serial" ? 0 : parseNumber(port);
+    if (transport === "tcp" && (!host.trim() || parsedPort == null || parsedPort <= 0)) {
       setError("Host veya port geçerli değil.");
       return;
     }
     if (!isConnected) {
-      setError("Önce kart ile TCP bağlantısı kur.");
+      setError(transport === "serial" ? "Önce kart ile seri bağlantı kur." : "Önce kart ile TCP bağlantısı kur.");
       return;
     }
     if (selectedOperation.risk === "risky") {
@@ -334,8 +379,8 @@ export default function TestBenchPanel() {
 
     try {
       const response = await api.testbenchCommand({
-        host: host.trim(),
-        port: parsedPort,
+        host: transport === "serial" ? "serial" : host.trim(),
+        port: parsedPort ?? 0,
         device: selectedDevice.id,
         operation: selectedOperation.name,
         command_id: nextCommandId,
@@ -361,8 +406,8 @@ export default function TestBenchPanel() {
 
   async function queryAgentVersion() {
     if (!isConnected || running || versionRunning) return;
-    const parsedPort = parseNumber(port);
-    if (!host.trim() || parsedPort == null || parsedPort <= 0) {
+    const parsedPort = transport === "serial" ? 0 : parseNumber(port);
+    if (transport === "tcp" && (!host.trim() || parsedPort == null || parsedPort <= 0)) {
       setError("Host veya port geçerli değil.");
       return;
     }
@@ -374,8 +419,8 @@ export default function TestBenchPanel() {
 
     try {
       const response = await api.testbenchCommand({
-        host: host.trim(),
-        port: parsedPort,
+        host: transport === "serial" ? "serial" : host.trim(),
+        port: parsedPort ?? 0,
         device: "spec2code",
         operation: "spec2code_version",
         command_id: nextCommandId,
@@ -438,16 +483,71 @@ export default function TestBenchPanel() {
         </div>
 
         <div className="space-y-3 p-3">
-          <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
-            <div>
-              <Label>Host</Label>
-              <Input value={host} onChange={(event) => setHost(event.target.value)} disabled={connectionLocked} />
-            </div>
-            <div>
-              <Label>Port</Label>
-              <Input value={port} onChange={(event) => setPort(event.target.value)} disabled={connectionLocked} />
+          <div>
+            <Label>Transport</Label>
+            <div className="mt-1 grid grid-cols-2 gap-1 rounded-md border border-border bg-inset p-1">
+              {(["tcp", "serial"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  disabled={connectionLocked}
+                  onClick={() => setTransport(option)}
+                  className={cn(
+                    "rounded px-2 py-1 font-mono text-[11px] font-semibold uppercase transition-colors",
+                    transport === option
+                      ? "bg-accent-dim text-accent"
+                      : "text-muted hover:text-text",
+                    connectionLocked && "opacity-60",
+                  )}
+                >
+                  {option === "tcp" ? "TCP (lwIP)" : "Seri (UART)"}
+                </button>
+              ))}
             </div>
           </div>
+          {transport === "tcp" ? (
+            <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
+              <div>
+                <Label>Host</Label>
+                <Input value={host} onChange={(event) => setHost(event.target.value)} disabled={connectionLocked} />
+              </div>
+              <div>
+                <Label>Port</Label>
+                <Input value={port} onChange={(event) => setPort(event.target.value)} disabled={connectionLocked} />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+              <div>
+                <Label>Seri port</Label>
+                <div className="flex gap-1">
+                  <select
+                    value={serialPort}
+                    onChange={(event) => setSerialPort(event.target.value)}
+                    disabled={connectionLocked}
+                    className="h-9 w-full min-w-0 rounded-md border border-border bg-inset px-2 font-mono text-xs text-text"
+                  >
+                    {serialPort && !serialPorts.some((p) => p.device === serialPort) ? (
+                      <option value={serialPort}>{serialPort}</option>
+                    ) : null}
+                    {serialPorts.length === 0 && !serialPort ? <option value="">port bulunamadı</option> : null}
+                    {serialPorts.map((info) => (
+                      <option key={info.device} value={info.device} title={info.description}>
+                        {info.device}
+                      </option>
+                    ))}
+                  </select>
+                  <Button size="sm" variant="outline" onClick={() => void refreshSerialPorts()} disabled={connectionLocked} title="Portları yenile">
+                    ⟳
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label>Baud</Label>
+                <Input value={baud} onChange={(event) => setBaud(event.target.value)} disabled={connectionLocked} />
+              </div>
+            </div>
+          )}
           <div>
             <Label>Timeout sn</Label>
             <Input value={timeout} onChange={(event) => setTimeoutValue(event.target.value)} disabled={connectionLocked} />
@@ -462,7 +562,8 @@ export default function TestBenchPanel() {
               <span className="font-mono text-[10px] text-faint">{sessionId.slice(0, 11)}</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-muted">
-              Komutlar tek TCP session üzerinden satır satır gönderilir; bağlantı koparsa tekrar Bağlan gerekir.
+              Komutlar tek {transport === "serial" ? "seri (COM)" : "TCP"} session üzerinden satır satır gönderilir;
+              bağlantı koparsa tekrar Bağlan gerekir.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={connect} disabled={connectionBusy || isConnected}>

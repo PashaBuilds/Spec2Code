@@ -10,3 +10,4 @@ watchdog
 httpx
 pyyaml
 libclang
+pyserial

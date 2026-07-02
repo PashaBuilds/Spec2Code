@@ -19,7 +19,14 @@ from pydantic import BaseModel, Field
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
-from backend.testbench import TestbenchCommand, TestbenchSessionError, send_command, testbench_sessions
+from backend.testbench import (
+    TestbenchCommand,
+    TestbenchSessionError,
+    list_serial_ports,
+    send_command,
+    testbench_sessions,
+)
+from backend.run_on_board import RunOnBoardConfig, runboard_manager
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
@@ -108,13 +115,26 @@ class TestbenchCommandRequest(BaseModel):
 
 class TestbenchConnectRequest(BaseModel):
     session_id: str
-    host: str
-    port: int
+    transport: str = "tcp"  # "tcp" | "serial"
+    host: str = ""
+    port: int = 0
+    serial_port: str = ""
+    baud: int = 115200
     timeout_s: float = 5.0
 
 
 class TestbenchSessionRequest(BaseModel):
     session_id: str
+
+
+class TestbenchConsoleReadRequest(BaseModel):
+    session_id: str
+    since: int = 0
+
+
+class TestbenchConsoleWriteRequest(BaseModel):
+    session_id: str
+    text: str
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -715,6 +735,43 @@ def vitis_compile_errors_map(req: VitisErrorMapRequest) -> dict:
     return {"issues": map_vitis_errors(req.log)}
 
 
+class RunOnBoardRequest(BaseModel):
+    vitis_path: str
+    workspace_path: str
+    platform_name: str
+    app_name: str
+    processor: str = "psu_cortexa53_0"
+    program_fpga: str = "auto"  # auto | yes | no
+    timeout_s: int = 300
+
+
+@router.post("/vitis/run-on-board")
+async def vitis_run_on_board(req: RunOnBoardRequest) -> dict:
+    job_id = await runboard_manager.start(RunOnBoardConfig(
+        vitis_path=req.vitis_path,
+        workspace_path=req.workspace_path,
+        platform_name=req.platform_name,
+        app_name=req.app_name,
+        processor=req.processor,
+        program_fpga=req.program_fpga,
+        timeout_s=req.timeout_s,
+    ))
+    return {"runboard_job_id": job_id}
+
+
+@router.get("/vitis/run-on-board/{job_id}/result")
+def vitis_run_on_board_result(job_id: str) -> dict:
+    job = runboard_manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown run-on-board job")
+    return {
+        "runboard_job_id": job_id,
+        "status": job.status,
+        "error": job.error,
+        "result": job.result,
+    }
+
+
 @router.post("/testbench/command")
 def testbench_command(req: TestbenchCommandRequest) -> dict:
     try:
@@ -747,11 +804,43 @@ def testbench_command(req: TestbenchCommandRequest) -> dict:
 @router.post("/testbench/session/connect")
 def testbench_session_connect(req: TestbenchConnectRequest) -> dict:
     try:
+        if req.transport == "serial":
+            if not req.serial_port.strip():
+                raise HTTPException(400, {"message": "serial_port is required for the serial transport"})
+            return testbench_sessions.connect_serial(
+                req.session_id, req.serial_port, req.baud, req.timeout_s).__dict__
         return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s).__dict__
     except TestbenchSessionError as exc:
-        raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+        raise HTTPException(400, {"message": "testbench session is invalid", "error": str(exc)}) from exc
+    except ImportError as exc:
+        raise HTTPException(501, {"message": "pyserial is not installed on the backend", "error": str(exc)}) from exc
     except OSError as exc:
-        raise HTTPException(502, {"message": "testbench tcp connect failed", "error": str(exc)}) from exc
+        raise HTTPException(502, {"message": "testbench connect failed", "error": str(exc)}) from exc
+
+
+@router.get("/testbench/serial/ports")
+def testbench_serial_ports() -> dict:
+    return {"ports": list_serial_ports()}
+
+
+@router.post("/testbench/console/read")
+def testbench_console_read(req: TestbenchConsoleReadRequest) -> dict:
+    try:
+        seq, entries = testbench_sessions.console(req.session_id, req.since)
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "serial console is not connected", "error": str(exc)}) from exc
+    return {"seq": seq, "entries": entries}
+
+
+@router.post("/testbench/console/write")
+def testbench_console_write(req: TestbenchConsoleWriteRequest) -> dict:
+    try:
+        testbench_sessions.write_raw(req.session_id, req.text)
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "serial console is not connected", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "serial write failed", "error": str(exc)}) from exc
+    return {"ok": True}
 
 
 @router.post("/testbench/session/disconnect")

@@ -7,6 +7,7 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.jobs import manager
+from backend.run_on_board import runboard_manager
 from backend.vitis_workspace import vitis_manager
 
 ws_router = APIRouter()
@@ -58,6 +59,18 @@ async def ws_vitis(websocket: WebSocket, vitis_job_id: str) -> None:
     job = vitis_manager.get(vitis_job_id)
     if job is None:
         await websocket.send_json({"event": "error", "message": "unknown Vitis job"})
+        await websocket.close()
+        return
+
+    await _stream_buffered_job(websocket, job)
+
+
+@ws_router.websocket("/ws/runboard/{job_id}")
+async def ws_runboard(websocket: WebSocket, job_id: str) -> None:
+    await websocket.accept()
+    job = runboard_manager.get(job_id)
+    if job is None:
+        await websocket.send_json({"event": "error", "message": "unknown run-on-board job"})
         await websocket.close()
         return
 

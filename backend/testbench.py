@@ -1,11 +1,16 @@
-"""Host-side TCP bridge for the generated Spec2Code target test bench agent."""
+"""Host-side TCP/serial bridge for the generated Spec2Code target test bench agent."""
 
 from __future__ import annotations
 
+import collections
+import queue
 import socket
 import threading
 import time
 from dataclasses import dataclass, field
+
+#: Ring size of the serial console line buffer kept per session.
+SERIAL_CONSOLE_MAX_LINES = 2000
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,9 @@ class TestbenchSessionStatus:
     connected_at: float | None = None
     last_used_at: float | None = None
     last_error: str = ""
+    transport: str = "tcp"
+    serial_port: str = ""
+    baud: int = 0
 
 
 class TestbenchSessionError(RuntimeError):
@@ -198,9 +206,202 @@ class _TestbenchTcpSession:
             return result
 
 
+class _TestbenchSerialSession:
+    """Persistent serial (COM) session for the UART test bench agent.
+
+    A reader thread splits incoming bytes into lines. Every line lands in a
+    bounded console ring (for the UART console UI); lines that look like
+    protocol responses ("S2C|...|ok=...") are additionally queued for
+    ``send()``. Console noise between responses is therefore harmless even
+    when the agent shares the console UART with xil_printf output.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        self.port_name = ""
+        self.baud = 115200
+        self.timeout_s = 5.0
+        self.connected_at: float | None = None
+        self.last_used_at: float | None = None
+        self.last_error = ""
+        self._serial = None
+        self._lock = threading.RLock()
+        self._send_lock = threading.Lock()
+        self._stop = threading.Event()
+        self._responses: "queue.Queue[str]" = queue.Queue()
+        self._console: collections.deque[dict] = collections.deque(maxlen=SERIAL_CONSOLE_MAX_LINES)
+        self._console_seq = 0
+
+    def status(self) -> TestbenchSessionStatus:
+        with self._lock:
+            return TestbenchSessionStatus(
+                session_id=self.session_id,
+                connected=self._serial is not None,
+                connected_at=self.connected_at,
+                last_used_at=self.last_used_at,
+                last_error=self.last_error,
+                transport="serial",
+                serial_port=self.port_name,
+                baud=self.baud,
+            )
+
+    def connect(self, port_name: str, baud: int, timeout_s: float, *, serial_factory=None) -> TestbenchSessionStatus:
+        with self._lock:
+            self.close()
+            self.port_name = port_name
+            self.baud = int(baud)
+            self.timeout_s = max(0.2, float(timeout_s))
+            try:
+                if serial_factory is not None:
+                    handle = serial_factory(self.port_name, self.baud, self.timeout_s)
+                else:
+                    import serial  # lazy: only the serial transport needs pyserial
+
+                    if "://" in self.port_name:
+                        # pyserial URL handlers (loop://, socket://...) — used for
+                        # hardware-less smoke tests.
+                        handle = serial.serial_for_url(self.port_name, baudrate=self.baud, timeout=0.2)
+                    else:
+                        handle = serial.Serial(self.port_name, self.baud, timeout=0.2)
+            except OSError as exc:
+                self.last_error = str(exc)
+                raise
+            self._serial = handle
+            self._stop.clear()
+            reader = threading.Thread(
+                target=self._reader_loop,
+                name=f"s2c-serial-{self.session_id}",
+                daemon=True,
+            )
+            reader.start()
+            now = time.time()
+            self.connected_at = now
+            self.last_used_at = now
+            self.last_error = ""
+            return self.status()
+
+    def close(self) -> None:
+        self._stop.set()
+        handle = self._serial
+        self._serial = None
+        self.connected_at = None
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+
+    def _console_push(self, line: str) -> None:
+        with self._lock:
+            self._console_seq += 1
+            self._console.append({"seq": self._console_seq, "at": time.time(), "line": line})
+
+    def _reader_loop(self) -> None:
+        buffer = bytearray()
+        while not self._stop.is_set():
+            handle = self._serial
+            if handle is None:
+                return
+            try:
+                chunk = handle.read(256)
+            except (OSError, ValueError) as exc:
+                with self._lock:
+                    if not self._stop.is_set():
+                        self.last_error = str(exc)
+                return
+            if not chunk:
+                continue
+            buffer.extend(chunk)
+            while True:
+                index = buffer.find(b"\n")
+                if index < 0:
+                    break
+                raw = bytes(buffer[:index])
+                del buffer[: index + 1]
+                line = raw.decode("ascii", errors="replace").rstrip("\r")
+                if not line:
+                    continue
+                self._console_push(line)
+                if line.startswith("S2C|") and "|ok=" in line:
+                    self._responses.put(line)
+
+    def console_since(self, since_seq: int) -> tuple[int, list[dict]]:
+        with self._lock:
+            entries = [entry for entry in self._console if entry["seq"] > since_seq]
+            return self._console_seq, entries
+
+    def write_raw(self, text: str) -> None:
+        with self._lock:
+            handle = self._serial
+            if handle is None:
+                raise TestbenchSessionError("testbench serial session is not connected")
+            payload = text if text.endswith("\n") else text + "\r\n"
+            try:
+                handle.write(payload.encode("ascii", errors="replace"))
+                handle.flush()
+            except OSError as exc:
+                self.last_error = str(exc)
+                self.close()
+                raise
+            self.last_used_at = time.time()
+
+    def send(self, command: TestbenchCommand) -> TestbenchResult:
+        request_line = format_command(command)
+        with self._send_lock:
+            with self._lock:
+                handle = self._serial
+                if handle is None:
+                    raise TestbenchSessionError("testbench serial session is not connected")
+                while True:  # drop stale responses from earlier timeouts
+                    try:
+                        self._responses.get_nowait()
+                    except queue.Empty:
+                        break
+                try:
+                    handle.write(request_line.encode("ascii"))
+                    handle.flush()
+                except OSError as exc:
+                    self.last_error = str(exc)
+                    self.close()
+                    raise
+            # Wait outside the state lock so the reader thread and console
+            # polling stay live while we block on the response.
+            try:
+                response_line = self._responses.get(timeout=self.timeout_s)
+            except queue.Empty:
+                with self._lock:
+                    self.last_error = f"no response within {self.timeout_s}s"
+                raise TestbenchSessionError(
+                    f"testbench serial response timeout after {self.timeout_s}s")
+        with self._lock:
+            self.last_used_at = time.time()
+            self.last_error = ""
+        return TestbenchResult(
+            request_line=request_line.strip(),
+            response_line=response_line,
+            parsed=parse_response(response_line),
+        )
+
+
+def list_serial_ports() -> list[dict]:
+    """Available COM ports for the UI dropdown (empty when pyserial is absent)."""
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return []
+    ports = []
+    for info in list_ports.comports():
+        ports.append({
+            "device": info.device,
+            "description": info.description or "",
+            "hwid": info.hwid or "",
+        })
+    return sorted(ports, key=lambda item: item["device"])
+
+
 class TestbenchSessionManager:
     def __init__(self) -> None:
-        self._sessions: dict[str, _TestbenchTcpSession] = {}
+        self._sessions: dict[str, _TestbenchTcpSession | _TestbenchSerialSession] = {}
         self._lock = threading.RLock()
 
     def _clean_session_id(self, session_id: str) -> str:
@@ -209,7 +410,7 @@ class TestbenchSessionManager:
             raise TestbenchSessionError("testbench session_id is empty")
         return clean_id
 
-    def _session(self, session_id: str) -> _TestbenchTcpSession:
+    def _session(self, session_id: str) -> _TestbenchTcpSession | _TestbenchSerialSession:
         clean_id = self._clean_session_id(session_id)
         with self._lock:
             session = self._sessions.get(clean_id)
@@ -218,8 +419,45 @@ class TestbenchSessionManager:
                 self._sessions[clean_id] = session
             return session
 
+    def _replace_session(self, session_id: str, session) -> None:
+        clean_id = self._clean_session_id(session_id)
+        with self._lock:
+            old = self._sessions.pop(clean_id, None)
+            self._sessions[clean_id] = session
+        if old is not None:
+            old.close()
+
     def connect(self, session_id: str, host: str, port: int, timeout_s: float) -> TestbenchSessionStatus:
-        return self._session(session_id).connect(host.strip(), int(port), timeout_s)
+        session = _TestbenchTcpSession(self._clean_session_id(session_id))
+        self._replace_session(session_id, session)
+        return session.connect(host.strip(), int(port), timeout_s)
+
+    def connect_serial(
+        self,
+        session_id: str,
+        port_name: str,
+        baud: int,
+        timeout_s: float,
+        *,
+        serial_factory=None,
+    ) -> TestbenchSessionStatus:
+        session = _TestbenchSerialSession(self._clean_session_id(session_id))
+        self._replace_session(session_id, session)
+        return session.connect(port_name.strip(), int(baud), timeout_s, serial_factory=serial_factory)
+
+    def _serial_session(self, session_id: str) -> _TestbenchSerialSession:
+        clean_id = self._clean_session_id(session_id)
+        with self._lock:
+            session = self._sessions.get(clean_id)
+        if not isinstance(session, _TestbenchSerialSession):
+            raise TestbenchSessionError("testbench serial session is not connected")
+        return session
+
+    def console(self, session_id: str, since_seq: int) -> tuple[int, list[dict]]:
+        return self._serial_session(session_id).console_since(int(since_seq))
+
+    def write_raw(self, session_id: str, text: str) -> None:
+        self._serial_session(session_id).write_raw(text)
 
     def disconnect(self, session_id: str) -> TestbenchSessionStatus:
         clean_id = self._clean_session_id(session_id)

@@ -4,6 +4,7 @@ import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectT
 import { api, openVitisSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
+import RunOnBoardCard from "./RunOnBoardCard";
 import type { JobEvent, VitisCompileIssue, VitisDoctor, VitisSelfHeal, VitisWorkspaceResult } from "@/lib/types";
 
 const VITIS_STAGES = [
@@ -755,6 +756,15 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
           ) : null}
         </div>
       )}
+
+      <RunOnBoardCard
+        vitisPath={cleanPathInput(vitisPath)}
+        workspacePath={cleanPathInput(workspacePath)}
+        platformName={platformName.trim()}
+        appName={appName.trim()}
+        processor={processor.trim() || defaultProcessor}
+        ready={workspaceReady}
+      />
     </section>
   );
 }

@@ -190,6 +190,22 @@ export default function ProjectSetup() {
               </SelectContent>
             </Select>
           </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Test bench transport</Label>
+            <Select
+              value={project.testbench_transport ?? "auto"}
+              onValueChange={(v) => setProject({ testbench_transport: v as never })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto — ETH varsa lwIP TCP, yoksa PS UART</SelectItem>
+                <SelectItem value="eth">Ethernet (lwIP TCP agent)</SelectItem>
+                <SelectItem value="uart">UART (seri agent)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

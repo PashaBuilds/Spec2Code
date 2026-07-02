@@ -3,6 +3,42 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.86 - 2026-07-02
+
+Faz 2: UART test bench transportu, JTAG ile board'a yukleme (Build & Run)
+ve UART konsolu.
+
+- UART test bench agent'i (hedef taraf): `project.testbench_transport`
+  secenegi eklendi (`auto` | `eth` | `uart`; varsayilan auto = ETH varsa
+  lwIP TCP, yoksa PS UART). UART secildiginde ayni S2C satir protokolunu
+  XUartPs uzerinden konusan polled agent uretilir
+  (tests/spec2code_testbench_uart*.c/h): resmi xuartps polled ornegi
+  kalibi, kesme/scheduler gerektirmez, bare-metal ve FreeRTOS BSP'de ayni
+  calisir. "S2C|" ile baslamayan satirlar yok sayilir - agent konsol
+  UART'ini xil_printf ciktisiyla paylasabilir. Gercek ZynqMP BSP'sine
+  karsi -Wall -Wextra -Werror ile sifir uyari dogrulandi. Manifest'e
+  `transport_agent` ve `uart` alanlari eklendi.
+- Host tarafi seri (COM) istemcisi: pyserial tabanli kalici seri session
+  (backend/testbench.py `_TestbenchSerialSession`); okuyucu thread gelen
+  her satiri zaman damgali konsol ring'ine yazar, "S2C|...|ok=..."
+  yanitlarini komut kuyruguna ayirir - konsol gurultusu komutlari bozmaz.
+  Yeni API'ler: `GET /api/testbench/serial/ports` (COM listesi),
+  `POST /api/testbench/console/read` ve `/write`. Test Bench ekranina
+  TCP/Seri transport secici eklendi. `loop://` gibi pyserial URL'leri
+  donanimsiz duman testi icin destekleniyor.
+- Build & Run on Board: `POST /api/vitis/run-on-board` xsdb ile klasik
+  ZynqMP JTAG akisini kosar (sistem reset -> psu_init -> bitstream
+  [varsa] -> ELF indir -> calistir; Vitis "Run on hardware" sirasi).
+  Canli log ws://.../ws/runboard/{id} uzerinden akar; "no targets" gibi
+  yaygin hatalara Turkce ipucu eslenir. Vitis workspace panelinin altina
+  "Board'da calistir" karti eklendi (PL bitstream: auto/zorla/yukleme).
+- UART konsolu ekrani: COM port + baud secimiyle baglan, karttan gelen
+  her satir zaman damgasiyla akar (S2C satirlari turuncu, hata satirlari
+  kirmizi vurgulanir), satir gonderme, temizle/log indir/oto-kaydir.
+- pyserial bagimliligi requirements.txt'e eklendi. Spec semasi
+  `project.testbench_transport` alanini taniyor. Test suite 79 -> 90
+  (UART codegen, seri session, run-on-board fake-xsdb testleri).
+
 ## v0.1.85 - 2026-07-02
 
 Gorsel yenileme Faz 1: PCB tasarim dili ve sematik glow-up.

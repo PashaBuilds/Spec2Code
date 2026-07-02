@@ -4,6 +4,7 @@ import re
 import socketserver
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -48,6 +49,19 @@ def add_zynqmp_ps_ethernet(spec: dict) -> None:
     })
 
 
+def add_zynqmp_ps_uart(spec: dict) -> None:
+    spec["controllers"].append({
+        "id": "ps_uart_0",
+        "type": "uart",
+        "instance": "XPAR_XUARTPS_0",
+        "base_address": "0xFF000000",
+        "device_id": 0,
+        "driver": "XUartPs",
+        "source": "xparameters",
+        "zone": "ps",
+    })
+
+
 class OneShotHandler(socketserver.BaseRequestHandler):
     response = b"S2C|id=7|ok=1|status=0|value=0x12|data=AABB|message=ok\n"
 
@@ -73,7 +87,79 @@ class PersistentHandler(socketserver.BaseRequestHandler):
             self.request.sendall(response)
 
 
+class FakeSerial:
+    """In-memory serial double: queues a scripted response after each request write."""
+
+    def __init__(self) -> None:
+        self.rx = bytearray()
+        self.written: list[bytes] = []
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def read(self, size: int) -> bytes:
+        with self._lock:
+            if self._closed:
+                raise OSError("fake serial closed")
+            chunk = bytes(self.rx[:size])
+            del self.rx[:size]
+        if not chunk:
+            time.sleep(0.005)
+        return chunk
+
+    def write(self, data: bytes) -> int:
+        with self._lock:
+            self.written.append(bytes(data))
+            if b"op=voltage_read" in data:
+                # Console noise on a shared UART must be tolerated by the host.
+                self.rx += b"boot noise line\r\n"
+                self.rx += b"S2C|id=3|ok=1|status=0|value=0x1A2B|message=ok\r\n"
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+
+
 class TestbenchTests(unittest.TestCase):
+    def test_serial_session_skips_console_noise_and_reads_protocol_response(self) -> None:
+        fake = FakeSerial()
+        manager = SessionManager()
+        status = manager.connect_serial(
+            "ser1", "COM7", 115200, 2.0, serial_factory=lambda _p, _b, _t: fake)
+        self.assertTrue(status.connected)
+        self.assertEqual(status.transport, "serial")
+        self.assertEqual(status.serial_port, "COM7")
+        self.assertEqual(status.baud, 115200)
+
+        result = manager.send("ser1", BenchCommand(
+            host="", port=0, device="u1_ltc2991", operation="voltage_read", command_id=3))
+        self.assertEqual(result.parsed["ok"], "1")
+        self.assertEqual(result.parsed["value"], "0x1A2B")
+        self.assertTrue(result.request_line.startswith("S2C|id=3|device=u1_ltc2991|op=voltage_read"))
+
+        _seq, entries = manager.console("ser1", 0)
+        lines = [entry["line"] for entry in entries]
+        self.assertIn("boot noise line", lines)
+        self.assertTrue(any(line.startswith("S2C|id=3") for line in lines))
+
+        manager.write_raw("ser1", "hello")
+        self.assertIn(b"hello\r\n", fake.written)
+        manager.disconnect("ser1")
+
+    def test_serial_session_times_out_without_response(self) -> None:
+        from backend.testbench import TestbenchSessionError
+
+        fake = FakeSerial()
+        manager = SessionManager()
+        manager.connect_serial(
+            "ser2", "COM9", 115200, 0.3, serial_factory=lambda _p, _b, _t: fake)
+        with self.assertRaises(TestbenchSessionError):
+            manager.send("ser2", BenchCommand(
+                host="", port=0, device="u1_ltc2991", operation="id_read", command_id=4))
+        manager.disconnect("ser2")
     def test_command_formatter_and_response_parser(self) -> None:
         line = format_command(BenchCommand(
             host="127.0.0.1",
@@ -294,6 +380,63 @@ class TestbenchTests(unittest.TestCase):
         self.assertNotIn("lwip_socket(", lwip_source)
         self.assertNotIn("vTaskStartScheduler", main_source)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
+
+    def test_uart_agent_generated_when_transport_is_uart(self) -> None:
+        # Polled XUartPs agent per the official xuartps polled example; shares
+        # the S2C line protocol and ignores non-"S2C|" console noise.
+        spec = load_sample_spec("unit_uart_agent")
+        add_zynqmp_ps_ethernet(spec)
+        add_zynqmp_ps_uart(spec)
+        spec["project"]["testbench_transport"] = "uart"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            uart_header = (out_dir / "tests" / "spec2code_testbench_uart.h").read_text(encoding="utf-8")
+            uart_source = (out_dir / "tests" / "spec2code_testbench_uart.c").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_uart_main.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            lwip_generated = (out_dir / "tests" / "spec2code_testbench_lwip.c").exists()
+
+        self.assertIn("XPAR_XUARTPS_0_DEVICE_ID", uart_header)
+        self.assertIn("SPEC2CODE_TESTBENCH_UART_BAUD 115200U", uart_header)
+        self.assertIn("XUartPs_CfgInitialize", uart_source)
+        self.assertIn("XUartPs_SetBaudRate", uart_source)
+        self.assertIn("XUartPs_Recv(&S_sTestbenchUart, &ucByte, 1U)", uart_source)
+        self.assertIn("spec2codeTestbenchDispatchLine", uart_source)
+        self.assertIn("spec2codeTestbenchUartLineIsRequest", uart_source)
+        self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", uart_source)
+        self.assertIn("spec2codeTestbenchBoardInit();", main_source)
+        self.assertIn("S2C-UART-AGENT-READY", main_source)
+        # Explicit UART choice must not also emit the lwIP agent.
+        self.assertFalse(lwip_generated)
+        self.assertEqual(manifest["transport_agent"], "uart")
+        self.assertEqual(manifest["uart"]["instance"], "XPAR_XUARTPS_0")
+
+    def test_testbench_transport_auto_prefers_eth_and_falls_back_to_uart(self) -> None:
+        spec = load_sample_spec("unit_transport_auto")
+        add_zynqmp_ps_ethernet(spec)
+        add_zynqmp_ps_uart(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["transport_agent"], "lwip")
+            self.assertTrue((out_dir / "tests" / "spec2code_testbench_lwip.c").exists())
+            self.assertFalse((out_dir / "tests" / "spec2code_testbench_uart.c").exists())
+
+        spec = load_sample_spec("unit_transport_auto_uart")
+        add_zynqmp_ps_uart(spec)  # no Ethernet controller this time
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["transport_agent"], "uart")
+            self.assertTrue((out_dir / "tests" / "spec2code_testbench_uart.c").exists())
+            self.assertFalse((out_dir / "tests" / "spec2code_testbench_lwip.c").exists())
 
     def test_testbench_omits_controller_types_missing_from_hardware(self) -> None:
         # ZCU102-like design: PS SPI disabled, only I2C + QSPI (+ PS Ethernet).

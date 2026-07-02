@@ -139,6 +139,30 @@ export const api = {
   testbenchSessionStatus: (sessionId: string) =>
     req<TestbenchSessionStatus>(`/api/testbench/session/${encodeURIComponent(sessionId)}`),
 
+  testbenchSerialPorts: () =>
+    req<{ ports: import("./types").SerialPortInfo[] }>("/api/testbench/serial/ports").then((r) => r.ports),
+
+  testbenchConsoleRead: (sessionId: string, since: number) =>
+    req<{ seq: number; entries: import("./types").SerialConsoleEntry[] }>("/api/testbench/console/read", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, since }),
+    }),
+
+  testbenchConsoleWrite: (sessionId: string, text: string) =>
+    req<{ ok: boolean }>("/api/testbench/console/write", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, text }),
+    }),
+
+  runOnBoard: (payload: import("./types").RunOnBoardRequest) =>
+    req<{ runboard_job_id: string }>("/api/vitis/run-on-board", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  runOnBoardResult: (jobId: string) =>
+    req<import("./types").RunOnBoardResult>(`/api/vitis/run-on-board/${encodeURIComponent(jobId)}/result`),
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 
@@ -163,6 +187,26 @@ export function openJobSocket(
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/jobs/${jobId}`);
+  ws.onmessage = (m) => {
+    const data = JSON.parse(m.data);
+    if (data.event === "__closed__") {
+      ws.close();
+      onClose?.();
+      return;
+    }
+    onEvent(data);
+  };
+  ws.onerror = () => onClose?.();
+  return () => ws.close();
+}
+
+export function openRunboardSocket(
+  jobId: string,
+  onEvent: (e: import("./types").JobEvent) => void,
+  onClose?: () => void,
+): () => void {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/runboard/${jobId}`);
   ws.onmessage = (m) => {
     const data = JSON.parse(m.data);
     if (data.event === "__closed__") {

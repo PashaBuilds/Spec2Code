@@ -563,14 +563,22 @@ def _operation_fixed_read_length(op: dict) -> int:
 
 
 def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
+    agent = _testbench_transport_agent(spec)
     manifest = {
         "schema_version": "1.0",
         "project": spec.get("project", {}).get("name", ""),
         "agent_version": _app_version(),
         "protocol": "S2C line protocol v1",
         "line_format": "S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; global: S2C|id=1|op=spec2code_version",
+        "transport_agent": agent,
         "devices": [],
     }
+    if agent == "uart":
+        uart = _testbench_uart_controller(spec) or {}
+        manifest["uart"] = {
+            "instance": uart.get("instance", ""),
+            "baud": 115200,
+        }
     for device in spec.get("devices", []):
         descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
         operations = []
@@ -1311,8 +1319,52 @@ def _zynqmp_lwip_eth_controller(spec: dict) -> dict | None:
     return None
 
 
+def _testbench_uart_controller(spec: dict) -> dict | None:
+    """Deterministic PS UART pick for the serial test bench agent.
+
+    Lowest instance name wins so the same design always binds the same
+    UART (usually the console UART, which the host client tolerates:
+    non-protocol lines are ignored on both sides).
+    """
+    candidates = [
+        controller
+        for controller in spec.get("controllers", [])
+        if controller.get("type") == "uart"
+        and controller.get("zone") == "ps"
+        and controller.get("driver", "XUartPs") == "XUartPs"
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: str(item.get("instance", "")))[0]
+
+
+def _testbench_transport_agent(spec: dict) -> str | None:
+    """Which on-target agent carries the S2C line protocol.
+
+    ``project.testbench_transport``: "auto" (default) | "eth" | "uart".
+    auto prefers Ethernet and falls back to the PS UART so boards without
+    a PHY still get a runnable test bench.
+    """
+    choice = str(spec.get("project", {}).get("testbench_transport", "auto") or "auto")
+    lwip_possible = _zynqmp_lwip_eth_controller(spec) is not None
+    uart_possible = _testbench_uart_controller(spec) is not None
+    if choice == "eth":
+        return "lwip" if lwip_possible else None
+    if choice == "uart":
+        return "uart" if uart_possible else None
+    if lwip_possible:
+        return "lwip"
+    if uart_possible:
+        return "uart"
+    return None
+
+
 def _testbench_lwip_enabled(spec: dict) -> bool:
-    return _zynqmp_lwip_eth_controller(spec) is not None
+    return _testbench_transport_agent(spec) == "lwip"
+
+
+def _testbench_uart_enabled(spec: dict) -> bool:
+    return _testbench_transport_agent(spec) == "uart"
 
 
 def _controller_static_handle_name(controller: dict) -> str:
@@ -2196,6 +2248,237 @@ def _testbench_lwip_main_source(spec: dict) -> str:
     )
 
 
+def _testbench_uart_header(spec: dict) -> str:
+    uart = _testbench_uart_controller(spec)
+    instance = uart.get("instance") if uart else "XPAR_XUARTPS_0"
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_uart.h\n"
+        " * @brief PS UART (XUartPs) line-protocol agent for the Spec2Code test bench.\n"
+        " *\n"
+        " * Carries the same S2C line protocol as the TCP agent over the PS UART.\n"
+        ' * Lines that do not start with "S2C|" are ignored, so the agent can\n'
+        " * share the console UART with xil_printf output.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_UART_H\n"
+        "#define SPEC2CODE_TESTBENCH_UART_H\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_UART_DEVICE_ID\n"
+        f"#define SPEC2CODE_TESTBENCH_UART_DEVICE_ID {instance}_DEVICE_ID\n"
+        "#endif\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_UART_BAUD\n"
+        "#define SPEC2CODE_TESTBENCH_UART_BAUD 115200U\n"
+        "#endif\n\n"
+        "int spec2codeTestbenchBoardInit(void);\n"
+        "int spec2codeTestbenchUartInit(void);\n"
+        "void spec2codeTestbenchUartRun(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_UART_H */\n"
+    )
+
+
+def _testbench_uart_source(spec: dict) -> str:
+    uart = _testbench_uart_controller(spec)
+    if uart is None:
+        raise cmodel.CodegenError("UART test bench requested without a PS UART controller")
+    project_name = spec["project"]["name"]
+    entries = _testbench_board_controller_entries(spec)
+    headers = [
+        '#include "spec2code_testbench_uart.h"',
+        f'#include "{project_name}_testbench_ops.h"',
+        '#include "xparameters.h"',
+        '#include "xstatus.h"',
+        '#include "xil_printf.h"',
+        '#include "xuartps.h"',
+        '#include <stddef.h>',
+    ]
+    for htype, header in _TESTBENCH_HANDLE_HEADERS:
+        if any(entry["htype"] == htype for entry in entries):
+            headers.append(f'#include "{header}"')
+
+    lines = [
+        "/**",
+        " * @file spec2code_testbench_uart.c",
+        " * @brief PS UART (XUartPs) polled line-protocol agent for the Spec2Code test bench.",
+        " *",
+        " * Polled receive per the official xuartps polled example; needs no",
+        " * interrupts and no scheduler, so the same agent runs on bare metal",
+        " * and on a FreeRTOS BSP alike.",
+        " */",
+        *headers,
+        "",
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        "",
+        "static XUartPs S_sTestbenchUart;",
+        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static unsigned int S_uiBoardReady;",
+        "",
+        *_testbench_board_handle_decls(entries),
+        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
+        "{",
+        "    unsigned int uiLength;",
+        "",
+        "    uiLength = 0U;",
+        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
+        "    {",
+        "        uiLength++;",
+        "    }",
+        "    return uiLength;",
+        "}",
+        "",
+        *_testbench_board_init_lines(entries),
+        *[
+            line
+            for htype, _header in _TESTBENCH_HANDLE_HEADERS
+            if any(entry["htype"] == htype for entry in entries)
+            for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
+        ],
+        "int spec2codeTestbenchUartInit(void)",
+        "{",
+        "    XUartPs_Config* spUartConfig;",
+        "    int iStatus;",
+        "",
+        "    spUartConfig = XUartPs_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+        "    if (spUartConfig == NULL)",
+        "    {",
+        '        xil_printf("Spec2Code UART config bulunamadi\\r\\n");',
+        "        return XST_FAILURE;",
+        "    }",
+        "    iStatus = XUartPs_CfgInitialize(&S_sTestbenchUart, spUartConfig, spUartConfig->BaseAddress);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = XUartPs_SetBaudRate(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_BAUD);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static void spec2codeTestbenchUartSendLine(const char* cpLine)",
+        "{",
+        "    unsigned int uiLength;",
+        "    unsigned int uiSent;",
+        "",
+        "    uiLength = spec2codeTestbenchStringLengthLocal(cpLine);",
+        "    uiSent = 0U;",
+        "    while (uiSent < uiLength)",
+        "    {",
+        "        uiSent += XUartPs_Send(&S_sTestbenchUart,",
+        "                               (u8*)&cpLine[uiSent],",
+        "                               uiLength - uiSent);",
+        "    }",
+        "}",
+        "",
+        "static int spec2codeTestbenchUartLineIsRequest(const char* cpLine)",
+        "{",
+        "    /* Only \"S2C|...\" lines are protocol requests; terminal echo and",
+        "     * boot noise on a shared console UART are skipped. */",
+        "    if ((cpLine[0] == 'S') && (cpLine[1] == '2') && (cpLine[2] == 'C') && (cpLine[3] == '|'))",
+        "    {",
+        "        return 1;",
+        "    }",
+        "    return 0;",
+        "}",
+        "",
+        "void spec2codeTestbenchUartRun(void)",
+        "{",
+        "    unsigned int uiLineLength;",
+        "    unsigned char ucByte;",
+        "",
+        "    uiLineLength = 0U;",
+        "    for (;;)",
+        "    {",
+        "        if (XUartPs_Recv(&S_sTestbenchUart, &ucByte, 1U) == 0U)",
+        "        {",
+        "            continue;",
+        "        }",
+        "        if (ucByte == (unsigned char)'\\r')",
+        "        {",
+        "            continue;",
+        "        }",
+        "        if (ucByte != (unsigned char)'\\n')",
+        "        {",
+        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            {",
+        "                S_cArrRequestLine[uiLineLength] = (char)ucByte;",
+        "                uiLineLength++;",
+        "            }",
+        "            else",
+        "            {",
+        "                uiLineLength = 0U;",
+        "            }",
+        "            continue;",
+        "        }",
+        "        S_cArrRequestLine[uiLineLength] = '\\0';",
+        "        uiLineLength = 0U;",
+        "        if (spec2codeTestbenchUartLineIsRequest(S_cArrRequestLine) == 0)",
+        "        {",
+        "            continue;",
+        "        }",
+        "        (void)spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
+        "                                             S_cArrResponseLine,",
+        "                                             SPEC2CODE_TESTBENCH_LINE_MAX);",
+        "        spec2codeTestbenchUartSendLine(S_cArrResponseLine);",
+        "    }",
+        "}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _testbench_uart_main_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_uart_main.h\n"
+        " * @brief Entry point for the Spec2Code UART test bench agent.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_UART_MAIN_H\n"
+        "#define SPEC2CODE_TESTBENCH_UART_MAIN_H\n\n"
+        "int main(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_UART_MAIN_H */\n"
+    )
+
+
+def _testbench_uart_main_source(spec: dict) -> str:
+    runtime_note = (
+        " * The polled agent needs no scheduler; on a FreeRTOS BSP it runs\n"
+        " * before vTaskStartScheduler would, which is intentional.\n"
+        if _testbench_runtime_is_freertos(spec)
+        else ""
+    )
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_uart_main.c\n"
+        " * @brief Entry point for the Spec2Code UART test bench agent.\n"
+        + runtime_note +
+        " */\n"
+        '#include "spec2code_testbench_uart_main.h"\n'
+        '#include "spec2code_testbench_uart.h"\n'
+        '#include "xil_printf.h"\n'
+        '#include "xstatus.h"\n\n'
+        "int main(void)\n"
+        "{\n"
+        "    int iStatus;\n\n"
+        "    iStatus = spec2codeTestbenchBoardInit();\n"
+        "    if (iStatus != XST_SUCCESS)\n"
+        "    {\n"
+        '        xil_printf("Spec2Code board init basarisiz: %d\\r\\n", iStatus);\n'
+        "        return iStatus;\n"
+        "    }\n"
+        "    iStatus = spec2codeTestbenchUartInit();\n"
+        "    if (iStatus != XST_SUCCESS)\n"
+        "    {\n"
+        '        xil_printf("Spec2Code UART agent baslatilamadi: %d\\r\\n", iStatus);\n'
+        "        return iStatus;\n"
+        "    }\n"
+        '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
+        "    spec2codeTestbenchUartRun();\n"
+        "    return XST_SUCCESS;\n"
+        "}\n"
+    )
+
+
 def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     project_name = spec["project"]["name"]
     tests_dir = out_dir / "tests"
@@ -2212,6 +2495,13 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
             tests_dir / "spec2code_testbench_lwip.c",
             tests_dir / "spec2code_testbench_lwip_main.h",
             tests_dir / "spec2code_testbench_lwip_main.c",
+        ])
+    if _testbench_uart_enabled(spec):
+        paths.extend([
+            tests_dir / "spec2code_testbench_uart.h",
+            tests_dir / "spec2code_testbench_uart.c",
+            tests_dir / "spec2code_testbench_uart_main.h",
+            tests_dir / "spec2code_testbench_uart_main.c",
         ])
     return paths
 
@@ -2232,6 +2522,13 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             _apply_default_identifier_style(_testbench_lwip_source(spec)),
             _apply_default_identifier_style(_testbench_lwip_main_header(spec)),
             _apply_default_identifier_style(_testbench_lwip_main_source(spec)),
+        ])
+    if _testbench_uart_enabled(spec):
+        contents.extend([
+            _apply_default_identifier_style(_testbench_uart_header(spec)),
+            _apply_default_identifier_style(_testbench_uart_source(spec)),
+            _apply_default_identifier_style(_testbench_uart_main_header()),
+            _apply_default_identifier_style(_testbench_uart_main_source(spec)),
         ])
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 
