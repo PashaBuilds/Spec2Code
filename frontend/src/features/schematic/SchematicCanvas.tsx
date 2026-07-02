@@ -23,6 +23,7 @@ function FitView({ signature }: { signature: string }) {
 import { useStore } from "@/store/useStore";
 import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
+import TelemetryControl from "./TelemetryControl";
 import { zoneColor } from "@/lib/utils";
 import { busColor } from "@/lib/busColors";
 import { VisualBackdrop } from "@/components/visuals";
@@ -48,6 +49,7 @@ export default function SchematicCanvas() {
   const descriptors = useStore((s) => s.descriptors);
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
+  const telemetry = useStore((s) => s.telemetry);
 
   const { nodes, edges } = useMemo(() => {
     const pos = computeLayout(controllers, muxes, devices);
@@ -117,6 +119,7 @@ export default function SchematicCanvas() {
           transport,
           hasDescriptor: hasDescriptor(d.part),
           configSummary: d.part.toUpperCase() === "LTC2991" ? ltc2991NodeSummary(d.config) : [],
+          telemetry: telemetry[d.id]?.text ?? "",
         },
         selected: d.id === selectedId,
         draggable: false,
@@ -162,7 +165,7 @@ export default function SchematicCanvas() {
       }
     }
     return { nodes, edges };
-  }, [zones, controllers, muxes, devices, descriptors, selectedId]);
+  }, [zones, controllers, muxes, devices, descriptors, selectedId, telemetry]);
 
   if (!controllers.length) {
     return (
@@ -180,6 +183,7 @@ export default function SchematicCanvas() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-bg">
       <VisualBackdrop asset="schematic" opacity={0.11} position="center" size="cover" mask="canvasWide" />
+      <TelemetryControl />
       <ReactFlow
         nodes={nodes}
         edges={edges}

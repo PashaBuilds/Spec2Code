@@ -48,6 +48,11 @@ interface StoreState {
   previousFiles: GeneratedFile[];
   counter: number;
 
+  /** Canlı telemetri: şematikteki cihaz node'larında gösterilen son okumalar. */
+  telemetry: Record<string, { text: string; at: number }>;
+  setTelemetry: (deviceId: string, text: string) => void;
+  clearTelemetry: () => void;
+
   // actions
   setStep: (s: Step) => void;
   setProject: (p: Partial<ProjectMeta>) => void;
@@ -162,6 +167,11 @@ export const useStore = create<StoreState>((set, get) => ({
   job: { id: null, status: "idle", events: [], files: [], qc: null },
   previousFiles: [],
   counter: 0,
+
+  telemetry: {},
+  setTelemetry: (deviceId, text) =>
+    set((s) => ({ telemetry: { ...s.telemetry, [deviceId]: { text, at: Date.now() } } })),
+  clearTelemetry: () => set({ telemetry: {} }),
 
   setStep: (step) => set({ step }),
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),

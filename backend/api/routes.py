@@ -27,6 +27,7 @@ from backend.testbench import (
     testbench_sessions,
 )
 from backend.bringup import BringupConfig, bringup_manager, render_certificate_html
+from backend.registers import snapshot_registers
 from backend.run_on_board import RunOnBoardConfig, runboard_manager
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
@@ -850,6 +851,21 @@ def testbench_session_disconnect(req: TestbenchSessionRequest) -> dict:
         return testbench_sessions.disconnect(req.session_id).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+
+
+class RegisterSnapshotRequest(BaseModel):
+    session_id: str
+    device_id: str
+    registers: list[dict]
+    timeout_s: float = 5.0
+
+
+@router.post("/registers/snapshot")
+def registers_snapshot(req: RegisterSnapshotRequest) -> dict:
+    if not req.registers:
+        raise HTTPException(400, "registers list is empty")
+    return snapshot_registers(
+        req.session_id, req.device_id, req.registers, timeout_s=req.timeout_s)
 
 
 class BringupStartRequest(BaseModel):

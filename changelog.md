@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.88 - 2026-07-02
+
+Faz 4: Register snapshot & diff isi haritasi + sematikte canli telemetri.
+
+- Register snapshot: `POST /api/registers/snapshot` canli session uzerinden
+  cihazin tum register haritasini okur (register basina bir S2C
+  register_read). Yeni "Registers" ekrani: cihaz sec, snapshot al,
+  bit-bit isi haritasi - okunan/beklenen farkli bitler kirmizi yanar,
+  bit uzerine gelince descriptor'daki alan adi/aciklamasi gorunur
+  (datasheet bilgi paketi). Karsilastirma tabani: datasheet reset
+  degerleri veya onceki snapshot'lar (cihaz basina son 8 snapshot
+  tarayicida saklanir). Kopan baglantida kalan registerlar "atlandi".
+- Canli telemetri overlay: Schematic ekranindaki "Canli telemetri"
+  anahtari kayitli test bench baglanti ayarlariyla kendi session'ini
+  acar ve her cihazi 3 sn'de bir en uygun guvenli operasyonla yoklar
+  (sicaklik > lock > vcc/voltaj > id). Son okuma, cihaz cip node'unun
+  altinda fosfor yesili canli deger cipi olarak akar.
+- Dogrulama: 95/95 test; gercek backend + sahte agent ile tarayicida
+  uctan uca (4/4 register okundu, 0xA8 farki bit 7/5/3 kirmizi; telemetri
+  ciplerinde 0x19C8 / JEDEC 20BB22 canli akti).
+
 ## v0.1.87 - 2026-07-02
 
 Faz 3: Bring-up sihirbazi (Mission Control) ve board birth certificate.

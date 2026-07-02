@@ -364,6 +364,23 @@ export interface RunOnBoardRequest {
   timeout_s?: number;
 }
 
+export interface RegisterSnapshotEntry {
+  name: string;
+  offset: number | null;
+  ok: boolean;
+  value: string;
+  error: string;
+}
+
+export interface RegisterSnapshot {
+  device_id: string;
+  taken_at: number;
+  duration_ms: number;
+  total: number;
+  read_ok: number;
+  registers: RegisterSnapshotEntry[];
+}
+
 export interface BringupStepResult {
   index: number;
   device_id: string;

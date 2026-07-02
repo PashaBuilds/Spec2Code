@@ -174,6 +174,12 @@ export const api = {
 
   bringupCertificateUrl: (jobId: string) => `/api/bringup/${encodeURIComponent(jobId)}/certificate`,
 
+  registerSnapshot: (payload: { session_id: string; device_id: string; registers: Array<{ name: string; offset: number }>; timeout_s?: number }) =>
+    req<import("./types").RegisterSnapshot>("/api/registers/snapshot", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 
