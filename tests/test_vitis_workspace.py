@@ -21,6 +21,7 @@ from backend.vitis_workspace import (
     patch_xsa_custom_ip_make_libs,
     render_xsct_recovery_script,
     render_xsct_script,
+    staged_header_dirs,
     synthesize_make_libs_from_log_targets,
     vitis_lwip_api_mode,
     vitis_os,
@@ -446,6 +447,42 @@ class VitisWorkspaceTests(unittest.TestCase):
             script.index("spec2codeSynchronizeBeforeAppBuild\n"),
             script.index("if {[catch {app build -name $app_name} spec2code_build_err]}"),
         )
+
+    def test_xsct_script_adds_source_include_dirs_and_make_fallback(self) -> None:
+        self.assertEqual(
+            staged_header_dirs(
+                ["drivers/x.h", "drivers/x.c", "tests/y.h", "spec2code_selftest_main.h"]
+            ),
+            ["drivers", "tests"],
+        )
+
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"),
+            xsa_path=Path("/tmp/board.xsa"),
+            source_root=Path("/tmp/src"),
+            platform_name="my_platform",
+            system_name="my_system",
+            domain_name="my_app_domain",
+            app_name="my_app",
+            processor="psu_cortexa53_0",
+            os_name="freertos10_xilinx",
+            enable_lwip=True,
+            source_include_dirs=["drivers", "tests"],
+        )
+
+        # The CDT app build only inherits the BSP include path; the staged
+        # source subdirs must be configured explicitly after importsources.
+        self.assertIn("app config -name $app_name -add include-path", script)
+        self.assertIn("[list {drivers} {tests}]", script)
+        self.assertLess(
+            script.index("importsources -name $app_name -path $source_path"),
+            script.index("app config -name $app_name -add include-path"),
+        )
+        # app build can return success without running the app make; the
+        # script must verify the ELF and fall back to a direct make run.
+        self.assertIn("proc spec2codeEnsureApplicationElf", script)
+        self.assertIn("spec2codeEnsureApplicationElf\n", script)
+        self.assertIn("exec make all", script)
 
     def test_xsct_recovery_script_reuses_existing_workspace(self) -> None:
         script = render_xsct_recovery_script(
@@ -1056,6 +1093,38 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertIn("xsct_tcl_command", categories)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
+
+
+class XsctFatalLogDetectionTests(unittest.TestCase):
+    def test_benign_output_is_not_flagged_fatal(self) -> None:
+        from backend.vitis_workspace import _xsct_log_has_fatal_error
+
+        # Expected lwIP fallback probe on Vitis 2023.2 (lwip220 -> lwip213).
+        self.assertFalse(
+            _xsct_log_has_fatal_error(
+                'Error: Library "lwip220", not available in the Repository', ""
+            )
+        )
+        # BSP archive listings contain object names such as xil_exception.o;
+        # a case-insensitive `exception` substring used to flag these fatal.
+        self.assertFalse(
+            _xsct_log_has_fatal_error(
+                "ar -r lib/libxil.a lib/xil_exception.o lib/hw_exception_handler.o "
+                "lib/microblaze_enable_exceptions.o",
+                "",
+            )
+        )
+
+    def test_real_errors_are_still_fatal(self) -> None:
+        from backend.vitis_workspace import _xsct_log_has_fatal_error
+
+        self.assertTrue(_xsct_log_has_fatal_error("ERROR: [Common 17-70] failed", ""))
+        self.assertTrue(_xsct_log_has_fatal_error("", 'invalid command name "platfrm"'))
+        self.assertTrue(_xsct_log_has_fatal_error("", 'while executing\n"app build -name x"'))
+        self.assertTrue(
+            _xsct_log_has_fatal_error("cc1.exe: fatal error: *.c: Invalid argument", "")
+        )
+        self.assertTrue(_xsct_log_has_fatal_error("make[1]: *** [x.o] Error 2", ""))
 
 
 class XsctStreamingRunnerTests(unittest.TestCase):

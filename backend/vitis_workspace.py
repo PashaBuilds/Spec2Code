@@ -27,9 +27,18 @@ from hostplat import io as hio
 _ROOT = Path(__file__).resolve().parent.parent
 _OUTPUTS = _ROOT / "outputs"
 _VERSION_RE = re.compile(r"(20\d{2}\.\d+(?:\.\d+)?)")
+# Case-sensitive on purpose: Xilinx fatal lines are uppercase `ERROR: [...]`,
+# while benign output contains `Error: Library "lwip220", not available` (the
+# expected lwIP fallback probe) and BSP object listings such as
+# `xil_exception.o` that a case-insensitive `exception` substring would match.
 _XSCT_FATAL_RE = re.compile(
-    r"(invalid command name|while executing|^ERROR:|traceback|exception)",
-    re.IGNORECASE | re.MULTILINE,
+    r"(invalid command name"
+    r"|while executing"
+    r"|^ERROR:"
+    r"|^Traceback \(most recent call last\)"
+    r"|^Exception in thread"
+    r")",
+    re.MULTILINE,
 )
 _VITIS_BUILD_FATAL_RE = re.compile(
     r"("
@@ -818,6 +827,21 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
     return sorted(staged)
 
 
+def staged_header_dirs(staged_files: list[str]) -> list[str]:
+    """Subdirectories (relative to src/) that carry staged headers.
+
+    The CDT application build only inherits the BSP include path, so every
+    staged folder with a header must be added to the app include paths or
+    cross-folder quote-includes (tests/ including drivers/ headers) fail.
+    """
+    dirs = {
+        _posix_path(str(Path(rel).parent))
+        for rel in staged_files
+        if rel.lower().endswith(".h") and "/" in _posix_path(rel)
+    }
+    return sorted(dirs)
+
+
 def _tcl_path(path: Path) -> str:
     text = str(path.resolve()).replace("\\", "/").replace("}", "\\}")
     return "{" + text + "}"
@@ -1485,11 +1509,14 @@ def render_xsct_script(
     enable_lwip: bool = False,
     custom_ip_driver_policy: str = "auto_none",
     custom_ip_instances: list[str] | None = None,
+    source_include_dirs: list[str] | None = None,
 ) -> str:
     lwip_flag = "1" if enable_lwip else "0"
     lwip_api_mode = vitis_lwip_api_mode(os_name) if enable_lwip else ""
     custom_ip_driver_policy = normalize_custom_ip_driver_policy(custom_ip_driver_policy)
     custom_ip_instances = custom_ip_instances or []
+    source_include_dirs = source_include_dirs or []
+    include_dir_list = _tcl_list(source_include_dirs)
     custom_ip_list = _tcl_list(custom_ip_instances)
     bsp_config_script = (
         "proc spec2codeNormalizeCustomIpToken {value} {\n"
@@ -1686,6 +1713,30 @@ def render_xsct_script(
         "    spec2codeDisableCustomIpBspLibsrc\n"
         "    after 1000\n"
         "}\n\n"
+        "proc spec2codeEnsureApplicationElf {} {\n"
+        "    global workspace_path app_name\n"
+        "    set spec2code_expected_elf [file join $workspace_path $app_name Debug ${app_name}.elf]\n"
+        "    if {[file exists $spec2code_expected_elf]} {\n"
+        f"        {_tcl_put('application ELF present: $spec2code_expected_elf')}"
+        "        return\n"
+        "    }\n"
+        f"    {_tcl_put('app build produced no application ELF; running make directly in Debug as fallback')}"
+        "    set spec2code_app_debug_dir [file join $workspace_path $app_name Debug]\n"
+        "    if {![file isdirectory $spec2code_app_debug_dir]} {\n"
+        "        error \"Spec2Code: application Debug directory missing after app build; app project makefiles were not generated: $spec2code_app_debug_dir\"\n"
+        "    }\n"
+        "    set spec2code_prev_dir [pwd]\n"
+        "    cd $spec2code_app_debug_dir\n"
+        "    set spec2code_make_status [catch {exec make all >&@ stdout} spec2code_make_err]\n"
+        "    cd $spec2code_prev_dir\n"
+        "    if {$spec2code_make_status != 0 && ![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: direct make fallback failed: $spec2code_make_err\"\n"
+        "    }\n"
+        "    if {![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: application ELF still missing after direct make fallback: $spec2code_expected_elf\"\n"
+        "    }\n"
+        f"    {_tcl_put('application ELF present after make fallback: $spec2code_expected_elf')}"
+        "}\n\n"
     )
     return (
         "# Spec2Code generated Vitis workspace script.\n"
@@ -1745,6 +1796,19 @@ def render_xsct_script(
         "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
+        "# Generated sources live in subfolders (drivers/, tests/); the CDT app\n"
+        "# build only gets the BSP include path by default, so cross-folder\n"
+        "# quote-includes fail without explicit include paths.\n"
+        f"set spec2code_source_include_dirs [list {include_dir_list}]\n"
+        "foreach spec2code_inc_dir $spec2code_source_include_dirs {\n"
+        "    set spec2code_inc_path [file join $workspace_path $app_name src $spec2code_inc_dir]\n"
+        "    if {![file isdirectory $spec2code_inc_path]} { continue }\n"
+        "    if {[catch {app config -name $app_name -add include-path $spec2code_inc_path} spec2code_inc_err]} {\n"
+        f"        {_tcl_put('WARNING: include path not added ($spec2code_inc_path): $spec2code_inc_err')}"
+        "    } else {\n"
+        f"        {_tcl_put('application include path added: $spec2code_inc_path')}"
+        "    }\n"
+        "}\n\n"
         "spec2codeSynchronizeBeforeAppBuild\n"
         f"{_tcl_put('building application')}"
         "spec2codeDisableCustomIpBspLibsrc\n"
@@ -1754,6 +1818,7 @@ def render_xsct_script(
         "    spec2codeSynchronizeBeforeAppBuild\n"
         "    app build -name $app_name\n"
         "}\n"
+        "spec2codeEnsureApplicationElf\n"
         f"{_tcl_put('done')}"
         "exit\n"
     )
@@ -1872,6 +1937,22 @@ def render_xsct_recovery_script(
         "spec2codeDisableCustomIpBspLibsrc\n"
         f"{_tcl_put('self-heal rebuilding application')}"
         "app build -name $app_name\n"
+        "set spec2code_expected_elf [file join $workspace_path $app_name Debug ${app_name}.elf]\n"
+        "if {![file exists $spec2code_expected_elf]} {\n"
+        f"    {_tcl_put('self-heal app build produced no application ELF; running make directly in Debug as fallback')}"
+        "    set spec2code_app_debug_dir [file join $workspace_path $app_name Debug]\n"
+        "    if {![file isdirectory $spec2code_app_debug_dir]} {\n"
+        "        error \"Spec2Code: application Debug directory missing after app build; app project makefiles were not generated: $spec2code_app_debug_dir\"\n"
+        "    }\n"
+        "    cd $spec2code_app_debug_dir\n"
+        "    set spec2code_make_status [catch {exec make all >&@ stdout} spec2code_make_err]\n"
+        "    if {$spec2code_make_status != 0 && ![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: direct make fallback failed: $spec2code_make_err\"\n"
+        "    }\n"
+        "    if {![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: application ELF still missing after direct make fallback: $spec2code_expected_elf\"\n"
+        "    }\n"
+        "}\n"
         f"{_tcl_put('self-heal done')}"
         "exit\n"
     )
@@ -1967,6 +2048,12 @@ class VitisWorkspaceJobManager:
         temp_path = _clean_user_path(config.temp_path)
         temp_path.mkdir(parents=True, exist_ok=True)
         staging_root = temp_path / job.id
+        # Job ids restart with the backend process; never clobber a previous
+        # run's staging (its logs are the user's debug evidence).
+        suffix = 1
+        while staging_root.exists():
+            suffix += 1
+            staging_root = temp_path / f"{job.id}_{suffix}"
         source_root = staging_root / "src"
         hw_root = staging_root / "hw"
         log_dir = staging_root / "logs"
@@ -2089,6 +2176,7 @@ class VitisWorkspaceJobManager:
                 enable_lwip=requires_lwip,
                 custom_ip_driver_policy=custom_ip_driver_policy,
                 custom_ip_instances=[item.instance for item in custom_pl_ips],
+                source_include_dirs=staged_header_dirs(staged_files),
             ),
             encoding="utf-8",
         )

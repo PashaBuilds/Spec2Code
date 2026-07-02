@@ -39,6 +39,26 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 - `scripts/vitis_which_stub.c` eklendi: `which sdscc` hang'i goruen makineler
   icin konsol acmayan `which` stub'inin kaynagi ve build komutu (bkz.
   `kimi_vitis_debug_guide.md` bolum 7).
+- Application projesine `importsources` sonrasi staged header klasorleri
+  (`drivers/`, `tests/`, varsa digerleri) `app config -add include-path` ile
+  eklenir. CDT app build varsayilan olarak yalnizca BSP include path'ini
+  verdigi icin `tests/ltc2991_test.c` gibi dosyalar `drivers/ltc2991.h`'i
+  bulamiyor ve application build ELF uretmeden dusuyordu; bu, ZCU102
+  senaryosunda missing application ELF'in ana nedenlerinden biriydi.
+- `app build` bazen platform bagimliliklarini derleyip application make
+  adimini sessizce atlayabiliyor (exit 0, log'da hata yok, ELF yok). Script
+  artik build sonrasi beklenen ELF'i dogrular; yoksa `Debug` klasorunde
+  make'i dogrudan calistirir, o da ELF uretmezse acik hata verir.
+- Backend yeniden basladiginda Vitis job sayaci sifirlandigi icin yeni job
+  eski `vitis_0001` staging klasorunu ezebiliyordu; staging dizini artik
+  mevcutsa `vitis_0001_2` gibi benzersiz bir klasore yazilir (eski loglar
+  debug kaniti olarak korunur).
+- XSCT fatal-log dedektoru artik case-sensitive ve satir bazli calisir.
+  Onceden `Error: Library "lwip220", not available` (beklenen lwIP fallback
+  cizgisi) ve `xil_exception.o` gibi BSP obje listeleri `^ERROR:`/`exception`
+  desenlerine takilip her basarili ZynqMP build'ini bile `failed` olarak
+  isaretliyordu. Gercek `ERROR: [...]`, Tcl `invalid command name` /
+  `while executing` ve compiler/make imzalari fatal olmaya devam eder.
 
 ## v0.1.78 - 2026-07-01
 
