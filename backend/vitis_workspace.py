@@ -57,6 +57,8 @@ _VITIS_ERROR_CODES = {
     "undefined_reference": "S2C-VITIS-LINK-007",
     "missing_library": "S2C-VITIS-LIBRARY-008",
     "missing_elf": "S2C-VITIS-ELF-009",
+    "xsct_hang": "S2C-VITIS-HANG-010",
+    "workspace_stale": "S2C-VITIS-WORKSPACE-011",
     "unclassified": "S2C-VITIS-UNCLASSIFIED-099",
 }
 _KNOWN_XILINX_PL_IP_PREFIXES = (
@@ -228,6 +230,263 @@ def _command_for(xsct_path: Path, *args: str) -> list[str]:
     if os.name == "nt" and xsct_path.suffix.lower() in {".bat", ".cmd"}:
         return ["cmd.exe", "/c", str(xsct_path), *args]
     return [str(xsct_path), *args]
+
+
+# XSCT can go silent forever on Windows: Vitis 2023.2 SDSCorePlugin.start()
+# runs `which sdscc` during `app create` and blocks on readLine(); on some
+# hosts that console child deadlocks before main() and the whole flow hangs
+# with zero output. The streaming runner below writes logs incrementally and
+# a watchdog first tries to unstick known probe children, then kills the
+# process tree so the job fails with logs instead of hanging silently.
+XSCT_STALL_TIMEOUT_S = 480
+XSCT_STALL_GRACE_S = 180
+_STUCK_PROBE_IMAGE_NAMES = {"which.exe"}
+
+
+@dataclass
+class XsctRunOutcome:
+    returncode: int
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+    stalled: bool = False
+    watchdog_events: list[str] = field(default_factory=list)
+
+
+def _windows_process_table() -> list[tuple[int, int, str]]:
+    """Return (pid, parent_pid, exe_name) rows via Toolhelp32; empty off-Windows."""
+    if os.name != "nt":
+        return []
+    import ctypes
+    import ctypes.wintypes as wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    kernel32 = ctypes.windll.kernel32
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE:
+        return []
+    rows: list[tuple[int, int, str]] = []
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        if kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            while True:
+                rows.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), entry.szExeFile))
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                    break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return rows
+
+
+def _descendant_pids(root_pid: int, rows: list[tuple[int, int, str]]) -> list[tuple[int, str]]:
+    children: dict[int, list[tuple[int, str]]] = {}
+    for pid, ppid, name in rows:
+        children.setdefault(ppid, []).append((pid, name))
+    found: list[tuple[int, str]] = []
+    queue = [root_pid]
+    seen = {root_pid}
+    while queue:
+        current = queue.pop()
+        for pid, name in children.get(current, []):
+            if pid in seen:
+                continue
+            seen.add(pid)
+            found.append((pid, name))
+            queue.append(pid)
+    return found
+
+
+def _force_kill_pid(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _kill_process_tree(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
+def _unstick_known_probe_children(root_pid: int) -> list[str]:
+    """Kill known stuck toolchain probe children (Vitis `which sdscc`) under root_pid.
+
+    Their conhost children are killed first: a console child deadlocked in
+    console initialisation sometimes only dies once its conhost is gone.
+    """
+    rows = _windows_process_table()
+    if not rows:
+        return []
+    descendants = _descendant_pids(root_pid, rows)
+    events: list[str] = []
+    for pid, name in descendants:
+        if name.lower() not in _STUCK_PROBE_IMAGE_NAMES:
+            continue
+        for child_pid, child_name in _descendant_pids(pid, rows):
+            if child_name.lower() == "conhost.exe":
+                _force_kill_pid(child_pid)
+                events.append(f"conhost.exe (pid={child_pid}) of stuck {name} killed")
+        _force_kill_pid(pid)
+        events.append(f"stuck toolchain probe {name} (pid={pid}) kill attempted")
+    return events
+
+
+def _run_xsct_streaming(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    timeout_s: int,
+    stdout_path: Path,
+    stderr_path: Path,
+    emit=None,
+    stall_timeout_s: int = XSCT_STALL_TIMEOUT_S,
+    stall_grace_s: int = XSCT_STALL_GRACE_S,
+) -> XsctRunOutcome:
+    """Run XSCT streaming stdout/stderr to log files with hang protection.
+
+    Logs are written incrementally so they survive timeouts and kills. If no
+    output arrives for ``stall_timeout_s`` the watchdog tries to unstick known
+    probe children once; if the silence continues for ``stall_grace_s`` more,
+    or the overall ``timeout_s`` deadline passes, the whole tree is killed.
+    """
+    import time as _time
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    last_activity = _time.monotonic()
+    activity_lock = threading.Lock()
+    buffers: dict[str, list[str]] = {"stdout": [], "stderr": []}
+
+    def _pump(stream, key: str, path: Path) -> None:
+        nonlocal last_activity
+        with open(path, "w", encoding="utf-8", errors="replace", newline="") as handle:
+            for line in iter(stream.readline, ""):
+                buffers[key].append(line)
+                handle.write(line)
+                handle.flush()
+                with activity_lock:
+                    last_activity = _time.monotonic()
+        stream.close()
+
+    readers = [
+        threading.Thread(target=_pump, args=(proc.stdout, "stdout", stdout_path), daemon=True),
+        threading.Thread(target=_pump, args=(proc.stderr, "stderr", stderr_path), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    deadline = _time.monotonic() + max(60, int(timeout_s or 1800))
+    outcome = XsctRunOutcome(returncode=0, stdout="", stderr="")
+    unstick_attempted = False
+    stall_kill_at: float | None = None
+    while proc.poll() is None:
+        _time.sleep(1.0)
+        now = _time.monotonic()
+        if now >= deadline:
+            outcome.timed_out = True
+            outcome.watchdog_events.append(
+                f"XSCT {int(timeout_s)}s timeout aşıldı; process tree kill ediliyor."
+            )
+            _kill_process_tree(proc.pid)
+            break
+        with activity_lock:
+            silent_for = now - last_activity
+        if silent_for < stall_timeout_s:
+            unstick_attempted = False
+            stall_kill_at = None
+            continue
+        if not unstick_attempted:
+            unstick_attempted = True
+            stall_kill_at = now + max(1, int(stall_grace_s))
+            events = _unstick_known_probe_children(proc.pid)
+            if not events:
+                events = [
+                    f"XSCT {int(silent_for)}s boyunca çıktı üretmedi; bilinen stuck probe child bulunamadı."
+                ]
+            outcome.watchdog_events.extend(events)
+            if emit is not None:
+                emit(events)
+        elif stall_kill_at is not None and now >= stall_kill_at:
+            outcome.stalled = True
+            outcome.watchdog_events.append(
+                f"XSCT {int(silent_for)}s sessiz kaldı; hang kabul edilip process tree kill ediliyor."
+            )
+            _kill_process_tree(proc.pid)
+            break
+
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid)
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+    for reader in readers:
+        reader.join(timeout=10)
+    outcome.returncode = proc.returncode if proc.returncode is not None else 1
+    outcome.stdout = "".join(buffers["stdout"])
+    outcome.stderr = "".join(buffers["stderr"])
+    return outcome
+
+
+def _xsct_hang_issue(outcome: XsctRunOutcome, script_path: Path) -> dict:
+    reason = "timeout" if outcome.timed_out else "output stall"
+    detail = " | ".join(outcome.watchdog_events) or "watchdog detayı yok"
+    return {
+        "severity": "error",
+        "category": "xsct_hang",
+        "message": (
+            f"XSCT ilerleme üretmeden durdu ({reason}); process tree Spec2Code watchdog "
+            f"tarafından sonlandırıldı. {detail}"
+        ),
+        "suggestion": (
+            "Vitis 2023.2 `app create` sırasında `which sdscc` probe'u bazı Windows "
+            "makinelerde konsol başlatmasında donar ve XSCT sonsuza dek bekler. "
+            "Log'daki son [Spec2Code] satırına bak: akış `creating named platform/system/application` "
+            "üzerinde durduysa Task Manager'da `which.exe` (parent: eclipse.exe) var mı kontrol et. "
+            "Varsa antivirüs/console host müdahalesini incele; makinede takılıyorsa Vitis "
+            "`gnuwin/bin/which.exe` dosyasını yedekleyip konsol açmayan bir stub ile değiştirmek "
+            "bilinen bir workaround'dur."
+        ),
+        "file": str(script_path),
+        "line": None,
+        "symbol": "which sdscc" if outcome.stalled else "",
+        "raw": detail,
+    }
 
 
 def _parse_version(text: str) -> str | None:
@@ -1414,10 +1673,15 @@ def render_xsct_script(
         f"        {_tcl_put('BSP regenerate before app build completed')}"
         "    }\n"
         "    spec2codeDisableCustomIpBspLibsrc\n"
-        "    if {[catch {platform build} spec2code_platform_build_before_app_err]} {\n"
-        f"        {_tcl_put('WARNING: platform build before app build failed or was unsupported: $spec2code_platform_build_before_app_err')}"
+        "    if {[catch {platform generate} spec2code_platform_generate_before_app_err]} {\n"
+        f"        {_tcl_put('platform generate unsupported or failed, trying platform build: $spec2code_platform_generate_before_app_err')}"
+        "        if {[catch {platform build} spec2code_platform_build_before_app_err]} {\n"
+        f"            {_tcl_put('WARNING: platform build before app build failed or was unsupported: $spec2code_platform_build_before_app_err')}"
+        "        } else {\n"
+        f"            {_tcl_put('platform build before app build completed')}"
+        "        }\n"
         "    } else {\n"
-        f"        {_tcl_put('platform build before app build completed')}"
+        f"        {_tcl_put('platform generate before app build completed')}"
         "    }\n"
         "    spec2codeDisableCustomIpBspLibsrc\n"
         "    after 1000\n"
@@ -1426,6 +1690,7 @@ def render_xsct_script(
     return (
         "# Spec2Code generated Vitis workspace script.\n"
         "# This script is intentionally plain XSCT so it works in air-gapped Windows hosts.\n"
+        "catch {fconfigure stdout -buffering line}\n"
         f"set workspace_path {_tcl_path(workspace_path)}\n"
         f"set xsa_path {_tcl_path(xsa_path)}\n"
         f"set source_path {_tcl_path(source_root)}\n"
@@ -1472,6 +1737,12 @@ def render_xsct_script(
         "    spec2codeDisableCustomIpBspLibsrc\n"
         "    spec2codeConfigureBsp\n"
         "}\n\n"
+        "set spec2code_app_listing {}\n"
+        "catch {set spec2code_app_listing [app list]}\n"
+        "if {[string first $app_name $spec2code_app_listing] < 0} {\n"
+        f"    {_tcl_put('FATAL: application project was not created; app list does not contain $app_name')}"
+        "    error \"Spec2Code: application project '$app_name' was not created in the workspace. Workspace may contain stale state from a previous run; use an empty workspace directory.\"\n"
+        "}\n\n"
         f"{_tcl_put('importing generated sources')}"
         "importsources -name $app_name -path $source_path\n\n"
         "spec2codeSynchronizeBeforeAppBuild\n"
@@ -1503,6 +1774,7 @@ def render_xsct_recovery_script(
     return (
         "# Spec2Code generated Vitis self-heal script.\n"
         "# Existing workspace is reused; no data is exported outside the selected temp/workspace folders.\n"
+        "catch {fconfigure stdout -buffering line}\n"
         f"set workspace_path {_tcl_path(workspace_path)}\n"
         f"set platform_name {{{platform_name}}}\n"
         f"set domain_name {{{domain_name}}}\n"
@@ -1857,16 +2129,23 @@ class VitisWorkspaceJobManager:
             custom_ip_driver_policy,
         )
         watcher.start()
+
+        def _emit_watchdog(events: list[str]) -> None:
+            job.emit({
+                "event": "vitis.watchdog",
+                "stage": "run",
+                "progress": 75,
+                "message": " | ".join(events),
+            })
+
         try:
-            completed = subprocess.run(
+            completed = _run_xsct_streaming(
                 _command_for(xsct.path, str(script_path)),
                 cwd=workspace_path,
-                check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=max(60, int(config.timeout_s or 1800)),
+                timeout_s=int(config.timeout_s or 1800),
+                stdout_path=stdout_log,
+                stderr_path=stderr_log,
+                emit=_emit_watchdog,
             )
         finally:
             host_patched_make_libs = watcher.stop()
@@ -1876,6 +2155,8 @@ class VitisWorkspaceJobManager:
         log_make_libs_targets = make_libs_targets_from_log(initial_log_text)
         log_has_fatal_error = _xsct_log_has_fatal_error(completed.stdout, completed.stderr)
         initial_issues = map_vitis_errors(initial_log_text) if (completed.returncode != 0 or log_has_fatal_error) else []
+        if completed.timed_out or completed.stalled:
+            initial_issues.insert(0, _xsct_hang_issue(completed, script_path))
         self_heal = {
             "attempted": False,
             "successful": False,
@@ -1918,19 +2199,19 @@ class VitisWorkspaceJobManager:
             self_heal["patched_make_libs"] = [_path_tail(path) for path in all_self_heal_paths]
             self_heal["synthesized_make_libs"] = [_path_tail(path) for path in synthesized_make_libs]
             if all_self_heal_paths:
-                recovery_completed = subprocess.run(
+                recovery_completed = _run_xsct_streaming(
                     _command_for(xsct.path, str(recovery_script_path)),
                     cwd=workspace_path,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=max(60, int(config.timeout_s or 1800)),
+                    timeout_s=int(config.timeout_s or 1800),
+                    stdout_path=recovery_stdout_log,
+                    stderr_path=recovery_stderr_log,
+                    emit=_emit_watchdog,
                 )
                 recovery_stdout_log.write_text(recovery_completed.stdout, encoding="utf-8")
                 recovery_stderr_log.write_text(recovery_completed.stderr, encoding="utf-8")
                 recovery_fatal = _xsct_log_has_fatal_error(recovery_completed.stdout, recovery_completed.stderr)
+                if recovery_completed.timed_out or recovery_completed.stalled:
+                    recovery_fatal = True
                 final_completed = recovery_completed
                 final_stdout = f"{completed.stdout}\n\n[Spec2Code self-heal stdout]\n{recovery_completed.stdout}"
                 final_stderr = f"{completed.stderr}\n\n[Spec2Code self-heal stderr]\n{recovery_completed.stderr}"
@@ -1945,7 +2226,12 @@ class VitisWorkspaceJobManager:
         workspace_make_libs = inspect_filesystem_make_libs(patch_roots, custom_ip_instances, custom_ip_driver_policy)
         elf_artifacts = inspect_vitis_elf_artifacts([workspace_path, staging_root], app_name)
         final_has_fatal_error = _xsct_log_has_fatal_error(final_completed.stdout, final_completed.stderr)
-        build_failed = final_completed.returncode != 0 or final_has_fatal_error
+        build_failed = (
+            final_completed.returncode != 0
+            or final_has_fatal_error
+            or bool(getattr(final_completed, "timed_out", False))
+            or bool(getattr(final_completed, "stalled", False))
+        )
         artifact_issues: list[dict] = []
         if int(elf_artifacts.get("application", 0)) == 0:
             if build_failed:

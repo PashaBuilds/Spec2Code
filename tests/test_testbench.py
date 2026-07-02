@@ -264,6 +264,65 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("int main(void);", main_header)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
 
+    def test_testbench_omits_controller_types_missing_from_hardware(self) -> None:
+        # ZCU102-like design: PS SPI disabled, only I2C + QSPI (+ PS Ethernet).
+        # BSP will not contain xspips.h, so generated code must not include it.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {
+                "id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+                "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+                "source": "xparameters", "zone": "ps",
+            },
+            {
+                "id": "ps_qspi_0", "type": "qspi", "instance": "XPAR_XQSPIPSU_0",
+                "base_address": "0xFF0F0000", "device_id": 0, "driver": "XQspiPsu",
+                "source": "xparameters", "zone": "ps",
+            },
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {
+                "id": "u1_ltc2991", "part": "LTC2991",
+                "descriptor_ref": "descriptors/ltc2991.yaml",
+                "attach": {
+                    "controller_id": "ps_i2c_0", "i2c_address": "0x48",
+                    "via_mux": None, "reset_gpio": None, "irq_line": None,
+                },
+                "operations_requested": ["device_init", "voltage_read", "temperature_read"],
+                "tests_requested": ["self_test"],
+            },
+            {
+                "id": "u2_mt25qu02g", "part": "MT25QU02G",
+                "descriptor_ref": "descriptors/mt25qu02g.yaml",
+                "attach": {
+                    "controller_id": "ps_qspi_0", "spi_chip_select": 0,
+                    "address_width": 32, "reset_gpio": None,
+                },
+                "operations_requested": ["device_init", "id_read", "data_read"],
+                "tests_requested": ["self_test"],
+            },
+        ]
+        add_zynqmp_ps_ethernet(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            ops_header = (out_dir / "tests" / "unit_no_spi_testbench_testbench_ops.h").read_text(encoding="utf-8")
+            ops_source = (out_dir / "tests" / "unit_no_spi_testbench_testbench_ops.c").read_text(encoding="utf-8")
+            lwip_source = (out_dir / "tests" / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+
+        for content in (ops_header, ops_source, lwip_source):
+            self.assertNotIn("xspips.h", content)
+            self.assertNotIn("XSpiPs", content)
+        self.assertIn('#include "xiicps.h"', ops_header)
+        self.assertIn('#include "xqspipsu.h"', ops_header)
+        self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", ops_header)
+        self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", ops_header)
+        self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
+        self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", lwip_source)
+
     def test_testbench_agent_version_command_is_generated(self) -> None:
         spec = load_sample_spec("unit_agent_version")
         with tempfile.TemporaryDirectory() as tmp:

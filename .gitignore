@@ -24,6 +24,10 @@ release-assets/
 build/
 *.spec
 
+# Local Vitis test bench (user workspaces, XSA'lar, XSCT debris)
+/test/
+.Xil/
+
 # OS / editor
 .DS_Store
 .idea/

@@ -3,6 +3,43 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.79 - 2026-07-02
+
+- Test bench codegen artik yalnizca tasarimda gercekten kullanilan controller
+  tiplerinin BSP header'larini include eder. Onceden `*_testbench_ops.h` her
+  zaman `xiicps.h`, `xspips.h` ve `xqspipsu.h` include ediyordu; PS SPI kapali
+  bir XSA'da (ornegin ZCU102 + I2C + QSPI senaryosu) BSP'de `xspips.h`
+  uretilmedigi icin application build `fatal error: xspips.h: No such file or
+  directory` ile dusuyor ve application ELF hic uretilemiyordu. Getter
+  prototipleri, weak getter'lar ve lwIP agent getter tanimlari da ayni sekilde
+  kosullu uretilir.
+- Vitis XSCT calistirmasi artik stdout/stderr'i log dosyalarina canli olarak
+  yazar; timeout veya kill durumunda bile kismi loglar `logs/` altinda kalir.
+  XSCT stdin'i kapali (NUL) baglanir.
+- XSCT hicbir cikti uretmeden takilirsa Spec2Code watchdog once bilinen stuck
+  probe child'lari (Vitis 2023.2 `app create` sirasindaki `which sdscc`)
+  sonlandirmayi dener, duzelmezse process tree'yi kill edip `S2C-VITIS-HANG-010`
+  hata koduyla aksiyon alinabilir bir mesaj gosterir. Onceden bu durum sonsuz
+  bekleme + log kaybi demekti.
+- Timeout durumunda process tree (`cmd -> xsct -> eclipse`) artik komple kill
+  edilir; yetim kalan Vitis cmdline service'in sonraki denemeleri kilitlemesi
+  engellenir.
+- Generated Tcl script'lerine `fconfigure stdout -buffering line` eklendi;
+  progress marker'lari log'a gecikmeden yazilir ve stall tespiti guvenilir
+  calisir.
+- Platform senkronizasyonu Vitis 2023.2 ile uyumlu hale getirildi: `platform
+  build` bu surumde `Wrong sub-command` hatasi veriyordu; artik once `platform
+  generate` denenir, desteklenmiyorsa `platform build`'e dusulur.
+- `app create` sessizce basarisiz olursa (tipik neden: onceki basarisiz
+  denemeden kalinti iceren workspace dizini) akis artik `importsources`/`app
+  build`e devam etmez; `app list` dogrulamasi yapilir ve
+  `S2C-VITIS-WORKSPACE-011` koduyla acik bir hata verilir. `The project given
+  does not exist in workspace` hatasi da ayni koda maplenir; onerilen cozum bos
+  bir workspace dizinidir.
+- `scripts/vitis_which_stub.c` eklendi: `which sdscc` hang'i goruen makineler
+  icin konsol acmayan `which` stub'inin kaynagi ve build komutu (bkz.
+  `kimi_vitis_debug_guide.md` bolum 7).
+
 ## v0.1.78 - 2026-07-01
 
 - Vitis workspace Tcl akisi `importsources` sonrasi application build'e gecmeden

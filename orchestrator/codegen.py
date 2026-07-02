@@ -654,8 +654,36 @@ def json_dumps_crlf(value: dict) -> str:
     return json.dumps(value, indent=2) + "\n"
 
 
-def _testbench_ops_header(project_name: str) -> str:
+_TESTBENCH_HANDLE_HEADERS: list[tuple[str, str]] = [
+    ("XIicPs", "xiicps.h"),
+    ("XSpiPs", "xspips.h"),
+    ("XQspiPsu", "xqspipsu.h"),
+]
+
+
+def _testbench_used_handle_types(spec: dict) -> set[str]:
+    """Controller handle types actually wired in this design.
+
+    Headers such as xspips.h only exist in the BSP when the matching PS
+    peripheral is enabled in the hardware design; including them
+    unconditionally breaks the Vitis application compile on hardware
+    without that peripheral.
+    """
+    return {entry["htype"] for entry in _testbench_board_controller_entries(spec)}
+
+
+def _testbench_ops_header(project_name: str, handle_types: set[str]) -> str:
     guard = _header_guard(f"{project_name}_testbench_ops_h")
+    controller_includes = "".join(
+        f'#include "{header}"\n'
+        for htype, header in _TESTBENCH_HANDLE_HEADERS
+        if htype in handle_types
+    )
+    getter_prototypes = "".join(
+        f"{htype}* {_testbench_getter(htype)}(const char* cpControllerId);\n"
+        for htype, _header in _TESTBENCH_HANDLE_HEADERS
+        if htype in handle_types
+    )
     return (
         "/**\n"
         f" * @file {project_name}_testbench_ops.h\n"
@@ -664,9 +692,8 @@ def _testbench_ops_header(project_name: str) -> str:
         f"#ifndef {guard}\n"
         f"#define {guard}\n\n"
         '#include "spec2code_testbench_protocol.h"\n'
-        '#include "xiicps.h"\n'
-        '#include "xspips.h"\n'
-        '#include "xqspipsu.h"\n\n'
+        + controller_includes
+        + "\n"
         "typedef struct\n"
         "{\n"
         "    const char* cpDeviceId;\n"
@@ -675,10 +702,8 @@ def _testbench_ops_header(project_name: str) -> str:
         "    const char* cpLabel;\n"
         "    const char* cpRisk;\n"
         "} SSpec2codeTestbenchOperation;\n\n"
-        "XIicPs* spec2codeTestbenchIicPsHandleGet(const char* cpControllerId);\n"
-        "XSpiPs* spec2codeTestbenchSpiPsHandleGet(const char* cpControllerId);\n"
-        "XQspiPsu* spec2codeTestbenchQspiPsuHandleGet(const char* cpControllerId);\n"
-        "unsigned int spec2codeTestbenchOperationCount(void);\n"
+        + getter_prototypes
+        + "unsigned int spec2codeTestbenchOperationCount(void);\n"
         "const SSpec2codeTestbenchOperation* spec2codeTestbenchOperationGet(unsigned int uiIndex);\n"
         "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n"
         "                               SSpec2codeTestbenchResponse* spResponse);\n"
@@ -1139,6 +1164,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
     project_name = spec["project"]["name"]
     app_version = _app_version()
     entries = _testbench_device_entries(spec, get_descriptor)
+    handle_types = _testbench_used_handle_types(spec)
     rows = _testbench_op_table(entries)
     includes = [
         f'#include "{project_name}_testbench_ops.h"',
@@ -1171,24 +1197,19 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "",
         f"#define SPEC2CODE_TESTBENCH_AGENT_VERSION {_c_string_literal(app_version)}",
         "",
-        "SPEC2CODE_WEAK XIicPs* spec2codeTestbenchIicPsHandleGet(const char* cpControllerId)",
-        "{",
-        "    (void)cpControllerId;",
-        "    return NULL;",
-        "}",
-        "",
-        "SPEC2CODE_WEAK XSpiPs* spec2codeTestbenchSpiPsHandleGet(const char* cpControllerId)",
-        "{",
-        "    (void)cpControllerId;",
-        "    return NULL;",
-        "}",
-        "",
-        "SPEC2CODE_WEAK XQspiPsu* spec2codeTestbenchQspiPsuHandleGet(const char* cpControllerId)",
-        "{",
-        "    (void)cpControllerId;",
-        "    return NULL;",
-        "}",
-        "",
+        *[
+            line
+            for htype, _header in _TESTBENCH_HANDLE_HEADERS
+            if htype in handle_types
+            for line in (
+                f"SPEC2CODE_WEAK {htype}* {_testbench_getter(htype)}(const char* cpControllerId)",
+                "{",
+                "    (void)cpControllerId;",
+                "    return NULL;",
+                "}",
+                "",
+            )
+        ],
         *(_testbench_i2c_helpers() if any(entry["descriptor"].get("transport", {}).get("type") == "i2c" for entry in entries) else []),
     ]
     emitted_resolvers: set[str] = set()
@@ -1696,9 +1717,12 @@ def _testbench_lwip_source(spec: dict) -> str:
         "}",
         "",
         *_testbench_board_init_lines(entries),
-        *_testbench_board_getter_lines(entries, "XIicPs", "spec2codeTestbenchIicPsHandleGet"),
-        *_testbench_board_getter_lines(entries, "XSpiPs", "spec2codeTestbenchSpiPsHandleGet"),
-        *_testbench_board_getter_lines(entries, "XQspiPsu", "spec2codeTestbenchQspiPsuHandleGet"),
+        *[
+            line
+            for htype, _header in _TESTBENCH_HANDLE_HEADERS
+            if any(entry["htype"] == htype for entry in entries)
+            for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
+        ],
         "int spec2codeTestbenchLwipNetworkInit(void)",
         "{",
         "    ip_addr_t sIpAddr;",
@@ -1874,7 +1898,7 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
     contents = [
         _apply_default_identifier_style(_testbench_protocol_header()),
         _apply_default_identifier_style(_testbench_protocol_source()),
-        _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"])),
+        _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
     ]

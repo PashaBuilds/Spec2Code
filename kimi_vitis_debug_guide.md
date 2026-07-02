@@ -478,7 +478,49 @@ SPEC2CODE ICIN ONERI:
   tekrar patchle; build-fatal imzasi varsa self-heal basarili sayma.
 ```
 
-## 7. Source Kodu Ne Zaman Verilmeli?
+## 7. XSCT Hicbir Cikti Uretmeden Takiliyorsa (S2C-VITIS-HANG-010)
+
+Belirti: `xsct_stdout.log` icinde son satir
+`[Spec2Code] creating named platform/system/application from XSA` (veya
+`Starting vitis.bat` / sysconfig uyarilari) ve dakikalarca yeni satir yok.
+Workspace altinda app projesi `src/lscript.ld` disinda bos, FSBL/PMU compile
+baslamamis.
+
+Kok sebep: Vitis 2023.2 `app create` sirasinda SDSoC eklentisi
+`which sdscc` komutunu calistirir ve ciktisini bekler. Bazi Windows
+makinelerinde Vitis cmdline service (eclipse.exe) altindan spawn edilen bu
+konsol process'i console initialisation asamasinda kernel seviyesinde donar;
+process Task Manager'dan bile oldurulemez ve `app create` sonsuza dek doner.
+
+Kontrol:
+
+```bat
+tasklist /FI "IMAGENAME eq which.exe"
+wmic process where "name='which.exe'" get ProcessId,ParentProcessId,CommandLine
+```
+
+`CommandLine = which sdscc` ve parent `eclipse.exe` ise bu senaryodasin.
+
+Spec2Code v0.1.79+ bu durumda watchdog ile process tree'yi sonlandirir ve
+`S2C-VITIS-HANG-010` kodunu gosterir; loglar `logs/` altinda kalir.
+
+Makine tarafindaki kalici workaround (Vitis kurulumunda kucuk bir degisiklik
+gerektirir, yedegi alinarak yapilmali):
+
+```text
+1. C:\<VitisKurulumu>\Vitis\2023.2\gnuwin\bin\which.exe dosyasini
+   which.exe.backup olarak yedekle.
+2. Yerine konsol acmayan (GUI-subsystem) bir which stub'i koy. Stub,
+   SearchPath ile arguman olarak verilen exe'yi PATH'te arar; bulursa yolu
+   yazip 0, bulamazsa 1 ile cikar. sdscc 2023.2'de zaten yoktur; normal
+   makinelerde bu komut aninda exit 1 doner ve akis devam eder.
+3. Geri almak icin yedegi geri kopyala.
+```
+
+Antivirus/EDR console-child engellemesi de ayni belirtiyi verebilir; kurumsal
+makinede once guvenlik yazilimi loglarini kontrol ettir.
+
+## 8. Source Kodu Ne Zaman Verilmeli?
 
 Ilk asamada source kod verilmemeli. Source kod ancak su durumlardan biri varsa
 verilmeli:

@@ -426,7 +426,18 @@ class VitisWorkspaceTests(unittest.TestCase):
 
         self.assertIn("proc spec2codeSynchronizeBeforeAppBuild", script)
         self.assertIn("bsp regenerate", script)
+        # Vitis 2023.2 XSCT rejects `platform build` (Wrong sub-command); the
+        # sync step must try `platform generate` first and keep build as fallback.
+        self.assertIn("platform generate", script)
         self.assertIn("platform build", script)
+        self.assertLess(script.index("platform generate"), script.index("platform build"))
+        # A silently failed app create must stop the flow before importsources.
+        self.assertIn("app list", script)
+        self.assertIn("was not created in the workspace", script)
+        self.assertLess(
+            script.index("was not created in the workspace"),
+            script.index("importsources -name $app_name -path $source_path"),
+        )
         self.assertLess(
             script.index("importsources -name $app_name -path $source_path"),
             script.index("spec2codeSynchronizeBeforeAppBuild\n"),
@@ -1045,6 +1056,70 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertIn("xsct_tcl_command", categories)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
+
+
+class XsctStreamingRunnerTests(unittest.TestCase):
+    def test_streaming_runner_writes_logs_and_returns_exit_code(self) -> None:
+        import sys
+
+        from backend.vitis_workspace import _run_xsct_streaming
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "out.log"
+            stderr_path = Path(tmp) / "err.log"
+            outcome = _run_xsct_streaming(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; print('hello xsct'); print('warned', file=sys.stderr); sys.exit(3)",
+                ],
+                cwd=Path(tmp),
+                timeout_s=120,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+
+        self.assertEqual(outcome.returncode, 3)
+        self.assertIn("hello xsct", outcome.stdout)
+        self.assertIn("warned", outcome.stderr)
+        self.assertFalse(outcome.timed_out)
+        self.assertFalse(outcome.stalled)
+
+    def test_streaming_runner_kills_silent_process_and_flags_stall(self) -> None:
+        import sys
+        import time
+
+        from backend.vitis_workspace import _run_xsct_streaming
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "out.log"
+            stderr_path = Path(tmp) / "err.log"
+            watchdog_messages: list[str] = []
+            started = time.monotonic()
+            outcome = _run_xsct_streaming(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys, time; print('started', flush=True); time.sleep(600)",
+                ],
+                cwd=Path(tmp),
+                timeout_s=600,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                emit=watchdog_messages.extend,
+                stall_timeout_s=2,
+                stall_grace_s=1,
+            )
+            elapsed = time.monotonic() - started
+            streamed_stdout = stdout_path.read_text(encoding="utf-8")
+
+        self.assertTrue(outcome.stalled)
+        self.assertNotEqual(outcome.returncode, 0)
+        self.assertIn("started", outcome.stdout)
+        # Partial log must survive the kill: the streamed file already has the line.
+        self.assertIn("started", streamed_stdout)
+        self.assertTrue(watchdog_messages)
+        self.assertLess(elapsed, 120)
 
 
 if __name__ == "__main__":

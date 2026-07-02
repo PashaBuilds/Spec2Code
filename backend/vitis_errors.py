@@ -47,6 +47,16 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Windows GCC literal `*.c` girdisini derlemeye calismis. Bu genelde source'suz custom PL IP BSP driver makefile'inda gorulur. Guncel Spec2Code ile `Auto: custom IP - none` secili sekilde temiz/yeni workspace'e yeniden uret.",
     ),
     (
+        re.compile(r"application project '(?P<symbol>[^']+)' was not created", re.I),
+        "workspace_stale",
+        "Hedef workspace dizini önceki (başarısız) denemeden kalıntı içeriyor olabilir. Spec2Code her çalıştırmada platform/application'ı sıfırdan oluşturur; boş bir workspace dizini ile tekrar dene.",
+    ),
+    (
+        re.compile(r"The project given does not exist in workspace", re.I),
+        "workspace_stale",
+        "Application projesi workspace registry'sinde yok. Genelde `app create` önceki denemeden kalan workspace kalıntısı yüzünden sessizce başarısız olmuştur; boş bir workspace dizini ile tekrar dene.",
+    ),
+    (
         re.compile(r"invalid command name\s+\"(?P<symbol>[^\"]+)\"", re.I),
         "xsct_tcl_command",
         "XSCT Tcl script içinde literal yazı komut gibi yorumlanmış. Script quoting/escaping kontrol edilmeli; generated script güncel sürümle tekrar üretilmeli.",
