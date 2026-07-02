@@ -118,11 +118,33 @@ export const api = {
       body: JSON.stringify({ log }),
     }),
 
-  testbenchCommand: (payload: TestbenchCommandRequest) =>
-    req<TestbenchCommandResponse>("/api/testbench/command", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  testbenchCommand: async (payload: TestbenchCommandRequest) => {
+    const startedAt = performance.now();
+    const record = (ok: boolean, detail: string) => {
+      // Host-initiated transactions feed the Test Bench timeline.
+      import("@/store/useStore").then(({ useStore }) => {
+        useStore.getState().pushBusLog({
+          at: Date.now(),
+          device: payload.device,
+          operation: payload.operation,
+          ok,
+          duration_ms: Math.round(performance.now() - startedAt),
+          detail,
+        });
+      }).catch(() => undefined);
+    };
+    try {
+      const response = await req<TestbenchCommandResponse>("/api/testbench/command", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      record(response.parsed.ok === "1", response.parsed.value || response.parsed.data || response.parsed.message || "");
+      return response;
+    } catch (err) {
+      record(false, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  },
 
   testbenchConnect: (payload: TestbenchSessionConnectRequest) =>
     req<TestbenchSessionStatus>("/api/testbench/session/connect", {

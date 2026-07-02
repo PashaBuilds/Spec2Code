@@ -16,9 +16,11 @@ import DriverImport from "@/features/driver-import/DriverImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
+import TransactionTimeline from "@/features/testbench/TransactionTimeline";
 import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
+import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
 type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "bringup" | "registers" | "import";
 
@@ -83,8 +85,23 @@ export default function App() {
     }
   }
 
+  const paletteCommands: PaletteCommand[] = [
+    { id: "setup", label: "Setup ekranına git", hint: "adım", keywords: "proje platform runtime", run: () => { setStep("setup"); setView("flow"); } },
+    { id: "schematic", label: "Schematic ekranına git", hint: "adım", keywords: "şema devre kablo node", run: () => { setStep("schematic"); setView("flow"); } },
+    { id: "generate-view", label: "Generate ekranına git", hint: "adım", keywords: "kod üret konsol", run: () => { setStep("generate"); setView("flow"); } },
+    { id: "run-generate", label: "Generate çalıştır", hint: "aksiyon", keywords: "kod üret başlat build", run: () => { void runGenerate(); } },
+    { id: "knowledge", label: "Bilgi soru merkezi", hint: "görünüm", keywords: "knowledge datasheet soru", run: () => setView("knowledge") },
+    { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
+    { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
+    { id: "uart", label: "UART konsolu", hint: "görünüm", keywords: "seri com konsol log", run: () => setView("uart") },
+    { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
+    { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
+    { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
+  ];
+
   return (
     <div className="flex h-screen flex-col bg-bg text-text">
+      <CommandPalette commands={paletteCommands} />
       {/* header */}
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border px-4">
         <div className="flex items-center gap-2">
@@ -206,6 +223,7 @@ export default function App() {
             <div className="min-h-0 flex-1">
               <TestBenchPanel />
             </div>
+            <TransactionTimeline />
           </div>
         ) : view === "uart" ? (
           <div className="flex h-full min-h-0 flex-col p-4">

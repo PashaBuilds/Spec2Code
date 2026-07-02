@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.89 - 2026-07-02
+
+Faz 5: Headless CLI, Ctrl+K komut paleti ve islem zaman cizelgesi.
+
+- Headless CLI (`spec2code_cli.py`): UI'siz tam boru hatti -
+  `python spec2code_cli.py build --spec my.spec.json` spec'i dogrular,
+  kodu uretir, QC kosar; `--vitis/--xsa/--workspace/--temp` verilirse
+  ayni kosuda Vitis workspace kurup ELF dogrular. Cikis kodlari: 0 ok,
+  2 spec gecersiz, 3 codegen/QC, 4 Vitis. `--json` makine-okur ozet
+  basar; CI/gece kosulari icin uygundur.
+- Ctrl+K (Cmd+K) komut paleti: ekranlar arasi gecis ve "Generate
+  calistir" aksiyonu; ok tuslari + Enter, bulanik arama, bakir temali.
+- Islem zaman cizelgesi (Test Bench alti): host'tan gonderilen her S2C
+  komutu (Test Bench, canli telemetri, register snapshot) son-60-sn
+  seridinde isaretlenir ve son 10 islem sure/durumla listelenir.
+- Duzeltme: Vitis staging'de selftest main artik UART agent main'i
+  varken de bastirilir (cift main() link hatasi onlendi) - onceden
+  yalnizca lwIP main'e bakiliyordu.
+- Dogrulama: 99/99 test (CLI build gercek codegen+QC kosuyor); palet ve
+  zaman cizelgesi gercek backend + sahte agent ile tarayicida dogrulandi.
+
 ## v0.1.88 - 2026-07-02
 
 Faz 4: Register snapshot & diff isi haritasi + sematikte canli telemetri.

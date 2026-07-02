@@ -19,6 +19,15 @@ import type {
 
 export type Step = "setup" | "schematic" | "generate";
 
+export interface BusLogEntry {
+  at: number;
+  device: string;
+  operation: string;
+  ok: boolean;
+  duration_ms: number;
+  detail: string;
+}
+
 interface JobState {
   id: string | null;
   status: "idle" | "running" | "done" | "error";
@@ -52,6 +61,10 @@ interface StoreState {
   telemetry: Record<string, { text: string; at: number }>;
   setTelemetry: (deviceId: string, text: string) => void;
   clearTelemetry: () => void;
+
+  /** Host'tan gönderilen S2C işlemlerinin kronolojik kaydı (timeline). */
+  busLog: BusLogEntry[];
+  pushBusLog: (entry: BusLogEntry) => void;
 
   // actions
   setStep: (s: Step) => void;
@@ -172,6 +185,9 @@ export const useStore = create<StoreState>((set, get) => ({
   setTelemetry: (deviceId, text) =>
     set((s) => ({ telemetry: { ...s.telemetry, [deviceId]: { text, at: Date.now() } } })),
   clearTelemetry: () => set({ telemetry: {} }),
+
+  busLog: [],
+  pushBusLog: (entry) => set((s) => ({ busLog: [...s.busLog, entry].slice(-200) })),
 
   setStep: (step) => set({ step }),
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),
