@@ -14,7 +14,9 @@ commands:
   - { name: READ_STATUS,     opcode: 0x05, address_bytes: 0, description: "RDSR" }
   - { name: WRITE_ENABLE,    opcode: 0x06, address_bytes: 0, description: "WREN" }
   - { name: READ_DATA,       opcode: 0x03, address_bytes: 3, description: "READ" }
-  - { name: FAST_READ,       opcode: 0x0B, address_bytes: 3, description: "FAST_READ" }
+  # FAST_READ needs 8 dummy clock cycles between address and data (Micron
+  # MT25Q Table 19); generated operations intentionally use READ_DATA (0 dummy).
+  - { name: FAST_READ,       opcode: 0x0B, address_bytes: 3, description: "FAST_READ (requires 8 dummy cycles; unused by generated ops)" }
   - { name: PAGE_PROGRAM,    opcode: 0x02, address_bytes: 3, description: "PP" }
   - { name: SECTOR_ERASE,    opcode: 0xD8, address_bytes: 3, description: "SE (64KB)" }
   - { name: SUBSECTOR_ERASE, opcode: 0x20, address_bytes: 3, description: "SSE (4KB)" }

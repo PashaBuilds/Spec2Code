@@ -32,7 +32,8 @@ typedef struct
     uint32_t Flags;
 } XQspiPsu_Msg;
 
-XQspiPsu_Config *XQspiPsu_LookupConfig(UINTPTR BaseAddress);
+/* Classic (non-SDT) 2023.x BSP signature: lookup by device id. */
+XQspiPsu_Config *XQspiPsu_LookupConfig(uint16_t DeviceId);
 int XQspiPsu_CfgInitialize(XQspiPsu *InstancePtr, XQspiPsu_Config *ConfigPtr, uint32_t EffectiveAddr);
 int XQspiPsu_SetOptions(XQspiPsu *InstancePtr, uint32_t Options);
 int XQspiPsu_SetClkPrescaler(XQspiPsu *InstancePtr, uint8_t Prescaler);

@@ -21,7 +21,8 @@ access_primitives:
 registers:
   - { name: INTERFACE_CONFIG_A, offset: 0x000, width: 8, access: rw, reset: 0x00 }
   - { name: INTERFACE_CONFIG_B, offset: 0x001, width: 8, access: rw, reset: 0x00 }
-  - { name: DEV_CONFIG, offset: 0x002, width: 8, access: rw, reset: 0x00 }
+  # Reset per ADAR1000 Rev. A register summary (Table 23): 0x10.
+  - { name: DEV_CONFIG, offset: 0x002, width: 8, access: rw, reset: 0x10 }
   - { name: CHIP_TYPE, offset: 0x003, width: 8, access: ro, reset: 0x00 }
   - { name: PRODUCT_ID_H, offset: 0x004, width: 8, access: ro, reset: 0x00 }
   - { name: PRODUCT_ID_L, offset: 0x005, width: 8, access: ro, reset: 0x00 }

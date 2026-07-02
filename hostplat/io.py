@@ -55,13 +55,3 @@ def read_text(path: PathLike) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def detect_line_ending(path: PathLike) -> str:
-    """Return 'crlf', 'lf', 'cr', or 'none' for *path* — used by the CRLF smoke-test."""
-    raw = Path(path).read_bytes()
-    if b"\r\n" in raw:
-        return "crlf"
-    if b"\n" in raw:
-        return "lf"
-    if b"\r" in raw:
-        return "cr"
-    return "none"

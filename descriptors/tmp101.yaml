@@ -13,6 +13,8 @@ access_primitives:
 registers:
   - { name: TEMPERATURE, offset: 0x00, width: 16, access: ro, reset: 0x0000,
       fields: [ { name: TEMP_CODE, bits: "15:4" }, { name: ZERO_PAD, bits: "3:0" } ] }
+  # Stored POR value is 0x00, but OS/ALERT (bit 7) reads back 1 after
+  # power-up/reset, so the first read returns 0x80 (SBOS231I section 7.5.3).
   - { name: CONFIGURATION, offset: 0x01, width: 8, access: rw, reset: 0x00,
       fields: [
         { name: OS_ALERT, bits: "7" },

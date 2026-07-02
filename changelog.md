@@ -3,6 +3,56 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.84 - 2026-07-02
+
+Kalite denetimi surumu: 14 destekli entegrenin tamami icin uretilen kod
+gercek ZynqMP BSP'sine karsi derlenerek (aarch64-none-elf-gcc, -Wall
+-Wextra, iki controller varyanti) dogrulandi; lwIP test katmani resmi
+Xilinx orneklerine gore duzeltildi; descriptor register haritalari resmi
+datasheet'lerle teyit edildi.
+
+- LTC2991 device_init duzeltildi (datasheet 2991f Table 2/7, s.14): yazma
+  sirasi artik CONTROL_V1V4 -> CONTROL_V5V8 -> PWM_T_INTERNAL_CONTROL
+  (0x10, Repeated Acquisition) -> STATUS_HIGH. Onceden 0x01 enable/trigger
+  ILK yaziliyordu ve tekrar modu hic acilmadigi icin poll-oku operasyonlari
+  ilk donusumden sonra BAYAT veri donduruyordu. UI init onizlemesi de ayni
+  sirayi gosterir. 0x08 bit haritasi duzeltildi: b4 REPEATED_ACQUISITION
+  (eski yanlis ad PWM_MODE), b3 T_INTERNAL_FILTER_ENABLE, b2
+  T_INTERNAL_KELVIN (eskiden b3 sanilan).
+- FreeRTOS + lwIP test bench agent'i resmi
+  `freertos_lwip_echo_server` yapisina gecirildi: main ->
+  sys_thread_new + vTaskStartScheduler; lwip_init bir thread icinde
+  (Xilinx portu OS modunda tcpip_init'i da calistirir - init.c'de
+  dogrulandi); xemac_add + xemacif_input_thread network thread'inde; agent
+  SOCKET API (lwip_socket/bind/listen/accept + lwip_recv/lwip_send) ile
+  ayri thread'de. Onceki uretim FreeRTOS'ta scheduler'i hic baslatmayan
+  RAW API + polling kaliba sahipti ve SOCKET_API BSP'siyle calisamazdi.
+  bare_metal/standalone uretimi resmi `lwip_echo_server` RAW kalibinda
+  degismeden kaldi. Iki flavor da gercek BSP'ye karsi sifir uyariyla
+  derlendi; FreeRTOS flavor'i Vitis'te uctan uca ELF'e goturuldu.
+- XQspiPsu_LookupConfig cagrilari klasik (non-SDT) 2023.x BSP imzasina
+  cevrildi: `(UINTPTR)XPAR_..._BASEADDR` yerine `XPAR_..._DEVICE_ID`.
+  Eski cagri u16'ya kirpilip yalnizca QSPI-0'da sans eseri calisiyordu;
+  QC bsp stub'i da ayni yanlis imzayi tasidigi icin hatayi gizliyordu
+  (stub duzeltildi).
+- Kullanilmayan statik yardimcilar artik uretilmiyor: istenen operasyon
+  seti bir low-level helper'i (ornegin `<part>RegisterWrite`,
+  `ltc2991RegistersRead`) cagirmiyorsa dosyaya yazilmaz; -Wall'da
+  -Wunused-function gurultusu sifirlandi.
+- Datasheet teyitleri (resmi kaynaklar; ADI/TI/Micron/Microchip/Sensirion):
+  TCA9548A, TMP101, LMX1204, LTC2945, 24LC32A, SHT21 birebir dogru cikti.
+  Duzeltilenler: LMK04832 0x000 reset 0x10->0x00 (SNAS688C Table 6);
+  LMX2820 R0 reset 0x251C->0x4070 (SNAU251A 1.1; repo'nun kendi knowledge
+  paketi zaten 0x4070 diyordu); ADAR1000 DEV_CONFIG reset 0x00->0x10
+  (Rev. A Table 23); AD7414 config bit adlari FLTR_ENABLE/ALERT_DISABLE
+  olarak duzeltildi (Table VII ters mantik); DS1682 ETC/EVENT registerlari
+  WDF kilidine kadar yazilabilir (ro->rw); MT25Q FAST_READ komutlarina
+  8 dummy cycle notu eklendi (uretilen operasyonlar zaten 0-dummy READ
+  kullanir); SHT21 raw frame aciklamalarina status-bit maskesi ve donusum
+  formulleri eklendi.
+- Olu kod temizligi: hicbir yerden referans almayan
+  `hostplat.io.detect_line_ending` ve `cmodel._doxy` kaldirildi.
+
 ## v0.1.83 - 2026-07-02
 
 - Application ELF uretilmis, exit code 0 ve compiler/make/linker hatasi yoksa

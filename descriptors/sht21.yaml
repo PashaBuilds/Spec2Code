@@ -43,12 +43,12 @@ operations:
       - { op: comment, note: "Use soft reset only when the application explicitly wants to reinitialize the sensor." }
   - name: temperature_read
     returns: "uint32"
-    description: "Issue hold-master temperature command and read MSB, LSB/status, and CRC byte."
+    description: "Issue hold-master temperature command; raw frame [23:16]=MSB [15:8]=LSB (bits 1:0 are status, mask to 0 before T=-46.85+175.72*S/65536) [7:0]=CRC-8."
     steps:
       - { op: read_registers, reg: TRIGGER_T_HOLD, length: 3 }
   - name: humidity_read
     returns: "uint32"
-    description: "Issue hold-master humidity command and read MSB, LSB/status, and CRC byte."
+    description: "Issue hold-master humidity command; raw frame [23:16]=MSB [15:8]=LSB (bits 1:0 are status, mask to 0 before RH=-6+125*S/65536) [7:0]=CRC-8."
     steps:
       - { op: read_registers, reg: TRIGGER_RH_HOLD, length: 3 }
   - name: user_register_read

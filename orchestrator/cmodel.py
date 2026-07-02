@@ -1,4 +1,4 @@
-"""C render-model builder (Brief 13).
+﻿"""C render-model builder (Brief 13).
 
 Turns a validated project.spec + device descriptors + ruleset into a structured model of
 C functions with fully-rendered, coding-standard-compliant bodies. The Jinja templates
@@ -19,6 +19,7 @@ This module returns pure data; only codegen.py writes it out (through hostplat.i
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -118,6 +119,27 @@ class CUnit:
 
 
 # --- helpers ----------------------------------------------------------------------------
+
+def _prune_unused_static_funcs(funcs: list[CFunc]) -> list[CFunc]:
+    """Drop static helpers no other emitted function references.
+
+    Low-level helpers are emitted per transport, but the requested operation
+    set may never call some of them; unused statics trip -Wunused-function in
+    the Vitis application build.
+    """
+    kept = list(funcs)
+    changed = True
+    while changed:
+        changed = False
+        for func in list(kept):
+            if not func.static:
+                continue
+            other_bodies = "\n".join("\n".join(other.body) for other in kept if other is not func)
+            if re.search(rf"\b{re.escape(func.name)}\s*\(", other_bodies) is None:
+                kept.remove(func)
+                changed = True
+    return kept
+
 
 def _module_of(part: str) -> str:
     mod = "".join(ch.lower() for ch in part if ch.isalnum())
@@ -316,10 +338,6 @@ def _generic_i2c_init_writes(device: dict, regs: dict[str, dict]) -> list[dict]:
         note = str(item.get("note") or "manual init builder write")
         writes.append({"reg": reg, "value": value, "note": note})
     return writes
-
-
-def _doxy(func: CFunc) -> CFunc:
-    return func
 
 
 # --- mux unit (TCA9548A) ----------------------------------------------------------------
@@ -562,7 +580,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c",
         header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
-        defines=defines, funcs=funcs, public_names=public, private_decls=private_decls)
+        defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public,
+        private_decls=private_decls)
 
 
 def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
@@ -722,7 +741,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c_eeprom",
         header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
-        defines=defines, funcs=funcs, public_names=public)
+        defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
 # --- SPI device unit (NOR flash) --------------------------------------------------------
@@ -986,7 +1005,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
 
         if is_init:
             if _is_qspipsu(htype):
-                e.ln(f"spConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
+                e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
             else:
                 e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
@@ -1066,7 +1085,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
         header_includes=["xil_types.h", _spi_header_for(htype)],
         driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
         defines=defines,
-        funcs=funcs,
+        funcs=_prune_unused_static_funcs(funcs),
         public_names=public,
         private_decls=private_decls,
     )
@@ -1134,7 +1153,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
 
         if is_init:
             if _is_qspipsu(htype):
-                e.ln(f"spConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);")
+                e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
             else:
                 e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
@@ -1192,7 +1211,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
         driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
-        defines=defines, funcs=funcs, public_names=public)
+        defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
 # --- test unit --------------------------------------------------------------------------

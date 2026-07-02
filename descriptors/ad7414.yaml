@@ -16,8 +16,11 @@ registers:
   - { name: CONFIGURATION, offset: 0x01, width: 8, access: rw, reset: 0x40,
       fields: [
         { name: POWER_DOWN, bits: "7" },
-        { name: FILTER_BYPASS, bits: "6" },
-        { name: ALERT_ENABLE, bits: "5" },
+        # Datasheet FLTR bit: 1 = SDA/SCL filtering ENABLED (power-up default),
+        # 0 = bypass (AD7414 Rev. D Table VII).
+        { name: FLTR_ENABLE, bits: "6" },
+        # Inverted logic per Table VII: 1 = ALERT DISABLED, 0 = enabled.
+        { name: ALERT_DISABLE, bits: "5" },
         { name: ALERT_POLARITY, bits: "4" },
         { name: ALERT_RESET, bits: "3" },
         { name: ONE_SHOT, bits: "2" } ] }

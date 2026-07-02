@@ -19,7 +19,9 @@ transport:
 access_primitives:
   write_register_word: { pattern: ticspro_24bit_word }
 registers:
-  - { name: RESET, offset: 0x000, width: 8, access: rw, reset: 0x10,
+  # POR default is 0x00 (SNAS688C Table 6); 0x10 (SPI_3WIRE_DIS=1) is a value
+  # commonly PROGRAMMED for 4-wire readback, not the reset state.
+  - { name: RESET, offset: 0x000, width: 8, access: rw, reset: 0x00,
       fields: [
         { name: RESET, bits: "7" },
         { name: SPI_3WIRE_DIS, bits: "4" } ] }

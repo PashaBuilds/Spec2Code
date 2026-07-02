@@ -24,12 +24,15 @@ registers:
   - { name: ALARM_LOW_MID,  offset: 0x02, width: 8, access: rw, reset: 0x00 }
   - { name: ALARM_HIGH_MID, offset: 0x03, width: 8, access: rw, reset: 0x00 }
   - { name: ALARM_HIGH,     offset: 0x04, width: 8, access: rw, reset: 0x00 }
-  - { name: ETC_LOW,        offset: 0x05, width: 8, access: ro, reset: 0x00 }
-  - { name: ETC_LOW_MID,    offset: 0x06, width: 8, access: ro, reset: 0x00 }
-  - { name: ETC_HIGH_MID,   offset: 0x07, width: 8, access: ro, reset: 0x00 }
-  - { name: ETC_HIGH,       offset: 0x08, width: 8, access: ro, reset: 0x00 }
-  - { name: EVENT_LOW,      offset: 0x09, width: 8, access: ro, reset: 0x00 }
-  - { name: EVENT_HIGH,     offset: 0x0A, width: 8, access: ro, reset: 0x00 }
+  # Writable until the write-disable command locks them (WDF=1 makes alarm,
+  # ETC and event counter read-only - DS1682 datasheet p.10). Power-up values
+  # are restored from EEPROM; 0x00 is only the factory-fresh state.
+  - { name: ETC_LOW,        offset: 0x05, width: 8, access: rw, reset: 0x00 }
+  - { name: ETC_LOW_MID,    offset: 0x06, width: 8, access: rw, reset: 0x00 }
+  - { name: ETC_HIGH_MID,   offset: 0x07, width: 8, access: rw, reset: 0x00 }
+  - { name: ETC_HIGH,       offset: 0x08, width: 8, access: rw, reset: 0x00 }
+  - { name: EVENT_LOW,      offset: 0x09, width: 8, access: rw, reset: 0x00 }
+  - { name: EVENT_HIGH,     offset: 0x0A, width: 8, access: rw, reset: 0x00 }
   - { name: USER_1,         offset: 0x0B, width: 8, access: rw, reset: 0x00 }
   - { name: USER_2,         offset: 0x0C, width: 8, access: rw, reset: 0x00 }
   - { name: USER_3,         offset: 0x0D, width: 8, access: rw, reset: 0x00 }

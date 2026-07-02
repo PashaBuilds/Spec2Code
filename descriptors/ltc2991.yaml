@@ -47,13 +47,16 @@ registers:
         { name: V5_V6_TEMPERATURE, bits: "1" },
         { name: V7_V8_DIFFERENTIAL, bits: "4" },
         { name: V7_V8_TEMPERATURE, bits: "5" } ] }
+  # Bit map per 2991f Table 7 (p. 21): b4 is the global Repeated Acquisition
+  # mode (1 = repeated, 0 = single-shot), b3 T_INTERNAL filter, b2 Kelvin.
   - { name: PWM_T_INTERNAL_CONTROL, offset: 0x08, width: 8, access: rw, reset: 0x00,
       fields: [
         { name: PWM_THRESHOLD_LSB, bits: "7" },
         { name: PWM_INVERTED, bits: "6" },
         { name: PWM_ENABLE, bits: "5" },
-        { name: PWM_MODE, bits: "4" },
-        { name: T_INTERNAL_KELVIN, bits: "3" } ] }
+        { name: REPEATED_ACQUISITION, bits: "4" },
+        { name: T_INTERNAL_FILTER_ENABLE, bits: "3" },
+        { name: T_INTERNAL_KELVIN, bits: "2" } ] }
   - { name: PWM_THRESHOLD_MSB, offset: 0x09, width: 8, access: rw, reset: 0x00 }
   - { name: V1_MSB, offset: 0x0A, width: 8, access: ro, reset: 0x00 }
   - { name: V1_LSB, offset: 0x0B, width: 8, access: ro, reset: 0x00 }

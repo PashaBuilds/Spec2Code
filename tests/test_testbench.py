@@ -242,9 +242,14 @@ class TestbenchTests(unittest.TestCase):
         self.assertTrue(ops_by_name["data_read"]["requires_length"])
         self.assertTrue(ops_by_name["page_write"]["requires_data"])
 
-    def test_lwip_target_agent_is_generated_for_zynqmp_ps_ethernet(self) -> None:
+    def test_lwip_agent_for_freertos_uses_official_socket_mode_pattern(self) -> None:
+        # Mirrors the official Xilinx freertos_lwip_echo_server structure:
+        # main -> sys_thread_new + vTaskStartScheduler; lwip_init in a thread;
+        # xemac_add + xemacif_input_thread in a network thread; the agent
+        # itself uses the socket API (BSP api_mode = SOCKET_API).
         spec = load_sample_spec("unit_lwip_agent")
         add_zynqmp_ps_ethernet(spec)
+        self.assertEqual(spec["project"]["runtime"], "freertos")
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / spec["project"]["name"]
             codegen.generate(spec, out_dir)
@@ -255,13 +260,39 @@ class TestbenchTests(unittest.TestCase):
             main_source = (out_dir / "tests" / "spec2code_testbench_lwip_main.c").read_text(encoding="utf-8")
 
         self.assertIn("SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U", lwip_header)
+        self.assertIn("SPEC2CODE_TESTBENCH_THREAD_STACKSIZE", lwip_header)
+        self.assertIn("void spec2codeTestbenchLwipMainThread(void* vpArg);", lwip_header)
         self.assertIn("XPAR_XEMACPS_0_BASEADDR", lwip_source)
         self.assertIn("xemac_add", lwip_source)
-        self.assertIn("tcp_bind(S_spServerPcb, IP_ADDR_ANY, usPort)", lwip_source)
+        self.assertIn("lwip_socket(AF_INET, SOCK_STREAM, 0)", lwip_source)
+        self.assertIn("xemacif_input_thread", lwip_source)
         self.assertIn("spec2codeTestbenchDispatchLine", lwip_source)
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XSpiPs* spec2codeTestbenchSpiPsHandleGet", lwip_source)
+        # Raw-mode constructs must not leak into the socket-mode agent.
+        self.assertNotIn("tcp_bind(", lwip_source)
+        self.assertNotIn("xemacif_input(&S_sNetif)", lwip_source)
         self.assertIn("int main(void);", main_header)
+        self.assertIn("vTaskStartScheduler();", main_source)
+        self.assertIn("sys_thread_new", main_source)
+
+    def test_lwip_agent_for_bare_metal_uses_raw_polling_pattern(self) -> None:
+        # Mirrors the official standalone lwip_echo_server: RAW API callbacks
+        # plus an xemacif_input polling loop (BSP api_mode = RAW_API).
+        spec = load_sample_spec("unit_lwip_agent_raw")
+        spec["project"]["runtime"] = "bare_metal"
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            lwip_source = (out_dir / "tests" / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_lwip_main.c").read_text(encoding="utf-8")
+
+        self.assertIn("tcp_bind(S_spServerPcb, IP_ADDR_ANY, usPort)", lwip_source)
+        self.assertIn("xemacif_input(&S_sNetif)", lwip_source)
+        self.assertNotIn("lwip_socket(", lwip_source)
+        self.assertNotIn("vTaskStartScheduler", main_source)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
 
     def test_testbench_omits_controller_types_missing_from_hardware(self) -> None:

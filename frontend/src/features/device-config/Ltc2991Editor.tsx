@@ -141,10 +141,14 @@ export function ltc2991InitPreview(cfg: Ltc2991Config): Array<{ reg: string; val
     if (mode.value !== "disabled") enable |= 1 << pair.enableBit;
     controls[pair.reg] |= mode.bits << pair.shift;
   }
+  // Mirrors orchestrator/device_profiles/ltc2991.py: controls and repeated
+  // acquisition first; STATUS_HIGH last because writing it also triggers the
+  // first conversion (LTC2991 datasheet Table 2 footnote).
   return [
-    { reg: "STATUS_HIGH", value: hex(enable), numericValue: enable },
     { reg: "CONTROL_V1V4", value: hex(controls.CONTROL_V1V4), numericValue: controls.CONTROL_V1V4 },
     { reg: "CONTROL_V5V8", value: hex(controls.CONTROL_V5V8), numericValue: controls.CONTROL_V5V8 },
+    { reg: "PWM_T_INTERNAL_CONTROL", value: hex(0x10), numericValue: 0x10 },
+    { reg: "STATUS_HIGH", value: hex(enable), numericValue: enable },
   ];
 }
 

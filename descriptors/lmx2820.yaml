@@ -7,6 +7,10 @@ transport:
   byte_order: big
   register_model:
     ticspro_words: true
+    # Frame format (R/W msb + 7-bit addr + 16-bit data) is not printed in the
+    # public SNAS783C datasheet; it matches the documented LMX1204 family
+    # format (SNAS800B fig. 5-1) and TI E2E confirmations. fSCK max 40 MHz and
+    # descending order + R0 rewrite after 10 ms are from SNAS783C 6.6/8.3.
     frame_bits: 24
     address_bits: 7
     address_shift: 16
@@ -21,7 +25,8 @@ transport:
 access_primitives:
   write_register_word: { pattern: ticspro_24bit_word }
 registers:
-  - { name: R0, offset: 0x00, width: 16, access: rw, reset: 0x251C,
+  # Reset per SNAU251A section 1.1 (R0 reset = 0x4070).
+  - { name: R0, offset: 0x00, width: 16, access: rw, reset: 0x4070,
       fields: [
         { name: POWERDOWN, bits: "0" },
         { name: RESET, bits: "1" },

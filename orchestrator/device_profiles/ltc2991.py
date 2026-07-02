@@ -146,12 +146,14 @@ def i2c_init_writes(raw: Any) -> list[dict[str, Any]]:
         controls[reg] |= MODE_CONTROL_BITS[mode] << shift
         notes[reg].append(f"{PAIR_LABELS[key]} {MODE_LABELS[mode]}")
 
+    # Order matters (LTC2991 datasheet 2991f, Table 2 footnote + p. 14):
+    # writing register 0x01 both sets the enables AND triggers a conversion,
+    # so the input-pair controls and the acquisition mode must be programmed
+    # first. Repeated Acquisition (0x08 bit 4) keeps conversions running so
+    # the generated poll-then-read operations always return fresh data;
+    # without it the power-on single-shot mode would serve stale results
+    # after the first conversion.
     writes = [
-        {
-            "reg": "STATUS_HIGH",
-            "value": enable,
-            "note": "channel enable bits",
-        },
         {
             "reg": "CONTROL_V1V4",
             "value": controls["CONTROL_V1V4"],
@@ -161,6 +163,16 @@ def i2c_init_writes(raw: Any) -> list[dict[str, Any]]:
             "reg": "CONTROL_V5V8",
             "value": controls["CONTROL_V5V8"],
             "note": "; ".join(notes["CONTROL_V5V8"]),
+        },
+        {
+            "reg": "PWM_T_INTERNAL_CONTROL",
+            "value": 0x10,
+            "note": "repeated acquisition mode (continuous conversions)",
+        },
+        {
+            "reg": "STATUS_HIGH",
+            "value": enable,
+            "note": "channel enable bits + conversion trigger",
         },
     ]
     return deepcopy(writes)

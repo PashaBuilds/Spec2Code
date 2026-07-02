@@ -16,7 +16,9 @@ commands:
   - { name: ENTER_4BYTE,     opcode: 0xB7, address_bytes: 0, description: "Enter 4-byte address mode" }
   - { name: EXIT_4BYTE,      opcode: 0xE9, address_bytes: 0, description: "Exit 4-byte address mode" }
   - { name: READ_DATA,       opcode: 0x13, address_bytes: 4, description: "4-byte READ" }
-  - { name: FAST_READ,       opcode: 0x0C, address_bytes: 4, description: "4-byte FAST_READ" }
+  # FAST_READ needs 8 dummy clock cycles between address and data (Micron
+  # MT25Q Table 19); generated operations intentionally use READ_DATA (0 dummy).
+  - { name: FAST_READ,       opcode: 0x0C, address_bytes: 4, description: "4-byte FAST_READ (requires 8 dummy cycles; unused by generated ops)" }
   - { name: PAGE_PROGRAM,    opcode: 0x12, address_bytes: 4, description: "4-byte PP" }
   - { name: SECTOR_ERASE,    opcode: 0xDC, address_bytes: 4, description: "4-byte SE (64KB)" }
   - { name: SUBSECTOR_ERASE, opcode: 0x21, address_bytes: 4, description: "4-byte SSE (4KB)" }

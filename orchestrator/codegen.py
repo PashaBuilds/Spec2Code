@@ -1343,7 +1343,28 @@ def _testbench_board_controller_entries(spec: dict) -> list[dict]:
     return entries
 
 
-def _testbench_lwip_header() -> str:
+def _testbench_runtime_is_freertos(spec: dict) -> bool:
+    return spec.get("project", {}).get("runtime") == "freertos"
+
+
+def _testbench_lwip_header(spec: dict) -> str:
+    if _testbench_runtime_is_freertos(spec):
+        api_decls = (
+            "/* FreeRTOS + lwIP SOCKET_API agent: main() spawns\n"
+            " * spec2codeTestbenchLwipMainThread via sys_thread_new and starts the\n"
+            " * scheduler (pattern of the official Xilinx freertos_lwip_echo_server). */\n"
+            "#define SPEC2CODE_TESTBENCH_THREAD_STACKSIZE 1024\n\n"
+            "int spec2codeTestbenchBoardInit(void);\n"
+            "void spec2codeTestbenchLwipMainThread(void* vpArg);\n\n"
+        )
+    else:
+        api_decls = (
+            "int spec2codeTestbenchBoardInit(void);\n"
+            "int spec2codeTestbenchLwipNetworkInit(void);\n"
+            "int spec2codeTestbenchLwipTcpStart(unsigned short usPort);\n"
+            "int spec2codeTestbenchLwipStart(unsigned short usPort);\n"
+            "void spec2codeTestbenchLwipInputPoll(void);\n\n"
+        )
     return (
         "/**\n"
         " * @file spec2code_testbench_lwip.h\n"
@@ -1370,11 +1391,7 @@ def _testbench_lwip_header() -> str:
         "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 1U\n"
         "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 1U\n"
         "#endif\n\n"
-        "int spec2codeTestbenchBoardInit(void);\n"
-        "int spec2codeTestbenchLwipNetworkInit(void);\n"
-        "int spec2codeTestbenchLwipTcpStart(unsigned short usPort);\n"
-        "int spec2codeTestbenchLwipStart(unsigned short usPort);\n"
-        "void spec2codeTestbenchLwipInputPoll(void);\n\n"
+        + api_decls +
         "#endif /* SPEC2CODE_TESTBENCH_LWIP_H */\n"
     )
 
@@ -1464,7 +1481,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             ])
         elif entry["htype"] == "XQspiPsu":
             lines.extend([
-                f"    spQspiConfig = XQspiPsu_LookupConfig((UINTPTR){instance}_BASEADDR);",
+                f"    spQspiConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spQspiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code QSPI config bulunamadi: {entry["id"]}\\r\\n");',
@@ -1518,6 +1535,281 @@ def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: st
 
 
 def _testbench_lwip_source(spec: dict) -> str:
+    """Runtime-matched lwIP agent.
+
+    standalone -> RAW_API + xemacif_input polling (official lwip_echo_server
+    pattern); freertos -> SOCKET_API threads (official
+    freertos_lwip_echo_server pattern: lwip_init in a thread, xemac_add +
+    xemacif_input_thread in a network thread, socket accept loop in an app
+    thread). Matches the BSP api_mode the Vitis flow configures per runtime.
+    """
+    if _testbench_runtime_is_freertos(spec):
+        return _testbench_lwip_source_socket(spec)
+    return _testbench_lwip_source_raw(spec)
+
+
+def _testbench_lwip_source_socket(spec: dict) -> str:
+    eth = _zynqmp_lwip_eth_controller(spec)
+    if eth is None:
+        raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
+    project_name = spec["project"]["name"]
+    entries = _testbench_board_controller_entries(spec)
+    headers = [
+        '#include "spec2code_testbench_lwip.h"',
+        f'#include "{project_name}_testbench_ops.h"',
+        '#include "xparameters.h"',
+        '#include "xstatus.h"',
+        '#include "xil_printf.h"',
+        '#include "lwipopts.h"',
+        '#include "lwip/init.h"',
+        '#include "lwip/ip_addr.h"',
+        '#include "lwip/sockets.h"',
+        '#include "lwip/sys.h"',
+        '#include "netif/xadapter.h"',
+        '#include "FreeRTOS.h"',
+        '#include "task.h"',
+        '#include <stddef.h>',
+        '#include <string.h>',
+    ]
+    if any(entry["htype"] == "XIicPs" for entry in entries):
+        headers.append('#include "xiicps.h"')
+    if any(entry["htype"] == "XSpiPs" for entry in entries):
+        headers.append('#include "xspips.h"')
+    if any(entry["htype"] == "XQspiPsu" for entry in entries):
+        headers.append('#include "xqspipsu.h"')
+
+    lines = [
+        "/**",
+        " * @file spec2code_testbench_lwip.c",
+        " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent (FreeRTOS SOCKET_API).",
+        " */",
+        *headers,
+        "",
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        "#define SPEC2CODE_TESTBENCH_RECV_CHUNK 64",
+        "",
+        "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
+        f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
+        "#endif",
+        "",
+        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
+        "#define SPEC2CODE_TESTBENCH_MAC0 0x02U",
+        "#define SPEC2CODE_TESTBENCH_MAC1 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC2 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC4 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
+        "#endif",
+        "",
+        "static struct netif S_sNetif;",
+        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static unsigned char S_ucArrMac[6] =",
+        "{",
+        "    SPEC2CODE_TESTBENCH_MAC0,",
+        "    SPEC2CODE_TESTBENCH_MAC1,",
+        "    SPEC2CODE_TESTBENCH_MAC2,",
+        "    SPEC2CODE_TESTBENCH_MAC3,",
+        "    SPEC2CODE_TESTBENCH_MAC4,",
+        "    SPEC2CODE_TESTBENCH_MAC5",
+        "};",
+        "static unsigned int S_uiBoardReady;",
+        "",
+        *_testbench_board_handle_decls(entries),
+        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
+        "{",
+        "    unsigned int uiLength;",
+        "",
+        "    uiLength = 0U;",
+        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
+        "    {",
+        "        uiLength++;",
+        "    }",
+        "    return uiLength;",
+        "}",
+        "",
+        *_testbench_board_init_lines(entries),
+        *[
+            line
+            for htype, _header in _TESTBENCH_HANDLE_HEADERS
+            if any(entry["htype"] == htype for entry in entries)
+            for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
+        ],
+        "static void spec2codeTestbenchClientServe(int iClientSocket)",
+        "{",
+        "    char cArrChunk[SPEC2CODE_TESTBENCH_RECV_CHUNK];",
+        "    unsigned int uiLineLength;",
+        "    unsigned int uiResponseLength;",
+        "    int iReceived;",
+        "    int iIndex;",
+        "    int iStatus;",
+        "    char cByte;",
+        "",
+        "    uiLineLength = 0U;",
+        "    for (;;)",
+        "    {",
+        "        iReceived = lwip_recv(iClientSocket, cArrChunk, sizeof(cArrChunk), 0);",
+        "        if (iReceived <= 0)",
+        "        {",
+        "            return;",
+        "        }",
+        "        for (iIndex = 0; iIndex < iReceived; iIndex++)",
+        "        {",
+        "            cByte = cArrChunk[iIndex];",
+        "            if (cByte == '\\r')",
+        "            {",
+        "                continue;",
+        "            }",
+        "            if (cByte == '\\n')",
+        "            {",
+        "                S_cArrRequestLine[uiLineLength] = '\\0';",
+        "                uiLineLength = 0U;",
+        "                iStatus = spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
+        "                                                         S_cArrResponseLine,",
+        "                                                         SPEC2CODE_TESTBENCH_LINE_MAX);",
+        "                uiResponseLength = spec2codeTestbenchStringLengthLocal(S_cArrResponseLine);",
+        "                if ((iStatus == XST_SUCCESS) && (uiResponseLength > 0U))",
+        "                {",
+        "                    (void)lwip_send(iClientSocket, S_cArrResponseLine, uiResponseLength, 0);",
+        "                }",
+        "                continue;",
+        "            }",
+        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            {",
+        "                S_cArrRequestLine[uiLineLength] = cByte;",
+        "                uiLineLength++;",
+        "            }",
+        "            else",
+        "            {",
+        "                uiLineLength = 0U;",
+        "            }",
+        "        }",
+        "    }",
+        "}",
+        "",
+        "static void spec2codeTestbenchServerThread(void* vpArg)",
+        "{",
+        "    struct sockaddr_in sAddress;",
+        "    struct sockaddr_in sRemote;",
+        "    socklen_t uiRemoteSize;",
+        "    int iListenSocket;",
+        "    int iClientSocket;",
+        "    int iStatus;",
+        "",
+        "    (void)vpArg;",
+        "    iStatus = spec2codeTestbenchBoardInit();",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        '        xil_printf("Spec2Code test bench board init failed\\r\\n");',
+        "        vTaskDelete(NULL);",
+        "        return;",
+        "    }",
+        "    iListenSocket = lwip_socket(AF_INET, SOCK_STREAM, 0);",
+        "    if (iListenSocket < 0)",
+        "    {",
+        '        xil_printf("Spec2Code test bench socket create failed\\r\\n");',
+        "        vTaskDelete(NULL);",
+        "        return;",
+        "    }",
+        "    memset(&sAddress, 0, sizeof(sAddress));",
+        "    sAddress.sin_family = AF_INET;",
+        "    sAddress.sin_port = htons(SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);",
+        "    sAddress.sin_addr.s_addr = INADDR_ANY;",
+        "    if (lwip_bind(iListenSocket, (struct sockaddr*)&sAddress, sizeof(sAddress)) < 0)",
+        "    {",
+        '        xil_printf("Spec2Code test bench bind failed\\r\\n");',
+        "        lwip_close(iListenSocket);",
+        "        vTaskDelete(NULL);",
+        "        return;",
+        "    }",
+        "    if (lwip_listen(iListenSocket, 1) < 0)",
+        "    {",
+        '        xil_printf("Spec2Code test bench listen failed\\r\\n");',
+        "        lwip_close(iListenSocket);",
+        "        vTaskDelete(NULL);",
+        "        return;",
+        "    }",
+        '    xil_printf("Spec2Code test bench TCP agent listening on port %d\\r\\n",',
+        "               SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);",
+        "    for (;;)",
+        "    {",
+        "        uiRemoteSize = sizeof(sRemote);",
+        "        iClientSocket = lwip_accept(iListenSocket, (struct sockaddr*)&sRemote, &uiRemoteSize);",
+        "        if (iClientSocket < 0)",
+        "        {",
+        "            continue;",
+        "        }",
+        "        spec2codeTestbenchClientServe(iClientSocket);",
+        "        lwip_close(iClientSocket);",
+        "    }",
+        "}",
+        "",
+        "static void spec2codeTestbenchNetworkThread(void* vpArg)",
+        "{",
+        "    ip_addr_t sIpAddr;",
+        "    ip_addr_t sNetmask;",
+        "    ip_addr_t sGateway;",
+        "",
+        "    (void)vpArg;",
+        "    IP4_ADDR(&sIpAddr,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR3);",
+        "    IP4_ADDR(&sNetmask,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR3);",
+        "    IP4_ADDR(&sGateway,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR3);",
+        "    if (xemac_add(&S_sNetif,",
+        "                  &sIpAddr,",
+        "                  &sNetmask,",
+        "                  &sGateway,",
+        "                  S_ucArrMac,",
+        "                  SPEC2CODE_TESTBENCH_ETH_BASEADDR) == NULL)",
+        "    {",
+        '        xil_printf("Spec2Code lwIP PS Ethernet init failed\\r\\n");',
+        "        vTaskDelete(NULL);",
+        "        return;",
+        "    }",
+        "    netif_set_default(&S_sNetif);",
+        "    netif_set_up(&S_sNetif);",
+        '    sys_thread_new("s2c_in",',
+        "                   (void (*)(void*))xemacif_input_thread,",
+        "                   &S_sNetif,",
+        "                   SPEC2CODE_TESTBENCH_THREAD_STACKSIZE,",
+        "                   DEFAULT_THREAD_PRIO);",
+        '    sys_thread_new("s2c_srv",',
+        "                   spec2codeTestbenchServerThread,",
+        "                   NULL,",
+        "                   SPEC2CODE_TESTBENCH_THREAD_STACKSIZE,",
+        "                   DEFAULT_THREAD_PRIO);",
+        "    vTaskDelete(NULL);",
+        "}",
+        "",
+        "void spec2codeTestbenchLwipMainThread(void* vpArg)",
+        "{",
+        "    (void)vpArg;",
+        "    /* Xilinx lwIP port: in OS mode lwip_init() also runs tcpip_init(). */",
+        "    lwip_init();",
+        '    sys_thread_new("s2c_net",',
+        "                   spec2codeTestbenchNetworkThread,",
+        "                   NULL,",
+        "                   SPEC2CODE_TESTBENCH_THREAD_STACKSIZE,",
+        "                   DEFAULT_THREAD_PRIO);",
+        "    vTaskDelete(NULL);",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _testbench_lwip_source_raw(spec: dict) -> str:
     eth = _zynqmp_lwip_eth_controller(spec)
     if eth is None:
         raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
@@ -1824,7 +2116,11 @@ def _testbench_lwip_source(spec: dict) -> str:
     return "\n".join(lines)
 
 
-def _testbench_lwip_main_header() -> str:
+def _testbench_lwip_main_header(spec: dict) -> str:
+    if _testbench_runtime_is_freertos(spec):
+        run_decl = ""
+    else:
+        run_decl = "int spec2codeTestbenchLwipMainRun(void);\n"
     return (
         "/**\n"
         " * @file spec2code_testbench_lwip_main.h\n"
@@ -1832,13 +2128,41 @@ def _testbench_lwip_main_header() -> str:
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_LWIP_MAIN_H\n"
         "#define SPEC2CODE_TESTBENCH_LWIP_MAIN_H\n\n"
-        "int spec2codeTestbenchLwipMainRun(void);\n"
+        + run_decl +
         "int main(void);\n\n"
         "#endif /* SPEC2CODE_TESTBENCH_LWIP_MAIN_H */\n"
     )
 
 
-def _testbench_lwip_main_source() -> str:
+def _testbench_lwip_main_source(spec: dict) -> str:
+    if _testbench_runtime_is_freertos(spec):
+        return (
+            "/**\n"
+            " * @file spec2code_testbench_lwip_main.c\n"
+            " * @brief FreeRTOS entry for the Spec2Code lwIP TCP test bench agent.\n"
+            " */\n"
+            '#include "spec2code_testbench_lwip_main.h"\n'
+            '#include "spec2code_testbench_lwip.h"\n'
+            '#include "lwipopts.h"\n'
+            '#include "lwip/sys.h"\n'
+            '#include "FreeRTOS.h"\n'
+            '#include "task.h"\n'
+            '#include "xil_printf.h"\n\n'
+            "int main(void)\n"
+            "{\n"
+            '    xil_printf("Spec2Code test bench TCP agent (FreeRTOS) baslatiliyor\\r\\n");\n'
+            '    sys_thread_new("s2c_main",\n'
+            "                   spec2codeTestbenchLwipMainThread,\n"
+            "                   NULL,\n"
+            "                   SPEC2CODE_TESTBENCH_THREAD_STACKSIZE,\n"
+            "                   DEFAULT_THREAD_PRIO);\n"
+            "    vTaskStartScheduler();\n"
+            "    for (;;)\n"
+            "    {\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n"
+        )
     return (
         "/**\n"
         " * @file spec2code_testbench_lwip_main.c\n"
@@ -1904,10 +2228,10 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
     ]
     if _testbench_lwip_enabled(spec):
         contents.extend([
-            _apply_default_identifier_style(_testbench_lwip_header()),
+            _apply_default_identifier_style(_testbench_lwip_header(spec)),
             _apply_default_identifier_style(_testbench_lwip_source(spec)),
-            _apply_default_identifier_style(_testbench_lwip_main_header()),
-            _apply_default_identifier_style(_testbench_lwip_main_source()),
+            _apply_default_identifier_style(_testbench_lwip_main_header(spec)),
+            _apply_default_identifier_style(_testbench_lwip_main_source(spec)),
         ])
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 
