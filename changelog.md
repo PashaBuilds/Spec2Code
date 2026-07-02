@@ -3,6 +3,32 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.80 - 2026-07-02
+
+- Custom PL IP kesfi gercek Vivado `.hwh` formatiyla duzeltildi. Gercek
+  dosyalarda modul turu `IPTYPE`/`MODCLASS` attribute'unda, `MODTYPE` ise IP
+  adinda tasinir; eski dedektor `MODTYPE == "PERIPHERAL"` bekledigi icin
+  gercek bir exported XSA'da hicbir custom IP adayi bulamiyordu ve tum custom
+  IP korumasi yalnizca build-log tabanli self-heal'e kaliyordu. Iki format da
+  desteklenir; regresyon testi gercek format ile eklendi.
+- `auto_none` policy'de staged XSA icindeki custom PL IP driver'inin build
+  recetesi (`drivers/<ip>_vX_Y/src/Makefile` ve varsa `make.libs`) XSCT
+  calismadan once no-op ile degistirilir. `bsp setdriver none` yalnizca
+  application domain BSP'sini kapsiyor; FSBL ve PMUFW BSP'leri gomulu driver'i
+  her uretimde yeniden derliyor ve source'suz driver deterministik olarak
+  `cc1.exe: fatal error: *.c: Invalid argument` + `cannot find -lxilffs` /
+  `-lxilfpga` zinciriyle platformu kiriyordu (workspace watcher patch'i bu
+  yarisi bazen kaybediyordu). Driver klasorunu tamamen silmek hsi'yi kirdigi
+  icin (`Repository Directory ... doesn't exist`) recete no-op'lanir; repo
+  yapisi bozulmaz, tum BSP kopyalari no-op derlenir. Kullanicinin orijinal
+  `.xsa` dosyasina dokunulmaz; etkisizlestirilen driver klasorleri is
+  sonucunda raporlanir. Bu senaryo lokalde Vivado ile uretilen gercek bir
+  custom-IP XSA'si (kaynaksiz driver) ile uctan uca dogrulandi.
+- Vitis workspace testlerindeki sahte `xsct` scriptleri tek Python
+  implementasyonuna tasindi ve Windows'ta `.bat` sarmalayici ile calisiyor;
+  onceden POSIX shell scriptleri oldugu icin bu testler Windows'ta hic
+  kosamiyordu. Tum suite artik Windows'ta da yesil (70 test).
+
 ## v0.1.79 - 2026-07-02
 
 - Test bench codegen artik yalnizca tasarimda gercekten kullanilan controller

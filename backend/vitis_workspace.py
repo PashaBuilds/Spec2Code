@@ -55,6 +55,17 @@ _MAKE_LIBS_TARGET_RE = re.compile(
     re.IGNORECASE,
 )
 _KNOWN_AMD_XILINX_VENDORS = {"xilinx.com", "amd.com"}
+_HWH_MODULE_KINDS = {
+    "PERIPHERAL",
+    "PROCESSOR",
+    "BUS",
+    "MEMORY",
+    "MEMORY_CNTLR",
+    "INTERRUPT_CNTLR",
+    "DEBUG",
+    "CLOCK",
+    "RESET",
+}
 _CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep"}
 _VITIS_ERROR_CODES = {
     "custom_ip_bsp_driver": "S2C-VITIS-CUSTOM-IP-MAKELIBS-001",
@@ -613,8 +624,20 @@ def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
         for element in root.iter():
             if _xml_local_name(element.tag).upper() != "MODULE":
                 continue
-            modtype = _xml_attr(element, "MODTYPE").upper()
-            if modtype and modtype != "PERIPHERAL":
+            # Real Vivado .hwh files carry the module kind in IPTYPE/MODCLASS
+            # (PERIPHERAL, PROCESSOR, BUS, ...) while MODTYPE holds the IP
+            # name (e.g. "mem_pcie_intr"). Legacy/synthetic documents put the
+            # kind directly in MODTYPE. Accept both encodings.
+            ip_kind = ""
+            for kind_attr in ("IPTYPE", "MODCLASS"):
+                value = _xml_attr(element, kind_attr).upper()
+                if value:
+                    ip_kind = value
+                    break
+            modtype = _xml_attr(element, "MODTYPE")
+            if not ip_kind and modtype.upper() in _HWH_MODULE_KINDS:
+                ip_kind = modtype.upper()
+            if ip_kind and ip_kind != "PERIPHERAL":
                 continue
             instance = _xml_attr(element, "INSTANCE", "NAME")
             if not instance:
@@ -626,7 +649,11 @@ def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
             vlnv_parts = vlnv.split(":")
             vendor = vlnv_parts[0].lower() if vlnv_parts else ""
             library = vlnv_parts[1].lower() if len(vlnv_parts) >= 2 else ""
-            ip_name = _xml_attr(element, "IP_NAME") or (vlnv_parts[2] if len(vlnv_parts) >= 3 else "")
+            ip_name = _xml_attr(element, "IP_NAME")
+            if not ip_name and modtype and modtype.upper() not in _HWH_MODULE_KINDS:
+                ip_name = modtype
+            if not ip_name and len(vlnv_parts) >= 3:
+                ip_name = vlnv_parts[2]
             if vendor in _KNOWN_AMD_XILINX_VENDORS and library == "user":
                 reason = f"{hwh_name}: user-packaged PL peripheral VLNV"
             elif vendor in _KNOWN_AMD_XILINX_VENDORS:
@@ -1252,6 +1279,91 @@ def patch_xsa_custom_ip_make_libs(xsa_path: Path, custom_ip_instances: list[str]
             pass
         return []
     return patched
+
+
+_NOOP_DRIVER_MAKEFILE = (
+    "# Spec2Code: source-less custom PL IP BSP driver disabled in staged XSA.\n"
+    ".PHONY: all libs include install clean\n"
+    "all: libs\n"
+    "libs:\n"
+    "include:\n"
+    "install: libs\n"
+    "clean:\n"
+)
+
+
+def neutralize_custom_ip_drivers_in_xsa(xsa_path: Path, custom_ip_instances: list[str], policy: str) -> list[str]:
+    """Replace embedded custom PL IP driver build recipes with no-ops.
+
+    `bsp setdriver none` only covers the application domain BSP; the FSBL and
+    PMUFW BSPs are generated separately and rebuild the embedded driver every
+    time, so a source-less custom driver deterministically breaks them
+    (`cc1.exe: fatal error: *.c: Invalid argument` in the driver's `libs`
+    target, followed by `cannot find -lxilffs`/`-lxilfpga`). Patching the
+    generated workspace copies is a race against the build, and deleting the
+    whole driver folder breaks hsi (`Repository Directory ... doesn't exist`).
+    Overwriting the driver's `src/Makefile` (and any `src/make.libs`) inside
+    the staged XSA with a no-op keeps the repository intact while every BSP
+    copy of the driver builds as a no-op. The user's original XSA is
+    untouched.
+    """
+    if normalize_custom_ip_driver_policy(policy) != "auto_none" or not xsa_path.is_file():
+        return []
+    if not custom_ip_instances:
+        return []
+    try:
+        if not zipfile.is_zipfile(xsa_path):
+            return []
+    except OSError:
+        return []
+
+    aliases: set[str] = set()
+    for instance in custom_ip_instances:
+        aliases |= _custom_ip_aliases(instance)
+    if not aliases:
+        return []
+
+    def _matched_driver_dir(name: str) -> str | None:
+        parts = name.replace("\\", "/").split("/")
+        for index, part in enumerate(parts[:-1]):
+            if part != "drivers" or index + 1 >= len(parts):
+                continue
+            driver_dir = _normalize_custom_ip_token(parts[index + 1])
+            for alias in aliases:
+                if driver_dir == alias or driver_dir.startswith(f"{alias}_v") or driver_dir.startswith(f"{alias}_"):
+                    return "/".join(parts[: index + 2])
+        return None
+
+    temp_path = xsa_path.with_name(f"{xsa_path.name}.spec2code_neutralized")
+    neutralized_dirs: set[str] = set()
+    try:
+        with zipfile.ZipFile(xsa_path, "r") as source_zip:
+            infos = source_zip.infolist()
+            replacements: dict[str, bytes] = {}
+            for info in infos:
+                normalized = info.filename.replace("\\", "/")
+                driver_dir = _matched_driver_dir(normalized)
+                if not driver_dir:
+                    continue
+                if normalized.endswith(("/src/Makefile", "/src/makefile", "/src/make.libs")):
+                    replacements[info.filename] = _NOOP_DRIVER_MAKEFILE.encode("utf-8")
+                    neutralized_dirs.add(driver_dir)
+            if not replacements:
+                return []
+            with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as target_zip:
+                for info in infos:
+                    data = replacements.get(info.filename)
+                    if data is None:
+                        data = source_zip.read(info.filename)
+                    target_zip.writestr(info, data)
+        shutil.move(str(temp_path), str(xsa_path))
+    except (OSError, zipfile.BadZipFile):
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return []
+    return sorted(neutralized_dirs)
 
 
 class CustomIpMakeLibsWatcher:
@@ -2075,6 +2187,23 @@ class VitisWorkspaceJobManager:
             custom_ip_instances,
             custom_ip_driver_policy,
         )
+        xsa_neutralized_driver_dirs = neutralize_custom_ip_drivers_in_xsa(
+            staged_xsa_path,
+            custom_ip_instances,
+            custom_ip_driver_policy,
+        )
+        if xsa_neutralized_driver_dirs:
+            job.emit({
+                "event": "vitis.custom_ip_driver_neutralize",
+                "stage": "stage_sources",
+                "progress": 33,
+                "message": (
+                    "Staged XSA içindeki custom PL IP driver build reçeteleri no-op yapıldı; "
+                    "tüm BSP'lerde (FSBL/PMUFW dahil) bu driver derlenmeyecek: "
+                    + ", ".join(xsa_neutralized_driver_dirs)
+                ),
+                "neutralized_driver_dirs": xsa_neutralized_driver_dirs,
+            })
         if custom_ip_driver_policy == "auto_none" and custom_pl_ips:
             job.emit({
                 "event": "vitis.custom_ip_policy",
@@ -2150,6 +2279,8 @@ class VitisWorkspaceJobManager:
             "xsa_make_libs_preflight": xsa_make_libs_preflight,
             "custom_ip_xsa_make_libs_patched": xsa_patched_make_libs,
             "custom_ip_xsa_make_libs_patched_count": len(xsa_patched_make_libs),
+            "custom_ip_xsa_driver_dirs_neutralized": xsa_neutralized_driver_dirs,
+            "custom_ip_xsa_driver_dirs_neutralized_count": len(xsa_neutralized_driver_dirs),
             "vitis_doctor": vitis_doctor,
             "staged_files": staged_files,
         }

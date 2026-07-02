@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -19,6 +21,7 @@ from backend.vitis_workspace import (
     normalize_custom_ip_driver_policy,
     patch_custom_ip_make_libs,
     patch_xsa_custom_ip_make_libs,
+    neutralize_custom_ip_drivers_in_xsa,
     render_xsct_recovery_script,
     render_xsct_script,
     staged_header_dirs,
@@ -38,173 +41,192 @@ def load_sample_spec(project_name: str) -> dict:
     return spec
 
 
-def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
+_FAKE_XSCT_PY_COMMON = '''\
+import os
+import re
+import sys
+
+VERSION = "__VERSION__"
+
+
+def app_name_from_script(script_path):
+    try:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return ""
+    match = re.search(r"^set app_name \\{(.*)\\}$", text, re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+def write_elf(app_name):
+    if not app_name:
+        return
+    debug_dir = os.path.join(os.getcwd(), app_name, "Debug")
+    os.makedirs(debug_dir, exist_ok=True)
+    with open(os.path.join(debug_dir, app_name + ".elf"), "w") as handle:
+        handle.write("fake elf\\n")
+
+
+def bump_count():
+    count_file = os.path.join(os.getcwd(), "spec2code_xsct_count")
+    count = 0
+    if os.path.exists(count_file):
+        with open(count_file) as handle:
+            count = int(handle.read().strip() or 0)
+    with open(count_file, "w") as handle:
+        handle.write(str(count + 1))
+    return count
+
+
+if len(sys.argv) > 1 and sys.argv[1] == "-version":
+    print("xsct version " + VERSION)
+    sys.exit(0)
+
+__BODY__
+'''
+
+
+def _write_fake_xsct(path: Path, py_body: str, version: str) -> None:
+    """Write a cross-platform fake xsct: sh wrapper on POSIX, .bat on Windows.
+
+    The behaviour lives in one Python implementation so the workspace job
+    tests run on both macOS/Linux and Windows hosts.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    impl_path = path.parent / (path.stem + "_impl.py")
+    impl_path.write_text(
+        _FAKE_XSCT_PY_COMMON.replace("__VERSION__", version).replace("__BODY__", py_body),
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        bat_path = path if path.suffix.lower() in {".bat", ".cmd"} else path.with_suffix(".bat")
+        bat_path.write_text(
+            f'@echo off\n"{sys.executable}" "{impl_path}" %*\n',
+            encoding="utf-8",
+        )
+        return
     path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
-        "if [ -n \"$app_name\" ]; then\n"
-        "  mkdir -p \"$PWD/$app_name/Debug\"\n"
-        "  printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
-        "fi\n"
-        "echo \"fake xsct ran $@\"\n"
-        "exit 0\n",
+        f'#!/bin/sh\nexec "{sys.executable}" "{impl_path}" "$@"\n',
         encoding="utf-8",
     )
     path.chmod(path.stat().st_mode | 0o111)
+
+
+def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
+    _write_fake_xsct(
+        path,
+        'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'print("fake xsct ran " + " ".join(sys.argv[1:]))\n'
+        "sys.exit(0)\n",
+        version,
+    )
 
 
 def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "echo \"fake xsct ran without elf $@\"\n"
-        "exit 0\n",
-        encoding="utf-8",
+    _write_fake_xsct(
+        path,
+        'print("fake xsct ran without elf " + " ".join(sys.argv[1:]))\n'
+        "sys.exit(0)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
 
 
 def write_archive_only_failing_xsct(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "echo '[Spec2Code] building application'\n"
-        "echo 'aarch64-none-elf-ar: creating ../../lib/libfreertos.a' >&2\n"
-        "exit 1\n",
-        encoding="utf-8",
+    _write_fake_xsct(
+        path,
+        'print("[Spec2Code] building application")\n'
+        'print("aarch64-none-elf-ar: creating ../../lib/libfreertos.a", file=sys.stderr)\n'
+        "sys.exit(1)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
 
 
 def write_failing_xsct(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "echo 'invalid command name \"Spec2Code\"' >&2\n"
-        "echo '    while executing' >&2\n"
-        "echo '\"Spec2Code\"' >&2\n"
-        "exit 0\n",
-        encoding="utf-8",
+    _write_fake_xsct(
+        path,
+        'print(\'invalid command name "Spec2Code"\', file=sys.stderr)\n'
+        'print("    while executing", file=sys.stderr)\n'
+        'print(\'"Spec2Code"\', file=sys.stderr)\n'
+        "sys.exit(0)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
+
+
+_FAKE_BSP_ROOT_PARTS = (
+    "platform",
+    "export",
+    "platform",
+    "sw",
+    "platform",
+    "unit_platform",
+    "unit_application_domain",
+    "bsp",
+    "psu_cortexa53_0",
+)
 
 
 def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "count_file=\"$PWD/spec2code_xsct_count\"\n"
-        "count=0\n"
-        "if [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\n"
-        "next=$((count + 1))\n"
-        "echo \"$next\" > \"$count_file\"\n"
-        "if [ \"$count\" = \"0\" ]; then\n"
-        "  src=\"$PWD/platform/export/platform/sw/platform/unit_platform/unit_application_domain/bsp/psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src\"\n"
-        "  mkdir -p \"$src\"\n"
-        "  printf 'LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n' > \"$src/make.libs\"\n"
-        "  echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
-        "  echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
-        "  exit 2\n"
-        "fi\n"
-        "app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
-        "if [ -n \"$app_name\" ]; then\n"
-        "  mkdir -p \"$PWD/$app_name/Debug\"\n"
-        "  printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
-        "fi\n"
-        "echo 'self-heal recovery build ok'\n"
-        "exit 0\n",
-        encoding="utf-8",
+    _write_fake_xsct(
+        path,
+        "count = bump_count()\n"
+        f"processor_root = os.path.join(os.getcwd(), *{_FAKE_BSP_ROOT_PARTS!r})\n"
+        'src = os.path.join(processor_root, "libsrc", "mem_pcie_intr_v1_0", "src")\n'
+        "if count == 0:\n"
+        "    os.makedirs(src, exist_ok=True)\n"
+        '    with open(os.path.join(src, "make.libs"), "w") as handle:\n'
+        '        handle.write("LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n")\n'
+        '    print("cc1.exe: fatal error: *.c: Invalid argument", file=sys.stderr)\n'
+        '    print("make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2", file=sys.stderr)\n'
+        "    sys.exit(2)\n"
+        'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'print("self-heal recovery build ok")\n'
+        "sys.exit(0)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
 
 
 def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "count_file=\"$PWD/spec2code_xsct_count\"\n"
-        "count=0\n"
-        "if [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\n"
-        "next=$((count + 1))\n"
-        "echo \"$next\" > \"$count_file\"\n"
-        "processor_root=\"$PWD/platform/export/platform/sw/platform/unit_platform/unit_application_domain/bsp/psu_cortexa53_0\"\n"
-        "src=\"$processor_root/libsrc/mem_pcie_intr_v1_0/src\"\n"
-        "if [ \"$count\" = \"0\" ]; then\n"
-        "  mkdir -p \"$processor_root\"\n"
-        "  echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
-        "  echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
-        "  exit 2\n"
-        "fi\n"
-        "if [ -f \"$src/make.libs\" ]; then\n"
-        "  app_name=$(sed -n 's/^set app_name {\\(.*\\)}$/\\1/p' \"$1\" | head -n 1)\n"
-        "  if [ -n \"$app_name\" ]; then\n"
-        "    mkdir -p \"$PWD/$app_name/Debug\"\n"
-        "    printf 'fake elf\\n' > \"$PWD/$app_name/Debug/$app_name.elf\"\n"
-        "  fi\n"
-        "  echo 'synthetic make.libs recovery build ok'\n"
-        "  exit 0\n"
-        "fi\n"
-        "echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
-        "echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
-        "exit 2\n",
-        encoding="utf-8",
+    _write_fake_xsct(
+        path,
+        "count = bump_count()\n"
+        f"processor_root = os.path.join(os.getcwd(), *{_FAKE_BSP_ROOT_PARTS!r})\n"
+        'src = os.path.join(processor_root, "libsrc", "mem_pcie_intr_v1_0", "src")\n'
+        "if count == 0:\n"
+        "    os.makedirs(processor_root, exist_ok=True)\n"
+        '    print("cc1.exe: fatal error: *.c: Invalid argument", file=sys.stderr)\n'
+        '    print("make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2", file=sys.stderr)\n'
+        "    sys.exit(2)\n"
+        'if os.path.exists(os.path.join(src, "make.libs")):\n'
+        '    write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        '    print("synthetic make.libs recovery build ok")\n'
+        "    sys.exit(0)\n"
+        'print("cc1.exe: fatal error: *.c: Invalid argument", file=sys.stderr)\n'
+        'print("make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2", file=sys.stderr)\n'
+        "sys.exit(2)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
 
 
 def write_false_green_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"-version\" ]; then\n"
-        f"  echo \"xsct version {version}\"\n"
-        "  exit 0\n"
-        "fi\n"
-        "count_file=\"$PWD/spec2code_xsct_count\"\n"
-        "count=0\n"
-        "if [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\n"
-        "next=$((count + 1))\n"
-        "echo \"$next\" > \"$count_file\"\n"
-        "src=\"$PWD/platform/export/platform/sw/platform/unit_platform/unit_application_domain/bsp/psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src\"\n"
-        "mkdir -p \"$src\"\n"
-        "printf 'LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n' > \"$src/make.libs\"\n"
-        "echo 'cc1.exe: fatal error: *.c: Invalid argument' >&2\n"
-        "echo 'compilation terminated.' >&2\n"
-        "echo 'make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2' >&2\n"
-        "echo 'Failed to build the bsp sources for domain - unit_application_domain' >&2\n"
-        "if [ \"$count\" = \"0\" ]; then\n"
-        "  exit 2\n"
-        "fi\n"
+    _write_fake_xsct(
+        path,
+        "count = bump_count()\n"
+        f"processor_root = os.path.join(os.getcwd(), *{_FAKE_BSP_ROOT_PARTS!r})\n"
+        'src = os.path.join(processor_root, "libsrc", "mem_pcie_intr_v1_0", "src")\n'
+        "os.makedirs(src, exist_ok=True)\n"
+        'with open(os.path.join(src, "make.libs"), "w") as handle:\n'
+        '    handle.write("LIBSOURCES = *.c\\nlibs:\\n\\t$(CC) *.c\\n")\n'
+        'print("cc1.exe: fatal error: *.c: Invalid argument", file=sys.stderr)\n'
+        'print("compilation terminated.", file=sys.stderr)\n'
+        'print("make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2", file=sys.stderr)\n'
+        'print("Failed to build the bsp sources for domain - unit_application_domain", file=sys.stderr)\n'
+        "if count == 0:\n"
+        "    sys.exit(2)\n"
         "# Vitis/XSCT can occasionally return success while stderr still contains build-fatal lines.\n"
-        "exit 0\n",
-        encoding="utf-8",
+        "sys.exit(0)\n",
+        version,
     )
-    path.chmod(path.stat().st_mode | 0o111)
 
 
 class VitisWorkspaceTests(unittest.TestCase):
@@ -215,8 +237,9 @@ class VitisWorkspaceTests(unittest.TestCase):
             newer = root / "Vitis" / "2024.2" / "bin" / "xsct"
             write_fake_xsct(older, "2023.2")
             write_fake_xsct(newer, "2024.2")
+            expected = newer.with_suffix(".bat") if os.name == "nt" else newer
 
-            self.assertEqual(locate_xsct(str(root)), newer)
+            self.assertEqual(locate_xsct(str(root)), expected)
             info = detect_xsct(str(root))
             self.assertEqual(info.version, "2024.2")
             self.assertEqual(info.version_source, "xsct -version")
@@ -324,6 +347,76 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertNotIn("axi_gpio_0", [item.instance for item in candidates])
         self.assertNotIn("clk_wiz_0", [item.instance for item in candidates])
         self.assertIn("custom-like", candidates[2].reason)
+
+    def test_xsa_custom_pl_ip_discovery_handles_real_vivado_hwh_format(self) -> None:
+        # Real Vivado .hwh: MODTYPE is the IP name; the module kind lives in
+        # IPTYPE/MODCLASS. The old detector expected MODTYPE == "PERIPHERAL"
+        # and therefore never matched a real exported XSA.
+        hwh = """<?xml version="1.0" encoding="UTF-8"?>
+<EDKSYSTEM>
+  <MODULE COREREVISION="1" FULLNAME="/mem_pcie_intr_0" HWVERSION="1.0" INSTANCE="mem_pcie_intr_0" IPTYPE="PERIPHERAL" IS_ENABLE="1" MODCLASS="PERIPHERAL" MODTYPE="mem_pcie_intr" VLNV="user.org:user:mem_pcie_intr:1.0"/>
+  <MODULE INSTANCE="zynq_ultra_ps_e_0" IPTYPE="PROCESSOR" MODCLASS="PROCESSOR" MODTYPE="zynq_ultra_ps_e" VLNV="xilinx.com:ip:zynq_ultra_ps_e:3.5"/>
+  <MODULE INSTANCE="axi_smc" IPTYPE="BUS" MODCLASS="BUS" MODTYPE="smartconnect" VLNV="xilinx.com:ip:smartconnect:1.0"/>
+  <MODULE INSTANCE="rst_ps8_0_99M" IPTYPE="PERIPHERAL" MODCLASS="PERIPHERAL" MODTYPE="proc_sys_reset" VLNV="xilinx.com:ip:proc_sys_reset:5.0"/>
+</EDKSYSTEM>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("design_1.hwh", hwh)
+
+            candidates = discover_custom_pl_ips(xsa)
+
+        self.assertEqual([item.instance for item in candidates], ["mem_pcie_intr_0"])
+        self.assertEqual(candidates[0].ip_name, "mem_pcie_intr")
+        self.assertEqual(candidates[0].vlnv, "user.org:user:mem_pcie_intr:1.0")
+
+    def test_neutralize_custom_ip_drivers_noops_build_recipe_in_staged_xsa(self) -> None:
+        # bsp setdriver none only covers the domain BSP; FSBL/PMUFW rebuild an
+        # embedded source-less driver and fail. Deleting the folder breaks hsi
+        # (Repository Directory ... doesn't exist), so the driver Makefile is
+        # replaced with a no-op while the repository stays intact.
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("design_1.hwh", "<EDKSYSTEM/>")
+                archive.writestr("drivers/mem_pcie_intr_v1_0/data/mem_pcie_intr.mdd", "mdd")
+                archive.writestr("drivers/mem_pcie_intr_v1_0/data/mem_pcie_intr.tcl", "tcl")
+                archive.writestr(
+                    "drivers/mem_pcie_intr_v1_0/src/Makefile",
+                    'libs:\n\t$(COMPILER) *.c\n\techo "Compiling mem_pcie_intr..."\n',
+                )
+                archive.writestr("drivers/mem_pcie_intr_v1_0/src/mem_pcie_intr.h", "#pragma once")
+                archive.writestr("drivers/other_ip_v1_0/src/Makefile", "libs:\n\t$(COMPILER) *.c\n")
+                archive.writestr("psu_init.c", "int a;")
+
+            neutralized = neutralize_custom_ip_drivers_in_xsa(xsa, ["mem_pcie_intr_0"], "auto_none")
+            with zipfile.ZipFile(xsa) as archive:
+                names = set(archive.namelist())
+                makefile = archive.read("drivers/mem_pcie_intr_v1_0/src/Makefile").decode("utf-8")
+                other = archive.read("drivers/other_ip_v1_0/src/Makefile").decode("utf-8")
+
+        self.assertEqual(neutralized, ["drivers/mem_pcie_intr_v1_0"])
+        # Repository layout must stay intact for hsi.
+        self.assertIn("drivers/mem_pcie_intr_v1_0/data/mem_pcie_intr.mdd", names)
+        self.assertIn("drivers/mem_pcie_intr_v1_0/src/mem_pcie_intr.h", names)
+        self.assertIn("Spec2Code: source-less custom PL IP BSP driver disabled", makefile)
+        self.assertNotIn("$(COMPILER) *.c", makefile)
+        # Unrelated drivers keep their build recipe.
+        self.assertIn("$(COMPILER) *.c", other)
+
+    def test_neutralize_custom_ip_drivers_is_noop_for_keep_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xsa = Path(tmp) / "board.xsa"
+            with zipfile.ZipFile(xsa, "w") as archive:
+                archive.writestr("drivers/mem_pcie_intr_v1_0/src/Makefile", "libs:\n\t$(COMPILER) *.c\n")
+
+            neutralized = neutralize_custom_ip_drivers_in_xsa(xsa, ["mem_pcie_intr_0"], "keep")
+            with zipfile.ZipFile(xsa) as archive:
+                makefile = archive.read("drivers/mem_pcie_intr_v1_0/src/Makefile").decode("utf-8")
+
+        self.assertEqual(neutralized, [])
+        self.assertIn("$(COMPILER) *.c", makefile)
 
     def test_xsct_script_sets_custom_pl_ip_driver_none_when_auto_policy_is_used(self) -> None:
         script = render_xsct_script(
