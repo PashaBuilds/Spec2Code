@@ -746,6 +746,7 @@ class RunOnBoardRequest(BaseModel):
     platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
     program_fpga: str = "auto"  # auto | yes | no
     hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq için <ip>[:port]
+    bitstream_path: str = ""  # boş = platformdan otomatik; XSA bit içermiyorsa elle .bit yolu
     timeout_s: int = 300
 
 
@@ -764,6 +765,7 @@ async def vitis_run_on_board(req: RunOnBoardRequest) -> dict:
         platform=req.platform,
         program_fpga=req.program_fpga,
         hw_server_url=hw_server_url,
+        bitstream_path=req.bitstream_path,
         timeout_s=req.timeout_s,
     ))
     return {"runboard_job_id": job_id}

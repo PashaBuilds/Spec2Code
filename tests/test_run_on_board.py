@@ -155,7 +155,7 @@ class LocateXsdbTests(unittest.TestCase):
 
 class RunOnBoardBlockingTests(unittest.TestCase):
     def _run(self, body: str, root: Path, *, program_fpga: str = "auto",
-             hw_server_url: str = "") -> RunOnBoardJob:
+             hw_server_url: str = "", bitstream_path: str = "") -> RunOnBoardJob:
         name = "xsdb.bat" if os.name == "nt" else "xsdb"
         xsdb = root / "tools" / name
         _write_fake_xsct(xsdb, body, "2023.2")
@@ -166,6 +166,7 @@ class RunOnBoardBlockingTests(unittest.TestCase):
             app_name="myapp",
             program_fpga=program_fpga,
             hw_server_url=hw_server_url,
+            bitstream_path=bitstream_path,
             timeout_s=60,
         )
         job = RunOnBoardJob(id="runboard_test", config=config)
@@ -208,6 +209,39 @@ class RunOnBoardBlockingTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 self._run(_RUN_FAIL_BODY, root)
             self.assertIn("JTAG", str(ctx.exception))
+
+    def test_manual_bitstream_used_when_xsa_has_no_bit(self) -> None:
+        # XSA/platform bit icermese de kullanici elle .bit secebilmeli.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_workspace(root, with_bit=False)
+            manual = root / "external" / "my_design.bit"
+            manual.parent.mkdir(parents=True)
+            manual.write_text("bit")
+            job = self._run(_RUN_OK_BODY, root, program_fpga="yes",
+                            bitstream_path=str(manual))
+            scripts = sorted((root / "ws" / ".spec2code_runboard").glob("run_*.tcl"))
+            script = scripts[-1].read_text(encoding="utf-8")
+        self.assertTrue(job.result["bitstream"].endswith("my_design.bit"))
+        self.assertIn("my_design.bit}", script)
+        self.assertIn("fpga {", script)
+
+    def test_manual_bitstream_overrides_auto_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_workspace(root)  # platformda design.bit var
+            manual = root / "other.bit"
+            manual.write_text("bit")
+            job = self._run(_RUN_OK_BODY, root, bitstream_path=str(manual))
+        self.assertTrue(job.result["bitstream"].endswith("other.bit"))
+
+    def test_manual_bitstream_missing_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_workspace(root, with_bit=False)
+            with self.assertRaises(FileNotFoundError) as ctx:
+                self._run(_RUN_OK_BODY, root, bitstream_path=str(root / "nope.bit"))
+            self.assertIn("specified bitstream not found", str(ctx.exception))
 
     def test_program_fpga_yes_requires_bitstream(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

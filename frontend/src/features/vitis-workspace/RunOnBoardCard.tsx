@@ -31,6 +31,7 @@ export default function RunOnBoardCard({
   ready,
 }: RunOnBoardCardProps) {
   const [programFpga, setProgramFpga] = useState<FpgaChoice>("auto");
+  const [bitstreamPath, setBitstreamPath] = useState("");
   const [connection, setConnection] = useState<JtagConnection>("usb");
   const [hwServerUrl, setHwServerUrl] = useState(() => {
     try {
@@ -76,6 +77,7 @@ export default function RunOnBoardCard({
         platform: platform as import("@/lib/types").PlatformId,
         program_fpga: programFpga,
         hw_server_url: smartlynq ? hwServerUrl.trim() : "",
+        bitstream_path: platform !== "versal" && programFpga !== "no" ? bitstreamPath.trim() : "",
         timeout_s: 300,
       });
       closeSocketRef.current = openRunboardSocket(
@@ -166,6 +168,18 @@ export default function RunOnBoardCard({
             </SelectContent>
           </Select>
         </div>
+        {platform !== "versal" && programFpga !== "no" ? (
+          <div className="w-64">
+            <Label htmlFor="runboard-bitstream">Bitstream dosyası (opsiyonel)</Label>
+            <Input
+              id="runboard-bitstream"
+              value={bitstreamPath}
+              onChange={(event) => setBitstreamPath(event.target.value)}
+              placeholder="boşsa platformdan otomatik bulunur (.bit)"
+              spellCheck={false}
+            />
+          </div>
+        ) : null}
         <Button type="button" onClick={run} disabled={!canRun}>
           {running
             ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
