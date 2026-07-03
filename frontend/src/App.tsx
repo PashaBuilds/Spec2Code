@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Activity, BookOpen, Boxes, Cable, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
@@ -17,6 +17,7 @@ import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import TransactionTimeline from "@/features/testbench/TransactionTimeline";
+import TelemetryControl from "@/features/schematic/TelemetryControl";
 import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
 import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
@@ -47,6 +48,22 @@ export default function App() {
 
   const [view, setView] = useState<View>("flow");
   const [genError, setGenError] = useState<string | null>(null);
+  // Ziyaret edilen ekranlar sökülmez, yalnızca gizlenir (keep-alive):
+  // bağlantılar, canlı akışlar ve form durumu sekme geçişinde kaybolmaz.
+  const [visitedViews, setVisitedViews] = useState<View[]>(["flow"]);
+
+  useEffect(() => {
+    setVisitedViews((current) => (current.includes(view) ? current : [...current, view]));
+  }, [view]);
+
+  function keepAlive(id: View, node: ReactNode) {
+    if (view !== id && !visitedViews.includes(id)) return null;
+    return (
+      <div key={id} className={cn("h-full", view !== id && "hidden")}>
+        {node}
+      </div>
+    );
+  }
 
   useEffect(() => {
     api.catalog().then((c) => setCatalog(c.devices)).catch(() => {});
@@ -141,6 +158,8 @@ export default function App() {
           <span className="hidden font-mono text-xs text-faint md:inline">{project.name}</span>
           <Badge tone="neutral">{PLATFORM_LABELS[project.platform]}</Badge>
           <Badge tone={llm.enabled ? "accent" : "neutral"}>LLM {llm.enabled ? "on" : "off"}</Badge>
+          {/* Başlıkta: hangi ekranda olursanız olun telemetri çalışmaya devam eder. */}
+          <TelemetryControl />
           <Button
             variant={view === "knowledge" ? "outline" : "ghost"}
             size="sm"
@@ -210,23 +229,25 @@ export default function App() {
         </div>
       )}
 
-      {/* body */}
+      {/* body — keep-alive: ziyaret edilen ekranlar gizlenir ama sökülmez */}
       <main className="min-h-0 flex-1">
-        {view === "knowledge" ? (
+        {keepAlive("knowledge", (
           <div className="mx-auto flex h-full max-w-5xl flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Bilgi soru merkezi</h2>
             <div className="min-h-0 flex-1 overflow-auto">
               <KnowledgeAskPanel />
             </div>
           </div>
-        ) : view === "catalog" ? (
+        ))}
+        {keepAlive("catalog", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Entegre kataloğu</h2>
             <div className="min-h-0 flex-1">
               <CatalogPanel mode="browse" />
             </div>
           </div>
-        ) : view === "testbench" ? (
+        ))}
+        {keepAlive("testbench", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Test Bench</h2>
             <div className="min-h-0 flex-1">
@@ -234,66 +255,74 @@ export default function App() {
             </div>
             <TransactionTimeline />
           </div>
-        ) : view === "uart" ? (
+        ))}
+        {keepAlive("uart", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">UART konsolu</h2>
             <div className="min-h-0 flex-1">
               <UartConsolePanel />
             </div>
           </div>
-        ) : view === "traffic" ? (
+        ))}
+        {keepAlive("traffic", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Veri Akışı — host ↔ agent TX/RX</h2>
             <div className="min-h-0 flex-1">
               <TrafficPanel />
             </div>
           </div>
-        ) : view === "bringup" ? (
+        ))}
+        {keepAlive("bringup", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Bring-up — Mission Control</h2>
             <div className="min-h-0 flex-1">
               <BringupPanel />
             </div>
           </div>
-        ) : view === "registers" ? (
+        ))}
+        {keepAlive("registers", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Register snapshot &amp; diff</h2>
             <div className="min-h-0 flex-1">
               <RegistersPanel />
             </div>
           </div>
-        ) : view === "import" ? (
+        ))}
+        {keepAlive("import", (
           <div className="mx-auto h-full max-w-3xl overflow-auto p-6">
             <h2 className="mb-4 text-sm font-semibold">Import driver sources</h2>
             <DriverImport />
           </div>
-        ) : step === "setup" ? (
-          <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
-            <ProjectSetup />
-            <XparametersUpload />
-          </div>
-        ) : step === "schematic" ? (
-          <div className="flex h-full min-h-0">
-            <div className="relative min-w-0 flex-1 border-r border-border">
-              <SchematicCanvas />
+        ))}
+        <div className={cn("h-full", view !== "flow" && "hidden")}>
+          {step === "setup" ? (
+            <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
+              <ProjectSetup />
+              <XparametersUpload />
             </div>
-            <aside className="w-[360px] shrink-0 overflow-auto p-4">
-              <SidePanel />
-            </aside>
-          </div>
-        ) : (
-          <div className="grid h-full grid-cols-1 lg:grid-cols-2">
-            <div className="flex min-h-0 flex-col gap-4 overflow-auto border-r border-border p-4">
-              <DesignReviewPanel />
-              <div className="min-h-[320px] flex-1">
-                <GenerateConsole />
+          ) : step === "schematic" ? (
+            <div className="flex h-full min-h-0">
+              <div className="relative min-w-0 flex-1 border-r border-border">
+                <SchematicCanvas />
+              </div>
+              <aside className="w-[360px] shrink-0 overflow-auto p-4">
+                <SidePanel />
+              </aside>
+            </div>
+          ) : (
+            <div className="grid h-full grid-cols-1 lg:grid-cols-2">
+              <div className="flex min-h-0 flex-col gap-4 overflow-auto border-r border-border p-4">
+                <DesignReviewPanel />
+                <div className="min-h-[320px] flex-1">
+                  <GenerateConsole />
+                </div>
+              </div>
+              <div className="min-h-0 overflow-auto p-4">
+                <CodeViewer />
               </div>
             </div>
-            <div className="min-h-0 overflow-auto p-4">
-              <CodeViewer />
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );

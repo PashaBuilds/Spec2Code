@@ -19,6 +19,17 @@ type FpgaChoice = "auto" | "yes" | "no";
 type JtagConnection = "usb" | "smartlynq";
 
 const SMARTLYNQ_URL_STORAGE_KEY = "spec2code.runboard.hwServerUrl";
+const BITSTREAM_STORAGE_KEY = "spec2code.runboard.bitstreamPath";
+const FPGA_CHOICE_STORAGE_KEY = "spec2code.runboard.programFpga";
+const CONNECTION_STORAGE_KEY = "spec2code.runboard.connection";
+
+function readStored(key: string): string {
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 /** JTAG üzerinden reset -> psu_init -> (bit) -> ELF indir -> çalıştır. */
 export default function RunOnBoardCard({
@@ -30,16 +41,14 @@ export default function RunOnBoardCard({
   platform,
   ready,
 }: RunOnBoardCardProps) {
-  const [programFpga, setProgramFpga] = useState<FpgaChoice>("auto");
-  const [bitstreamPath, setBitstreamPath] = useState("");
-  const [connection, setConnection] = useState<JtagConnection>("usb");
-  const [hwServerUrl, setHwServerUrl] = useState(() => {
-    try {
-      return window.localStorage.getItem(SMARTLYNQ_URL_STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
+  const [programFpga, setProgramFpga] = useState<FpgaChoice>(() => {
+    const saved = readStored(FPGA_CHOICE_STORAGE_KEY);
+    return saved === "yes" || saved === "no" ? saved : "auto";
   });
+  const [bitstreamPath, setBitstreamPath] = useState(() => readStored(BITSTREAM_STORAGE_KEY));
+  const [connection, setConnection] = useState<JtagConnection>(() =>
+    readStored(CONNECTION_STORAGE_KEY) === "smartlynq" ? "smartlynq" : "usb");
+  const [hwServerUrl, setHwServerUrl] = useState(() => readStored(SMARTLYNQ_URL_STORAGE_KEY));
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -61,12 +70,15 @@ export default function RunOnBoardCard({
     setDone(false);
     setRunning(true);
     try {
-      if (smartlynq) {
-        try {
+      try {
+        window.localStorage.setItem(CONNECTION_STORAGE_KEY, connection);
+        window.localStorage.setItem(FPGA_CHOICE_STORAGE_KEY, programFpga);
+        window.localStorage.setItem(BITSTREAM_STORAGE_KEY, bitstreamPath.trim());
+        if (smartlynq) {
           window.localStorage.setItem(SMARTLYNQ_URL_STORAGE_KEY, hwServerUrl.trim());
-        } catch {
-          // localStorage kapalıysa adres yalnızca bu oturumda hatırlanır
         }
+      } catch {
+        // localStorage kapalıysa seçimler yalnızca bu oturumda hatırlanır
       }
       const response = await api.runOnBoard({
         vitis_path: vitisPath.trim(),
