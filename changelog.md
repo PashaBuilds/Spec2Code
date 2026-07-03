@@ -3,6 +3,38 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.95 - 2026-07-03
+
+KRITIK DUZELTME: uretilen agent'in istek parser'i her komutu "request
+parse failed" ile reddediyordu. Ayrica telemetri artik acik session'i
+paylasiyor (CoreSight dahil) ve yanitlar komut id'siyle eslestiriliyor.
+
+- PARSER (kok neden, sahada bulundu): spec2codeTestbenchRequestParse
+  istek satirini yerel tampona TextCopy ile kopyaliyordu; bu yardimci
+  ilk '|' ayracinda durdugu icin tampona yalnizca "S2C" kaliyor ve HER
+  istek id=0 + "request parse failed" donuyordu. Tum transportlari
+  (TCP/UART/CoreSight) etkileyen bu hata bugune kadar gorulmedi cunku
+  onceki uctan uca kosumlar sahte (host-tarafi) agent'la yapilmisti.
+  Yeni LineCopy yardimcisi ayraclari koruyarak yalnizca satir sonunda
+  durur. Regresyon icin uretilen parser gercek bir C derleyicisiyle
+  derlenip ayni isteklerle uctan uca test ediliyor (gcc varsa kosar).
+- YANIT ID ESLESTIRME: seri/CoreSight send() artik yaniti komutun
+  id'siyle eslestirir; paylasimli kanaldaki (konsol UART'i, ikinci
+  jtagterminal istemcisi) yabanci yanitlar isteğe yapistirilmaz.
+  Eslesen yanit gelmezse eldeki son yanit fallback olarak dondurulur
+  (id=0 parse hatasi mesajlari kaybolmaz).
+- TELEMETRI: "Canli telemetri" once acik bir testbench session'i
+  varsa onu paylasir (seri port ve CoreSight koprusu ikinci kez
+  acilamaz); yoksa kayitli transporta gore kendi baglantisini kurar -
+  artik CoreSight ayarlarini da bilir (eskiden yalniz TCP/seri deneyip
+  "connection refused" veriyordu). Odunc alinan session telemetri
+  kapatilirken kapatilmaz.
+- WINDOWS TEMIZLIK: xsdb koprusu CREATE_NO_WINDOW ile baslar ve
+  kapatilirken surec agaci taskkill /T ile sonlandirilir (yetim
+  jtagterminal/tclsh pencereleri kalmasin).
+- Dogrulama: 30/30 testbench testi (gcc round-trip, id eslestirme,
+  fallback dahil); frontend tsc + vite build temiz.
+
 ## v0.1.94 - 2026-07-03
 
 CoreSight saha duzeltmeleri: paketli exe'de "invalid URL, protocol
