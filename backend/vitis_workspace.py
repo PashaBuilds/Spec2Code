@@ -154,6 +154,11 @@ class VitisWorkspaceConfig:
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
+    #: "full" = platform + BSP + app sifirdan kurulur (mevcut davranis).
+    #: "update" = mevcut workspace'te yalnizca generated kaynaklar degistirilip
+    #: app build alinir - yazilim-only degisikliklerde (yeni entegre, operasyon,
+    #: register haritasi) XSA/BSP'ye dokunmadan hizli ELF uretimi.
+    mode: str = "full"
 
 
 @dataclass(frozen=True)
@@ -2021,6 +2026,124 @@ def render_xsct_script(
     )
 
 
+def render_xsct_update_script(
+    *,
+    workspace_path: Path,
+    source_root: Path,
+    platform_name: str,
+    domain_name: str,
+    app_name: str,
+    source_include_dirs: list[str] | None = None,
+) -> str:
+    """XSCT script for the sources-only update flow.
+
+    The workspace, platform, BSP and application already exist; only the
+    generated sources changed. Re-import them and rebuild the app — no
+    platform create, no BSP config, no XSA. The stale staged files are
+    removed host-side before this script runs (see _blocking_update).
+    """
+    include_dir_list = _tcl_list(source_include_dirs or [])
+    return (
+        "# Spec2Code generated Vitis source-update script.\n"
+        "# Rebuilds the existing application with refreshed generated sources.\n"
+        "catch {fconfigure stdout -buffering line}\n"
+        f"set workspace_path {_tcl_path(workspace_path)}\n"
+        f"set source_path {_tcl_path(source_root)}\n"
+        f"set platform_name {{{platform_name}}}\n"
+        f"set domain_name {{{domain_name}}}\n"
+        f"set app_name {{{app_name}}}\n\n"
+        "proc spec2codeEnsureApplicationElf {} {\n"
+        "    global workspace_path app_name\n"
+        "    set spec2code_expected_elf [file join $workspace_path $app_name Debug ${app_name}.elf]\n"
+        "    if {[file exists $spec2code_expected_elf]} {\n"
+        f"        {_tcl_put('application ELF present: $spec2code_expected_elf')}"
+        "        return\n"
+        "    }\n"
+        f"    {_tcl_put('app build produced no application ELF; running make directly in Debug as fallback')}"
+        "    set spec2code_app_debug_dir [file join $workspace_path $app_name Debug]\n"
+        "    if {![file isdirectory $spec2code_app_debug_dir]} {\n"
+        "        error \"Spec2Code: application Debug directory missing after app build: $spec2code_app_debug_dir\"\n"
+        "    }\n"
+        "    set spec2code_prev_dir [pwd]\n"
+        "    cd $spec2code_app_debug_dir\n"
+        "    set spec2code_make_status [catch {exec make all >&@ stdout} spec2code_make_err]\n"
+        "    cd $spec2code_prev_dir\n"
+        "    if {$spec2code_make_status != 0 && ![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: direct make fallback failed: $spec2code_make_err\"\n"
+        "    }\n"
+        "    if {![file exists $spec2code_expected_elf]} {\n"
+        "        error \"Spec2Code: application ELF still missing after direct make fallback: $spec2code_expected_elf\"\n"
+        "    }\n"
+        f"    {_tcl_put('application ELF present after make fallback: $spec2code_expected_elf')}"
+        "}\n\n"
+        f"{_tcl_put('workspace: $workspace_path')}"
+        f"{_tcl_put('source: $source_path')}"
+        f"{_tcl_put('application: $app_name')}"
+        "setws $workspace_path\n\n"
+        "set spec2code_app_listing {}\n"
+        "catch {set spec2code_app_listing [app list]}\n"
+        "if {[string first $app_name $spec2code_app_listing] < 0} {\n"
+        f"    {_tcl_put('FATAL: application project not found in workspace; sources-only update needs an existing workspace')}"
+        "    error \"Spec2Code: application '$app_name' bu workspace'te yok. Kaynak guncellemesi mevcut bir workspace gerektirir; once 'Sifirdan kur' ile workspace olusturun.\"\n"
+        "}\n\n"
+        "catch {platform active $platform_name}\n"
+        "catch {domain active $domain_name}\n\n"
+        f"{_tcl_put('importing updated generated sources')}"
+        "importsources -name $app_name -path $source_path\n\n"
+        "# Include path'ler ilk kurulumdan kalmis olmali; yeni bir klasor\n"
+        "# eklendiyse (ör. transport degisti) burada idempotent sekilde eklenir.\n"
+        f"set spec2code_source_include_dirs [list {include_dir_list}]\n"
+        "foreach spec2code_inc_dir $spec2code_source_include_dirs {\n"
+        "    set spec2code_inc_path [file join $workspace_path $app_name src $spec2code_inc_dir]\n"
+        "    if {![file isdirectory $spec2code_inc_path]} { continue }\n"
+        "    if {[catch {app config -name $app_name -add include-path $spec2code_inc_path} spec2code_inc_err]} {\n"
+        f"        {_tcl_put('include path not added (probably already present): $spec2code_inc_path')}"
+        "    } else {\n"
+        f"        {_tcl_put('application include path added: $spec2code_inc_path')}"
+        "    }\n"
+        "}\n\n"
+        f"{_tcl_put('building application (sources-only update)')}"
+        "if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
+        f"    {_tcl_put('app build failed; cleaning and retrying once: $spec2code_build_err')}"
+        "    catch {app clean -name $app_name}\n"
+        "    app build -name $app_name\n"
+        "}\n"
+        "spec2codeEnsureApplicationElf\n"
+        f"{_tcl_put('done')}"
+        "exit\n"
+    )
+
+
+#: Staged kaynaklarin app src/ altinda yasadigi konumlar. Update modunda
+#: bunlar silinip yeniden import edilir - kaldirilan dosyalar (ör. transport
+#: degisince eski agent main'i) workspace'te bayat kalmasin.
+_STAGED_SRC_SUBDIRS = ("drivers", "tests", "reference_sources")
+_STAGED_SRC_ROOT_FILES = ("spec2code_selftest_main.c", "spec2code_selftest_main.h")
+
+
+def clear_staged_app_sources(workspace_path: Path, app_name: str) -> list[str]:
+    """Remove previously staged generated sources from the app project.
+
+    Only Spec2Code-managed locations are touched; user-added files elsewhere
+    under src/ survive. Returns the removed paths (relative to src/).
+    """
+    src_root = workspace_path / app_name / "src"
+    removed: list[str] = []
+    if not src_root.is_dir():
+        return removed
+    for subdir in _STAGED_SRC_SUBDIRS:
+        target = src_root / subdir
+        if target.is_dir():
+            shutil.rmtree(target)
+            removed.append(f"{subdir}/")
+    for name in _STAGED_SRC_ROOT_FILES:
+        target = src_root / name
+        if target.is_file():
+            target.unlink()
+            removed.append(name)
+    return removed
+
+
 def render_xsct_recovery_script(
     *,
     workspace_path: Path,
@@ -2216,6 +2339,220 @@ class VitisWorkspaceJobManager:
                     loop.call_soon_threadsafe(queue.put_nowait, None)
 
     def _blocking(self, job: VitisWorkspaceJob) -> None:
+        if str(getattr(job.config, "mode", "full") or "full") == "update":
+            self._blocking_update(job)
+            return
+        self._blocking_full(job)
+
+    def _blocking_update(self, job: VitisWorkspaceJob) -> None:
+        """Sources-only update: refresh generated sources in an existing
+        workspace and rebuild the application. Platform, BSP and XSA are not
+        touched — for software-only changes (device config, new device on an
+        existing controller, operation/register updates) this turns a full
+        workspace rebuild into a single app build."""
+        config = job.config
+        project = job.generate_job.spec.get("project", {})
+        name_base = _safe_identifier(job.source_project, "spec2code")
+        platform_name = _safe_identifier(config.platform_name or f"{name_base}_platform", f"spec2code_platform_{job.id}")
+        app_name = _safe_identifier(config.app_name or f"{name_base}_app", f"spec2code_app_{job.id}")
+        domain_name = _safe_identifier(f"{app_name}_domain", f"spec2code_domain_{job.id}")
+
+        job.emit({"event": "vitis.locate", "stage": "locate", "progress": 14, "message": "XSCT aranıyor."})
+        xsct = detect_xsct(config.vitis_path)
+        job.emit({
+            "event": "vitis.version",
+            "stage": "version",
+            "progress": 22,
+            "message": f"Vitis/XSCT algılandı: {xsct.version} (kaynak güncelleme modu)",
+            "xsct_path": str(xsct.path),
+            "vitis_version": xsct.version,
+            "version_source": xsct.version_source,
+        })
+
+        workspace_path = _clean_user_path(config.workspace_path)
+        app_dir = workspace_path / app_name
+        if not workspace_path.is_dir() or not app_dir.is_dir():
+            raise FileNotFoundError(
+                f"Kaynak güncellemesi mevcut bir workspace gerektirir: '{app_dir}' bulunamadı. "
+                "Önce 'Sıfırdan kur' ile workspace oluşturun (uygulama adının aynı olduğundan emin olun).")
+
+        temp_path = _clean_user_path(config.temp_path)
+        temp_path.mkdir(parents=True, exist_ok=True)
+        staging_root = temp_path / job.id
+        suffix = 1
+        while staging_root.exists():
+            suffix += 1
+            staging_root = temp_path / f"{job.id}_{suffix}"
+        source_root = staging_root / "src"
+        log_dir = staging_root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        job.emit({
+            "event": "vitis.stage_sources",
+            "stage": "stage_sources",
+            "progress": 35,
+            "message": "Generated kaynaklar hazırlanıyor; workspace'teki eski staged kaynaklar temizlenecek.",
+        })
+        staged_files = stage_vitis_sources(job.generate_job, source_root)
+        removed = clear_staged_app_sources(workspace_path, app_name)
+        if removed:
+            job.emit({
+                "event": "vitis.stale_sources_removed",
+                "stage": "stage_sources",
+                "progress": 42,
+                "message": "Eski staged kaynaklar app'ten kaldırıldı: " + ", ".join(removed),
+                "removed": removed,
+            })
+        requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
+        if requires_lwip:
+            job.emit({
+                "event": "vitis.update_warning",
+                "stage": "stage_sources",
+                "progress": 44,
+                "message": ("Uyarı: yeni kaynaklar lwIP agent'ı içeriyor. Workspace lwIP'siz kurulduysa "
+                            "bu build BSP eksiği yüzünden düşer; o durumda 'Sıfırdan kur' gerekir."),
+            })
+
+        script_path = staging_root / "spec2code_update_sources.tcl"
+        stdout_log = log_dir / "xsct_stdout.log"
+        stderr_log = log_dir / "xsct_stderr.log"
+        manifest_path = staging_root / "spec2code_vitis_manifest.json"
+        manifest = {
+            "vitis_job_id": job.id,
+            "mode": "update",
+            "source_job_id": job.source_job_id,
+            "project": job.source_project,
+            "xsct_path": str(xsct.path),
+            "vitis_version": xsct.version,
+            "vitis_version_source": xsct.version_source,
+            "workspace_path": str(workspace_path),
+            "temp_path": str(temp_path),
+            "staging_path": str(staging_root),
+            "source_path": str(source_root),
+            "platform_name": platform_name,
+            "app_name": app_name,
+            "requires_lwip": requires_lwip,
+            "removed_stale_sources": removed,
+            "staged_files": staged_files,
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        job.emit({
+            "event": "vitis.script",
+            "stage": "script",
+            "progress": 55,
+            "message": "Kaynak güncelleme XSCT script'i yazılıyor.",
+            "staged_files": len(staged_files),
+        })
+        script_path.write_text(
+            render_xsct_update_script(
+                workspace_path=workspace_path,
+                source_root=source_root,
+                platform_name=platform_name,
+                domain_name=domain_name,
+                app_name=app_name,
+                source_include_dirs=staged_header_dirs(staged_files),
+            ),
+            encoding="utf-8",
+        )
+
+        job.result = {
+            **manifest,
+            "script_path": str(script_path),
+            "manifest_path": str(manifest_path),
+            "stdout_log": str(stdout_log),
+            "stderr_log": str(stderr_log),
+        }
+
+        job.emit({
+            "event": "vitis.run",
+            "stage": "run",
+            "progress": 70,
+            "message": "XSCT çalışıyor: kaynaklar import edilip yalnızca application build alınıyor.",
+            "script_path": str(script_path),
+        })
+
+        def _emit_watchdog(events: list[str]) -> None:
+            job.emit({"event": "vitis.watchdog", "stage": "run", "progress": 78,
+                      "message": " | ".join(events)})
+
+        completed = _run_xsct_streaming(
+            _command_for(xsct.path, str(script_path)),
+            cwd=workspace_path,
+            timeout_s=int(config.timeout_s or 1800),
+            stdout_path=stdout_log,
+            stderr_path=stderr_log,
+            emit=_emit_watchdog,
+        )
+        stdout_log.write_text(completed.stdout, encoding="utf-8")
+        stderr_log.write_text(completed.stderr, encoding="utf-8")
+        log_text = f"{completed.stdout}\n{completed.stderr}"
+        has_fatal = _xsct_log_has_fatal_error(completed.stdout, completed.stderr)
+        has_build_fatal = bool(_VITIS_BUILD_FATAL_RE.search(log_text))
+        elf_artifacts = inspect_vitis_elf_artifacts([workspace_path, staging_root], app_name)
+        application_elf_found = int(elf_artifacts.get("application", 0)) > 0
+        build_failed = (
+            completed.returncode != 0
+            or has_build_fatal
+            or (has_fatal and not application_elf_found)
+            or bool(getattr(completed, "timed_out", False))
+            or bool(getattr(completed, "stalled", False))
+        )
+        issues = map_vitis_errors(log_text) if build_failed else []
+        if completed.timed_out or completed.stalled:
+            issues.insert(0, _xsct_hang_issue(completed, script_path))
+        if build_failed and requires_lwip:
+            issues.append({
+                "file": str(workspace_path), "line": 0, "column": 0,
+                "rule": "spec2code-vitis-update", "severity": "error",
+                "category": "workspace_update_bsp",
+                "message": ("Kaynak güncellemesi lwIP agent'ı ile başarısız oldu; workspace lwIP'siz "
+                            "kurulmuş olabilir. Bu tip BSP'yi etkileyen değişikliklerde 'Sıfırdan kur' kullanın."),
+                "source": "Spec2Code",
+            })
+        if not build_failed and not application_elf_found:
+            build_failed = True
+            issues.append({
+                "file": str(workspace_path), "line": 0, "column": 0,
+                "rule": "spec2code-vitis-artifact", "severity": "error",
+                "category": "missing_elf",
+                "message": f"Kaynak güncelleme build'i hata vermedi ama application ELF bulunamadı: {app_name}",
+                "source": "Spec2Code",
+            })
+
+        if job.result is not None:
+            job.result["xsct_exit_code"] = completed.returncode
+            job.result["xsct_initial_exit_code"] = completed.returncode
+            job.result["xsct_stdout_tail"] = _log_tail(completed.stdout)
+            job.result["xsct_stderr_tail"] = _log_tail(completed.stderr)
+            job.result["vitis_elf_artifacts"] = elf_artifacts
+            job.result["compile_issues"] = issues
+            job.result["successful"] = not build_failed
+
+        if build_failed:
+            job.emit({
+                "event": "vitis.compile_errors",
+                "stage": "run",
+                "progress": 98,
+                "message": f"Kaynak güncelleme build'i {len(issues)} issue ile eşleştirildi.",
+                "issues": issues,
+                "error_codes": _issue_error_codes(issues),
+            })
+            reason = f"exit={completed.returncode}" if completed.returncode != 0 else "XSCT log hata içeriyor"
+            raise RuntimeError(
+                f"Kaynak güncelleme build'i hata ile bitti ({reason}). Log: {stderr_log}")
+
+        job.emit({
+            "event": "vitis.done",
+            "stage": "done",
+            "progress": 100,
+            "message": "Kaynaklar güncellendi, application ELF yeniden üretildi (platform/BSP'ye dokunulmadı).",
+            "workspace_path": str(workspace_path),
+            "platform_name": platform_name,
+            "app_name": app_name,
+        })
+
+    def _blocking_full(self, job: VitisWorkspaceJob) -> None:
         config = job.config
         project = job.generate_job.spec.get("project", {})
         processor = config.processor.strip() or default_vitis_processor(

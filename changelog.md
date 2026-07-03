@@ -3,6 +3,36 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.96 - 2026-07-03
+
+Kaynak guncelleme modu: mevcut Vitis workspace'inde yalnizca generated
+kaynaklari degistirip app build alan hizli akis - yazilim-only
+degisikliklerde (cihaz konfigurasyonu, yeni entegre, operasyon/register
+guncellemesi) workspace'i sifirdan kurmadan ELF uretimi.
+
+- BACKEND: VitisWorkspaceConfig.mode = "full" | "update". Update modunda
+  XSA gerekmez; platform/BSP'ye dokunulmaz. Akis: app'in src/ altindaki
+  Spec2Code staged konumlari (drivers/, tests/, reference_sources/,
+  spec2code_selftest_main.*) temizlenir - onceki transport'un agent
+  main'i gibi bayat dosyalar cift main() hatasi uretmesin - kullanicinin
+  kendi ekledigi dosyalara dokunulmaz; yeni kaynaklar importsources ile
+  alinir, include path'ler idempotent eklenir, yalnizca app build kosar
+  (hatada bir kez clean+retry), ELF dogrulanir. Uygulama projesi
+  workspace'te yoksa acik hata: once "Sifirdan kur".
+- DURUSTLUK: yeni kaynaklar lwIP agent'i gerektiriyorsa uyari verilir ve
+  build duserse "BSP'yi etkileyen degisiklik - sifirdan kurun" ipucu
+  eklenir (lwIP BSP kutuphanesi update modunda eklenemez).
+- UI (Vitis workspace karti): "Kurulum modu" secici - "Sifirdan kur"
+  (mevcut davranis) / "Kaynaklari guncelle + build". Update modunda XSA
+  alani gizlenir, buton adi degisir; secim hatirlanir.
+- CLI: `--vitis-update` bayragi - `spec2code_cli.py build --spec ...
+  --vitis ... --workspace ... --temp ... --vitis-update` XSA'siz
+  kaynak guncelleme + build kosar.
+- Dogrulama: 42/42 vitis workspace testi - update modu bayat agent
+  dosyasini temizleyip kullanici dosyasini koruyor, script'te platform/
+  domain create yok, XSA'siz ELF uretiyor; app projesi yoksa acik hata.
+  Frontend tsc + vite build temiz.
+
 ## v0.1.95 - 2026-07-03
 
 KRITIK DUZELTME: uretilen agent'in istek parser'i her komutu "request

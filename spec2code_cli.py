@@ -69,10 +69,18 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     project_name = spec["project"]["name"]
     vitis_requested = any([args.vitis, args.xsa, args.workspace, args.temp])
-    if vitis_requested and not all([args.vitis, args.xsa, args.workspace, args.temp]):
+    vitis_update = bool(getattr(args, "vitis_update", False))
+    if vitis_update:
+        # Kaynak guncelleme modu: XSA gerekmez, workspace zaten kurulu olmali.
+        if not all([args.vitis, args.workspace, args.temp]):
+            print("HATA: --vitis-update için --vitis, --workspace ve --temp birlikte verilmelidir.",
+                  file=sys.stderr)
+            return 2
+    elif vitis_requested and not all([args.vitis, args.xsa, args.workspace, args.temp]):
         print("HATA: Vitis adımı için --vitis, --xsa, --workspace ve --temp birlikte verilmelidir.",
               file=sys.stderr)
         return 2
+    vitis_requested = vitis_requested or vitis_update
 
     out_dir = ROOT / "outputs" / project_name
     emit = _printer("generate")
@@ -122,7 +130,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             str(project.get("platform", "")), str(project.get("target_core", "")))
         config = VitisWorkspaceConfig(
             vitis_path=args.vitis,
-            xsa_path=args.xsa,
+            xsa_path=args.xsa or "",
             workspace_path=args.workspace,
             temp_path=args.temp,
             processor=processor,
@@ -131,6 +139,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             system_name=args.system_name or f"{project_name}_system",
             app_name=args.app_name or f"{project_name}_app",
             timeout_s=args.timeout,
+            mode="update" if vitis_update else "full",
         )
         vjob = VitisWorkspaceJob(
             id="cli_vitis", source_job_id="cli", source_project=project_name,
@@ -184,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--system-name", default="", help="system proje adı")
     build.add_argument("--app-name", default="", help="application proje adı")
     build.add_argument("--timeout", type=int, default=1800, help="Vitis adımı zaman aşımı sn (vars. 1800)")
+    build.add_argument("--vitis-update", action="store_true",
+                       help="mevcut workspace'te yalnızca kaynakları güncelleyip app build al (XSA gerekmez)")
     build.add_argument("--json", action="store_true", help="sonunda makine-okur JSON özeti bas")
     build.set_defaults(func=cmd_build)
 

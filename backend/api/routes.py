@@ -83,7 +83,7 @@ class KnowledgeAskRequest(BaseModel):
 
 class VitisWorkspaceRequest(BaseModel):
     vitis_path: str
-    xsa_path: str
+    xsa_path: str = ""  # update modunda gerekmez
     workspace_path: str
     temp_path: str
     processor: str = ""
@@ -93,6 +93,7 @@ class VitisWorkspaceRequest(BaseModel):
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
+    mode: str = "full"  # full = platform+BSP+app sıfırdan; update = yalnızca kaynak + app build
 
 
 class VitisErrorMapRequest(BaseModel):
@@ -719,6 +720,7 @@ async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dic
                 app_name=req.app_name,
                 timeout_s=req.timeout_s,
                 custom_ip_driver_policy=req.custom_ip_driver_policy,
+                mode=req.mode if req.mode in ("full", "update") else "full",
             ),
         )
     except ValueError as exc:
