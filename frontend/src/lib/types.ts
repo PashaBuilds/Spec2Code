@@ -362,6 +362,8 @@ export interface RunOnBoardRequest {
   processor?: string;
   platform?: PlatformId;
   program_fpga?: "auto" | "yes" | "no";
+  /** Boş = lokal USB JTAG; SmartLynq/uzak hw_server için `<ip>[:port]`. */
+  hw_server_url?: string;
   timeout_s?: number;
 }
 

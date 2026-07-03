@@ -28,7 +28,7 @@ from backend.testbench import (
 )
 from backend.bringup import BringupConfig, bringup_manager, render_certificate_html
 from backend.registers import snapshot_registers
-from backend.run_on_board import RunOnBoardConfig, runboard_manager
+from backend.run_on_board import RunOnBoardConfig, normalize_hw_server_url, runboard_manager
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
@@ -745,11 +745,16 @@ class RunOnBoardRequest(BaseModel):
     processor: str = "psu_cortexa53_0"
     platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
     program_fpga: str = "auto"  # auto | yes | no
+    hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq için <ip>[:port]
     timeout_s: int = 300
 
 
 @router.post("/vitis/run-on-board")
 async def vitis_run_on_board(req: RunOnBoardRequest) -> dict:
+    try:
+        hw_server_url = normalize_hw_server_url(req.hw_server_url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     job_id = await runboard_manager.start(RunOnBoardConfig(
         vitis_path=req.vitis_path,
         workspace_path=req.workspace_path,
@@ -758,6 +763,7 @@ async def vitis_run_on_board(req: RunOnBoardRequest) -> dict:
         processor=req.processor,
         platform=req.platform,
         program_fpga=req.program_fpga,
+        hw_server_url=hw_server_url,
         timeout_s=req.timeout_s,
     ))
     return {"runboard_job_id": job_id}

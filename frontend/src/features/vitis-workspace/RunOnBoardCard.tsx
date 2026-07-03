@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Rocket, Usb } from "lucide-react";
-import { Badge, Button, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui";
+import { CheckCircle2, Loader2, Network, Rocket, Usb } from "lucide-react";
+import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui";
 import { api, openRunboardSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { JobEvent } from "@/lib/types";
@@ -16,6 +16,9 @@ interface RunOnBoardCardProps {
 }
 
 type FpgaChoice = "auto" | "yes" | "no";
+type JtagConnection = "usb" | "smartlynq";
+
+const SMARTLYNQ_URL_STORAGE_KEY = "spec2code.runboard.hwServerUrl";
 
 /** JTAG üzerinden reset -> psu_init -> (bit) -> ELF indir -> çalıştır. */
 export default function RunOnBoardCard({
@@ -28,6 +31,14 @@ export default function RunOnBoardCard({
   ready,
 }: RunOnBoardCardProps) {
   const [programFpga, setProgramFpga] = useState<FpgaChoice>("auto");
+  const [connection, setConnection] = useState<JtagConnection>("usb");
+  const [hwServerUrl, setHwServerUrl] = useState(() => {
+    try {
+      return window.localStorage.getItem(SMARTLYNQ_URL_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +47,10 @@ export default function RunOnBoardCard({
 
   useEffect(() => () => closeSocketRef.current?.(), []);
 
-  const canRun = Boolean(vitisPath.trim() && workspacePath.trim() && platformName.trim() && appName.trim()) && !running;
+  const smartlynq = connection === "smartlynq";
+  const canRun = Boolean(vitisPath.trim() && workspacePath.trim() && platformName.trim() && appName.trim())
+    && (!smartlynq || Boolean(hwServerUrl.trim()))
+    && !running;
 
   async function run() {
     if (!canRun) return;
@@ -46,6 +60,13 @@ export default function RunOnBoardCard({
     setDone(false);
     setRunning(true);
     try {
+      if (smartlynq) {
+        try {
+          window.localStorage.setItem(SMARTLYNQ_URL_STORAGE_KEY, hwServerUrl.trim());
+        } catch {
+          // localStorage kapalıysa adres yalnızca bu oturumda hatırlanır
+        }
+      }
       const response = await api.runOnBoard({
         vitis_path: vitisPath.trim(),
         workspace_path: workspacePath.trim(),
@@ -54,6 +75,7 @@ export default function RunOnBoardCard({
         processor: processor.trim(),
         platform: platform as import("@/lib/types").PlatformId,
         program_fpga: programFpga,
+        hw_server_url: smartlynq ? hwServerUrl.trim() : "",
         timeout_s: 300,
       });
       closeSocketRef.current = openRunboardSocket(
@@ -95,7 +117,10 @@ export default function RunOnBoardCard({
         </div>
       </div>
       <p className="mb-3 text-[11px] leading-relaxed text-muted">
-        Kart JTAG boot modunda ve USB-JTAG kablosu takılı olmalı. Akış:{" "}
+        {smartlynq
+          ? "Kart JTAG boot modunda, SmartLynq kablosu ağa ve kartın JTAG konnektörüne bağlı olmalı."
+          : "Kart JTAG boot modunda ve USB-JTAG kablosu takılı olmalı."}{" "}
+        Akış:{" "}
         {platform === "versal"
           ? "PDI programla (PLM + PL dahil) → ELF indir → başlat"
           : platform === "zynq_7000"
@@ -104,6 +129,30 @@ export default function RunOnBoardCard({
         . Uygulama çıktısını UART konsolundan izleyebilirsin.
       </p>
       <div className="flex flex-wrap items-end gap-3">
+        <div className="w-44">
+          <Label htmlFor="runboard-connection">JTAG bağlantısı</Label>
+          <Select value={connection} onValueChange={(value) => setConnection(value as JtagConnection)}>
+            <SelectTrigger id="runboard-connection">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="usb">USB kablo (lokal)</SelectItem>
+              <SelectItem value="smartlynq">SmartLynq (Ethernet)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {smartlynq ? (
+          <div className="w-52">
+            <Label htmlFor="runboard-hwserver">SmartLynq adresi</Label>
+            <Input
+              id="runboard-hwserver"
+              value={hwServerUrl}
+              onChange={(event) => setHwServerUrl(event.target.value)}
+              placeholder="192.168.0.10[:3121]"
+              spellCheck={false}
+            />
+          </div>
+        ) : null}
         <div className={cn("w-44", platform === "versal" && "hidden")}>
           <Label htmlFor="runboard-fpga">PL bitstream</Label>
           <Select value={programFpga} onValueChange={(value) => setProgramFpga(value as FpgaChoice)}>
@@ -118,7 +167,11 @@ export default function RunOnBoardCard({
           </Select>
         </div>
         <Button type="button" onClick={run} disabled={!canRun}>
-          {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Usb className="h-4 w-4" aria-hidden />}
+          {running
+            ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            : smartlynq
+              ? <Network className="h-4 w-4" aria-hidden />
+              : <Usb className="h-4 w-4" aria-hidden />}
           Yükle &amp; Çalıştır
         </Button>
         {!ready ? (
