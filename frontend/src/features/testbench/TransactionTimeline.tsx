@@ -1,14 +1,11 @@
 import { useMemo } from "react";
 import { AudioWaveform } from "lucide-react";
+import { timeLabelMs } from "@/lib/console";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 
 const WINDOW_MS = 60_000;
 
-function timeLabel(at: number): string {
-  const date = new Date(at);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
-}
 
 /** Host'tan gönderilen S2C işlemlerinin son 60 sn'lik şerit görünümü +
  * son işlemler listesi (Test Bench, telemetri ve register okumaları dahil). */
@@ -35,7 +32,7 @@ export default function TransactionTimeline() {
           return (
             <span
               key={`${entry.at}-${index}`}
-              title={`${timeLabel(entry.at)} ${entry.device} • ${entry.operation} (${entry.duration_ms} ms)`}
+              title={`${timeLabelMs(entry.at)} ${entry.device} • ${entry.operation} (${entry.duration_ms} ms)`}
               className={cn(
                 "absolute top-1 h-6 w-[3px] rounded-sm",
                 entry.ok ? "bg-ok/80" : "bg-danger",
@@ -48,7 +45,7 @@ export default function TransactionTimeline() {
       <div className="max-h-28 overflow-auto px-3 py-2">
         {[...busLog].slice(-10).reverse().map((entry, index) => (
           <div key={`${entry.at}-${index}`} className="grid grid-cols-[64px_minmax(0,1fr)_auto_auto] gap-2 py-0.5 font-mono text-[11px]">
-            <span className="text-faint">{timeLabel(entry.at)}</span>
+            <span className="text-faint">{timeLabelMs(entry.at)}</span>
             <span className="truncate text-muted">
               {entry.device} <span className="text-faint">•</span> {entry.operation}
             </span>

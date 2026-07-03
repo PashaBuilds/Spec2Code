@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   CatalogDevice,
   Controller,
@@ -160,7 +161,10 @@ function withDefaultSafeOperations(devices: Device[], descriptors: DescriptorMet
   });
 }
 
-export const useStore = create<StoreState>((set, get) => ({
+// Proje/şema/cihazlar tarayıcıda kalıcıdır: sayfa yenilense de emek kaybolmaz.
+// Üretilen dosya içerikleri (job.files) bilinçli olarak persist edilmez —
+// localStorage kotasını zorlar; testbench manifest'i zaten ayrıca cache'lenir.
+export const useStore = create<StoreState>()(persist((set, get) => ({
   step: "setup",
   project: { ...DEFAULT_PROJECT },
   codingStandardRef: DEFAULT_CODING_STANDARD,
@@ -290,6 +294,20 @@ export const useStore = create<StoreState>((set, get) => ({
       previousFiles: s.job.files.length > 0 ? s.job.files : s.previousFiles,
       job: { id: null, status: "idle", events: [], files: [], qc: null },
     })),
+}), {
+  name: "spec2code-store",
+  partialize: (s) => ({
+    step: s.step,
+    project: s.project,
+    llm: s.llm,
+    zones: s.zones,
+    cores: s.cores,
+    controllers: s.controllers,
+    unmatched: s.unmatched,
+    muxes: s.muxes,
+    devices: s.devices,
+    counter: s.counter,
+  }),
 }));
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {

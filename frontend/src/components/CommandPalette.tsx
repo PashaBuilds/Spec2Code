@@ -28,8 +28,17 @@ export default function CommandPalette({ commands }: { commands: PaletteCommand[
         setOpen(false);
       }
     }
+    function onOpen() {
+      setOpen(true);
+      setQuery("");
+      setCursor(0);
+    }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("s2c:palette", onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("s2c:palette", onOpen);
+    };
   }, []);
 
   useEffect(() => {

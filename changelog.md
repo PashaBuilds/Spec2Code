@@ -3,6 +3,43 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.99 - 2026-07-03
+
+Kapsamli arayuz yenilemesi (3 faz): tek kart baglantisi, kalicilik,
+header/palet/sekme duzeni.
+
+- FAZ 1 - TEK KART BAGLANTISI: Test Bench, Konsol (UART), Bring-up,
+  Registers ve telemetri artik TEK ortak session'i paylasir
+  (BoardConnectionCard + baglanti profili store'u). Bir kez baglanmak
+  yeter; seri port / CoreSight koprusu ikinci kez acilamadigi icin
+  yasanan cakismalar bitti. Bring-up ve Registers boylece CORESIGHT
+  destegi kazandi (onceden sessizce TCP'ye dusuyorlardi). Konsol ekrani
+  CoreSight baglantisinda da calisir; TCP'de "konsol kanali yok" der.
+  Agent log seviyesi secici ortak kartta. Header'da canli "kart
+  bagli/kopuk" rozeti; komut paletine "Karta baglan / Baglantiyi kes"
+  aksiyonlari eklendi.
+- FAZ 2 - KALICILIK DUZELTMESI: proje, sema (zone/controller/mux/
+  cihazlar) ve secimler artik tarayicida kalicidir (zustand persist) -
+  sayfa yenilenince emek kaybolmaz; manifest cache'inin proje adiyla
+  bulunamamasi sorunu da boylece cozuldu. Board hedef profili
+  birlestirildi: SmartLynq adresi tek kanonik anahtarda (Run on Board
+  ile ortak, eski anahtardan migrasyon), Vitis yolu tek kaynakta,
+  CoreSight cekirdegi bos birakilirsa Setup'taki hedef cekirdekten
+  otomatik turetilir (a53_1 secildiyse artik yanlis cekirdege
+  baglanilmaz).
+- FAZ 3 - DUZEN/CILA: header ikiye ayrildi - ust satir kimlik/adimlar/
+  telemetri/Generate, alt satir goruntu sekmeleri (dar ekranda sarar,
+  tasmaz) + baglanti rozeti. Ctrl+K paleti artik kesfedilebilir (header
+  butonu). Generate ekraninin sag kolonu sekmelendi: "Uretilen kod" /
+  "Vitis & Board". Kopya yardimcilar tek yerde (lib/console: zaman
+  damgasi/ANSI temizleme/log indirme/session id; lib/board: islemci
+  turetme) - TransactionTimeline'daki ms/saniye zaman tabani
+  karisikligi giderildi. TR/EN karisik metinlerde ilk normalizasyon
+  (SidePanel, XparametersUpload, GenerateConsole kabugu, ProjectSetup
+  diyakritikleri).
+- Dogrulama: frontend tsc + vite build temiz; backend testleri
+  etkilenmedi (degisiklikler frontend'de).
+
 ## v0.1.98 - 2026-07-03
 
 UX: ekranlar arasi durum korunumu (keep-alive), telemetri basliga

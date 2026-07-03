@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, Boxes, Cable, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, Boxes, Cable, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -18,6 +18,7 @@ import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import TransactionTimeline from "@/features/testbench/TransactionTimeline";
 import TelemetryControl from "@/features/schematic/TelemetryControl";
+import { useBoardConnection } from "@/store/connection";
 import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
 import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
@@ -48,6 +49,7 @@ export default function App() {
 
   const [view, setView] = useState<View>("flow");
   const [genError, setGenError] = useState<string | null>(null);
+  const boardConnected = useBoardConnection((s) => s.connected);
   // Ziyaret edilen ekranlar sökülmez, yalnızca gizlenir (keep-alive):
   // bağlantılar, canlı akışlar ve form durumu sekme geçişinde kaybolmaz.
   const [visitedViews, setVisitedViews] = useState<View[]>(["flow"]);
@@ -108,6 +110,8 @@ export default function App() {
     { id: "schematic", label: "Schematic ekranına git", hint: "adım", keywords: "şema devre kablo node", run: () => { setStep("schematic"); setView("flow"); } },
     { id: "generate-view", label: "Generate ekranına git", hint: "adım", keywords: "kod üret konsol", run: () => { setStep("generate"); setView("flow"); } },
     { id: "run-generate", label: "Generate çalıştır", hint: "aksiyon", keywords: "kod üret başlat build", run: () => { void runGenerate(); } },
+    { id: "board-connect", label: "Karta bağlan", hint: "aksiyon", keywords: "bağlan connect board smartlynq coresight seri tcp", run: () => { void useBoardConnection.getState().connect(); } },
+    { id: "board-disconnect", label: "Kart bağlantısını kes", hint: "aksiyon", keywords: "kes disconnect kopar", run: () => { void useBoardConnection.getState().disconnect(); } },
     { id: "knowledge", label: "Bilgi soru merkezi", hint: "görünüm", keywords: "knowledge datasheet soru", run: () => setView("knowledge") },
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
     { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
@@ -155,66 +159,18 @@ export default function App() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden font-mono text-xs text-faint md:inline">{project.name}</span>
+          <span className="hidden font-mono text-xs text-faint lg:inline">{project.name}</span>
           <Badge tone="neutral">{PLATFORM_LABELS[project.platform]}</Badge>
           <Badge tone={llm.enabled ? "accent" : "neutral"}>LLM {llm.enabled ? "on" : "off"}</Badge>
           {/* Başlıkta: hangi ekranda olursanız olun telemetri çalışmaya devam eder. */}
           <TelemetryControl />
           <Button
-            variant={view === "knowledge" ? "outline" : "ghost"}
+            variant="ghost"
             size="sm"
-            onClick={() => setView(view === "knowledge" ? "flow" : "knowledge")}
+            onClick={() => window.dispatchEvent(new Event("s2c:palette"))}
+            title="Komut paleti (Ctrl+K / Cmd+K)"
           >
-            <BookOpen className="h-4 w-4" /> Bilgi
-          </Button>
-          <Button
-            variant={view === "catalog" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "catalog" ? "flow" : "catalog")}
-          >
-            <Library className="h-4 w-4" /> Catalog
-          </Button>
-          <Button
-            variant={view === "testbench" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "testbench" ? "flow" : "testbench")}
-          >
-            <PlugZap className="h-4 w-4" /> Test Bench
-          </Button>
-          <Button
-            variant={view === "uart" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "uart" ? "flow" : "uart")}
-          >
-            <Cable className="h-4 w-4" /> UART
-          </Button>
-          <Button
-            variant={view === "traffic" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "traffic" ? "flow" : "traffic")}
-          >
-            <Activity className="h-4 w-4" /> Akış
-          </Button>
-          <Button
-            variant={view === "bringup" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "bringup" ? "flow" : "bringup")}
-          >
-            <Rocket className="h-4 w-4" /> Bring-up
-          </Button>
-          <Button
-            variant={view === "registers" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "registers" ? "flow" : "registers")}
-          >
-            <Grid3X3 className="h-4 w-4" /> Registers
-          </Button>
-          <Button
-            variant={view === "import" ? "outline" : "ghost"}
-            size="sm"
-            onClick={() => setView(view === "import" ? "flow" : "import")}
-          >
-            <FileInput className="h-4 w-4" /> Import
+            <Command className="h-4 w-4" /> K
           </Button>
           <Button onClick={runGenerate} disabled={jobStatus === "running" || !devices.length}>
             {jobStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -222,6 +178,34 @@ export default function App() {
           </Button>
         </div>
       </header>
+
+      {/* görünüm sekmeleri: ayrı satır — dar ekranda sarar, taşmaz */}
+      <nav className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-1">
+        {([
+          ["knowledge", BookOpen, "Bilgi"],
+          ["catalog", Library, "Katalog"],
+          ["testbench", PlugZap, "Test Bench"],
+          ["uart", Cable, "Konsol"],
+          ["traffic", Activity, "Akış"],
+          ["bringup", Rocket, "Bring-up"],
+          ["registers", Grid3X3, "Registers"],
+          ["import", FileInput, "Import"],
+        ] as const).map(([id, Icon, label]) => (
+          <Button
+            key={id}
+            variant={view === id ? "outline" : "ghost"}
+            size="sm"
+            onClick={() => setView(view === id ? "flow" : id)}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </Button>
+        ))}
+        <span className="ml-auto flex items-center gap-2">
+          <Badge tone={boardConnected ? "ok" : "neutral"}>
+            kart {boardConnected ? "bağlı" : "kopuk"}
+          </Badge>
+        </span>
+      </nav>
 
       {genError && (
         <div className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger">

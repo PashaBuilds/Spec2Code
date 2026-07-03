@@ -18,7 +18,10 @@ interface RunOnBoardCardProps {
 type FpgaChoice = "auto" | "yes" | "no";
 type JtagConnection = "usb" | "smartlynq";
 
-const SMARTLYNQ_URL_STORAGE_KEY = "spec2code.runboard.hwServerUrl";
+// Kanonik SmartLynq/hw_server anahtarı bağlantı profiliyle paylaşılır;
+// eski runboard anahtarından migrasyonla okunur.
+const SMARTLYNQ_URL_STORAGE_KEY = "spec2code.board.hwServerUrl";
+const LEGACY_SMARTLYNQ_KEY = "spec2code.runboard.hwServerUrl";
 const BITSTREAM_STORAGE_KEY = "spec2code.runboard.bitstreamPath";
 const FPGA_CHOICE_STORAGE_KEY = "spec2code.runboard.programFpga";
 const CONNECTION_STORAGE_KEY = "spec2code.runboard.connection";
@@ -48,7 +51,7 @@ export default function RunOnBoardCard({
   const [bitstreamPath, setBitstreamPath] = useState(() => readStored(BITSTREAM_STORAGE_KEY));
   const [connection, setConnection] = useState<JtagConnection>(() =>
     readStored(CONNECTION_STORAGE_KEY) === "smartlynq" ? "smartlynq" : "usb");
-  const [hwServerUrl, setHwServerUrl] = useState(() => readStored(SMARTLYNQ_URL_STORAGE_KEY));
+  const [hwServerUrl, setHwServerUrl] = useState(() => readStored(SMARTLYNQ_URL_STORAGE_KEY) || readStored(LEGACY_SMARTLYNQ_KEY));
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");

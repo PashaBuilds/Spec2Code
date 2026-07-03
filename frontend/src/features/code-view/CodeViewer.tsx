@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import type { GeneratedFile, QcViolation } from "@/lib/types";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui";
 import { VisualBackdrop } from "@/components/visuals";
 import { VitisWorkspacePanel } from "@/features/vitis-workspace/VitisWorkspacePanel";
 
@@ -344,7 +344,18 @@ export default function CodeViewer() {
         </div>
       </div>
 
-      {jobId ? <VitisWorkspacePanel jobId={jobId} /> : null}
+      {jobId ? (
+        <Tabs defaultValue="code">
+          <TabsList>
+            <TabsTrigger value="code">Üretilen kod</TabsTrigger>
+            <TabsTrigger value="vitis">Vitis &amp; Board</TabsTrigger>
+          </TabsList>
+          <TabsContent value="vitis">
+            <VitisWorkspacePanel jobId={jobId} />
+          </TabsContent>
+          <TabsContent value="code" />
+        </Tabs>
+      ) : null}
 
       {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
 

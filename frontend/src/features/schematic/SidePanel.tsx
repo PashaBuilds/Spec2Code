@@ -67,11 +67,11 @@ export default function SidePanel() {
           <Row k="attached" v={`${attached.length} device(s)`} />
         </dl>
         <p className="mt-3 text-xs text-faint">
-          Add a device to this mux by selecting its controller, adding the device, then setting its
+          Cihaz eklemek için this mux by selecting its controller, adding the device, then setting its
           "via mux" + channel in the device panel.
         </p>
         <Button variant="danger" size="sm" className="mt-3" onClick={() => removeNode(mux.id)}>
-          <Trash2 className="h-4 w-4" /> Remove mux
+          <Trash2 className="h-4 w-4" /> Mux'u kaldır
         </Button>
       </Card>
     );
@@ -82,7 +82,7 @@ export default function SidePanel() {
       <div className="flex h-full flex-col">
         <div className="mb-3 flex items-center gap-2">
           <Plus className="h-4 w-4 text-accent" />
-          <span className="text-sm text-text">Add a device to</span>
+          <span className="text-sm text-text">Cihaz eklemek için</span>
           <span className="font-mono text-sm text-accent">{controller.instance}</span>
         </div>
         <div className="min-h-0 flex-1">
@@ -94,7 +94,7 @@ export default function SidePanel() {
 
   return (
     <Card className="p-4">
-      <p className="text-sm text-text">Nothing selected</p>
+      <p className="text-sm text-text">Seçim yok</p>
       <p className="mt-1 text-xs text-faint">
         Click a controller in the schematic to attach a device (sensor, flash, or an I2C mux). Click
         a device to edit its protocol parameters.
