@@ -3,6 +3,31 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.91 - 2026-07-03
+
+SmartLynq / uzak hw_server destegi: Build & Run on Board artik lokal USB
+JTAG kablosunun yaninda Ethernet uzerinden SmartLynq/SmartLynq+ (veya baska
+bir uzak hw_server) ile de board'a yukleme yapabilir.
+
+- Backend: `RunOnBoardConfig.hw_server_url` alani eklendi (bos = lokal USB
+  JTAG). Adres `TCP:<host>:<port>` bicimine normalize edilir - kullanici
+  `192.168.0.10`, `192.168.0.10:3121`, `TCP:...` veya `tcp://...`
+  girebilir; port verilmezse hw_server varsayilani 3121 kullanilir. xsdb
+  betigi bu durumda `connect` yerine `connect -url TCP:<host>:<port>`
+  uretir; gecersiz adres API'de 400 ile reddedilir.
+- Hata ipuclari baglanti tipine gore ozellesti: uzak baglantida
+  "connection refused/timed out" SmartLynq IP/port kontrolune, "no
+  targets" kablonun kartin JTAG konnektorune takili olmasina isaret eder.
+  Is sonucu (`result.hw_server_url`) ve olay akisi kullanilan baglantiyi
+  raporlar.
+- UI (Board'da calistir karti): "JTAG baglantisi" secici (USB kablo lokal /
+  SmartLynq Ethernet) ve SmartLynq adres alani eklendi; adres tarayicida
+  hatirlanir (localStorage). SmartLynq seciliyken adres girilmeden kosum
+  baslamaz; kart metni ve buton ikonu baglanti tipine uyar.
+- Dogrulama: 19/19 run-on-board testi (URL normalizasyonu, xsdb betiginde
+  `connect -url`, uzak baglanti hata ipucu ve is sonucu dahil); frontend
+  tsc + vite build temiz.
+
 ## v0.1.90 - 2026-07-03
 
 Platform genislemesi: Versal + MicroBlaze + Zynq-7000 dogrulamasi ve

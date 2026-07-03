@@ -3,7 +3,10 @@
 Standard ZynqMP JTAG bring-up (Vitis "Run on hardware" order, UG1400):
 system reset -> psu_init (from the platform's psu_init.tcl) -> optional PL
 bitstream -> download ELF to the APU core -> continue. The board must be in
-JTAG boot mode and hw_server reachable (xsdb `connect` starts a local one).
+JTAG boot mode and hw_server reachable: with no hw_server URL xsdb `connect`
+starts a local one (USB JTAG cable); with a URL it connects to a remote
+hw_server such as the one built into a SmartLynq/SmartLynq+ data cable
+(`connect -url TCP:<ip>:3121`).
 """
 
 from __future__ import annotations
@@ -24,6 +27,37 @@ from backend.vitis_workspace import (
 RUN_STALL_TIMEOUT_S = 120
 RUN_STALL_GRACE_S = 60
 
+DEFAULT_HW_SERVER_PORT = 3121
+
+
+def normalize_hw_server_url(value: str) -> str:
+    """Canonicalize a remote hw_server address to xsdb's ``TCP:<host>:<port>`` form.
+
+    Accepts what users typically paste for a SmartLynq / remote hw_server:
+    ``192.168.0.10``, ``192.168.0.10:3121``, ``TCP:192.168.0.10:3121`` or
+    ``tcp://smartlynq-hostname``. An empty value means local USB JTAG and
+    returns ''. The port defaults to 3121 (hw_server / SmartLynq default).
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    for prefix in ("tcp://", "tcp:"):
+        if lowered.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    if ":" in text:
+        host, _, port = text.rpartition(":")
+    else:
+        host, port = text, str(DEFAULT_HW_SERVER_PORT)
+    host = host.strip()
+    port = port.strip() or str(DEFAULT_HW_SERVER_PORT)
+    if not host or not port.isdigit():
+        raise ValueError(
+            f"geçersiz hw_server adresi: '{value}'. Beklenen biçim: <ip|host>[:port], "
+            f"örn. SmartLynq için 192.168.0.10 veya TCP:192.168.0.10:3121")
+    return f"TCP:{host}:{port}"
+
 
 @dataclass
 class RunOnBoardConfig:
@@ -34,6 +68,7 @@ class RunOnBoardConfig:
     processor: str = "psu_cortexa53_0"
     platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
     program_fpga: str = "auto"  # auto | yes | no (versal: PL is inside the PDI)
+    hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq/uzak hw_server için <ip>[:port]
     timeout_s: int = 300
 
 
@@ -171,6 +206,7 @@ def render_run_on_board_script(
     ps7_init_path: Path | None = None,
     bitstream_path: Path | None = None,
     pdi_path: Path | None = None,
+    hw_server_url: str = "",
 ) -> str:
     """xsdb Tcl for the classic JTAG run flow, per platform.
 
@@ -178,13 +214,18 @@ def render_run_on_board_script(
     zynq_7000:       rst -system -> ps7_init -> [fpga .bit] -> A9 -> dow -> ps7_post_config -> con
     versal:          device program <pdi> (PLM+PL) -> A72 -> dow -> con
 
+    hw_server_url (canonical ``TCP:<host>:<port>``) switches the connect from
+    the local hw_server to a remote one, e.g. a SmartLynq cable's built-in
+    hw_server over Ethernet.
+
     The S2C-RUN marker lines let the backend verdict on progress even when
     xsdb noise varies between installs.
     """
     core_filter = _core_filter(processor)
+    connect_cmd = f"connect -url {hw_server_url}" if hw_server_url else "connect"
     lines = [
         "catch {fconfigure stdout -buffering line}",
-        "connect",
+        connect_cmd,
         'puts "S2C-RUN: connected"',
     ]
     if platform == "versal":
@@ -246,12 +287,19 @@ def render_run_on_board_script(
     return "\n".join(lines) + "\n"
 
 
-def _hint_for_failure(output: str) -> str:
+def _hint_for_failure(output: str, hw_server_url: str = "") -> str:
     text = output.lower()
     if "no targets" in text or "no target" in text:
+        if hw_server_url:
+            return ("JTAG üzerinde hedef görünmüyor: kartın açık olduğundan, SmartLynq/uzak JTAG "
+                    "kablosunun kartın JTAG konnektörüne takılı olduğundan ve boot modunun JTAG "
+                    "olduğundan emin olun.")
         return ("JTAG üzerinde hedef görünmüyor: kartın açık olduğundan, JTAG USB kablosunun takılı "
                 "olduğundan ve boot modunun JTAG olduğundan emin olun.")
-    if "connection refused" in text or "hw_server" in text:
+    if "connection refused" in text or "connection timed out" in text or "hw_server" in text:
+        if hw_server_url:
+            return (f"{hw_server_url} adresindeki hw_server'a bağlanılamadı: SmartLynq/uzak hw_server "
+                    "cihazının ağa bağlı olduğunu, IP adresini ve portu (varsayılan 3121) kontrol edin.")
         return "hw_server'a bağlanılamadı: Vitis hw_server servisinin çalıştığını kontrol edin."
     if "memory write error" in text or "dow" in text and "error" in text:
         return "ELF indirme hatası: psu_init'in doğru XSA'dan geldiğini ve DDR'ın ayakta olduğunu kontrol edin."
@@ -299,6 +347,11 @@ class RunOnBoardJobManager:
     def _blocking(self, job: RunOnBoardJob) -> None:
         config = job.config
         workspace = _clean_user_path(config.workspace_path)
+        hw_server_url = normalize_hw_server_url(config.hw_server_url)
+        connection_note = (f"SmartLynq/uzak hw_server: {hw_server_url}" if hw_server_url
+                           else "lokal USB JTAG")
+        job.emit({"event": "runboard.stage", "stage": "locate", "progress": 10,
+                  "message": f"Bağlantı: {connection_note}"})
 
         job.emit({"event": "runboard.stage", "stage": "locate", "progress": 15,
                   "message": "xsdb aranıyor..."})
@@ -331,7 +384,8 @@ class RunOnBoardJobManager:
         script = render_run_on_board_script(
             elf_path=elf, processor=config.processor, platform=config.platform,
             psu_init_path=psu_init, ps7_init_path=ps7_init,
-            bitstream_path=bitstream, pdi_path=pdi)
+            bitstream_path=bitstream, pdi_path=pdi,
+            hw_server_url=hw_server_url)
         run_dir = workspace / ".spec2code_runboard"
         run_dir.mkdir(parents=True, exist_ok=True)
         script_path = run_dir / f"run_{int(time.time())}.tcl"
@@ -359,7 +413,7 @@ class RunOnBoardJobManager:
             raise RuntimeError(f"xsdb {config.timeout_s}s içinde bitmedi (stall={outcome.stalled})")
         if outcome.returncode != 0 or not ran:
             tail = "\n".join((outcome.stdout + "\n" + outcome.stderr).strip().splitlines()[-15:])
-            hint = _hint_for_failure(outcome.stdout + outcome.stderr)
+            hint = _hint_for_failure(outcome.stdout + outcome.stderr, hw_server_url)
             raise RuntimeError(
                 "board'a yükleme başarısız oldu"
                 + (f" — {hint}" if hint else "")
@@ -368,6 +422,7 @@ class RunOnBoardJobManager:
         job.result = {
             "elf": str(elf),
             "platform": config.platform,
+            "hw_server_url": hw_server_url or None,
             "psu_init": str(psu_init) if psu_init else None,
             "ps7_init": str(ps7_init) if ps7_init else None,
             "pdi": str(pdi) if pdi else None,
