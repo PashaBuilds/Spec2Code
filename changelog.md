@@ -3,6 +3,39 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.97 - 2026-07-03
+
+Seviyeli calisma-zamani log altyapisi (agent tarafi) + host stabilite:
+yanit zaman asimi artik baglantiyi dusurmuyor.
+
+- LOG CEKIRDEGI: her generate ciktisina spec2code_testbench_log.h/.c
+  girer. Seviyeler artan detayla: error(1) < warning(2) < message(3,
+  gelen/giden S2C satirlari) < info(4) < debug(5). Bir print ancak
+  seviyesi ayarli esikten KUCUK/ESITSE basilir; varsayilan warning.
+  Cikti "S2C-LOG|E/W/M/I/D|..." satirlari - host yanit sanmaz, konsol
+  ve Veri Akisi ekranlarinda gorunur. Sink agent transportuna baglanir:
+  CoreSight'ta DCC'den, UART'ta seri hattan akar (lwIP'te stdout).
+- RUNTIME SEVIYE DEGISIMI: global op `S2C|id=1|op=log_level|value=1..5`
+  esigi degistirir, value'suz sorgu gecerli seviyeyi dondurur. Test
+  Bench baglanti kutusunda "Agent log seviyesi" secici eklendi.
+  Manifest'e `log` blogu (seviye haritasi + varsayilan) yazilir.
+- ENSTRUMANTASYON: dispatch RX/TX satirlari (message), op basladi
+  (info) + parametreler (debug), op sonucu ok=info / hata=error
+  (status ve mesajla), parse hatasi (error), I2C register okuma/yazma
+  adim adim (debug) ve bus hatalari status koduyla (error), board init
+  controller bazli (debug/error) + tamamlaninca info ("device_init
+  otomatik KOSULMAZ" hatirlatmasiyla), agent dongusu baslangici (info).
+- HOST STABILITE: Test Bench'te komut zaman asimi artik oturumu
+  "kopuk" isaretlemiyor; gercek durum backend'den sorulup ona gore
+  gosteriliyor (uzun operasyonlar baglantiyi kaybettirmez, yeniden
+  baglanma gerekmez). Onceki turda eklenen yanit-id eslestirmesiyle
+  gec gelen yanitlar da sonraki komuta yapismaz.
+- Dogrulama: 31/31 testbench testi - gcc round-trip artik log
+  cekirdegini de derleyip esik davranisini (default'ta debug sessiz,
+  error basilir; seviye 5'te debug acilir) ve uiHasValue'yu uctan uca
+  dogruluyor; codegen testi enstrumantasyon noktalarini ve manifest log
+  blogunu kontrol ediyor. Frontend tsc + vite build temiz.
+
 ## v0.1.96 - 2026-07-03
 
 Kaynak guncelleme modu: mevcut Vitis workspace'inde yalnizca generated

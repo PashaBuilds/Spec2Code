@@ -180,6 +180,8 @@ export default function TestBenchPanel() {
   const [commandId, setCommandId] = useState(1);
   const [running, setRunning] = useState(false);
   const [versionRunning, setVersionRunning] = useState(false);
+  const [agentLogLevel, setAgentLogLevel] = useState("2");
+  const [logLevelBusy, setLogLevelBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TestbenchCommandResponse | null>(null);
 
@@ -340,6 +342,46 @@ export default function TestBenchPanel() {
     }
   }
 
+  function reconcileSessionAfterError(message: string) {
+    // Yanıt zaman aşımı bağlantıyı düşürmemeli: backend session çoğu zaman
+    // hâlâ yaşıyor (agent geç yanıtlıyor / uzun operasyonda). Gerçek durumu
+    // backend'den sorup ona göre işaretle.
+    setError(message);
+    void api.testbenchSessionStatus(sessionId)
+      .then((status) => {
+        setSessionStatus(status);
+        setConnectionState(status.connected ? "connected" : "disconnected");
+      })
+      .catch(() => {
+        setSessionStatus((current) => current ? { ...current, connected: false, last_error: message } : current);
+        setConnectionState("disconnected");
+      });
+  }
+
+  async function applyAgentLogLevel(value: string) {
+    setAgentLogLevel(value);
+    if (!isConnected || logLevelBusy) return;
+    const nextCommandId = commandId;
+    setCommandId((current) => current + 1);
+    setLogLevelBusy(true);
+    try {
+      await api.testbenchCommand({
+        host: transport === "tcp" ? host.trim() : transport,
+        port: transport === "tcp" ? parseNumber(port) ?? 0 : 0,
+        device: "spec2code",
+        operation: "log_level",
+        command_id: nextCommandId,
+        session_id: sessionId,
+        value: Number.parseInt(value, 10) || 2,
+        timeout_s: parseNumber(timeout) ?? 5,
+      });
+    } catch (err) {
+      reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLogLevelBusy(false);
+    }
+  }
+
   async function send() {
     if (!selectedDevice || !selectedOperation || running || versionRunning) return;
     const parsedPort = transport === "tcp" ? parseNumber(port) : 0;
@@ -389,10 +431,7 @@ export default function TestBenchPanel() {
       });
       setResult(response);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setSessionStatus((current) => current ? { ...current, connected: false, last_error: message } : current);
-      setConnectionState("disconnected");
+      reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
     }
@@ -423,10 +462,7 @@ export default function TestBenchPanel() {
       });
       setResult(response);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setSessionStatus((current) => current ? { ...current, connected: false, last_error: message } : current);
-      setConnectionState("disconnected");
+      reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
     } finally {
       setVersionRunning(false);
     }
@@ -607,6 +643,24 @@ export default function TestBenchPanel() {
                 Sürüm sorgula
               </Button>
             </div>
+            {isConnected ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-muted">Agent log seviyesi</span>
+                <select
+                  value={agentLogLevel}
+                  onChange={(event) => void applyAgentLogLevel(event.target.value)}
+                  disabled={logLevelBusy || running || versionRunning}
+                  className="h-7 min-w-0 flex-1 rounded-md border border-border bg-inset px-1.5 font-mono text-[11px] text-text"
+                  title="Karttaki agent'ın log eşiği; S2C-LOG satırları konsol ve Veri Akışı'nda görünür."
+                >
+                  <option value="1">1 — error</option>
+                  <option value="2">2 — warning (varsayılan)</option>
+                  <option value="3">3 — message (TX/RX)</option>
+                  <option value="4">4 — info</option>
+                  <option value="5">5 — debug</option>
+                </select>
+              </div>
+            ) : null}
             {sessionStatus?.last_error ? (
               <p className="mt-2 break-all text-[11px] text-danger">{sessionStatus.last_error}</p>
             ) : null}

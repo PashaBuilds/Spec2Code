@@ -803,41 +803,111 @@ class TestbenchTests(unittest.TestCase):
             tests_dir = out_dir / "tests"
             work = Path(tmp) / "host"
             work.mkdir()
-            for name in ("spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
+            for name in ("spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h",
+                         "spec2code_testbench_log.c", "spec2code_testbench_log.h"):
                 shutil.copy2(tests_dir / name, work / name)
             (work / "xstatus.h").write_text(
                 "#ifndef XSTATUS_H\n#define XSTATUS_H\n"
                 "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
                 encoding="utf-8")
+            (work / "xil_printf.h").write_text(
+                "#ifndef XIL_PRINTF_H\n#define XIL_PRINTF_H\n"
+                "#include <stdio.h>\n#define xil_printf printf\n#endif\n",
+                encoding="utf-8")
             (work / "main.c").write_text(
                 '#include <stdio.h>\n'
+                '#include <string.h>\n'
                 '#include "spec2code_testbench_protocol.h"\n'
+                '#include "spec2code_testbench_log.h"\n'
+                'static char S_cArrLastLog[256];\n'
+                'static void logSink(const char* cpLine)\n'
+                '{\n'
+                '    snprintf(S_cArrLastLog, sizeof(S_cArrLastLog), "%s", cpLine);\n'
+                '}\n'
                 'static void try_line(const char* cpLine)\n'
                 '{\n'
                 '    SSpec2codeTestbenchRequest sRequest;\n'
                 '    int iStatus = spec2codeTestbenchRequestParse(cpLine, &sRequest);\n'
-                '    printf("status=%d id=%u device=[%s] op=[%s]\\n",\n'
-                '           iStatus, sRequest.uiId, sRequest.cArrDevice, sRequest.cArrOperation);\n'
+                '    printf("status=%d id=%u device=[%s] op=[%s] hasval=%u val=%u\\n",\n'
+                '           iStatus, sRequest.uiId, sRequest.cArrDevice, sRequest.cArrOperation,\n'
+                '           sRequest.uiHasValue, sRequest.uiValue);\n'
                 '}\n'
                 'int main(void)\n'
                 '{\n'
                 '    try_line("S2C|id=2|device=spec2code|op=spec2code_version");\n'
                 '    try_line("S2C|id=7|device=u12_ltc2991|op=register_read|reg=STATUS|reg_addr=0x1");\n'
+                '    try_line("S2C|id=3|device=spec2code|op=log_level|value=4");\n'
                 '    try_line("S2C|");\n'
+                '    spec2codeLogSinkSet(logSink);\n'
+                '    S_cArrLastLog[0] = 0;\n'
+                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "gizli");\n'
+                '    printf("debug_at_default=[%s]\\n", S_cArrLastLog);\n'
+                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "hata kodu=%d", -7);\n'
+                '    printf("error_at_default=[%s]", S_cArrLastLog);\n'
+                '    printf("set_debug=%u\\n", spec2codeLogLevelSet(SPEC2CODE_LOG_LEVEL_DEBUG));\n'
+                '    S_cArrLastLog[0] = 0;\n'
+                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "artik acik");\n'
+                '    printf("debug_at_debug=[%s]", S_cArrLastLog);\n'
                 '    return 0;\n'
                 '}\n',
                 encoding="utf-8")
             binary = work / "parse_roundtrip"
             compile_run = subprocess.run(
                 [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
-                 str(work / "main.c"), str(work / "spec2code_testbench_protocol.c")],
+                 str(work / "main.c"), str(work / "spec2code_testbench_protocol.c"),
+                 str(work / "spec2code_testbench_log.c")],
                 capture_output=True, text=True)
             self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
             output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
         lines = output.strip().splitlines()
-        self.assertEqual(lines[0], "status=0 id=2 device=[spec2code] op=[spec2code_version]")
-        self.assertEqual(lines[1], "status=0 id=7 device=[u12_ltc2991] op=[register_read]")
-        self.assertTrue(lines[2].startswith("status=1"))
+        self.assertEqual(lines[0], "status=0 id=2 device=[spec2code] op=[spec2code_version] hasval=0 val=0")
+        self.assertEqual(lines[1], "status=0 id=7 device=[u12_ltc2991] op=[register_read] hasval=0 val=0")
+        self.assertEqual(lines[2], "status=0 id=3 device=[spec2code] op=[log_level] hasval=1 val=4")
+        self.assertTrue(lines[3].startswith("status=1"))
+        # Log cekirdegi: varsayilan warning'de debug bastirilir, error basilir;
+        # seviye debug'a cekilince debug da akar. Satir onek formati sabittir.
+        self.assertEqual(lines[4], "debug_at_default=[]")
+        self.assertEqual(lines[5], "error_at_default=[S2C-LOG|E|hata kodu=-7")
+        self.assertEqual(lines[6], "]set_debug=5")
+        self.assertEqual(lines[7], "debug_at_debug=[S2C-LOG|D|artik acik")
+
+    def test_leveled_logging_is_generated_across_the_architecture(self) -> None:
+        # Log cekirdegi her transport'ta uretilir; dispatch RX/TX (message),
+        # op sonucu (info/error), i2c helper'lari (debug/error) enstrumante;
+        # agent donguleri sink'i kendi hattina baglar; log_level op'u calisma
+        # zamaninda esik degistirir; manifest seviye haritasini tasir.
+        spec = load_sample_spec("unit_logging")
+        spec["project"]["testbench_transport"] = "coresight"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+            log_header = (tests_dir / "spec2code_testbench_log.h").read_text(encoding="utf-8")
+            log_source = (tests_dir / "spec2code_testbench_log.c").read_text(encoding="utf-8")
+            ops_source = (tests_dir / "unit_logging_testbench_ops.c").read_text(encoding="utf-8")
+            cs_source = (tests_dir / "spec2code_testbench_coresight.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn("#define SPEC2CODE_LOG_LEVEL_ERROR 1U", log_header)
+        self.assertIn("#define SPEC2CODE_LOG_LEVEL_DEBUG 5U", log_header)
+        self.assertIn("#define SPEC2CODE_LOG_LEVEL_DEFAULT SPEC2CODE_LOG_LEVEL_WARNING", log_header)
+        # Esik kurali: printin seviyesi ayarlanandan buyukse bastirilir.
+        self.assertIn("if ((uiLevel > S_uiLogLevel) || (cpFormat == NULL))", log_source)
+        # Runtime seviye degisimi + gelen/giden mesaj loglari + op sonucu.
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "log_level")', ops_source)
+        self.assertIn("spRequest->uiHasValue == 1U", ops_source)
+        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "RX %s", cpRequestLine);', ops_source)
+        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "TX %s", cpResponseLine);', ops_source)
+        self.assertIn('"op HATA: device=%s op=%s status=%d mesaj=%s"', ops_source)
+        self.assertIn('"i2c reg read: addr=0x%02X reg=0x%02X"', ops_source)
+        # Agent dongusu loglari kendi kanalina baglar.
+        self.assertIn("spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);", cs_source)
+        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam', cs_source)
+        self.assertEqual(manifest["log"]["op"], "log_level")
+        self.assertEqual(manifest["log"]["default"], 2)
+        self.assertEqual(manifest["log"]["levels"]["debug"], 5)
+        self.assertEqual(manifest["log"]["line_prefix"], "S2C-LOG|")
 
     def test_serial_send_matches_response_by_command_id(self) -> None:
         # Paylasimli kanalda (konsol UART'i, ikinci jtagterminal istemcisi)
