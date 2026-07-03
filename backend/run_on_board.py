@@ -69,6 +69,7 @@ class RunOnBoardConfig:
     platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
     program_fpga: str = "auto"  # auto | yes | no (versal: PL is inside the PDI)
     hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq/uzak hw_server için <ip>[:port]
+    bitstream_path: str = ""  # boş = platformdan otomatik bul; XSA bit içermiyorsa elle .bit yolu
     timeout_s: int = 300
 
 
@@ -373,13 +374,23 @@ class RunOnBoardJobManager:
         else:
             psu_init = find_psu_init(workspace, config.platform_name)
             boot_note = f"psu_init: {psu_init.name}"
+        manual_bit = config.bitstream_path.strip()
         if config.platform != "versal" and config.program_fpga in ("auto", "yes"):
-            bitstream = find_bitstream(workspace, config.platform_name)
-            if bitstream is None and config.program_fpga == "yes":
-                raise FileNotFoundError("bitstream requested but no .bit found under the platform")
+            if manual_bit:
+                bitstream = _clean_user_path(manual_bit)
+                if not bitstream.is_file():
+                    raise FileNotFoundError(f"specified bitstream not found: {bitstream}")
+            else:
+                bitstream = find_bitstream(workspace, config.platform_name)
+                if bitstream is None and config.program_fpga == "yes":
+                    raise FileNotFoundError(
+                        "bitstream requested but no .bit found under the platform "
+                        "(XSA'da bit yoksa 'Bitstream dosyası' alanından elle seçebilirsiniz)")
+        bit_note = "yok"
+        if bitstream is not None:
+            bit_note = f"{bitstream.name} ({'elle seçildi' if manual_bit else 'otomatik bulundu'})"
         job.emit({"event": "runboard.stage", "stage": "script", "progress": 35,
-                  "message": f"ELF: {elf.name}; {boot_note}; "
-                             f"bit: {bitstream.name if bitstream else 'yok'}"})
+                  "message": f"ELF: {elf.name}; {boot_note}; bit: {bit_note}"})
 
         script = render_run_on_board_script(
             elf_path=elf, processor=config.processor, platform=config.platform,

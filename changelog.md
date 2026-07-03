@@ -3,6 +3,23 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.92 - 2026-07-03
+
+Elle bitstream secimi: XSA her zaman .bit icermez; Build & Run on Board
+artik platformdan otomatik bulmanin yaninda elle secilen bir .bit
+dosyasiyla da PL programlayabilir.
+
+- Backend: `RunOnBoardConfig.bitstream_path` alani eklendi (bos =
+  platform klasorunden otomatik bul, mevcut davranis). Dolu ise verilen
+  .bit dogrudan kullanilir; dosya yoksa kosum acik hata ile durur.
+  "Zorunlu yukle" + platformda bit yok hatasi artik elle secim ipucunu
+  da verir. Olay akisi bit'in elle mi otomatik mi geldigini raporlar.
+- UI (Board'da calistir karti): "Bitstream dosyasi (opsiyonel)" alani -
+  yalnizca PL bitstream "Yukleme" degilken ve Versal disinda gorunur
+  (Versal'da PL, PDI icindedir).
+- Dogrulama: 22/22 run-on-board testi (elle secim, otomatik bulmayi
+  ezme, eksik dosya hatasi dahil); frontend tsc + vite build temiz.
+
 ## v0.1.91 - 2026-07-03
 
 SmartLynq / uzak hw_server destegi: Build & Run on Board artik lokal USB

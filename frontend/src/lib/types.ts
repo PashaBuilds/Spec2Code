@@ -364,6 +364,8 @@ export interface RunOnBoardRequest {
   program_fpga?: "auto" | "yes" | "no";
   /** Boş = lokal USB JTAG; SmartLynq/uzak hw_server için `<ip>[:port]`. */
   hw_server_url?: string;
+  /** Boş = platformdan otomatik bul; XSA bit içermiyorsa elle `.bit` yolu. */
+  bitstream_path?: string;
   timeout_s?: number;
 }
 
