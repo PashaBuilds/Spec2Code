@@ -23,7 +23,6 @@ function FitView({ signature }: { signature: string }) {
 import { useStore } from "@/store/useStore";
 import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
-import TelemetryControl from "./TelemetryControl";
 import { zoneColor } from "@/lib/utils";
 import { busColor } from "@/lib/busColors";
 import { VisualBackdrop } from "@/components/visuals";
@@ -183,7 +182,6 @@ export default function SchematicCanvas() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-bg">
       <VisualBackdrop asset="schematic" opacity={0.11} position="center" size="cover" mask="canvasWide" />
-      <TelemetryControl />
       <ReactFlow
         nodes={nodes}
         edges={edges}

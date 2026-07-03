@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.98 - 2026-07-03
+
+UX: ekranlar arasi durum korunumu (keep-alive), telemetri basliga
+tasindi, Build & Run secimlerinin kalicilastirilmasi.
+
+- KEEP-ALIVE EKRANLAR: Test Bench, UART konsolu, Veri Akisi, Bring-up,
+  Registers, Bilgi, Katalog ve Import ekranlari ilk ziyaretten sonra
+  sokulmez, yalnizca gizlenir. Sekme degistirip donunce baglanti, form
+  alanlari, konsol/akis gecmisi ve secimler aynen kalir - Test Bench
+  baglantisi Veri Akisi'na gidip donunce artik kopmaz (onceden ekran
+  degisince bilesen sokuluyor ve cikista session kapatiliyordu).
+- TELEMETRI BASLIKTA: "Canli telemetri" anahtari schematic ekranindan
+  uygulama basligina tasindi - artik hangi ekranda olursaniz olun
+  calismaya devam eder (degerler yine sematikteki cihaz node'larinda
+  akar). Hata mesaji basligin altinda balon olarak gorunur.
+- BUILD & RUN KALICILIK: elle secilen bitstream dosyasi yolu, PL
+  bitstream secimi (auto/yes/no) ve JTAG baglanti tipi (USB/SmartLynq)
+  artik tarayicida hatirlanir (SmartLynq adresi zaten hatirlaniyordu).
+- Dogrulama: frontend tsc + vite build temiz; backend testleri
+  etkilenmedi.
+
 ## v0.1.97 - 2026-07-03
 
 Seviyeli calisma-zamani log altyapisi (agent tarafi) + host stabilite:

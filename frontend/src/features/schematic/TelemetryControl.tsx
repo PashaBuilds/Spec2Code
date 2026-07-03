@@ -42,8 +42,10 @@ function makeSessionId(): string {
   return `tl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-/** Şematik üstünde "Canlı telemetri" anahtarı: kayıtlı test bench bağlantı
- * ayarlarıyla kendi session'ını açar ve cihazları sırayla yoklar. */
+/** Uygulama başlığındaki "Canlı telemetri" anahtarı: önce açık bir test bench
+ * session'ını paylaşır, yoksa kayıtlı bağlantı ayarlarıyla kendi session'ını
+ * açar ve cihazları sırayla yoklar. Başlıkta yaşadığı için ekranlar arası
+ * geçişte kapanmaz; değerler şematikteki cihaz node'larında akar. */
 export default function TelemetryControl() {
   const files = useStore((s) => s.job.files);
   const previousFiles = useStore((s) => s.previousFiles);
@@ -195,23 +197,23 @@ export default function TelemetryControl() {
   }
 
   return (
-    <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-1">
+    <div className="relative">
       <Button
         size="sm"
-        variant={active ? "primary" : "outline"}
+        variant={active ? "primary" : "ghost"}
         onClick={() => void toggle()}
         disabled={busy}
-        title="Test Bench bağlantı ayarlarıyla kartı periyodik yoklar; değerler cihaz node'larında görünür."
+        title="Açık test bench session'ını paylaşır (yoksa kayıtlı ayarlarla bağlanır) ve kartı periyodik yoklar; değerler şematikteki cihaz node'larında görünür. Ekran değiştirince kapanmaz."
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         ) : (
           <Activity className={cn("h-4 w-4", active && "text-ok")} aria-hidden />
         )}
-        Canlı telemetri {active ? "AÇIK" : "kapalı"}
+        Telemetri {active ? "AÇIK" : "kapalı"}
       </Button>
       {error ? (
-        <p className="max-w-64 rounded border border-danger/30 bg-bg/90 px-2 py-1 text-right font-mono text-[10px] text-danger backdrop-blur-sm">
+        <p className="absolute right-0 top-full z-20 mt-1 w-72 rounded border border-danger/30 bg-bg/95 px-2 py-1 text-right font-mono text-[10px] text-danger shadow-lg backdrop-blur-sm">
           {error}
         </p>
       ) : null}
