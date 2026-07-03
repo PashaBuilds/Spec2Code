@@ -1,0 +1,43 @@
+name: Auto Release
+
+# main'e her push'ta frontend/src/lib/version.ts icindeki surumu okur; o surum
+# icin henuz tag yoksa release.yml'i workflow_dispatch ile tetikler. Boylece
+# surum bump'i main'e girdiginde release otomatik cikar - elle tag push'u veya
+# "Run workflow" tiklamasi gerekmez. (GITHUB_TOKEN ile workflow_dispatch,
+# Actions'in ozyineleme kisitlamasinin istisnasidir; release.yml normal kosar.)
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: Dispatch release for new version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read app version
+        id: version
+        run: |
+          version="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' frontend/src/lib/version.ts | head -n1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "app version: ${version:-<none>}"
+      - name: Dispatch release workflow if version is untagged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "no version found in version.ts; skipping"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "$VERSION already tagged; skipping"
+            exit 0
+          fi
+          gh workflow run release.yml --ref main -f version="$VERSION"
+          echo "dispatched release.yml for $VERSION"
