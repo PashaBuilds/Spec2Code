@@ -60,6 +60,28 @@ export const api = {
       body: JSON.stringify({ text, platform }),
     }),
 
+  parseXsaPath: (path: string) =>
+    req<import("./types").XsaParseResult>("/api/xsa/parse", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+
+  uploadXsa: async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/xsa/upload", { method: "POST", body: form });
+    if (!res.ok) {
+      let detail: unknown = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return res.json() as Promise<import("./types").XsaParseResult>;
+  },
+
   catalog: () =>
     req<{ devices: CatalogDevice[]; statuses: Record<string, string> }>("/api/catalog"),
 

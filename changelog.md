@@ -3,6 +3,35 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.100 - 2026-07-04
+
+Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
+
+- XSA parser (backend/parsers/xsa.py): XSA icindeki .hwh hardware
+  handoff'u okunur. Islemci modullerinden platform otomatik algilanir
+  (psu/ps7/psv cortex, microblaze). Board-level hwh'lerde PS tek blok
+  oldugundan (zynq_ultra_ps_e / processing_system7) etkin cevre
+  birimleri PSU__X__PERIPHERAL__ENABLE / PCW_X_PERIPHERAL_ENABLE
+  parametrelerinden acilir ve mimari-sabit adreslerle listelenir;
+  Versal CIPS'in psv_* modulleri dogrudan okunur. Instance adlari
+  kanonik XPAR_* makro oneklerine birebir esledigi icin uretilen kod
+  xparameters akisiyla ayni kalir. Bellek-esli tanninmayan IP'ler
+  (custom PL IP adaylari) unmatched olarak raporlanir.
+- API: POST /api/xsa/parse {path} (backend lokal oldugundan dogrudan
+  yol) ve POST /api/xsa/upload (multipart; uploads/xsa altina kaydeder).
+  Yanit xparameters/parse ile ayni sekil + platform + islemciler +
+  xsa_path.
+- UI (Setup): "Donanim tasarimi" karti iki modlu - varsayilan ".xsa
+  (tek dosya)": dosya sec veya tam yol yapistir -> platform + hedef
+  cekirdek otomatik secilir, sematik kurulur, XSA yolu Vitis workspace
+  adimina otomatik tasinir (spec2code.xsaPath). xparameters.h sekmesi
+  eskisi gibi durur.
+- Dogrulama: 136/136 test (sentetik hwh + gercek vck190/zc702/zcu102
+  parse'lari); tarayicida vck190.xsa yolundan tek adimda Versal ACAP +
+  tam sematik kuruldu; sirket-sekilli custom-IP XSA'sinda 8 PS
+  denetleyici + mem_pcie_intr unmatched dogrulandi. python-multipart
+  bagimliligi eklendi.
+
 ## v0.1.99 - 2026-07-03
 
 Kapsamli arayuz yenilemesi (3 faz): tek kart baglantisi, kalicilik,

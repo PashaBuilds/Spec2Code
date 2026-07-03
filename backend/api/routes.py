@@ -11,13 +11,14 @@ from pathlib import Path
 from pathlib import PurePosixPath
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel, Field
 
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
+from backend.parsers.xsa import XsaParseError, parse_xsa, safe_xsa_filename
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
 from backend.testbench import (
     TestbenchCommand,
@@ -451,6 +452,51 @@ def parse(req: ParseRequest) -> dict:
         "controllers": result.controllers,
         "unmatched": result.unmatched,
     }
+
+
+class XsaParseRequest(BaseModel):
+    path: str
+
+
+def _xsa_parse_response(xsa_path: Path) -> dict:
+    try:
+        detected = parse_xsa(xsa_path)
+    except XsaParseError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not detected.platform:
+        raise HTTPException(422, "XSA içinden platform algılanamadı (işlemci modülü bulunamadı).")
+    model = _platform_model(detected.platform)
+    # Re-parse with the platform model so zones resolve exactly as in the
+    # xparameters flow.
+    detected = parse_xsa(xsa_path, model)
+    detected.platform = detected.platform or ""
+    return {
+        "platform": detected.platform,
+        "zones": model.get("zones", []),
+        "cores": model.get("cores", []),
+        "controllers": detected.controllers,
+        "unmatched": detected.unmatched,
+        "processors": detected.processors,
+        "xsa_path": str(xsa_path),
+    }
+
+
+@router.post("/xsa/parse")
+def xsa_parse(req: XsaParseRequest) -> dict:
+    xsa_path = Path(os.path.expandvars(req.path.strip().strip('"').strip("'")))
+    if not xsa_path.is_file():
+        raise HTTPException(404, f"XSA dosyası bulunamadı: {xsa_path}")
+    return _xsa_parse_response(xsa_path)
+
+
+@router.post("/xsa/upload")
+async def xsa_upload(file: UploadFile) -> dict:
+    uploads_dir = _ROOT / "uploads" / "xsa"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    target = uploads_dir / safe_xsa_filename(file.filename or "design.xsa")
+    content = await file.read()
+    target.write_bytes(content)
+    return _xsa_parse_response(target)
 
 
 @router.get("/catalog")

@@ -554,6 +554,11 @@ export interface ParseResult {
   controllers: Controller[];
   unmatched: { instance: string; base_address: string; reason: string }[];
 }
+
+export interface XsaParseResult extends ParseResult {
+  processors: string[];
+  xsa_path: string;
+}
 export interface QcViolation {
   file: string;
   line: number;
