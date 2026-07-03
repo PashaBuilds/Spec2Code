@@ -236,7 +236,7 @@ export default function GenerateConsole() {
               <Badge tone="neutral" className="font-mono">
                 READY
               </Badge>
-              <p className="mt-3 text-sm text-text">No run yet.</p>
+              <p className="mt-3 text-sm text-text">Henüz koşum yok.</p>
               <p className="mt-1 text-xs text-muted">
                 Configure the schematic, then Generate will stream codegen, LLM, and QC events here.
               </p>

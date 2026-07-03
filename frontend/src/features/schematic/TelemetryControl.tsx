@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useBoardConnection } from "@/store/connection";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
@@ -34,14 +35,6 @@ function shortValue(parsed: Record<string, string>): string {
   return parsed.value || "OK";
 }
 
-function makeSessionId(): string {
-  const globalCrypto = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
-    return `tl_${globalCrypto.randomUUID()}`;
-  }
-  return `tl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-}
-
 /** Uygulama başlığındaki "Canlı telemetri" anahtarı: önce açık bir test bench
  * session'ını paylaşır, yoksa kayıtlı bağlantı ayarlarıyla kendi session'ını
  * açar ve cihazları sırayla yoklar. Başlıkta yaşadığı için ekranlar arası
@@ -59,12 +52,7 @@ export default function TelemetryControl() {
     [files, previousFiles, projectName],
   );
 
-  const [ownSessionId] = useState(makeSessionId);
-  // Aktif kosumda kullanilan session: mevcut bagli bir session odunc
-  // alinabilir (ör. Test Bench'in CoreSight/seri baglantisi) — o kanallar
-  // ikinci kez acilamaz. Odunc session toggle-off'ta KAPATILMAZ.
-  const [activeSessionId, setActiveSessionId] = useState("");
-  const ownsSessionRef = useRef(false);
+  const board = useBoardConnection();
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -80,7 +68,7 @@ export default function TelemetryControl() {
   }, [manifest, devices]);
 
   useEffect(() => {
-    if (!active || !activeSessionId) return;
+    if (!active || !board.connected) return;
     let cancelled = false;
 
     async function pollOnce() {
@@ -93,7 +81,7 @@ export default function TelemetryControl() {
             device: target.id,
             operation: target.operation,
             command_id: commandIdRef.current++,
-            session_id: activeSessionId,
+            session_id: board.sessionId,
             timeout_s: 4,
           });
           if (cancelled) return;
@@ -102,9 +90,6 @@ export default function TelemetryControl() {
           if (cancelled) return;
           setError(err instanceof Error ? err.message : String(err));
           setActive(false);
-          if (ownsSessionRef.current) {
-            void api.testbenchDisconnect(activeSessionId).catch(() => undefined);
-          }
           return;
         }
       }
@@ -116,23 +101,13 @@ export default function TelemetryControl() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, targets, activeSessionId, setTelemetry]);
-
-  useEffect(() => {
-    return () => {
-      void api.testbenchDisconnect(ownSessionId).catch(() => undefined);
-    };
-  }, [ownSessionId]);
+  }, [active, targets, board.sessionId, board.connected, setTelemetry]);
 
   async function toggle() {
     if (busy) return;
     if (active) {
       setActive(false);
       clearTelemetry();
-      if (ownsSessionRef.current) {
-        void api.testbenchDisconnect(activeSessionId).catch(() => undefined);
-      }
-      setActiveSessionId("");
       return;
     }
     if (!manifest || targets.length === 0) {
@@ -142,52 +117,13 @@ export default function TelemetryControl() {
     setBusy(true);
     setError("");
     try {
-      // Önce açık bir session varsa onu paylaş: seri port ve CoreSight
-      // köprüsü ikinci kez açılamaz; Test Bench zaten bağlıysa aynı kanal
-      // üzerinden yoklamak hem doğru hem hızlı.
-      const sessions = await api.testbenchSessions().catch(() => []);
-      const existing = sessions.find((session) => session.connected);
-      if (existing) {
-        ownsSessionRef.current = false;
-        setActiveSessionId(existing.session_id);
-        setActive(true);
-        return;
-      }
-      const saved = localStorage.getItem("spec2code.testbench.transport");
-      const transport = saved === "serial" || saved === "coresight" ? saved : "tcp";
-      const status = await api.testbenchConnect(
-        transport === "serial"
-          ? {
-              session_id: ownSessionId,
-              transport: "serial",
-              serial_port: localStorage.getItem("spec2code.testbench.serialPort") ?? "",
-              baud: Number.parseInt(localStorage.getItem("spec2code.testbench.baud") ?? "115200", 10) || 115200,
-              timeout_s: 4,
-            }
-          : transport === "coresight"
-            ? {
-                session_id: ownSessionId,
-                transport: "coresight",
-                vitis_path: localStorage.getItem("spec2code.testbench.csVitisPath")
-                  ?? localStorage.getItem("spec2code.vitisPath") ?? "",
-                hw_server_url: localStorage.getItem("spec2code.testbench.csHwServerUrl") ?? "",
-                processor: localStorage.getItem("spec2code.testbench.csProcessor") ?? "psu_cortexa53_0",
-                timeout_s: 4,
-              }
-            : {
-                session_id: ownSessionId,
-                transport: "tcp",
-                host: localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1",
-                port: Number.parseInt(localStorage.getItem("spec2code.testbench.port") ?? "5000", 10) || 5000,
-                timeout_s: 4,
-              },
-      );
-      if (status.connected) {
-        ownsSessionRef.current = true;
-        setActiveSessionId(ownSessionId);
+      // Ortak kart bağlantısını paylaşır; kopuksa kayıtlı ayarlarla kurar
+      // (CoreSight dahil). Telemetri kapatılınca bağlantıya dokunulmaz.
+      const ok = board.connected || (await board.connect());
+      if (ok) {
         setActive(true);
       } else {
-        setError(status.last_error || "Bağlantı kurulamadı.");
+        setError(useBoardConnection.getState().lastError || "Bağlantı kurulamadı.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -250,14 +250,14 @@ export default function ProjectSetup() {
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm text-text">
               <FileJson className="h-4 w-4 text-accent" />
-              Sabit kodlama standardi
+              Sabit kodlama standardı
             </div>
             <Badge tone="neutral">{codingStandardRef}</Badge>
           </div>
           <div className="space-y-2 text-xs text-muted">
             <p>
-              Generate ve QC her zaman default ruleset ile calisir; Word/JSON standard import
-              akisi kullanilmaz.
+              Generate ve QC her zaman default ruleset ile çalışır; Word/JSON standard import
+              akisi kullanılmaz.
             </p>
             <div className="grid grid-cols-2 gap-2">
               {PREFIXES.map(([type, prefix]) => (

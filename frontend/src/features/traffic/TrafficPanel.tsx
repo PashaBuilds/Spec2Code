@@ -2,27 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowDownToLine, Eraser, Pause, Play, SendHorizonal } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { api } from "@/lib/api";
+import { downloadTextLog, stripAnsi, timeLabel } from "@/lib/console";
 import { cn } from "@/lib/utils";
 import type { TestbenchSessionStatus, TrafficEntry } from "@/lib/types";
 
 const TRAFFIC_POLL_MS = 500;
 const SESSIONS_POLL_MS = 2000;
 
-/* eslint-disable-next-line no-control-regex */
-const ANSI_RE = new RegExp("\\[[0-9;]*[A-Za-z]", "g");
-
-function stripAnsi(line: string): string {
-  return line.replace(ANSI_RE, "");
-}
-
-function timeLabel(at: number): string {
-  const date = new Date(at * 1000);
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  const ss = String(date.getSeconds()).padStart(2, "0");
-  const ms = String(date.getMilliseconds()).padStart(3, "0");
-  return `${hh}:${mm}:${ss}.${ms}`;
-}
 
 function transportLabel(status: TestbenchSessionStatus): string {
   if (status.transport === "serial") return `seri ${status.serial_port ?? ""}`.trim();
@@ -129,16 +115,9 @@ export default function TrafficPanel() {
   }
 
   function downloadLog() {
-    const body = entries
+    downloadTextLog("s2c_traffic", entries
       .map((entry) => `${timeLabel(entry.at)}  ${entry.dir.toUpperCase()}  ${stripAnsi(entry.line)}`)
-      .join("\n");
-    const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `s2c_traffic_${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+      .join("\n"));
   }
 
   return (

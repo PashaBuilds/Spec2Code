@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Camera, Grid3X3, Link2, Loader2, Unplug } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import BoardConnectionCard from "@/components/BoardConnectionCard";
+import { useBoardConnection } from "@/store/connection";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
@@ -17,14 +19,6 @@ import type {
 interface StoredSnapshot {
   taken_at: number;
   values: Record<string, string>;
-}
-
-function makeSessionId(): string {
-  const globalCrypto = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
-    return `rg_${globalCrypto.randomUUID()}`;
-  }
-  return `rg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
 function historyKey(project: string, deviceId: string): string {
@@ -146,16 +140,10 @@ export default function RegistersPanel() {
     [manifest],
   );
 
-  const [sessionId] = useState(makeSessionId);
-  const [transport, setTransport] = useState<"tcp" | "serial">(() =>
-    localStorage.getItem("spec2code.testbench.transport") === "serial" ? "serial" : "tcp");
-  const [host, setHost] = useState(() => localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1");
-  const [port, setPort] = useState(() => localStorage.getItem("spec2code.testbench.port") ?? "5000");
-  const [serialPort, setSerialPort] = useState(() => localStorage.getItem("spec2code.testbench.serialPort") ?? "");
-  const [baud, setBaud] = useState(() => localStorage.getItem("spec2code.testbench.baud") ?? "115200");
-  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // Bağlantı global tek session'dan (store/connection) — CoreSight dahil.
+  const board = useBoardConnection();
+  const sessionId = board.sessionId;
+  const connected = board.connected;
   const [error, setError] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [descriptor, setDescriptor] = useState<DeviceDescriptor | null>(null);
@@ -178,53 +166,6 @@ export default function RegistersPanel() {
       .catch(() => setDescriptor(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDevice?.id, projectName]);
-
-  useEffect(() => {
-    if (transport !== "serial") return;
-    api.testbenchSerialPorts()
-      .then((list) => {
-        setSerialPorts(list);
-        setSerialPort((current) => current || list[0]?.device || "");
-      })
-      .catch(() => setSerialPorts([]));
-  }, [transport]);
-
-  useEffect(() => {
-    return () => {
-      void api.testbenchDisconnect(sessionId).catch(() => undefined);
-    };
-  }, [sessionId]);
-
-  async function connect() {
-    if (busy || connected) return;
-    setBusy(true);
-    setError("");
-    try {
-      const status = await api.testbenchConnect(
-        transport === "serial"
-          ? { session_id: sessionId, transport: "serial", serial_port: serialPort.trim(), baud: Number.parseInt(baud, 10) || 115200, timeout_s: 5 }
-          : { session_id: sessionId, transport: "tcp", host: host.trim(), port: Number.parseInt(port, 10) || 0, timeout_s: 5 },
-      );
-      setConnected(Boolean(status.connected));
-      if (!status.connected) setError(status.last_error || "Bağlantı kurulamadı.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disconnect() {
-    setBusy(true);
-    try {
-      await api.testbenchDisconnect(sessionId);
-    } catch {
-      /* ignore */
-    } finally {
-      setConnected(false);
-      setBusy(false);
-    }
-  }
 
   async function takeSnapshot() {
     if (!selectedDevice || !connected || taking) return;
@@ -313,78 +254,12 @@ export default function RegistersPanel() {
           </select>
         </div>
 
-        <div>
-          <Label>Transport</Label>
-          <div className="mt-1 grid grid-cols-2 gap-1 rounded-md border border-border bg-inset p-1">
-            {(["tcp", "serial"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                disabled={connected || busy}
-                onClick={() => setTransport(option)}
-                className={cn(
-                  "rounded px-2 py-1 font-mono text-[11px] font-semibold uppercase transition-colors",
-                  transport === option ? "bg-accent-dim text-accent" : "text-muted hover:text-text",
-                )}
-              >
-                {option === "tcp" ? "TCP" : "Seri"}
-              </button>
-            ))}
-          </div>
-        </div>
+        <BoardConnectionCard compact />
 
-        {transport === "tcp" ? (
-          <div className="grid grid-cols-[minmax(0,1fr)_80px] gap-2">
-            <div>
-              <Label>Host</Label>
-              <Input value={host} onChange={(e) => setHost(e.target.value)} disabled={connected || busy} />
-            </div>
-            <div>
-              <Label>Port</Label>
-              <Input value={port} onChange={(e) => setPort(e.target.value)} disabled={connected || busy} />
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
-            <div>
-              <Label>Seri port</Label>
-              <select
-                value={serialPort}
-                onChange={(e) => setSerialPort(e.target.value)}
-                disabled={connected || busy}
-                className="h-9 w-full rounded-md border border-border bg-inset px-2 font-mono text-xs text-text"
-              >
-                {serialPort && !serialPorts.some((p) => p.device === serialPort) ? (
-                  <option value={serialPort}>{serialPort}</option>
-                ) : null}
-                {serialPorts.map((info) => (
-                  <option key={info.device} value={info.device}>{info.device}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>Baud</Label>
-              <Input value={baud} onChange={(e) => setBaud(e.target.value)} disabled={connected || busy} />
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          {connected ? (
-            <Button size="sm" variant="outline" onClick={() => void disconnect()} disabled={busy}>
-              <Unplug className="h-4 w-4" aria-hidden /> Kes
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => void connect()} disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
-              Bağlan
-            </Button>
-          )}
-          <Button size="sm" onClick={() => void takeSnapshot()} disabled={!connected || taking}>
-            {taking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4" aria-hidden />}
-            Snapshot al
-          </Button>
-        </div>
+        <Button className="w-full" onClick={() => void takeSnapshot()} disabled={!connected || taking}>
+          {taking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4" aria-hidden />}
+          Snapshot al
+        </Button>
 
         <div>
           <Label>Karşılaştırma tabanı</Label>

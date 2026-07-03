@@ -41,7 +41,7 @@ export default function XparametersUpload() {
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
       <h2 className="mb-1 text-sm font-semibold text-text">xparameters.h</h2>
       <p className="mb-4 text-xs text-faint">
-        Upload the Vivado/Vitis BSP header. Controllers are extracted automatically and placed into
+        Vivado/Vitis BSP başlığını yükle. Controllers are extracted automatically and placed into
         their platform zones (read-only).
       </p>
 
