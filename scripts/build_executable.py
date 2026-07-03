@@ -48,6 +48,11 @@ HIDDEN_IMPORTS = [
     "jsonschema",
     "jinja2.ext",
     "clang.cindex",
+    # pyserial URL isleyicileri dinamik import edilir; PyInstaller goremez.
+    # Eksik kalirsa paketli exe'de serial_for_url("socket://...") calismaz
+    # ("invalid URL, protocol 'socket' not known").
+    "serial.urlhandler.protocol_socket",
+    "serial.urlhandler.protocol_loop",
 ]
 
 

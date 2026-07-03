@@ -434,6 +434,44 @@ class _TestbenchSerialSession(_TrafficRing):
         )
 
 
+class _TcpBridgeStream:
+    """Minimal file-like byte stream over a TCP socket.
+
+    Speaks the same contract as a pyserial handle with a short read
+    timeout: ``read()`` returns b"" when no data is available yet and
+    raises OSError when the peer goes away. Used for the CoreSight
+    jtagterminal bridge so the coresight transport needs no pyserial at
+    all (pyserial's dynamic ``socket://`` URL handler is exactly what
+    PyInstaller-packaged builds fail to bundle).
+    """
+
+    def __init__(self, host: str, port: int, connect_timeout_s: float) -> None:
+        self._sock = socket.create_connection((host, port), timeout=max(1.0, connect_timeout_s))
+        self._sock.settimeout(0.2)
+
+    def read(self, size: int) -> bytes:
+        try:
+            data = self._sock.recv(size)
+        except socket.timeout:
+            return b""
+        if not data:
+            raise OSError("coresight bridge socket closed")
+        return data
+
+    def write(self, data: bytes) -> int:
+        self._sock.sendall(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+
+
 class _TestbenchCoresightSession(_TestbenchSerialSession):
     """CoreSight DCC session bridged through xsdb ``jtagterminal -socket``.
 
@@ -441,8 +479,8 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
     server via ``-url``), selects the target core and opens a local TCP
     socket that carries the Arm DCC byte stream. We then reuse the whole
     serial-session machinery (reader thread, console ring, traffic ring,
-    response queue) over pyserial's ``socket://`` URL handler — so the UART
-    console, Veri Akisi and S2C commands all work unchanged over JTAG.
+    response queue) over a plain socket stream — so the UART console,
+    Veri Akisi and S2C commands all work unchanged over JTAG.
     """
 
     def __init__(self, session_id: str) -> None:
@@ -485,7 +523,10 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
         else:
             proc, port = self._spawn_bridge(locate_xsdb(vitis_path), _core_filter(self.processor))
         try:
-            self.connect(f"socket://127.0.0.1:{port}", 115200, timeout_s)
+            self.connect(
+                f"dcc://127.0.0.1:{port}", 115200, timeout_s,
+                serial_factory=lambda _port, _baud, _timeout: _TcpBridgeStream(
+                    "127.0.0.1", port, timeout_s))
         except Exception:
             if proc is not None:
                 proc.kill()

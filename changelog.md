@@ -3,6 +3,30 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.94 - 2026-07-03
+
+CoreSight saha duzeltmeleri: paketli exe'de "invalid URL, protocol
+'socket' not known" baglanti hatasi ve seri konsolda acilis banner'inin
+gorunmemesi.
+
+- KOPRU ARTIK PYSERIAL'SIZ: CoreSight oturumu jtagterminal'in TCP
+  portuna pyserial'in socket:// URL isleyicisi yerine yerlesik bir
+  soket akisiyla baglanir. PyInstaller pyserial'in dinamik URL
+  isleyicisini paketlemedigi icin release exe'sinde baglanti
+  "invalid URL, protocol 'socket' not known" ile dusuyordu - kok neden
+  ortadan kalkti. Ayrica exe'ye serial.urlhandler.protocol_socket/loop
+  hidden-import'lari eklendi (UART konsolunda elle socket:// URL
+  kullananlar icin).
+- SERI KONSOLDA ACILIS BANNER'I: CoreSight agent'inin main'i banner'i
+  yalnizca DCC'ye basiyordu; seri konsol bos kaliyordu. Banner artik
+  iki kanala da basilir - xil_printf ile stdout'a (UART) ve DCC'ye.
+  BSP stdin/stdout ayarina dokunulmaz: printler UART'tan akmaya devam
+  eder, yalnizca S2C protokolu CoreSight uzerindedir (UART banner'i
+  bunu acikca soyler).
+- Dogrulama: 27/27 testbench testi - coresight koprusu testi artik
+  pyserial'siz gercek yoldan kosuyor; codegen testi banner'in iki
+  kanala da basildigini dogruluyor.
+
 ## v0.1.93 - 2026-07-03
 
 CoreSight (JTAG DCC) test bench transportu, Veri Akisi ekrani ve seri
