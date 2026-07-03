@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import shutil
 import socketserver
+import subprocess
 import tempfile
 import threading
 import time
@@ -786,6 +788,97 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", ops_header)
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", lwip_source)
+
+    @unittest.skipUnless(shutil.which("gcc") or shutil.which("cc"), "host C compiler required")
+    def test_generated_request_parser_round_trips_on_host_compiler(self) -> None:
+        # Regresyon (sahada bulundu): satir kopyalama TextCopy ile yapilinca
+        # ilk '|' karakterinde kesiliyor, tampon "S2C"ye dusuyor ve HER istek
+        # "request parse failed" (id=0) donuyordu. Uretilen parser'i gercek
+        # bir derleyiciyle derleyip ayni istegi uctan uca cozuyoruz.
+        compiler = shutil.which("gcc") or shutil.which("cc")
+        spec = load_sample_spec("unit_parse_roundtrip")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+            work = Path(tmp) / "host"
+            work.mkdir()
+            for name in ("spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
+                shutil.copy2(tests_dir / name, work / name)
+            (work / "xstatus.h").write_text(
+                "#ifndef XSTATUS_H\n#define XSTATUS_H\n"
+                "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
+                encoding="utf-8")
+            (work / "main.c").write_text(
+                '#include <stdio.h>\n'
+                '#include "spec2code_testbench_protocol.h"\n'
+                'static void try_line(const char* cpLine)\n'
+                '{\n'
+                '    SSpec2codeTestbenchRequest sRequest;\n'
+                '    int iStatus = spec2codeTestbenchRequestParse(cpLine, &sRequest);\n'
+                '    printf("status=%d id=%u device=[%s] op=[%s]\\n",\n'
+                '           iStatus, sRequest.uiId, sRequest.cArrDevice, sRequest.cArrOperation);\n'
+                '}\n'
+                'int main(void)\n'
+                '{\n'
+                '    try_line("S2C|id=2|device=spec2code|op=spec2code_version");\n'
+                '    try_line("S2C|id=7|device=u12_ltc2991|op=register_read|reg=STATUS|reg_addr=0x1");\n'
+                '    try_line("S2C|");\n'
+                '    return 0;\n'
+                '}\n',
+                encoding="utf-8")
+            binary = work / "parse_roundtrip"
+            compile_run = subprocess.run(
+                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
+                 str(work / "main.c"), str(work / "spec2code_testbench_protocol.c")],
+                capture_output=True, text=True)
+            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
+            output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
+        lines = output.strip().splitlines()
+        self.assertEqual(lines[0], "status=0 id=2 device=[spec2code] op=[spec2code_version]")
+        self.assertEqual(lines[1], "status=0 id=7 device=[u12_ltc2991] op=[register_read]")
+        self.assertTrue(lines[2].startswith("status=1"))
+
+    def test_serial_send_matches_response_by_command_id(self) -> None:
+        # Paylasimli kanalda (konsol UART'i, ikinci jtagterminal istemcisi)
+        # baska bir istemcinin yaniti kuyruga dusebilir; send() yalnizca
+        # istegin id'sine sahip yaniti kabul etmeli.
+        class NoisyFakeSerial(FakeSerial):
+            def write(self, data: bytes) -> int:
+                with self._lock:
+                    self.written.append(bytes(data))
+                    if b"op=id_read" in data:
+                        self.rx += b"S2C|id=99|ok=1|status=0|value=0xBAD|message=stale\r\n"
+                        self.rx += b"S2C|id=7|ok=1|status=0|value=0x42|message=ok\r\n"
+                return len(data)
+
+        manager = SessionManager()
+        manager.connect_serial(
+            "ser_id", "COM5", 115200, 2.0, serial_factory=lambda _p, _b, _t: NoisyFakeSerial())
+        result = manager.send("ser_id", BenchCommand(
+            host="", port=0, device="u1_ltc2991", operation="id_read", command_id=7))
+        self.assertEqual(result.parsed["id"], "7")
+        self.assertEqual(result.parsed["value"], "0x42")
+        manager.disconnect("ser_id")
+
+    def test_serial_send_falls_back_to_mismatched_response_on_timeout(self) -> None:
+        # Eski/parse-hatali agent yanitlari id=0 tasir; zaman asiminda bos
+        # hata yerine eldeki son yanit gosterilir (mesaji kaybettirme).
+        class ParseFailFakeSerial(FakeSerial):
+            def write(self, data: bytes) -> int:
+                with self._lock:
+                    self.written.append(bytes(data))
+                    if b"op=id_read" in data:
+                        self.rx += b"S2C|id=0|ok=0|status=1|value=0x0|data=|message=request parse failed\r\n"
+                return len(data)
+
+        manager = SessionManager()
+        manager.connect_serial(
+            "ser_fb", "COM6", 115200, 0.4, serial_factory=lambda _p, _b, _t: ParseFailFakeSerial())
+        result = manager.send("ser_fb", BenchCommand(
+            host="", port=0, device="u1_ltc2991", operation="id_read", command_id=5))
+        self.assertEqual(result.parsed["message"], "request parse failed")
+        manager.disconnect("ser_fb")
 
     def test_testbench_agent_version_command_is_generated(self) -> None:
         spec = load_sample_spec("unit_agent_version")

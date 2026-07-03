@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import os
 import queue
 import socket
 import subprocess
@@ -397,6 +398,7 @@ class _TestbenchSerialSession(_TrafficRing):
 
     def send(self, command: TestbenchCommand) -> TestbenchResult:
         request_line = format_command(command)
+        expected_id = str(int(command.command_id))
         with self._send_lock:
             with self._lock:
                 handle = self._serial
@@ -416,10 +418,29 @@ class _TestbenchSerialSession(_TrafficRing):
                     raise
                 self._traffic_push("tx", request_line)
             # Wait outside the state lock so the reader thread and console
-            # polling stay live while we block on the response.
-            try:
-                response_line = self._responses.get(timeout=self.timeout_s)
-            except queue.Empty:
+            # polling stay live while we block on the response. The channel
+            # can be shared (console UART, a second jtagterminal client), so
+            # match the response by id; a non-matching response is kept as a
+            # fallback so agents that answer with id=0 (e.g. on parse errors)
+            # still surface their message instead of a bare timeout.
+            deadline = time.time() + self.timeout_s
+            fallback_line: str | None = None
+            response_line: str | None = None
+            while response_line is None:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                try:
+                    candidate = self._responses.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if parse_response(candidate).get("id") == expected_id:
+                    response_line = candidate
+                else:
+                    fallback_line = candidate
+            if response_line is None:
+                response_line = fallback_line
+            if response_line is None:
                 with self._lock:
                     self.last_error = f"no response within {self.timeout_s}s"
                 raise TestbenchSessionError(
@@ -550,11 +571,13 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
         ])
         script_path = Path(tempfile.mkstemp(prefix="s2c_dcc_", suffix=".tcl")[1])
         script_path.write_text(script, encoding="utf-8")
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         proc = subprocess.Popen(
             [str(xsdb), str(script_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            creationflags=creationflags,
         )
         port_queue: "queue.Queue[int]" = queue.Queue()
         tail: collections.deque[str] = collections.deque(maxlen=15)
@@ -594,7 +617,14 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
         self._xsdb_proc = None
         if proc is not None:
             try:
-                proc.kill()
+                if os.name == "nt":
+                    # xsdb.bat bir surec agaci kurar (cmd -> tclsh); yalniz
+                    # ust sureci oldurmek jtagterminal'i yetim birakabilir.
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True, check=False)
+                else:
+                    proc.kill()
             except OSError:
                 pass
 

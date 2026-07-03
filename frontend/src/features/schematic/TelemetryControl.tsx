@@ -57,7 +57,12 @@ export default function TelemetryControl() {
     [files, previousFiles, projectName],
   );
 
-  const [sessionId] = useState(makeSessionId);
+  const [ownSessionId] = useState(makeSessionId);
+  // Aktif kosumda kullanilan session: mevcut bagli bir session odunc
+  // alinabilir (ör. Test Bench'in CoreSight/seri baglantisi) — o kanallar
+  // ikinci kez acilamaz. Odunc session toggle-off'ta KAPATILMAZ.
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const ownsSessionRef = useRef(false);
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -73,7 +78,7 @@ export default function TelemetryControl() {
   }, [manifest, devices]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !activeSessionId) return;
     let cancelled = false;
 
     async function pollOnce() {
@@ -86,7 +91,7 @@ export default function TelemetryControl() {
             device: target.id,
             operation: target.operation,
             command_id: commandIdRef.current++,
-            session_id: sessionId,
+            session_id: activeSessionId,
             timeout_s: 4,
           });
           if (cancelled) return;
@@ -95,7 +100,9 @@ export default function TelemetryControl() {
           if (cancelled) return;
           setError(err instanceof Error ? err.message : String(err));
           setActive(false);
-          void api.testbenchDisconnect(sessionId).catch(() => undefined);
+          if (ownsSessionRef.current) {
+            void api.testbenchDisconnect(activeSessionId).catch(() => undefined);
+          }
           return;
         }
       }
@@ -107,20 +114,23 @@ export default function TelemetryControl() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, targets, sessionId, setTelemetry]);
+  }, [active, targets, activeSessionId, setTelemetry]);
 
   useEffect(() => {
     return () => {
-      void api.testbenchDisconnect(sessionId).catch(() => undefined);
+      void api.testbenchDisconnect(ownSessionId).catch(() => undefined);
     };
-  }, [sessionId]);
+  }, [ownSessionId]);
 
   async function toggle() {
     if (busy) return;
     if (active) {
       setActive(false);
       clearTelemetry();
-      void api.testbenchDisconnect(sessionId).catch(() => undefined);
+      if (ownsSessionRef.current) {
+        void api.testbenchDisconnect(activeSessionId).catch(() => undefined);
+      }
+      setActiveSessionId("");
       return;
     }
     if (!manifest || targets.length === 0) {
@@ -129,26 +139,50 @@ export default function TelemetryControl() {
     }
     setBusy(true);
     setError("");
-    const transport = localStorage.getItem("spec2code.testbench.transport") === "serial" ? "serial" : "tcp";
     try {
+      // Önce açık bir session varsa onu paylaş: seri port ve CoreSight
+      // köprüsü ikinci kez açılamaz; Test Bench zaten bağlıysa aynı kanal
+      // üzerinden yoklamak hem doğru hem hızlı.
+      const sessions = await api.testbenchSessions().catch(() => []);
+      const existing = sessions.find((session) => session.connected);
+      if (existing) {
+        ownsSessionRef.current = false;
+        setActiveSessionId(existing.session_id);
+        setActive(true);
+        return;
+      }
+      const saved = localStorage.getItem("spec2code.testbench.transport");
+      const transport = saved === "serial" || saved === "coresight" ? saved : "tcp";
       const status = await api.testbenchConnect(
         transport === "serial"
           ? {
-              session_id: sessionId,
+              session_id: ownSessionId,
               transport: "serial",
               serial_port: localStorage.getItem("spec2code.testbench.serialPort") ?? "",
               baud: Number.parseInt(localStorage.getItem("spec2code.testbench.baud") ?? "115200", 10) || 115200,
               timeout_s: 4,
             }
-          : {
-              session_id: sessionId,
-              transport: "tcp",
-              host: localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1",
-              port: Number.parseInt(localStorage.getItem("spec2code.testbench.port") ?? "5000", 10) || 5000,
-              timeout_s: 4,
-            },
+          : transport === "coresight"
+            ? {
+                session_id: ownSessionId,
+                transport: "coresight",
+                vitis_path: localStorage.getItem("spec2code.testbench.csVitisPath")
+                  ?? localStorage.getItem("spec2code.vitisPath") ?? "",
+                hw_server_url: localStorage.getItem("spec2code.testbench.csHwServerUrl") ?? "",
+                processor: localStorage.getItem("spec2code.testbench.csProcessor") ?? "psu_cortexa53_0",
+                timeout_s: 4,
+              }
+            : {
+                session_id: ownSessionId,
+                transport: "tcp",
+                host: localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1",
+                port: Number.parseInt(localStorage.getItem("spec2code.testbench.port") ?? "5000", 10) || 5000,
+                timeout_s: 4,
+              },
       );
       if (status.connected) {
+        ownsSessionRef.current = true;
+        setActiveSessionId(ownSessionId);
         setActive(true);
       } else {
         setError(status.last_error || "Bağlantı kurulamadı.");
