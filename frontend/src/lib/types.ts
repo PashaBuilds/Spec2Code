@@ -120,6 +120,8 @@ export interface VitisWorkspaceRequest {
   app_name?: string;
   timeout_s?: number;
   custom_ip_driver_policy?: "auto_none" | "keep";
+  /** full = platform+BSP+app sıfırdan; update = mevcut workspace'te yalnızca kaynak + app build. */
+  mode?: "full" | "update";
 }
 
 export interface CustomPlIpCandidate {

@@ -912,6 +912,116 @@ class VitisWorkspaceTests(unittest.TestCase):
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
+    def test_workspace_update_mode_replaces_sources_and_rebuilds_app_without_xsa(self) -> None:
+        # Yazilim-only degisiklik akisi: mevcut workspace'te generated
+        # kaynaklar degistirilir, yalnizca app build alinir. XSA gerekmez;
+        # platform/BSP'ye dokunulmaz; eski staged dosyalar (ör. onceki
+        # transport'un agent main'i) temizlenir; kullanicinin kendi ekledigi
+        # dosyalar hayatta kalir.
+        project_name = "unit_vitis_update"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_update",
+                spec=spec,
+                status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_fake_xsct(fake_xsct)
+                workspace = tmp_path / "workspace"
+                app_src = workspace / "unit_application" / "src"
+                (app_src / "tests").mkdir(parents=True)
+                stale_agent = app_src / "tests" / "spec2code_testbench_uart_main.c"
+                stale_agent.write_text("int main(void) { return 0; }\n")
+                user_file = app_src / "user_helpers.c"
+                user_file.write_text("/* kullanicinin dosyasi */\n")
+                temp_root = tmp_path / "temp"
+
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path="",  # update modunda XSA gerekmez
+                    workspace_path=str(workspace),
+                    temp_path=str(temp_root),
+                    processor="psu_cortexa53_0",
+                    runtime="standalone",
+                    platform_name="unit_platform",
+                    system_name="unit_system",
+                    app_name="unit_application",
+                    timeout_s=10,
+                    mode="update",
+                )
+                manager = VitisWorkspaceJobManager()
+                job = VitisWorkspaceJob(
+                    id="vitis_update_unit",
+                    source_job_id=generate_job.id,
+                    source_project=project_name,
+                    config=config,
+                    generate_job=generate_job,
+                )
+
+                manager._blocking(job)
+
+                result = job.result or {}
+                self.assertEqual(result["mode"], "update")
+                self.assertTrue(result["successful"])
+                self.assertEqual(result["xsct_exit_code"], 0)
+                # Eski staged agent temizlendi; kullanici dosyasi duruyor.
+                self.assertFalse(stale_agent.exists())
+                self.assertTrue(user_file.is_file())
+                self.assertIn("tests/", result["removed_stale_sources"])
+                # Yeni kaynaklar staging'e kondu ve script yalnizca app build yapiyor.
+                self.assertTrue((temp_root / "vitis_update_unit" / "src" / "drivers").is_dir())
+                script = Path(result["script_path"]).read_text(encoding="utf-8")
+                self.assertIn("importsources -name $app_name -path $source_path", script)
+                self.assertIn("app build -name $app_name", script)
+                self.assertNotIn("platform create", script)
+                self.assertNotIn("domain create", script)
+                self.assertTrue((workspace / "unit_application" / "Debug" / "unit_application.elf").is_file())
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_workspace_update_mode_requires_existing_app_project(self) -> None:
+        project_name = "unit_vitis_update_missing"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_vitis_update_missing", spec=spec, status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "Vitis" / "2024.2" / "bin" / "xsct"
+                write_fake_xsct(fake_xsct)
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path),
+                    xsa_path="",
+                    workspace_path=str(tmp_path / "empty_ws"),
+                    temp_path=str(tmp_path / "temp"),
+                    app_name="unit_application",
+                    timeout_s=10,
+                    mode="update",
+                )
+                job = VitisWorkspaceJob(
+                    id="vitis_update_missing", source_job_id=generate_job.id,
+                    source_project=project_name, config=config, generate_job=generate_job)
+                with self.assertRaises(FileNotFoundError) as ctx:
+                    VitisWorkspaceJobManager()._blocking(job)
+                self.assertIn("Sıfırdan kur", str(ctx.exception))
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
     def test_workspace_job_fails_when_xsct_succeeds_but_application_elf_is_missing(self) -> None:
         project_name = "unit_vitis_workspace_missing_elf"
         spec = load_sample_spec(project_name)

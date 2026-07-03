@@ -374,6 +374,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const [systemName, setSystemName] = useState(() => localStorage.getItem("spec2code.systemName") ?? "");
   const [appName, setAppName] = useState(() => localStorage.getItem("spec2code.appName") ?? "");
   const [customIpDriverPolicy, setCustomIpDriverPolicy] = useState<CustomIpDriverPolicy>(customIpDriverPolicyFromStorage);
+  const [buildMode, setBuildMode] = useState<"full" | "update">(() =>
+    localStorage.getItem("spec2code.vitisBuildMode") === "update" ? "update" : "full");
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -409,8 +411,10 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     const xsaInput = cleanPathInput(xsaPath);
     const workspaceInput = cleanPathInput(workspacePath);
     const tempInput = cleanPathInput(tempPath);
-    if (!vitisInput || !xsaInput || !workspaceInput || !tempInput || running) return;
-    if (!xsaInput.toLowerCase().endsWith(".xsa")) {
+    const updateMode = buildMode === "update";
+    if (!vitisInput || !workspaceInput || !tempInput || running) return;
+    if (!updateMode && !xsaInput) return;
+    if (!updateMode && !xsaInput.toLowerCase().endsWith(".xsa")) {
       setError("XSA alanına klasör değil, doğrudan .xsa dosyasının tam yolu verilmelidir.");
       return;
     }
@@ -428,11 +432,12 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     localStorage.setItem("spec2code.systemName", systemName.trim());
     localStorage.setItem("spec2code.appName", appName.trim());
     localStorage.setItem("spec2code.customIpDriverPolicy", customIpDriverPolicy);
+    localStorage.setItem("spec2code.vitisBuildMode", buildMode);
 
     try {
       const response = await api.createVitisWorkspace(jobId, {
         vitis_path: vitisInput,
-        xsa_path: xsaInput,
+        xsa_path: updateMode ? "" : xsaInput,
         workspace_path: workspaceInput,
         temp_path: tempInput,
         processor: processor.trim() || defaultProcessor,
@@ -442,6 +447,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         app_name: appName.trim(),
         timeout_s: 1800,
         custom_ip_driver_policy: customIpDriverPolicy,
+        mode: buildMode,
       });
 
       closeSocketRef.current = openVitisSocket(
@@ -472,8 +478,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
   const xsaLooksLikeFile = cleanPathInput(xsaPath).toLowerCase().endsWith(".xsa");
   const canStart = Boolean(
     cleanPathInput(vitisPath) &&
-    cleanPathInput(xsaPath) &&
-    xsaLooksLikeFile &&
+    (buildMode === "update" || (cleanPathInput(xsaPath) && xsaLooksLikeFile)) &&
     cleanPathInput(workspacePath) &&
     cleanPathInput(tempPath) &&
     platformName.trim() &&
@@ -515,6 +520,25 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
 
       <div className="grid gap-3">
         <div>
+          <Label htmlFor="vitis-build-mode">Kurulum modu</Label>
+          <Select value={buildMode} onValueChange={(value) => setBuildMode(value as "full" | "update")}>
+            <SelectTrigger id="vitis-build-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full">Sıfırdan kur — platform + BSP + application (XSA gerekir)</SelectItem>
+              <SelectItem value="update">Kaynakları güncelle + build — mevcut workspace, yalnızca yazılım değişikliği</SelectItem>
+            </SelectContent>
+          </Select>
+          {buildMode === "update" ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-faint">
+              Generate çıktısındaki kaynaklar mevcut application'ın src/ klasöründe değiştirilir (eski
+              drivers/, tests/ temizlenir) ve yalnızca app build alınır — platform/BSP'ye dokunulmaz, XSA
+              gerekmez. Donanımı etkileyen değişikliklerde (yeni XSA, transport → Ethernet/lwIP) "Sıfırdan kur" kullan.
+            </p>
+          ) : null}
+        </div>
+        <div>
           <Label htmlFor="vitis-path">Vitis dizini</Label>
           <Input
             id="vitis-path"
@@ -523,20 +547,22 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
             placeholder="C:\\Xilinx\\Vitis\\2024.2"
           />
         </div>
-        <div>
-          <Label htmlFor="xsa-path">XSA dosyası</Label>
-          <Input
-            id="xsa-path"
-            value={xsaPath}
-            onChange={(event) => setXsaPath(event.target.value)}
-            placeholder="D:\\Projects\\board\\export\\board.xsa"
-          />
-          {xsaPath.trim() && !xsaLooksLikeFile ? (
-            <p className="mt-1 text-[11px] text-danger">Klasör değil, doğrudan `.xsa` dosyasının tam yolunu gir.</p>
-          ) : (
-            <p className="mt-1 text-[11px] text-faint">Dosya kullanıcının verdiği Temp/Staging dizinine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
-          )}
-        </div>
+        {buildMode === "full" ? (
+          <div>
+            <Label htmlFor="xsa-path">XSA dosyası</Label>
+            <Input
+              id="xsa-path"
+              value={xsaPath}
+              onChange={(event) => setXsaPath(event.target.value)}
+              placeholder="D:\\Projects\\board\\export\\board.xsa"
+            />
+            {xsaPath.trim() && !xsaLooksLikeFile ? (
+              <p className="mt-1 text-[11px] text-danger">Klasör değil, doğrudan `.xsa` dosyasının tam yolunu gir.</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-faint">Dosya kullanıcının verdiği Temp/Staging dizinine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
+            )}
+          </div>
+        ) : null}
         <div>
           <Label htmlFor="workspace-path">Workspace dizini</Label>
           <Input
@@ -613,7 +639,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         <div className="flex items-end">
           <Button type="button" onClick={start} disabled={!canStart} className="w-full lg:w-auto">
             {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
-            Workspace oluştur
+            {buildMode === "update" ? "Kaynakları güncelle + build" : "Workspace oluştur"}
           </Button>
         </div>
       </div>
