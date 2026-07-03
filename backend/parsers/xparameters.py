@@ -63,25 +63,34 @@ def _resolve_int(raw: str | None, defines: dict[str, str], depth: int = 0) -> Op
 
 _RULES: list[tuple[re.Pattern, str, str, str]] = [
     # --- PS hardened drivers (driver-indexed) ---
+    # Versal XUARTPSV must precede XUARTPS: the looser pattern would
+    # otherwise claim it and assign the wrong (XUartPs) driver.
+    (re.compile(r"XUARTPSV"), "uart", "ps", "XUartPsv"),
     (re.compile(r"XQSPIPSU"), "qspi", "ps", "XQspiPsu"),
     (re.compile(r"XQSPIPS"), "qspi", "ps", "XQspiPs"),
+    (re.compile(r"XOSPIPSV"), "qspi", "ps", "XOspiPsv"),
     (re.compile(r"XIICPS"), "i2c", "ps", "XIicPs"),
     (re.compile(r"XSPIPS"), "spi", "ps", "XSpiPs"),
     (re.compile(r"XGPIOPS"), "gpio", "ps", "XGpioPs"),
     (re.compile(r"XUARTPS"), "uart", "ps", "XUartPs"),
+    (re.compile(r"XCANFD"), "can", "ps", "XCanFd"),
     (re.compile(r"XCANPS"), "can", "ps", "XCanPs"),
     (re.compile(r"XEMACPS"), "eth", "ps", "XEmacPs"),
     (re.compile(r"XSDPS"), "sdio", "ps", "XSdPs"),
-    # --- PS hardened (canonical PS7_/PSU_ instance names) ---
+    # --- PS hardened (canonical PS7_/PSU_/PSV_ instance names) ---
     (re.compile(r"^PSU_.*QSPI"), "qspi", "ps", "XQspiPsu"),
     (re.compile(r"^PS7_.*QSPI"), "qspi", "ps", "XQspiPs"),
-    (re.compile(r"^(PS7|PSU)_.*(I2C|IIC)"), "i2c", "ps", "XIicPs"),
+    (re.compile(r"^PSV_.*OSPI"), "qspi", "ps", "XOspiPsv"),
+    (re.compile(r"^PSV_.*QSPI"), "qspi", "ps", "XQspiPsu"),
+    (re.compile(r"^(PS7|PSU|PSV)_.*(I2C|IIC)"), "i2c", "ps", "XIicPs"),
     (re.compile(r"^(PS7|PSU)_.*SPI"), "spi", "ps", "XSpiPs"),
-    (re.compile(r"^(PS7|PSU)_.*GPIO"), "gpio", "ps", "XGpioPs"),
+    (re.compile(r"^(PS7|PSU|PSV)_.*GPIO"), "gpio", "ps", "XGpioPs"),
+    (re.compile(r"^PSV_.*UART"), "uart", "ps", "XUartPsv"),
     (re.compile(r"^(PS7|PSU)_.*UART"), "uart", "ps", "XUartPs"),
+    (re.compile(r"^PSV_.*CANFD"), "can", "ps", "XCanFd"),
     (re.compile(r"^(PS7|PSU)_.*CAN"), "can", "ps", "XCanPs"),
-    (re.compile(r"^(PS7|PSU)_.*(ENET|ETHERNET|GEM)"), "eth", "ps", "XEmacPs"),
-    (re.compile(r"^(PS7|PSU)_.*SD"), "sdio", "ps", "XSdPs"),
+    (re.compile(r"^(PS7|PSU|PSV)_.*(ENET|ETHERNET|GEM)"), "eth", "ps", "XEmacPs"),
+    (re.compile(r"^(PS7|PSU|PSV)_.*SD"), "sdio", "ps", "XSdPs"),
     # --- PL / AXI soft IP ---
     (re.compile(r"QUAD_SPI"), "spi", "pl", "XSpi"),
     (re.compile(r"AXI_IIC|^XIIC"), "i2c", "pl", "XIic"),
@@ -143,7 +152,7 @@ class _Candidate:
 
 
 _DRIVER_ALIAS_RE = re.compile(
-    r"^(XQSPIPSU|XQSPIPS|XIICPS|XSPIPS|XGPIOPS|XUARTPS|XCANPS|XEMACPS|XSDPS|XIIC|XSPI|XGPIO)(?:_|$)"
+    r"^(XQSPIPSU|XQSPIPS|XOSPIPSV|XIICPS|XSPIPS|XGPIOPS|XUARTPSV|XUARTPS|XCANFD|XCANPS|XEMACPS|XSDPS|XIIC|XSPI|XGPIO)(?:_|$)"
 )
 
 

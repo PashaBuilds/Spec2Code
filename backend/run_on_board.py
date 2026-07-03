@@ -32,7 +32,8 @@ class RunOnBoardConfig:
     platform_name: str
     app_name: str
     processor: str = "psu_cortexa53_0"
-    program_fpga: str = "auto"  # auto | yes | no
+    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
+    program_fpga: str = "auto"  # auto | yes | no (versal: PL is inside the PDI)
     timeout_s: int = 300
 
 
@@ -104,18 +105,26 @@ def find_application_elf(workspace: Path, app_name: str) -> Path:
         f"application ELF not found: {workspace / app_name / 'Debug' / (app_name + '.elf')}")
 
 
-def find_psu_init(workspace: Path, platform_name: str) -> Path:
+def _find_init_tcl(workspace: Path, platform_name: str, init_name: str) -> Path:
     platform_dir = workspace / platform_name
     for candidate in (
-        platform_dir / "hw" / "psu_init.tcl",
-        platform_dir / "export" / platform_name / "hw" / "psu_init.tcl",
+        platform_dir / "hw" / init_name,
+        platform_dir / "export" / platform_name / "hw" / init_name,
     ):
         if candidate.is_file():
             return candidate
-    matches = sorted(platform_dir.glob("**/psu_init.tcl")) if platform_dir.is_dir() else []
+    matches = sorted(platform_dir.glob(f"**/{init_name}")) if platform_dir.is_dir() else []
     if matches:
         return matches[0]
-    raise FileNotFoundError(f"psu_init.tcl not found under platform '{platform_dir}'")
+    raise FileNotFoundError(f"{init_name} not found under platform '{platform_dir}'")
+
+
+def find_psu_init(workspace: Path, platform_name: str) -> Path:
+    return _find_init_tcl(workspace, platform_name, "psu_init.tcl")
+
+
+def find_ps7_init(workspace: Path, platform_name: str) -> Path:
+    return _find_init_tcl(workspace, platform_name, "ps7_init.tcl")
 
 
 def find_bitstream(workspace: Path, platform_name: str) -> Path | None:
@@ -127,45 +136,108 @@ def find_bitstream(workspace: Path, platform_name: str) -> Path | None:
     return None
 
 
+def find_pdi(workspace: Path, platform_name: str) -> Path:
+    """Versal boot image: PLM + PL + NoC config in one PDI inside the platform."""
+    platform_dir = workspace / platform_name
+    if platform_dir.is_dir():
+        for candidate in sorted(platform_dir.glob("hw/*.pdi")) + sorted(platform_dir.glob("**/*.pdi")):
+            return candidate
+    raise FileNotFoundError(f"boot .pdi not found under platform '{platform_dir}'")
+
+
 def _tcl_path(path: Path) -> str:
     return str(path).replace("\\", "/")
+
+
+def _core_filter(processor: str) -> str:
+    lowered = processor.lower()
+    if "a72" in lowered:
+        return '"*A72*#0"'
+    if "a53" in lowered:
+        return '"*A53*#0"'
+    if "a9" in lowered:
+        return '"*A9*#0"'
+    if "r5" in lowered:
+        return '"*R5*#0"'
+    return '"*#0"'
 
 
 def render_run_on_board_script(
     *,
     elf_path: Path,
-    psu_init_path: Path,
-    bitstream_path: Path | None,
-    processor: str = "psu_cortexa53_0",
+    processor: str,
+    platform: str = "zynq_ultrascale",
+    psu_init_path: Path | None = None,
+    ps7_init_path: Path | None = None,
+    bitstream_path: Path | None = None,
+    pdi_path: Path | None = None,
 ) -> str:
-    """xsdb Tcl for the classic ZynqMP JTAG run flow.
+    """xsdb Tcl for the classic JTAG run flow, per platform.
+
+    zynq_ultrascale: rst -system -> psu_init -> [fpga .bit] -> A53/R5 -> dow -> con
+    zynq_7000:       rst -system -> ps7_init -> [fpga .bit] -> A9 -> dow -> ps7_post_config -> con
+    versal:          device program <pdi> (PLM+PL) -> A72 -> dow -> con
 
     The S2C-RUN marker lines let the backend verdict on progress even when
     xsdb noise varies between installs.
     """
-    core_filter = '"*A53*#0"' if "a53" in processor.lower() else '"*R5*#0"'
+    core_filter = _core_filter(processor)
     lines = [
         "catch {fconfigure stdout -buffering line}",
         "connect",
         'puts "S2C-RUN: connected"',
-        'targets -set -nocase -filter {name =~ "*PSU*"}',
-        "rst -system",
-        "after 3000",
-        f"source {{{_tcl_path(psu_init_path)}}}",
-        "psu_init",
-        "after 1000",
-        'puts "S2C-RUN: psu_init done"',
     ]
-    if bitstream_path is not None:
+    if platform == "versal":
+        if pdi_path is None:
+            raise ValueError("versal run-on-board requires a boot PDI")
         lines.extend([
-            f"fpga {{{_tcl_path(bitstream_path)}}}",
-            'puts "S2C-RUN: fpga programmed"',
+            'targets -set -nocase -filter {name =~ "*Versal*"}',
+            f"device program {{{_tcl_path(pdi_path)}}}",
+            'puts "S2C-RUN: pdi programmed"',
         ])
+    elif platform == "zynq_7000":
+        if ps7_init_path is None:
+            raise ValueError("zynq_7000 run-on-board requires ps7_init.tcl")
+        lines.extend([
+            'targets -set -nocase -filter {name =~ "*APU*"}',
+            "rst -system",
+            "after 3000",
+            f"source {{{_tcl_path(ps7_init_path)}}}",
+            "ps7_init",
+            "after 1000",
+            'puts "S2C-RUN: ps7_init done"',
+        ])
+        if bitstream_path is not None:
+            lines.extend([
+                f"fpga {{{_tcl_path(bitstream_path)}}}",
+                'puts "S2C-RUN: fpga programmed"',
+            ])
+    else:
+        if psu_init_path is None:
+            raise ValueError("zynq_ultrascale run-on-board requires psu_init.tcl")
+        lines.extend([
+            'targets -set -nocase -filter {name =~ "*PSU*"}',
+            "rst -system",
+            "after 3000",
+            f"source {{{_tcl_path(psu_init_path)}}}",
+            "psu_init",
+            "after 1000",
+            'puts "S2C-RUN: psu_init done"',
+        ])
+        if bitstream_path is not None:
+            lines.extend([
+                f"fpga {{{_tcl_path(bitstream_path)}}}",
+                'puts "S2C-RUN: fpga programmed"',
+            ])
     lines.extend([
         f"targets -set -nocase -filter {{name =~ {core_filter}}}",
         "rst -processor -clear-registers",
         f"dow {{{_tcl_path(elf_path)}}}",
         'puts "S2C-RUN: elf downloaded"',
+    ])
+    if platform == "zynq_7000":
+        lines.append("ps7_post_config")
+    lines.extend([
         "con",
         'puts "S2C-RUN: running"',
         "disconnect",
@@ -235,26 +307,39 @@ class RunOnBoardJobManager:
                   "message": f"xsdb: {xsdb}"})
 
         elf = find_application_elf(workspace, config.app_name)
-        psu_init = find_psu_init(workspace, config.platform_name)
-        bitstream = None
-        if config.program_fpga in ("auto", "yes"):
+        psu_init: Path | None = None
+        ps7_init: Path | None = None
+        pdi: Path | None = None
+        bitstream: Path | None = None
+        if config.platform == "versal":
+            pdi = find_pdi(workspace, config.platform_name)
+            boot_note = f"pdi: {pdi.name}"
+        elif config.platform == "zynq_7000":
+            ps7_init = find_ps7_init(workspace, config.platform_name)
+            boot_note = f"ps7_init: {ps7_init.name}"
+        else:
+            psu_init = find_psu_init(workspace, config.platform_name)
+            boot_note = f"psu_init: {psu_init.name}"
+        if config.platform != "versal" and config.program_fpga in ("auto", "yes"):
             bitstream = find_bitstream(workspace, config.platform_name)
             if bitstream is None and config.program_fpga == "yes":
                 raise FileNotFoundError("bitstream requested but no .bit found under the platform")
         job.emit({"event": "runboard.stage", "stage": "script", "progress": 35,
-                  "message": f"ELF: {elf.name}; psu_init: {psu_init.name}; "
+                  "message": f"ELF: {elf.name}; {boot_note}; "
                              f"bit: {bitstream.name if bitstream else 'yok'}"})
 
         script = render_run_on_board_script(
-            elf_path=elf, psu_init_path=psu_init,
-            bitstream_path=bitstream, processor=config.processor)
+            elf_path=elf, processor=config.processor, platform=config.platform,
+            psu_init_path=psu_init, ps7_init_path=ps7_init,
+            bitstream_path=bitstream, pdi_path=pdi)
         run_dir = workspace / ".spec2code_runboard"
         run_dir.mkdir(parents=True, exist_ok=True)
         script_path = run_dir / f"run_{int(time.time())}.tcl"
         script_path.write_text(script, encoding="utf-8")
 
+        boot_step = {"versal": "PDI programla", "zynq_7000": "ps7_init"}.get(config.platform, "psu_init")
         job.emit({"event": "runboard.stage", "stage": "run", "progress": 45,
-                  "message": "xsdb çalışıyor: reset -> psu_init -> ELF indir -> başlat..."})
+                  "message": f"xsdb çalışıyor: reset -> {boot_step} -> ELF indir -> başlat..."})
         stdout_path = run_dir / "xsdb_stdout.log"
         stderr_path = run_dir / "xsdb_stderr.log"
         outcome = _run_xsct_streaming(
@@ -282,7 +367,10 @@ class RunOnBoardJobManager:
 
         job.result = {
             "elf": str(elf),
-            "psu_init": str(psu_init),
+            "platform": config.platform,
+            "psu_init": str(psu_init) if psu_init else None,
+            "ps7_init": str(ps7_init) if ps7_init else None,
+            "pdi": str(pdi) if pdi else None,
             "bitstream": str(bitstream) if bitstream else None,
             "markers": markers,
             "stdout_log": str(stdout_path),

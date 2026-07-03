@@ -577,6 +577,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
         uart = _testbench_uart_controller(spec) or {}
         manifest["uart"] = {
             "instance": uart.get("instance", ""),
+            "driver": _testbench_uart_driver(spec),
             "baud": 115200,
         }
     for device in spec.get("devices", []):
@@ -1319,6 +1320,16 @@ def _zynqmp_lwip_eth_controller(spec: dict) -> dict | None:
     return None
 
 
+#: PS UART drivers the serial agent can be generated for. The Versal
+#: uartpsv driver mirrors the uartps API one-to-one (Lookup/CfgInitialize/
+#: SetBaudRate/Recv/Send), so both share one template parameterized by
+#: driver prefix + header.
+_TESTBENCH_UART_DRIVERS: dict[str, str] = {
+    "XUartPs": "xuartps.h",
+    "XUartPsv": "xuartpsv.h",
+}
+
+
 def _testbench_uart_controller(spec: dict) -> dict | None:
     """Deterministic PS UART pick for the serial test bench agent.
 
@@ -1331,7 +1342,7 @@ def _testbench_uart_controller(spec: dict) -> dict | None:
         for controller in spec.get("controllers", [])
         if controller.get("type") == "uart"
         and controller.get("zone") == "ps"
-        and controller.get("driver", "XUartPs") == "XUartPs"
+        and controller.get("driver", "XUartPs") in _TESTBENCH_UART_DRIVERS
     ]
     if not candidates:
         return None
@@ -2248,13 +2259,20 @@ def _testbench_lwip_main_source(spec: dict) -> str:
     )
 
 
+def _testbench_uart_driver(spec: dict) -> str:
+    uart = _testbench_uart_controller(spec)
+    driver = str(uart.get("driver", "XUartPs")) if uart else "XUartPs"
+    return driver if driver in _TESTBENCH_UART_DRIVERS else "XUartPs"
+
+
 def _testbench_uart_header(spec: dict) -> str:
     uart = _testbench_uart_controller(spec)
     instance = uart.get("instance") if uart else "XPAR_XUARTPS_0"
+    driver = _testbench_uart_driver(spec)
     return (
         "/**\n"
         " * @file spec2code_testbench_uart.h\n"
-        " * @brief PS UART (XUartPs) line-protocol agent for the Spec2Code test bench.\n"
+        f" * @brief PS UART ({driver}) line-protocol agent for the Spec2Code test bench.\n"
         " *\n"
         " * Carries the same S2C line protocol as the TCP agent over the PS UART.\n"
         ' * Lines that do not start with "S2C|" are ignored, so the agent can\n'
@@ -2287,9 +2305,10 @@ def _testbench_uart_source(spec: dict) -> str:
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
-        '#include "xuartps.h"',
+        f'#include "{_TESTBENCH_UART_DRIVERS[_testbench_uart_driver(spec)]}"',
         '#include <stddef.h>',
     ]
+    uart_prefix = _testbench_uart_driver(spec)
     for htype, header in _TESTBENCH_HANDLE_HEADERS:
         if any(entry["htype"] == htype for entry in entries):
             headers.append(f'#include "{header}"')
@@ -2297,9 +2316,9 @@ def _testbench_uart_source(spec: dict) -> str:
     lines = [
         "/**",
         " * @file spec2code_testbench_uart.c",
-        " * @brief PS UART (XUartPs) polled line-protocol agent for the Spec2Code test bench.",
+        f" * @brief PS UART ({uart_prefix}) polled line-protocol agent for the Spec2Code test bench.",
         " *",
-        " * Polled receive per the official xuartps polled example; needs no",
+        " * Polled receive per the official polled UART example; needs no",
         " * interrupts and no scheduler, so the same agent runs on bare metal",
         " * and on a FreeRTOS BSP alike.",
         " */",
@@ -2307,7 +2326,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "",
         "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
         "",
-        "static XUartPs S_sTestbenchUart;",
+        f"static {uart_prefix} S_sTestbenchUart;",
         "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
         "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
         "static unsigned int S_uiBoardReady;",
@@ -2334,21 +2353,21 @@ def _testbench_uart_source(spec: dict) -> str:
         ],
         "int spec2codeTestbenchUartInit(void)",
         "{",
-        "    XUartPs_Config* spUartConfig;",
+        f"    {uart_prefix}_Config* spUartConfig;",
         "    int iStatus;",
         "",
-        "    spUartConfig = XUartPs_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+        f"    spUartConfig = {uart_prefix}_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
         "    if (spUartConfig == NULL)",
         "    {",
         '        xil_printf("Spec2Code UART config bulunamadi\\r\\n");',
         "        return XST_FAILURE;",
         "    }",
-        "    iStatus = XUartPs_CfgInitialize(&S_sTestbenchUart, spUartConfig, spUartConfig->BaseAddress);",
+        f"    iStatus = {uart_prefix}_CfgInitialize(&S_sTestbenchUart, spUartConfig, spUartConfig->BaseAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        return iStatus;",
         "    }",
-        "    iStatus = XUartPs_SetBaudRate(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_BAUD);",
+        f"    iStatus = {uart_prefix}_SetBaudRate(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_BAUD);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        return iStatus;",
@@ -2365,7 +2384,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "    uiSent = 0U;",
         "    while (uiSent < uiLength)",
         "    {",
-        "        uiSent += XUartPs_Send(&S_sTestbenchUart,",
+        f"        uiSent += {uart_prefix}_Send(&S_sTestbenchUart,",
         "                               (u8*)&cpLine[uiSent],",
         "                               uiLength - uiSent);",
         "    }",
@@ -2390,7 +2409,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "    uiLineLength = 0U;",
         "    for (;;)",
         "    {",
-        "        if (XUartPs_Recv(&S_sTestbenchUart, &ucByte, 1U) == 0U)",
+        f"        if ({uart_prefix}_Recv(&S_sTestbenchUart, &ucByte, 1U) == 0U)",
         "        {",
         "            continue;",
         "        }",

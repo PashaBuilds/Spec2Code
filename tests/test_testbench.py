@@ -62,6 +62,19 @@ def add_zynqmp_ps_uart(spec: dict) -> None:
     })
 
 
+def add_versal_ps_uart(spec: dict) -> None:
+    spec["controllers"].append({
+        "id": "ps_uart_0",
+        "type": "uart",
+        "instance": "XPAR_XUARTPSV_0",
+        "base_address": "0xFF000000",
+        "device_id": 0,
+        "driver": "XUartPsv",
+        "source": "xparameters",
+        "zone": "ps",
+    })
+
+
 class OneShotHandler(socketserver.BaseRequestHandler):
     response = b"S2C|id=7|ok=1|status=0|value=0x12|data=AABB|message=ok\n"
 
@@ -413,6 +426,32 @@ class TestbenchTests(unittest.TestCase):
         self.assertFalse(lwip_generated)
         self.assertEqual(manifest["transport_agent"], "uart")
         self.assertEqual(manifest["uart"]["instance"], "XPAR_XUARTPS_0")
+
+    def test_versal_uart_agent_uses_uartpsv_api(self) -> None:
+        # Versal's PS UART is XUartPsv (xuartpsv.h) - same call shape as
+        # XUartPs but a distinct driver; the agent must not mix the two.
+        spec = load_sample_spec("unit_versal_uart_agent")
+        spec["project"]["platform"] = "versal"
+        add_versal_ps_uart(spec)
+        spec["project"]["testbench_transport"] = "uart"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            uart_header = (out_dir / "tests" / "spec2code_testbench_uart.h").read_text(encoding="utf-8")
+            uart_source = (out_dir / "tests" / "spec2code_testbench_uart.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn("XPAR_XUARTPSV_0_DEVICE_ID", uart_header)
+        self.assertIn('#include "xuartpsv.h"', uart_source)
+        self.assertIn("XUartPsv_CfgInitialize", uart_source)
+        self.assertIn("XUartPsv_SetBaudRate", uart_source)
+        self.assertIn("XUartPsv_Recv(&S_sTestbenchUart, &ucByte, 1U)", uart_source)
+        self.assertNotIn("xuartps.h", uart_source.replace("xuartpsv.h", ""))
+        self.assertNotIn("XUartPs_", uart_source.replace("XUartPsv_", ""))
+        self.assertEqual(manifest["transport_agent"], "uart")
+        self.assertEqual(manifest["uart"]["driver"], "XUartPsv")
 
     def test_testbench_transport_auto_prefers_eth_and_falls_back_to_uart(self) -> None:
         spec = load_sample_spec("unit_transport_auto")

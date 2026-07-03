@@ -66,6 +66,44 @@ class RenderRunScriptTests(unittest.TestCase):
         self.assertNotIn("fpga", script)
         self.assertIn('"*R5*#0"', script)
 
+    def test_versal_script_programs_pdi_then_downloads_to_a72(self) -> None:
+        # Versal JTAG boot: the PDI carries PLM + PL + NoC config; there is
+        # no psu_init/ps7_init and no separate bitstream step.
+        script = render_run_on_board_script(
+            elf_path=Path("C:/ws/app/Debug/app.elf"),
+            processor="psv_cortexa72_0",
+            platform="versal",
+            pdi_path=Path("C:/ws/plat/hw/vck190.pdi"),
+        )
+        markers = ["\nconnect\n", "device program {C:/ws/plat/hw/vck190.pdi}",
+                   "rst -processor", "\ndow {", "\ncon\n"]
+        positions = [script.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('"*A72*#0"', script)
+        self.assertNotIn("psu_init", script)
+        self.assertNotIn("fpga {", script)
+
+    def test_versal_script_requires_pdi(self) -> None:
+        with self.assertRaises(ValueError):
+            render_run_on_board_script(
+                elf_path=Path("a.elf"), processor="psv_cortexa72_0",
+                platform="versal", pdi_path=None)
+
+    def test_zynq7000_script_uses_ps7_init_and_post_config(self) -> None:
+        script = render_run_on_board_script(
+            elf_path=Path("C:/ws/app/Debug/app.elf"),
+            processor="ps7_cortexa9_0",
+            platform="zynq_7000",
+            ps7_init_path=Path("C:/ws/plat/hw/ps7_init.tcl"),
+            bitstream_path=Path("C:/ws/plat/hw/top.bit"),
+        )
+        markers = ["rst -system", "ps7_init\n", "fpga {", "\ndow {",
+                   "ps7_post_config", "\ncon\n"]
+        positions = [script.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('"*A9*#0"', script)
+        self.assertNotIn("psu_init", script)
+
 
 class LocateXsdbTests(unittest.TestCase):
     def test_locates_versioned_vitis_layout(self) -> None:
@@ -123,6 +161,28 @@ class RunOnBoardBlockingTests(unittest.TestCase):
             _make_workspace(root, with_bit=False)
             with self.assertRaises(FileNotFoundError):
                 self._run(_RUN_OK_BODY, root, program_fpga="yes")
+
+    def test_versal_blocking_flow_finds_pdi(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ws = _make_workspace(root, with_bit=False)
+            (ws / "myplat" / "hw" / "boot.pdi").write_text("pdi")
+            name = "xsdb.bat" if os.name == "nt" else "xsdb"
+            xsdb = root / "tools" / name
+            _write_fake_xsct(xsdb, _RUN_OK_BODY, "2023.2")
+            config = RunOnBoardConfig(
+                vitis_path=str(xsdb),
+                workspace_path=str(root / "ws"),
+                platform_name="myplat",
+                app_name="myapp",
+                processor="psv_cortexa72_0",
+                platform="versal",
+                timeout_s=60,
+            )
+            job = RunOnBoardJob(id="runboard_versal", config=config)
+            RunOnBoardJobManager()._blocking(job)
+        self.assertIn("S2C-RUN: running", job.result["markers"])
+        self.assertIsNone(job.result["bitstream"])
 
 
 if __name__ == "__main__":

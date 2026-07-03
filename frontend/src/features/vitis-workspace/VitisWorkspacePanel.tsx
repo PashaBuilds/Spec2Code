@@ -763,6 +763,7 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         platformName={platformName.trim()}
         appName={appName.trim()}
         processor={processor.trim() || defaultProcessor}
+        platform={project.platform}
         ready={workspaceReady}
       />
     </section>

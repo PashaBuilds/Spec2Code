@@ -743,6 +743,7 @@ class RunOnBoardRequest(BaseModel):
     platform_name: str
     app_name: str
     processor: str = "psu_cortexa53_0"
+    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
     program_fpga: str = "auto"  # auto | yes | no
     timeout_s: int = 300
 
@@ -755,6 +756,7 @@ async def vitis_run_on_board(req: RunOnBoardRequest) -> dict:
         platform_name=req.platform_name,
         app_name=req.app_name,
         processor=req.processor,
+        platform=req.platform,
         program_fpga=req.program_fpga,
         timeout_s=req.timeout_s,
     ))

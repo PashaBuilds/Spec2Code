@@ -11,6 +11,7 @@ interface RunOnBoardCardProps {
   platformName: string;
   appName: string;
   processor: string;
+  platform: string;
   ready: boolean;
 }
 
@@ -23,6 +24,7 @@ export default function RunOnBoardCard({
   platformName,
   appName,
   processor,
+  platform,
   ready,
 }: RunOnBoardCardProps) {
   const [programFpga, setProgramFpga] = useState<FpgaChoice>("auto");
@@ -50,6 +52,7 @@ export default function RunOnBoardCard({
         platform_name: platformName.trim(),
         app_name: appName.trim(),
         processor: processor.trim(),
+        platform: platform as import("@/lib/types").PlatformId,
         program_fpga: programFpga,
         timeout_s: 300,
       });
@@ -92,11 +95,16 @@ export default function RunOnBoardCard({
         </div>
       </div>
       <p className="mb-3 text-[11px] leading-relaxed text-muted">
-        Kart JTAG boot modunda ve USB-JTAG kablosu takılı olmalı. Akış: sistem reset → psu_init →
-        {" "}bitstream (varsa) → ELF indir → başlat. Uygulama çıktısını UART konsolundan izleyebilirsin.
+        Kart JTAG boot modunda ve USB-JTAG kablosu takılı olmalı. Akış:{" "}
+        {platform === "versal"
+          ? "PDI programla (PLM + PL dahil) → ELF indir → başlat"
+          : platform === "zynq_7000"
+            ? "sistem reset → ps7_init → bitstream (varsa) → ELF indir → başlat"
+            : "sistem reset → psu_init → bitstream (varsa) → ELF indir → başlat"}
+        . Uygulama çıktısını UART konsolundan izleyebilirsin.
       </p>
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-44">
+        <div className={cn("w-44", platform === "versal" && "hidden")}>
           <Label htmlFor="runboard-fpga">PL bitstream</Label>
           <Select value={programFpga} onValueChange={(value) => setProgramFpga(value as FpgaChoice)}>
             <SelectTrigger id="runboard-fpga">

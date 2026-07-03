@@ -44,6 +44,41 @@ class XparametersParserTests(unittest.TestCase):
         self.assertEqual([c["instance"] for c in parsed.controllers], ["XPAR_XIICPS_0", "XPAR_XIICPS_1"])
         self.assertEqual([c["id"] for c in parsed.controllers], ["ps_i2c_0", "ps_i2c_1"])
 
+    def test_versal_uartpsv_is_not_misclassified_as_uartps(self) -> None:
+        # Regression: the loose XUARTPS rule used to swallow XUARTPSV and
+        # assign the wrong driver; Versal uses the uartpsv API.
+        text = """
+        #define XPAR_XUARTPSV_0_DEVICE_ID 0
+        #define XPAR_XUARTPSV_0_BASEADDR 0xFF000000
+        #define XPAR_PSV_SBSAUART_0_DEVICE_ID 0
+        #define XPAR_PSV_SBSAUART_0_BASEADDR 0xFF000000
+        """
+
+        parsed = parse_xparameters(text, PLATFORM)
+
+        self.assertEqual(len(parsed.controllers), 1)
+        controller = parsed.controllers[0]
+        self.assertEqual(controller["type"], "uart")
+        self.assertEqual(controller["driver"], "XUartPsv")
+
+    def test_versal_psv_i2c_and_qspi_use_shared_ps_drivers(self) -> None:
+        text = """
+        #define XPAR_PSV_I2C_0_DEVICE_ID 0
+        #define XPAR_PSV_I2C_0_BASEADDR 0xFF020000
+        #define XPAR_XIICPS_0_DEVICE_ID XPAR_PSV_I2C_0_DEVICE_ID
+        #define XPAR_XIICPS_0_BASEADDR 0xFF020000
+        #define XPAR_PSV_PMC_QSPI_0_DEVICE_ID 0
+        #define XPAR_PSV_PMC_QSPI_0_BASEADDR 0xF1030000
+        #define XPAR_XQSPIPSU_0_DEVICE_ID XPAR_PSV_PMC_QSPI_0_DEVICE_ID
+        #define XPAR_XQSPIPSU_0_BASEADDR 0xF1030000
+        """
+
+        parsed = parse_xparameters(text, PLATFORM)
+
+        drivers = {c["type"]: c["driver"] for c in parsed.controllers}
+        self.assertEqual(drivers.get("i2c"), "XIicPs")
+        self.assertEqual(drivers.get("qspi"), "XQspiPsu")
+
     def test_zynqmp_qspi_psu_alias_uses_qspipsu_driver(self) -> None:
         text = """
         #define XPAR_PSU_QSPI_0_DEVICE_ID 0

@@ -360,6 +360,7 @@ export interface RunOnBoardRequest {
   platform_name: string;
   app_name: string;
   processor?: string;
+  platform?: PlatformId;
   program_fpga?: "auto" | "yes" | "no";
   timeout_s?: number;
 }
@@ -422,7 +423,10 @@ export interface RunOnBoardResult {
   error: string | null;
   result: {
     elf: string;
-    psu_init: string;
+    platform?: string;
+    psu_init: string | null;
+    ps7_init?: string | null;
+    pdi?: string | null;
     bitstream: string | null;
     markers: string[];
     stdout_log: string;
