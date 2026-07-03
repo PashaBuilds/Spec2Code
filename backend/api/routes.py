@@ -117,12 +117,20 @@ class TestbenchCommandRequest(BaseModel):
 
 class TestbenchConnectRequest(BaseModel):
     session_id: str
-    transport: str = "tcp"  # "tcp" | "serial"
+    transport: str = "tcp"  # "tcp" | "serial" | "coresight"
     host: str = ""
     port: int = 0
     serial_port: str = ""
     baud: int = 115200
+    vitis_path: str = ""  # coresight: xsdb bu kurulumdan bulunur
+    hw_server_url: str = ""  # coresight: boş = lokal USB JTAG; SmartLynq için <ip>[:port]
+    processor: str = "psu_cortexa53_0"  # coresight: DCC'nin bağlandığı çekirdek
     timeout_s: float = 5.0
+
+
+class TestbenchTrafficRequest(BaseModel):
+    session_id: str
+    since: int = 0
 
 
 class TestbenchSessionRequest(BaseModel):
@@ -821,12 +829,20 @@ def testbench_session_connect(req: TestbenchConnectRequest) -> dict:
                 raise HTTPException(400, {"message": "serial_port is required for the serial transport"})
             return testbench_sessions.connect_serial(
                 req.session_id, req.serial_port, req.baud, req.timeout_s).__dict__
+        if req.transport == "coresight":
+            if not req.vitis_path.strip():
+                raise HTTPException(400, {"message": "vitis_path is required for the coresight transport"})
+            return testbench_sessions.connect_coresight(
+                req.session_id, req.vitis_path, req.hw_server_url,
+                req.processor, req.timeout_s).__dict__
         return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench session is invalid", "error": str(exc)}) from exc
     except ImportError as exc:
         raise HTTPException(501, {"message": "pyserial is not installed on the backend", "error": str(exc)}) from exc
-    except OSError as exc:
+    except ValueError as exc:
+        raise HTTPException(400, {"message": "testbench connect failed", "error": str(exc)}) from exc
+    except (OSError, FileNotFoundError) as exc:
         raise HTTPException(502, {"message": "testbench connect failed", "error": str(exc)}) from exc
 
 
@@ -853,6 +869,20 @@ def testbench_console_write(req: TestbenchConsoleWriteRequest) -> dict:
     except OSError as exc:
         raise HTTPException(502, {"message": "serial write failed", "error": str(exc)}) from exc
     return {"ok": True}
+
+
+@router.post("/testbench/traffic")
+def testbench_traffic(req: TestbenchTrafficRequest) -> dict:
+    try:
+        seq, entries = testbench_sessions.traffic(req.session_id, req.since)
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench session not found", "error": str(exc)}) from exc
+    return {"seq": seq, "entries": entries}
+
+
+@router.get("/testbench/sessions")
+def testbench_session_list() -> dict:
+    return {"sessions": [status.__dict__ for status in testbench_sessions.list_sessions()]}
 
 
 @router.post("/testbench/session/disconnect")

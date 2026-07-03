@@ -893,7 +893,11 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
 
     # Any staged transport agent already provides main(); a second main()
     # from the self-test scaffold would break the link.
-    agent_mains = {"tests/spec2code_testbench_lwip_main.c", "tests/spec2code_testbench_uart_main.c"}
+    agent_mains = {
+        "tests/spec2code_testbench_lwip_main.c",
+        "tests/spec2code_testbench_uart_main.c",
+        "tests/spec2code_testbench_coresight_main.c",
+    }
     emit_selftest_main = not (agent_mains & set(staged))
     for name, content in {
         "spec2code_selftest_main.h": vitis_selftest_header(),

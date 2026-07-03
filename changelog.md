@@ -3,6 +3,43 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.93 - 2026-07-03
+
+CoreSight (JTAG DCC) test bench transportu, Veri Akisi ekrani ve seri
+konsol canlilik iyilestirmeleri.
+
+- CORESIGHT TRANSPORTU (hedef taraf): `project.testbench_transport`
+  secenegine "coresight" eklendi. ZynqMP'de psu_coresight_0 uzerinden
+  ayni S2C satir protokolunu konusan polled DCC agent'i uretilir
+  (tests/spec2code_testbench_coresight*.c/h, standalone BSP
+  coresightps_dcc surucusu: XCoresightPs_DccSendByte/RecvByte).
+  Ethernet PHY'si veya bos UART pini gerektirmez - yalnizca JTAG.
+  Dürüst kapi: ZynqMP disinda acik CodegenError. auto asla coresight
+  secmez (debug kablosu gerektirir). Manifest'e `coresight` blogu yazilir.
+- CORESIGHT TRANSPORTU (host taraf): Test Bench baglanti paneline
+  ucuncu secenek olarak CoreSight eklendi (Vitis yolu + opsiyonel
+  SmartLynq/hw_server adresi + cekirdek). Backend xsdb'yi
+  `jtagterminal -socket` ile calistirip DCC'yi lokal TCP portuna
+  koprular; oturumun geri kalani mevcut seri altyapisini kullanir -
+  UART konsolu, komutlar ve bring-up ayni sekilde calisir. SmartLynq
+  uzerinden de dogrudan kullanilabilir (connect -url).
+- VERI AKISI EKRANI (yeni "Akis" gorunumu + Ctrl+K): host ile agent
+  arasindaki her satir yon (TX/RX) ve zaman damgasiyla canli izlenir -
+  TCP, seri ve CoreSight session'larinin tumu icin. Session secici,
+  duraklat/temizle/indir, TX/RX sayaclari, seri/CoreSight'ta ham satir
+  gonderimi. API: POST /api/testbench/traffic, GET /api/testbench/sessions.
+- SERI KANAL CANLILIK: uretilen agent'lar acilista surum/proje banner'i
+  basar ("Spec2Code test bench vX | proje: ... | transport: ...").
+  Enter'a (bos satir) "> " istemi doner - cakilma/takilma konsoldan
+  anlasilir. CR tek basina da satir sonu sayilir (PuTTY Enter'i yalniz
+  CR gonderir); CRLF cift istem uretmez. UART konsolu ve Veri Akisi
+  ekranindan bos Enter gonderilebilir.
+- Dogrulama: 124 testte 122 gecti (kalan 2'si ortamdaki libclang
+  eksikligi, degisiklikten bagimsiz); yeni birim testleri: coresight
+  codegen + platform kapisi, sahte jtagterminal soketiyle uctan uca
+  coresight oturumu (banner + "> " istemi + trafik), TCP/seri trafik
+  halkasi. Frontend tsc + vite build temiz.
+
 ## v0.1.92 - 2026-07-03
 
 Elle bitstream secimi: XSA her zaman .bit icermez; Build & Run on Board

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Boxes, Cable, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, Boxes, Cable, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -18,11 +18,12 @@ import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import TransactionTimeline from "@/features/testbench/TransactionTimeline";
 import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
+import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "bringup" | "registers" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "traffic" | "bringup" | "registers" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -94,6 +95,7 @@ export default function App() {
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
     { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
     { id: "uart", label: "UART konsolu", hint: "görünüm", keywords: "seri com konsol log", run: () => setView("uart") },
+    { id: "traffic", label: "Veri Akışı — TX/RX trafiği", hint: "görünüm", keywords: "trafik veri akış tx rx coresight dcc jtag", run: () => setView("traffic") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
@@ -168,6 +170,13 @@ export default function App() {
             <Cable className="h-4 w-4" /> UART
           </Button>
           <Button
+            variant={view === "traffic" ? "outline" : "ghost"}
+            size="sm"
+            onClick={() => setView(view === "traffic" ? "flow" : "traffic")}
+          >
+            <Activity className="h-4 w-4" /> Akış
+          </Button>
+          <Button
             variant={view === "bringup" ? "outline" : "ghost"}
             size="sm"
             onClick={() => setView(view === "bringup" ? "flow" : "bringup")}
@@ -230,6 +239,13 @@ export default function App() {
             <h2 className="mb-3 shrink-0 text-sm font-semibold">UART konsolu</h2>
             <div className="min-h-0 flex-1">
               <UartConsolePanel />
+            </div>
+          </div>
+        ) : view === "traffic" ? (
+          <div className="flex h-full min-h-0 flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Veri Akışı — host ↔ agent TX/RX</h2>
+            <div className="min-h-0 flex-1">
+              <TrafficPanel />
             </div>
           </div>
         ) : view === "bringup" ? (

@@ -23,9 +23,9 @@
         "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" },
         "testbench_transport": {
           "type": "string",
-          "enum": ["auto", "eth", "uart"],
+          "enum": ["auto", "eth", "uart", "coresight"],
           "default": "auto",
-          "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART."
+          "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART. coresight = JTAG DCC (psu_coresight_0, ZynqMP), auto asla secmez."
         }
       }
     },

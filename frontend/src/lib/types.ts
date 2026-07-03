@@ -68,8 +68,8 @@ export interface ProjectMeta {
   target_core: string;
   runtime: Runtime;
   output_mode?: string;
-  /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART. */
-  testbench_transport?: "auto" | "eth" | "uart";
+  /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART; coresight = JTAG DCC (ZynqMP). */
+  testbench_transport?: "auto" | "eth" | "uart" | "coresight";
 }
 export interface LlmConfig {
   enabled: boolean;
@@ -292,8 +292,9 @@ export interface TestbenchManifest {
   agent_version?: string;
   protocol: string;
   line_format: string;
-  transport_agent?: "lwip" | "uart" | null;
+  transport_agent?: "lwip" | "uart" | "coresight" | null;
   uart?: { instance: string; baud: number };
+  coresight?: { device: string; driver: string; processor: string; host_bridge: string };
   devices: TestbenchManifestDevice[];
 }
 
@@ -321,11 +322,17 @@ export interface TestbenchCommandResponse {
 
 export interface TestbenchSessionConnectRequest {
   session_id: string;
-  transport?: "tcp" | "serial";
+  transport?: "tcp" | "serial" | "coresight";
   host?: string;
   port?: number;
   serial_port?: string;
   baud?: number;
+  /** coresight: xsdb bu Vitis kurulumundan bulunur. */
+  vitis_path?: string;
+  /** coresight: boş = lokal USB JTAG; SmartLynq için `<ip>[:port]`. */
+  hw_server_url?: string;
+  /** coresight: DCC'nin bağlandığı çekirdek. */
+  processor?: string;
   timeout_s?: number;
 }
 
@@ -337,9 +344,19 @@ export interface TestbenchSessionStatus {
   connected_at?: number | null;
   last_used_at?: number | null;
   last_error?: string;
-  transport?: "tcp" | "serial";
+  transport?: "tcp" | "serial" | "coresight";
   serial_port?: string;
   baud?: number;
+  processor?: string;
+  hw_server_url?: string;
+  dcc_port?: number;
+}
+
+export interface TrafficEntry {
+  seq: number;
+  at: number;
+  dir: "tx" | "rx";
+  line: string;
 }
 
 export interface SerialPortInfo {
