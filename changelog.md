@@ -3,6 +3,38 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.90 - 2026-07-03
+
+Platform genislemesi: Versal + MicroBlaze + Zynq-7000 dogrulamasi ve
+durust platform kapilari. Tum dogrulamalar bu makinede, Vitis 2023.2
+kurulumuyla gelen built-in fixed platformlar (vck190/zc702) ve Vivado
+ile uretilen MicroBlaze tasarimi uzerinden uctan uca yapildi.
+
+- VERSAL (VCK190 ile uctan uca dogrulandi): parser XUARTPSV'yi artik
+  XUartPs'e yanlis eslemiyor; PSV_* kanonik adlari eklendi. UART test
+  bench ajani surucu-parametrik oldu - Versal'da XUartPsv (xuartpsv.h)
+  ile uretiliyor. vck190.xsa'dan psv_cortexa72_0 workspace kuruldu,
+  versal_test_sw.elf uretildi; 8 uretilen kaynak gercek VCK190 BSP'sine
+  karsi -Wall -Wextra -Werror sifir uyari derlendi. Build&Run on Board
+  Versal'da PDI akisini kullanir (device program -> A72 -> dow -> con).
+- MICROBLAZE (Vivado'da uretilen tasarimla dogrulandi):
+  scripts/make_microblaze_xsa.tcl MB + BRAM + AXI UARTLITE/IIC/QSPI
+  tasarimini sentezsiz XSA olarak uretir. UART ajanina XUartLite
+  varyanti eklendi (tek cagrili init, donanimda sabit baud). XSA'dan
+  microblaze_0 workspace kuruldu, mb_test_sw.elf uretildi (mb-objdump:
+  elf32-microblazeel) - XUartLite ajani mb-gcc ile gercek BSP'de
+  derlendi.
+- ZYNQ-7000 (zc702 ile uctan uca dogrulandi): a9_N -> ps7_cortexa9_N
+  islemci eslemesi (backend + frontend); Build&Run 7000'de ps7_init +
+  ps7_post_config akisini kullanir; I2C cihazlari + XUartPs ajani zc702
+  BSP'siyle dogrulandi.
+- DURUST KAPILAR: cmodel, destek disi suruculere (AXI XIic/XSpi,
+  XQspiPs, XOspiPsv) bagli cihazlarda derlenemeyecek kod uretmek yerine
+  acik CodegenError verir. Setup ekraninda platforma gore dogrulanmis/
+  sinirli destek notu gosterilir. XCANFD/XOSPIPSV parser'da taninir.
+- Ayrica: custom IP make.libs watcher'i BSP regen sirasinda kaybolan
+  dizinlere dayanikli (Windows rglob yarisi).
+
 ## v0.1.89 - 2026-07-02
 
 Faz 5: Headless CLI, Ctrl+K komut paleti ve islem zaman cizelgesi.

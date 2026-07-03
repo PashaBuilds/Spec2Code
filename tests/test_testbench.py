@@ -453,6 +453,32 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(manifest["transport_agent"], "uart")
         self.assertEqual(manifest["uart"]["driver"], "XUartPsv")
 
+    def test_self_test_skips_device_init_when_not_requested(self) -> None:
+        # Regression (found on zc702): requesting only read ops + self_test
+        # used to emit a self test that called <part>DeviceInit anyway ->
+        # undefined reference at link time.
+        spec = load_sample_spec("unit_selftest_no_init")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xE0004000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [{
+            "id": "u1_tmp101", "part": "TMP101",
+            "descriptor_ref": "descriptors/tmp101.yaml",
+            "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x4A",
+                       "via_mux": None, "reset_gpio": None, "irq_line": None},
+            "operations_requested": ["temperature_read"],
+            "tests_requested": ["self_test"],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            test_source = (out_dir / "tests" / "tmp101_test.c").read_text(encoding="utf-8")
+        self.assertNotIn("tmp101DeviceInit", test_source)
+        self.assertIn("tmp101TemperatureRead", test_source)
+
     def test_microblaze_uartlite_agent_and_axi_device_gate(self) -> None:
         # MicroBlaze: the UARTLITE agent is generated (single-call init,
         # hardware-fixed baud), and attaching a device to an AXI IIC

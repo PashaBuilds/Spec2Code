@@ -1291,7 +1291,11 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
         if any(n.endswith("DataRead") for n in read_ops):
             st.ln("unsigned char ucArrBuffer[16];")
     st.blank()
-    st.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
+    # Only call device_init when it was actually generated: the user may
+    # request read-only operations, and an unconditional init call would be
+    # an undefined reference at link time.
+    if _func_name(module, "device_init") in unit.public_names:
+        st.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
     for name in read_ops:
         if name.endswith("ConfigRead"):
             st.ln(f"iStatus = {name}({hvar}, &ucConfig);").check_status()

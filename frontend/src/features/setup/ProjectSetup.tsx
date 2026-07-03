@@ -17,6 +17,42 @@ import {
 } from "@/components/ui";
 import { VisualBackdrop } from "@/components/visuals";
 
+/** Dürüst platform destek matrisi: neyin doğrulandığı, neyin kapılı olduğu. */
+const PLATFORM_SUPPORT: Record<PlatformId, { tone: "ok" | "warn"; text: string }> = {
+  zynq_ultrascale: {
+    tone: "ok",
+    text: "Tam destek — I2C/SPI/QSPI sürücüleri, lwIP + UART test bench, JTAG Build&Run; ZCU102 ile uçtan uca doğrulandı.",
+  },
+  versal: {
+    tone: "ok",
+    text: "Doğrulandı (VCK190) — I2C/QSPI sürücüleri, UART (XUartPsv) ajanı, workspace + PDI ile Build&Run. Ethernet/lwIP ajanı Versal'da üretilmez (UART kullanılır); OSPI/CANFD cihazları henüz desteklenmez (açık hata).",
+  },
+  zynq_7000: {
+    tone: "warn",
+    text: "I2C/SPI cihazları + UART ajanı + ps7_init ile Build&Run desteklenir. PS QSPI (XQspiPs) henüz desteklenmez — QSPI flash bağlanırsa üretim açık hatayla durur. lwIP ajanı 7000'de üretilmez.",
+  },
+  microblaze_7series: {
+    tone: "warn",
+    text: "Sınırlı destek — UARTLITE ajanı + BSP/workspace çalışır (mb ELF doğrulandı); AXI IIC/SPI cihaz üretimi henüz yok, bağlanırsa üretim açık hatayla durur.",
+  },
+};
+
+function PlatformSupportNote({ platform }: { platform: PlatformId }) {
+  const note = PLATFORM_SUPPORT[platform];
+  if (!note) return null;
+  return (
+    <p
+      className={
+        note.tone === "ok"
+          ? "rounded-md border border-ok/25 bg-ok/10 px-2.5 py-1.5 text-xs leading-relaxed text-muted"
+          : "rounded-md border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-xs leading-relaxed text-warn"
+      }
+    >
+      {note.text}
+    </p>
+  );
+}
+
 const PREFIXES = [
   ["unsigned char", "uc"],
   ["char", "c"],
@@ -157,6 +193,7 @@ export default function ProjectSetup() {
             </SelectContent>
           </Select>
           {current && <p className="text-xs text-faint">{current.summary}</p>}
+          <PlatformSupportNote platform={project.platform} />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
