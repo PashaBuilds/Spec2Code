@@ -136,6 +136,32 @@ class FakeSerial:
             self._closed = True
 
 
+class CoresightEchoHandler(socketserver.StreamRequestHandler):
+    """Fake jtagterminal socket: behaves like the generated CoreSight agent."""
+
+    def handle(self) -> None:
+        self.wfile.write(b"Spec2Code test bench dev | transport: CoreSight DCC (psu_coresight_0)\r\n")
+        self.wfile.flush()
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                return
+            text = line.strip()
+            if not text:
+                self.wfile.write(b"> \r\n")
+            elif text.startswith(b"S2C|"):
+                self.wfile.write(b"S2C|id=5|ok=1|status=0|value=0x42|message=ok\n")
+            self.wfile.flush()
+
+
+def _pyserial_available() -> bool:
+    try:
+        import serial  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 class TestbenchTests(unittest.TestCase):
     def test_serial_session_skips_console_noise_and_reads_protocol_response(self) -> None:
         fake = FakeSerial()
@@ -160,6 +186,15 @@ class TestbenchTests(unittest.TestCase):
 
         manager.write_raw("ser1", "hello")
         self.assertIn(b"hello\r\n", fake.written)
+
+        # Veri Akisi: giden istek tx, gelen her satir rx olarak kaydedilir.
+        _tseq, traffic = manager.traffic("ser1", 0)
+        tx_lines = [entry["line"] for entry in traffic if entry["dir"] == "tx"]
+        rx_lines = [entry["line"] for entry in traffic if entry["dir"] == "rx"]
+        self.assertTrue(any(line.startswith("S2C|id=3") for line in tx_lines))
+        self.assertIn("hello", tx_lines)
+        self.assertIn("boot noise line", rx_lines)
+        self.assertTrue(any(line.startswith("S2C|id=3") and "|ok=" in line for line in rx_lines))
         manager.disconnect("ser1")
 
     def test_serial_session_times_out_without_response(self) -> None:
@@ -247,6 +282,79 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(len(PersistentHandler.requests), 2)
         self.assertIn("op=status_read", PersistentHandler.requests[0])
         self.assertIn("op=voltage_read", PersistentHandler.requests[1])
+
+    def test_tcp_session_records_tx_rx_traffic(self) -> None:
+        manager = SessionManager()
+        with socketserver.TCPServer(("127.0.0.1", 0), PersistentHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager.connect("unit_traffic", "127.0.0.1", server.server_address[1], 2)
+            try:
+                manager.send("unit_traffic", BenchCommand(
+                    host="", port=0, device="u1_ltc2991", operation="status_read", command_id=1))
+                manager.send("unit_traffic", BenchCommand(
+                    host="", port=0, device="u1_ltc2991", operation="voltage_read", command_id=2))
+                seq, entries = manager.traffic("unit_traffic", 0)
+                # since ile artimli okuma: yalnizca yeni kayitlar doner.
+                _seq2, newer = manager.traffic("unit_traffic", 2)
+            finally:
+                manager.disconnect("unit_traffic")
+                thread.join(timeout=2)
+
+        self.assertEqual(seq, 4)
+        self.assertEqual([entry["dir"] for entry in entries], ["tx", "rx", "tx", "rx"])
+        self.assertIn("op=status_read", entries[0]["line"])
+        self.assertIn("message=first", entries[1]["line"])
+        self.assertEqual(len(newer), 2)
+
+    @unittest.skipUnless(_pyserial_available(), "pyserial is required for the coresight bridge")
+    def test_coresight_session_bridges_over_fake_jtagterminal_socket(self) -> None:
+        # Kopru sahte: bridge_factory xsdb yerine hazir bir TCP portu verir;
+        # oturumun geri kalani gercek yol (pyserial socket:// + reader thread).
+        server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), CoresightEchoHandler)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        manager = SessionManager()
+        try:
+            status = manager.connect_coresight(
+                "cs1", "C:/fake/Vitis", "192.168.0.10", "psu_cortexa53_0", 2.0,
+                bridge_factory=lambda _v, _u, _p: (None, server.server_address[1]))
+            self.assertTrue(status.connected)
+            self.assertEqual(status.transport, "coresight")
+            self.assertEqual(status.processor, "psu_cortexa53_0")
+            self.assertEqual(status.hw_server_url, "TCP:192.168.0.10:3121")
+            self.assertEqual(status.dcc_port, server.server_address[1])
+
+            result = manager.send("cs1", BenchCommand(
+                host="", port=0, device="u1_ltc2991", operation="id_read", command_id=5))
+            self.assertEqual(result.parsed["ok"], "1")
+            self.assertEqual(result.parsed["value"], "0x42")
+
+            # Enter (bos satir) -> agent "> " canlilik istemi doner.
+            manager.write_raw("cs1", "")
+            deadline = time.time() + 2.0
+            prompt_seen = banner_seen = False
+            while time.time() < deadline and not (prompt_seen and banner_seen):
+                _seq, entries = manager.console("cs1", 0)
+                lines = [entry["line"] for entry in entries]
+                prompt_seen = any(line.strip() == ">" for line in lines)
+                banner_seen = any("Spec2Code test bench" in line for line in lines)
+                time.sleep(0.02)
+            self.assertTrue(banner_seen, "banner did not arrive over the DCC bridge")
+            self.assertTrue(prompt_seen, "liveness prompt did not arrive after Enter")
+
+            _tseq, traffic = manager.traffic("cs1", 0)
+            directions = {entry["dir"] for entry in traffic}
+            self.assertEqual(directions, {"tx", "rx"})
+
+            sessions = manager.list_sessions()
+            self.assertEqual(len(sessions), 1)
+            self.assertEqual(sessions[0].transport, "coresight")
+        finally:
+            manager.disconnect("cs1")
+            server.shutdown()
+            server.server_close()
 
     def test_codegen_filters_testbench_to_requested_operations(self) -> None:
         spec = load_sample_spec("unit_testbench_filter")
@@ -529,6 +637,74 @@ class TestbenchTests(unittest.TestCase):
                 codegen.generate(spec, Path(tmp) / "out")
             self.assertIn("does not support", str(ctx.exception))
             self.assertIn("XIic", str(ctx.exception))
+
+    def test_coresight_agent_generated_when_transport_is_coresight(self) -> None:
+        # JTAG DCC agent (coresightps_dcc): ayni S2C protokolu, kablo olarak
+        # yalnizca JTAG gerekir; host kopruyu xsdb jtagterminal ile kurar.
+        spec = load_sample_spec("unit_coresight_agent")
+        add_zynqmp_ps_ethernet(spec)  # explicit coresight secimi ETH'i ezmeli
+        spec["project"]["testbench_transport"] = "coresight"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+
+            cs_header = (out_dir / "tests" / "spec2code_testbench_coresight.h").read_text(encoding="utf-8")
+            cs_source = (out_dir / "tests" / "spec2code_testbench_coresight.c").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_coresight_main.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            lwip_generated = (out_dir / "tests" / "spec2code_testbench_lwip.c").exists()
+            uart_generated = (out_dir / "tests" / "spec2code_testbench_uart.c").exists()
+
+        self.assertIn("int spec2codeTestbenchCoresightInit(void);", cs_header)
+        self.assertIn('#include "xcoresightpsdcc.h"', cs_source)
+        self.assertIn("XCoresightPs_DccRecvByte(0U)", cs_source)
+        self.assertIn("XCoresightPs_DccSendByte(0U,", cs_source)
+        self.assertIn("spec2codeTestbenchDispatchLine", cs_source)
+        self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", cs_source)
+        # Bos satir (Enter) canlilik istemi agent dongusunde olmali.
+        self.assertIn('spec2codeTestbenchCoresightSendLine("> \\r\\n");', cs_source)
+        version = current_app_version()
+        self.assertIn(f"Spec2Code test bench {version}", main_source)
+        self.assertIn("proje: unit_coresight_agent", main_source)
+        self.assertIn("S2C-CORESIGHT-AGENT-READY", main_source)
+        self.assertFalse(lwip_generated)
+        self.assertFalse(uart_generated)
+        self.assertEqual(manifest["transport_agent"], "coresight")
+        self.assertEqual(manifest["coresight"]["device"], "psu_coresight_0")
+        self.assertEqual(manifest["coresight"]["processor"], "psu_cortexa53_0")
+
+    def test_coresight_transport_rejected_outside_zynqmp(self) -> None:
+        from orchestrator import cmodel
+
+        spec = load_sample_spec("unit_coresight_gate")
+        spec["project"]["platform"] = "versal"
+        add_versal_ps_uart(spec)
+        spec["project"]["testbench_transport"] = "coresight"
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(cmodel.CodegenError) as ctx:
+                codegen.generate(spec, Path(tmp) / "out")
+        self.assertIn("psu_coresight_0", str(ctx.exception))
+
+    def test_uart_agent_banner_and_enter_prompt(self) -> None:
+        # Acilista surum/proje banner'i; Enter'a (bos satir) "> " istemi -
+        # cakilma/takilma kontrolu seri konsoldan yapilabilsin.
+        spec = load_sample_spec("unit_uart_banner")
+        add_zynqmp_ps_uart(spec)
+        spec["project"]["testbench_transport"] = "uart"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            uart_source = (out_dir / "tests" / "spec2code_testbench_uart.c").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_uart_main.c").read_text(encoding="utf-8")
+
+        version = current_app_version()
+        self.assertIn(f"Spec2Code test bench {version}", main_source)
+        self.assertIn("proje: unit_uart_banner", main_source)
+        self.assertIn("transport: UART", main_source)
+        self.assertIn('spec2codeTestbenchUartSendLine("> \\r\\n");', uart_source)
+        # CR tek basina da satiri bitirmeli (PuTTY Enter'i yalniz CR gonderir).
+        self.assertIn("uiPrevWasCr", uart_source)
 
     def test_testbench_transport_auto_prefers_eth_and_falls_back_to_uart(self) -> None:
         spec = load_sample_spec("unit_transport_auto")

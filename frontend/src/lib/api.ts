@@ -176,6 +176,15 @@ export const api = {
       body: JSON.stringify({ session_id: sessionId, text }),
     }),
 
+  testbenchTraffic: (sessionId: string, since: number) =>
+    req<{ seq: number; entries: import("./types").TrafficEntry[] }>("/api/testbench/traffic", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, since }),
+    }),
+
+  testbenchSessions: () =>
+    req<{ sessions: import("./types").TestbenchSessionStatus[] }>("/api/testbench/sessions").then((r) => r.sessions),
+
   runOnBoard: (payload: import("./types").RunOnBoardRequest) =>
     req<{ runboard_job_id: string }>("/api/vitis/run-on-board", {
       method: "POST",

@@ -154,10 +154,17 @@ export default function TestBenchPanel() {
   const [host, setHost] = useState(() => localStorage.getItem("spec2code.testbench.host") ?? "127.0.0.1");
   const [port, setPort] = useState(() => localStorage.getItem("spec2code.testbench.port") ?? "5000");
   const [timeout, setTimeoutValue] = useState(() => localStorage.getItem("spec2code.testbench.timeout") ?? "5");
-  const [transport, setTransport] = useState<"tcp" | "serial">(() =>
-    localStorage.getItem("spec2code.testbench.transport") === "serial" ? "serial" : "tcp");
+  const [transport, setTransport] = useState<"tcp" | "serial" | "coresight">(() => {
+    const saved = localStorage.getItem("spec2code.testbench.transport");
+    return saved === "serial" || saved === "coresight" ? saved : "tcp";
+  });
   const [serialPort, setSerialPort] = useState(() => localStorage.getItem("spec2code.testbench.serialPort") ?? "");
   const [baud, setBaud] = useState(() => localStorage.getItem("spec2code.testbench.baud") ?? "115200");
+  const [csVitisPath, setCsVitisPath] = useState(() =>
+    localStorage.getItem("spec2code.testbench.csVitisPath") ?? localStorage.getItem("spec2code.vitisPath") ?? "");
+  const [csHwServerUrl, setCsHwServerUrl] = useState(() => localStorage.getItem("spec2code.testbench.csHwServerUrl") ?? "");
+  const [csProcessor, setCsProcessor] = useState(() =>
+    localStorage.getItem("spec2code.testbench.csProcessor") ?? "psu_cortexa53_0");
   const [serialPorts, setSerialPorts] = useState<import("@/lib/types").SerialPortInfo[]>([]);
   const [sessionId] = useState(makeSessionId);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
@@ -223,11 +230,12 @@ export default function TestBenchPanel() {
     };
   }, [sessionId]);
 
-  // UART agent'lı manifest'te varsayılan transport seri olsun (kullanıcı
-  // daha önce elle seçmediyse).
+  // Manifest'in agent'ına göre varsayılan transport (kullanıcı daha önce
+  // elle seçmediyse): uart -> seri, coresight -> CoreSight DCC.
   useEffect(() => {
     if (localStorage.getItem("spec2code.testbench.transport")) return;
     if (manifest?.transport_agent === "uart") setTransport("serial");
+    if (manifest?.transport_agent === "coresight") setTransport("coresight");
   }, [manifest]);
 
   const refreshSerialPorts = async () => {
@@ -257,6 +265,10 @@ export default function TestBenchPanel() {
       setError("Seri port seç (ör. COM4).");
       return;
     }
+    if (transport === "coresight" && !csVitisPath.trim()) {
+      setError("CoreSight için Vitis kurulum yolu gerekli (xsdb oradan bulunur).");
+      return;
+    }
 
     localStorage.setItem("spec2code.testbench.host", host.trim());
     localStorage.setItem("spec2code.testbench.port", port.trim());
@@ -264,6 +276,9 @@ export default function TestBenchPanel() {
     localStorage.setItem("spec2code.testbench.transport", transport);
     localStorage.setItem("spec2code.testbench.serialPort", serialPort.trim());
     localStorage.setItem("spec2code.testbench.baud", baud.trim());
+    localStorage.setItem("spec2code.testbench.csVitisPath", csVitisPath.trim());
+    localStorage.setItem("spec2code.testbench.csHwServerUrl", csHwServerUrl.trim());
+    localStorage.setItem("spec2code.testbench.csProcessor", csProcessor.trim());
 
     setConnectionState("connecting");
     setError("");
@@ -277,18 +292,32 @@ export default function TestBenchPanel() {
               baud: parseNumber(baud) ?? 115200,
               timeout_s: parsedTimeout,
             }
-          : {
-              session_id: sessionId,
-              transport: "tcp",
-              host: host.trim(),
-              port: parsedPort ?? 0,
-              timeout_s: parsedTimeout,
-            },
+          : transport === "coresight"
+            ? {
+                session_id: sessionId,
+                transport: "coresight",
+                vitis_path: csVitisPath.trim(),
+                hw_server_url: csHwServerUrl.trim(),
+                processor: csProcessor.trim() || "psu_cortexa53_0",
+                timeout_s: parsedTimeout,
+              }
+            : {
+                session_id: sessionId,
+                transport: "tcp",
+                host: host.trim(),
+                port: parsedPort ?? 0,
+                timeout_s: parsedTimeout,
+              },
       );
       setSessionStatus(status);
       setConnectionState(status.connected ? "connected" : "disconnected");
       if (!status.connected) {
-        setError(status.last_error || (transport === "serial" ? "Seri bağlantı kurulamadı." : "TCP bağlantısı kurulamadı."));
+        setError(status.last_error
+          || (transport === "serial"
+            ? "Seri bağlantı kurulamadı."
+            : transport === "coresight"
+              ? "CoreSight köprüsü kurulamadı."
+              : "TCP bağlantısı kurulamadı."));
       }
     } catch (err) {
       setSessionStatus(null);
@@ -313,13 +342,17 @@ export default function TestBenchPanel() {
 
   async function send() {
     if (!selectedDevice || !selectedOperation || running || versionRunning) return;
-    const parsedPort = transport === "serial" ? 0 : parseNumber(port);
+    const parsedPort = transport === "tcp" ? parseNumber(port) : 0;
     if (transport === "tcp" && (!host.trim() || parsedPort == null || parsedPort <= 0)) {
       setError("Host veya port geçerli değil.");
       return;
     }
     if (!isConnected) {
-      setError(transport === "serial" ? "Önce kart ile seri bağlantı kur." : "Önce kart ile TCP bağlantısı kur.");
+      setError(transport === "serial"
+        ? "Önce kart ile seri bağlantı kur."
+        : transport === "coresight"
+          ? "Önce CoreSight (JTAG) bağlantısı kur."
+          : "Önce kart ile TCP bağlantısı kur.");
       return;
     }
     if (selectedOperation.risk === "risky") {
@@ -340,7 +373,7 @@ export default function TestBenchPanel() {
 
     try {
       const response = await api.testbenchCommand({
-        host: transport === "serial" ? "serial" : host.trim(),
+        host: transport === "tcp" ? host.trim() : transport,
         port: parsedPort ?? 0,
         device: selectedDevice.id,
         operation: selectedOperation.name,
@@ -367,7 +400,7 @@ export default function TestBenchPanel() {
 
   async function queryAgentVersion() {
     if (!isConnected || running || versionRunning) return;
-    const parsedPort = transport === "serial" ? 0 : parseNumber(port);
+    const parsedPort = transport === "tcp" ? parseNumber(port) : 0;
     if (transport === "tcp" && (!host.trim() || parsedPort == null || parsedPort <= 0)) {
       setError("Host veya port geçerli değil.");
       return;
@@ -380,7 +413,7 @@ export default function TestBenchPanel() {
 
     try {
       const response = await api.testbenchCommand({
-        host: transport === "serial" ? "serial" : host.trim(),
+        host: transport === "tcp" ? host.trim() : transport,
         port: parsedPort ?? 0,
         device: "spec2code",
         operation: "spec2code_version",
@@ -446,8 +479,8 @@ export default function TestBenchPanel() {
         <div className="space-y-3 p-3">
           <div>
             <Label>Transport</Label>
-            <div className="mt-1 grid grid-cols-2 gap-1 rounded-md border border-border bg-inset p-1">
-              {(["tcp", "serial"] as const).map((option) => (
+            <div className="mt-1 grid grid-cols-3 gap-1 rounded-md border border-border bg-inset p-1">
+              {(["tcp", "serial", "coresight"] as const).map((option) => (
                 <button
                   key={option}
                   type="button"
@@ -461,7 +494,7 @@ export default function TestBenchPanel() {
                     connectionLocked && "opacity-60",
                   )}
                 >
-                  {option === "tcp" ? "TCP (lwIP)" : "Seri (UART)"}
+                  {option === "tcp" ? "TCP" : option === "serial" ? "Seri" : "CoreSight"}
                 </button>
               ))}
             </div>
@@ -475,6 +508,39 @@ export default function TestBenchPanel() {
               <div>
                 <Label>Port</Label>
                 <Input value={port} onChange={(event) => setPort(event.target.value)} disabled={connectionLocked} />
+              </div>
+            </div>
+          ) : transport === "coresight" ? (
+            <div className="space-y-2">
+              <div>
+                <Label>Vitis kurulum yolu</Label>
+                <Input
+                  value={csVitisPath}
+                  onChange={(event) => setCsVitisPath(event.target.value)}
+                  disabled={connectionLocked}
+                  placeholder="D:\Xilinx\Vitis\2023.2"
+                  spellCheck={false}
+                />
+              </div>
+              <div>
+                <Label>SmartLynq / hw_server (opsiyonel)</Label>
+                <Input
+                  value={csHwServerUrl}
+                  onChange={(event) => setCsHwServerUrl(event.target.value)}
+                  disabled={connectionLocked}
+                  placeholder="boş = lokal USB JTAG; 192.168.0.10[:3121]"
+                  spellCheck={false}
+                />
+              </div>
+              <div>
+                <Label>Çekirdek (DCC)</Label>
+                <Input
+                  value={csProcessor}
+                  onChange={(event) => setCsProcessor(event.target.value)}
+                  disabled={connectionLocked}
+                  placeholder="psu_cortexa53_0"
+                  spellCheck={false}
+                />
               </div>
             </div>
           ) : (
@@ -523,8 +589,9 @@ export default function TestBenchPanel() {
               <span className="font-mono text-[10px] text-faint">{sessionId.slice(0, 11)}</span>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-muted">
-              Komutlar tek {transport === "serial" ? "seri (COM)" : "TCP"} session üzerinden satır satır gönderilir;
+              Komutlar tek {transport === "serial" ? "seri (COM)" : transport === "coresight" ? "CoreSight DCC (xsdb jtagterminal köprüsü)" : "TCP"} session üzerinden satır satır gönderilir;
               bağlantı koparsa tekrar Bağlan gerekir.
+              {transport === "coresight" ? " İlk bağlantı xsdb açılışı nedeniyle ~10-30 sn sürebilir." : ""}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={connect} disabled={connectionBusy || isConnected}>

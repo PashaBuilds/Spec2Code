@@ -580,6 +580,13 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "driver": _testbench_uart_driver(spec),
             "baud": 115200,
         }
+    if agent == "coresight":
+        manifest["coresight"] = {
+            "device": "psu_coresight_0",
+            "driver": "coresightps_dcc",
+            "processor": "psu_cortexa53_0",
+            "host_bridge": "xsdb jtagterminal -socket",
+        }
     for device in spec.get("devices", []):
         descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
         operations = []
@@ -1352,12 +1359,25 @@ def _testbench_uart_controller(spec: dict) -> dict | None:
     )[0]
 
 
+def _testbench_coresight_supported(spec: dict) -> bool:
+    """CoreSight DCC agent is ZynqMP-only for now (psu_coresight_0).
+
+    The coresightps_dcc driver ships in the standalone BSP for other Arm
+    platforms too, but only the ZynqMP path is end-to-end validated; the
+    honest gate below keeps unvalidated platforms from generating code
+    that was never exercised.
+    """
+    return spec.get("project", {}).get("platform") == "zynq_ultrascale"
+
+
 def _testbench_transport_agent(spec: dict) -> str | None:
     """Which on-target agent carries the S2C line protocol.
 
-    ``project.testbench_transport``: "auto" (default) | "eth" | "uart".
-    auto prefers Ethernet and falls back to the PS UART so boards without
-    a PHY still get a runnable test bench.
+    ``project.testbench_transport``: "auto" (default) | "eth" | "uart" |
+    "coresight". auto prefers Ethernet and falls back to the PS UART so
+    boards without a PHY still get a runnable test bench. CoreSight (JTAG
+    DCC over psu_coresight_0) is never auto-picked: it needs a debug cable
+    and an xsdb jtagterminal bridge on the host, so it must be explicit.
     """
     choice = str(spec.get("project", {}).get("testbench_transport", "auto") or "auto")
     lwip_possible = _zynqmp_lwip_eth_controller(spec) is not None
@@ -1366,6 +1386,12 @@ def _testbench_transport_agent(spec: dict) -> str | None:
         return "lwip" if lwip_possible else None
     if choice == "uart":
         return "uart" if uart_possible else None
+    if choice == "coresight":
+        if _testbench_coresight_supported(spec):
+            return "coresight"
+        raise cmodel.CodegenError(
+            "CoreSight (DCC) test bench su an yalnizca ZynqMP (psu_coresight_0) "
+            "platformunda dogrulandi; bu platformda eth veya uart transportunu kullanin")
     if lwip_possible:
         return "lwip"
     if uart_possible:
@@ -1379,6 +1405,10 @@ def _testbench_lwip_enabled(spec: dict) -> bool:
 
 def _testbench_uart_enabled(spec: dict) -> bool:
     return _testbench_transport_agent(spec) == "uart"
+
+
+def _testbench_coresight_enabled(spec: dict) -> bool:
+    return _testbench_transport_agent(spec) == "coresight"
 
 
 def _controller_static_handle_name(controller: dict) -> str:
@@ -2427,21 +2457,20 @@ def _testbench_uart_source(spec: dict) -> str:
         "void spec2codeTestbenchUartRun(void)",
         "{",
         "    unsigned int uiLineLength;",
+        "    unsigned int uiPrevWasCr;",
         "    unsigned char ucByte;",
         "",
         "    uiLineLength = 0U;",
+        "    uiPrevWasCr = 0U;",
         "    for (;;)",
         "    {",
         f"        if ({uart_prefix}_Recv(&S_sTestbenchUart, &ucByte, 1U) == 0U)",
         "        {",
         "            continue;",
         "        }",
-        "        if (ucByte == (unsigned char)'\\r')",
+        "        if ((ucByte != (unsigned char)'\\r') && (ucByte != (unsigned char)'\\n'))",
         "        {",
-        "            continue;",
-        "        }",
-        "        if (ucByte != (unsigned char)'\\n')",
-        "        {",
+        "            uiPrevWasCr = 0U;",
         "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
         "            {",
         "                S_cArrRequestLine[uiLineLength] = (char)ucByte;",
@@ -2453,7 +2482,30 @@ def _testbench_uart_source(spec: dict) -> str:
         "            }",
         "            continue;",
         "        }",
+        "        /* CR de LF de satiri bitirir: terminal Enter'i cogunlukla",
+        "         * yalniz CR gonderir. CRLF'nin LF'si yutulur ki bos satir",
+        "         * istemi iki kez basilmasin. */",
+        "        if ((ucByte == (unsigned char)'\\n') && (uiPrevWasCr == 1U))",
+        "        {",
+        "            uiPrevWasCr = 0U;",
+        "            continue;",
+        "        }",
+        "        if (ucByte == (unsigned char)'\\r')",
+        "        {",
+        "            uiPrevWasCr = 1U;",
+        "        }",
+        "        else",
+        "        {",
+        "            uiPrevWasCr = 0U;",
+        "        }",
         "        S_cArrRequestLine[uiLineLength] = '\\0';",
+        "        if (uiLineLength == 0U)",
+        "        {",
+        "            /* Bos satir (Enter): canlilik istemi - agent yasiyorsa",
+        "             * konsola \"> \" duser, cakilma/takilma buradan anlasilir. */",
+        "            spec2codeTestbenchUartSendLine(\"> \\r\\n\");",
+        "            continue;",
+        "        }",
         "        uiLineLength = 0U;",
         "        if (spec2codeTestbenchUartLineIsRequest(S_cArrRequestLine) == 0)",
         "        {",
@@ -2483,7 +2535,14 @@ def _testbench_uart_main_header() -> str:
 
 
 def _testbench_uart_main_source(spec: dict) -> str:
+    project_name = spec["project"]["name"]
+    app_version = _app_version()
     banner = (
+        f'    xil_printf("Spec2Code test bench {app_version} | proje: {project_name}'
+        ' | transport: UART\\r\\n");\n'
+        '    xil_printf("Enter\'a basinca \\"> \\" istemi doner (canlilik kontrolu).\\r\\n");\n'
+    )
+    banner += (
         '    xil_printf("S2C-UART-AGENT-READY (uartlite, baud sabit donanimda)\\r\\n");\n'
         if _testbench_uart_driver(spec) == "XUartLite"
         else '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
@@ -2526,6 +2585,245 @@ def _testbench_uart_main_source(spec: dict) -> str:
     )
 
 
+def _testbench_coresight_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_coresight.h\n"
+        " * @brief CoreSight DCC (psu_coresight_0) line-protocol agent for the Spec2Code test bench.\n"
+        " *\n"
+        " * Carries the same S2C line protocol as the TCP/UART agents over the\n"
+        " * Arm Debug Communication Channel: no cable beyond JTAG, no PHY, no\n"
+        " * UART pin needed. The host bridges the channel with xsdb\n"
+        ' * "jtagterminal -socket" (works over SmartLynq too).\n'
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_CORESIGHT_H\n"
+        "#define SPEC2CODE_TESTBENCH_CORESIGHT_H\n\n"
+        "int spec2codeTestbenchBoardInit(void);\n"
+        "int spec2codeTestbenchCoresightInit(void);\n"
+        "void spec2codeTestbenchCoresightRun(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_CORESIGHT_H */\n"
+    )
+
+
+def _testbench_coresight_source(spec: dict) -> str:
+    if not _testbench_coresight_supported(spec):
+        raise cmodel.CodegenError(
+            "CoreSight (DCC) test bench su an yalnizca ZynqMP (psu_coresight_0) "
+            "platformunda dogrulandi")
+    project_name = spec["project"]["name"]
+    entries = _testbench_board_controller_entries(spec)
+    headers = [
+        '#include "spec2code_testbench_coresight.h"',
+        f'#include "{project_name}_testbench_ops.h"',
+        '#include "xparameters.h"',
+        '#include "xstatus.h"',
+        '#include "xcoresightpsdcc.h"',
+        '#include <stddef.h>',
+    ]
+    for htype, header in _TESTBENCH_HANDLE_HEADERS:
+        if any(entry["htype"] == htype for entry in entries):
+            headers.append(f'#include "{header}"')
+
+    lines = [
+        "/**",
+        " * @file spec2code_testbench_coresight.c",
+        " * @brief CoreSight DCC polled line-protocol agent for the Spec2Code test bench.",
+        " *",
+        " * Uses the standalone BSP coresightps_dcc driver",
+        " * (XCoresightPs_DccSendByte/RecvByte). RecvByte blocks until the",
+        " * debugger side writes a byte, which is exactly the agent's job:",
+        " * wait for a request line, dispatch, answer. No interrupts, no",
+        " * scheduler - runs the same on bare metal and FreeRTOS BSPs.",
+        " */",
+        *headers,
+        "",
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        "",
+        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static unsigned int S_uiBoardReady;",
+        "",
+        *_testbench_board_handle_decls(entries),
+        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
+        "{",
+        "    unsigned int uiLength;",
+        "",
+        "    uiLength = 0U;",
+        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
+        "    {",
+        "        uiLength++;",
+        "    }",
+        "    return uiLength;",
+        "}",
+        "",
+        *_testbench_board_init_lines(entries),
+        *[
+            line
+            for htype, _header in _TESTBENCH_HANDLE_HEADERS
+            if any(entry["htype"] == htype for entry in entries)
+            for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
+        ],
+        "int spec2codeTestbenchCoresightInit(void)",
+        "{",
+        "    /* DCC her Arm cekirdeginde hazirdir; ayrica init gerekmez. */",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static void spec2codeTestbenchCoresightSendLine(const char* cpLine)",
+        "{",
+        "    unsigned int uiLength;",
+        "    unsigned int uiSent;",
+        "",
+        "    uiLength = spec2codeTestbenchStringLengthLocal(cpLine);",
+        "    for (uiSent = 0U; uiSent < uiLength; uiSent++)",
+        "    {",
+        "        XCoresightPs_DccSendByte(0U, (u8)cpLine[uiSent]);",
+        "    }",
+        "}",
+        "",
+        "static int spec2codeTestbenchCoresightLineIsRequest(const char* cpLine)",
+        "{",
+        "    if ((cpLine[0] == 'S') && (cpLine[1] == '2') && (cpLine[2] == 'C') && (cpLine[3] == '|'))",
+        "    {",
+        "        return 1;",
+        "    }",
+        "    return 0;",
+        "}",
+        "",
+        "void spec2codeTestbenchCoresightRun(void)",
+        "{",
+        "    unsigned int uiLineLength;",
+        "    unsigned int uiPrevWasCr;",
+        "    unsigned char ucByte;",
+        "",
+        "    uiLineLength = 0U;",
+        "    uiPrevWasCr = 0U;",
+        "    for (;;)",
+        "    {",
+        "        ucByte = (unsigned char)XCoresightPs_DccRecvByte(0U);",
+        "        if ((ucByte != (unsigned char)'\\r') && (ucByte != (unsigned char)'\\n'))",
+        "        {",
+        "            uiPrevWasCr = 0U;",
+        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            {",
+        "                S_cArrRequestLine[uiLineLength] = (char)ucByte;",
+        "                uiLineLength++;",
+        "            }",
+        "            else",
+        "            {",
+        "                uiLineLength = 0U;",
+        "            }",
+        "            continue;",
+        "        }",
+        "        /* CR de LF de satiri bitirir; CRLF'nin LF'si yutulur ki bos",
+        "         * satir istemi iki kez basilmasin. */",
+        "        if ((ucByte == (unsigned char)'\\n') && (uiPrevWasCr == 1U))",
+        "        {",
+        "            uiPrevWasCr = 0U;",
+        "            continue;",
+        "        }",
+        "        if (ucByte == (unsigned char)'\\r')",
+        "        {",
+        "            uiPrevWasCr = 1U;",
+        "        }",
+        "        else",
+        "        {",
+        "            uiPrevWasCr = 0U;",
+        "        }",
+        "        S_cArrRequestLine[uiLineLength] = '\\0';",
+        "        if (uiLineLength == 0U)",
+        "        {",
+        "            /* Bos satir (Enter): canlilik istemi - agent yasiyorsa",
+        "             * konsola \"> \" duser, cakilma/takilma buradan anlasilir. */",
+        "            spec2codeTestbenchCoresightSendLine(\"> \\r\\n\");",
+        "            continue;",
+        "        }",
+        "        uiLineLength = 0U;",
+        "        if (spec2codeTestbenchCoresightLineIsRequest(S_cArrRequestLine) == 0)",
+        "        {",
+        "            continue;",
+        "        }",
+        "        (void)spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
+        "                                             S_cArrResponseLine,",
+        "                                             SPEC2CODE_TESTBENCH_LINE_MAX);",
+        "        spec2codeTestbenchCoresightSendLine(S_cArrResponseLine);",
+        "    }",
+        "}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _testbench_coresight_main_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_coresight_main.h\n"
+        " * @brief Entry point for the Spec2Code CoreSight DCC test bench agent.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_CORESIGHT_MAIN_H\n"
+        "#define SPEC2CODE_TESTBENCH_CORESIGHT_MAIN_H\n\n"
+        "int main(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_CORESIGHT_MAIN_H */\n"
+    )
+
+
+def _testbench_coresight_main_source(spec: dict) -> str:
+    project_name = spec["project"]["name"]
+    app_version = _app_version()
+    runtime_note = (
+        " * The polled agent needs no scheduler; on a FreeRTOS BSP it runs\n"
+        " * before vTaskStartScheduler would, which is intentional.\n"
+        if _testbench_runtime_is_freertos(spec)
+        else ""
+    )
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_coresight_main.c\n"
+        " * @brief Entry point for the Spec2Code CoreSight DCC test bench agent.\n"
+        " *\n"
+        " * Banner and liveness prompt go over DCC (not xil_printf/stdout) so\n"
+        " * they land in the host's jtagterminal bridge even when stdout is a\n"
+        " * different UART.\n"
+        + runtime_note +
+        " */\n"
+        '#include "spec2code_testbench_coresight_main.h"\n'
+        '#include "spec2code_testbench_coresight.h"\n'
+        '#include "xcoresightpsdcc.h"\n'
+        '#include "xil_printf.h"\n'
+        '#include "xstatus.h"\n\n'
+        "static void spec2codeTestbenchCoresightBannerLine(const char* cpLine)\n"
+        "{\n"
+        "    unsigned int uiIndex;\n\n"
+        "    for (uiIndex = 0U; cpLine[uiIndex] != '\\0'; uiIndex++)\n"
+        "    {\n"
+        "        XCoresightPs_DccSendByte(0U, (u8)cpLine[uiIndex]);\n"
+        "    }\n"
+        "}\n\n"
+        "int main(void)\n"
+        "{\n"
+        "    int iStatus;\n\n"
+        "    iStatus = spec2codeTestbenchBoardInit();\n"
+        "    if (iStatus != XST_SUCCESS)\n"
+        "    {\n"
+        '        xil_printf("Spec2Code board init basarisiz: %d\\r\\n", iStatus);\n'
+        "        return iStatus;\n"
+        "    }\n"
+        "    iStatus = spec2codeTestbenchCoresightInit();\n"
+        "    if (iStatus != XST_SUCCESS)\n"
+        "    {\n"
+        '        xil_printf("Spec2Code CoreSight agent baslatilamadi: %d\\r\\n", iStatus);\n'
+        "        return iStatus;\n"
+        "    }\n"
+        f'    spec2codeTestbenchCoresightBannerLine("Spec2Code test bench {app_version}'
+        f' | proje: {project_name} | transport: CoreSight DCC (psu_coresight_0)\\r\\n");\n'
+        '    spec2codeTestbenchCoresightBannerLine("Enter\'a basinca \\"> \\" istemi doner'
+        ' (canlilik kontrolu).\\r\\n");\n'
+        '    spec2codeTestbenchCoresightBannerLine("S2C-CORESIGHT-AGENT-READY\\r\\n");\n'
+        "    spec2codeTestbenchCoresightRun();\n"
+        "    return XST_SUCCESS;\n"
+        "}\n"
+    )
+
+
 def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     project_name = spec["project"]["name"]
     tests_dir = out_dir / "tests"
@@ -2549,6 +2847,13 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
             tests_dir / "spec2code_testbench_uart.c",
             tests_dir / "spec2code_testbench_uart_main.h",
             tests_dir / "spec2code_testbench_uart_main.c",
+        ])
+    if _testbench_coresight_enabled(spec):
+        paths.extend([
+            tests_dir / "spec2code_testbench_coresight.h",
+            tests_dir / "spec2code_testbench_coresight.c",
+            tests_dir / "spec2code_testbench_coresight_main.h",
+            tests_dir / "spec2code_testbench_coresight_main.c",
         ])
     return paths
 
@@ -2576,6 +2881,13 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             _apply_default_identifier_style(_testbench_uart_source(spec)),
             _apply_default_identifier_style(_testbench_uart_main_header()),
             _apply_default_identifier_style(_testbench_uart_main_source(spec)),
+        ])
+    if _testbench_coresight_enabled(spec):
+        contents.extend([
+            _apply_default_identifier_style(_testbench_coresight_header()),
+            _apply_default_identifier_style(_testbench_coresight_source(spec)),
+            _apply_default_identifier_style(_testbench_coresight_main_header()),
+            _apply_default_identifier_style(_testbench_coresight_main_source(spec)),
         ])
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 

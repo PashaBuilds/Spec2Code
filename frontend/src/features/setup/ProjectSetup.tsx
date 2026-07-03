@@ -240,6 +240,7 @@ export default function ProjectSetup() {
                 <SelectItem value="auto">Auto — ETH varsa lwIP TCP, yoksa PS UART</SelectItem>
                 <SelectItem value="eth">Ethernet (lwIP TCP agent)</SelectItem>
                 <SelectItem value="uart">UART (seri agent)</SelectItem>
+                <SelectItem value="coresight">CoreSight DCC — JTAG, psu_coresight_0 (ZynqMP)</SelectItem>
               </SelectContent>
             </Select>
           </div>

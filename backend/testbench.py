@@ -1,16 +1,25 @@
-"""Host-side TCP/serial bridge for the generated Spec2Code target test bench agent."""
+"""Host-side TCP/serial/CoreSight bridge for the generated Spec2Code target test bench agent."""
 
 from __future__ import annotations
 
 import collections
 import queue
 import socket
+import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 #: Ring size of the serial console line buffer kept per session.
 SERIAL_CONSOLE_MAX_LINES = 2000
+
+#: Ring size of the per-session TX/RX traffic buffer (Veri Akisi ekrani).
+TRAFFIC_MAX_LINES = 2000
+
+#: How long to wait for xsdb's jtagterminal to report its bridge port.
+CORESIGHT_BRIDGE_TIMEOUT_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -48,6 +57,9 @@ class TestbenchSessionStatus:
     transport: str = "tcp"
     serial_port: str = ""
     baud: int = 0
+    processor: str = ""
+    hw_server_url: str = ""
+    dcc_port: int = 0
 
 
 class TestbenchSessionError(RuntimeError):
@@ -124,8 +136,41 @@ def send_command(command: TestbenchCommand) -> TestbenchResult:
         return _send_over_socket(sock, command)
 
 
-class _TestbenchTcpSession:
+class _TrafficRing:
+    """Per-session TX/RX line ring shared by every transport.
+
+    Feeds the Veri Akisi (data flow) screen: each protocol line that leaves
+    (tx) or arrives (rx) is recorded with a timestamp so the user can watch
+    the live conversation regardless of transport (TCP, serial, CoreSight).
+    """
+
+    def __init__(self) -> None:
+        self._traffic: collections.deque[dict] = collections.deque(maxlen=TRAFFIC_MAX_LINES)
+        self._traffic_seq = 0
+        self._traffic_lock = threading.Lock()
+
+    def _traffic_push(self, direction: str, line: str) -> None:
+        text = line.rstrip("\r\n")
+        if not text:
+            return
+        with self._traffic_lock:
+            self._traffic_seq += 1
+            self._traffic.append({
+                "seq": self._traffic_seq,
+                "at": time.time(),
+                "dir": direction,
+                "line": text,
+            })
+
+    def traffic_since(self, since_seq: int) -> tuple[int, list[dict]]:
+        with self._traffic_lock:
+            entries = [entry for entry in self._traffic if entry["seq"] > since_seq]
+            return self._traffic_seq, entries
+
+
+class _TestbenchTcpSession(_TrafficRing):
     def __init__(self, session_id: str) -> None:
+        super().__init__()
         self.session_id = session_id
         self.host = ""
         self.port = 0
@@ -195,18 +240,20 @@ class _TestbenchTcpSession:
                 data_hex=command.data_hex,
                 timeout_s=self.timeout_s,
             )
+            self._traffic_push("tx", format_command(session_command))
             try:
                 result = _send_over_socket(self._sock, session_command)
             except OSError as exc:
                 self.last_error = str(exc)
                 self.close()
                 raise
+            self._traffic_push("rx", result.response_line)
             self.last_used_at = time.time()
             self.last_error = ""
             return result
 
 
-class _TestbenchSerialSession:
+class _TestbenchSerialSession(_TrafficRing):
     """Persistent serial (COM) session for the UART test bench agent.
 
     A reader thread splits incoming bytes into lines. Every line lands in a
@@ -217,6 +264,7 @@ class _TestbenchSerialSession:
     """
 
     def __init__(self, session_id: str) -> None:
+        super().__init__()
         self.session_id = session_id
         self.port_name = ""
         self.baud = 115200
@@ -322,6 +370,7 @@ class _TestbenchSerialSession:
                 if not line:
                     continue
                 self._console_push(line)
+                self._traffic_push("rx", line)
                 if line.startswith("S2C|") and "|ok=" in line:
                     self._responses.put(line)
 
@@ -343,6 +392,7 @@ class _TestbenchSerialSession:
                 self.last_error = str(exc)
                 self.close()
                 raise
+            self._traffic_push("tx", payload)
             self.last_used_at = time.time()
 
     def send(self, command: TestbenchCommand) -> TestbenchResult:
@@ -364,6 +414,7 @@ class _TestbenchSerialSession:
                     self.last_error = str(exc)
                     self.close()
                     raise
+                self._traffic_push("tx", request_line)
             # Wait outside the state lock so the reader thread and console
             # polling stay live while we block on the response.
             try:
@@ -381,6 +432,130 @@ class _TestbenchSerialSession:
             response_line=response_line,
             parsed=parse_response(response_line),
         )
+
+
+class _TestbenchCoresightSession(_TestbenchSerialSession):
+    """CoreSight DCC session bridged through xsdb ``jtagterminal -socket``.
+
+    xsdb connects to hw_server (local USB JTAG or a SmartLynq's built-in
+    server via ``-url``), selects the target core and opens a local TCP
+    socket that carries the Arm DCC byte stream. We then reuse the whole
+    serial-session machinery (reader thread, console ring, traffic ring,
+    response queue) over pyserial's ``socket://`` URL handler — so the UART
+    console, Veri Akisi and S2C commands all work unchanged over JTAG.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(session_id)
+        self.vitis_path = ""
+        self.hw_server_url = ""
+        self.processor = "psu_cortexa53_0"
+        self.dcc_port = 0
+        self._xsdb_proc: subprocess.Popen | None = None
+
+    def status(self) -> TestbenchSessionStatus:
+        status = super().status()
+        status.transport = "coresight"
+        status.processor = self.processor
+        status.hw_server_url = self.hw_server_url
+        status.dcc_port = self.dcc_port
+        return status
+
+    def connect_coresight(
+        self,
+        vitis_path: str,
+        hw_server_url: str,
+        processor: str,
+        timeout_s: float,
+        *,
+        bridge_factory=None,
+    ) -> TestbenchSessionStatus:
+        """Spawn the xsdb bridge, wait for its port, then attach the serial machinery.
+
+        ``bridge_factory(vitis_path, hw_server_url, processor)`` -> (proc|None, port)
+        lets tests substitute a fake bridge without a Vitis install.
+        """
+        from backend.run_on_board import _core_filter, locate_xsdb, normalize_hw_server_url
+
+        self.vitis_path = vitis_path
+        self.hw_server_url = normalize_hw_server_url(hw_server_url)
+        self.processor = processor.strip() or "psu_cortexa53_0"
+        if bridge_factory is not None:
+            proc, port = bridge_factory(vitis_path, self.hw_server_url, self.processor)
+        else:
+            proc, port = self._spawn_bridge(locate_xsdb(vitis_path), _core_filter(self.processor))
+        try:
+            self.connect(f"socket://127.0.0.1:{port}", 115200, timeout_s)
+        except Exception:
+            if proc is not None:
+                proc.kill()
+            raise
+        # Assign after connect(): serial connect() calls close(), which would
+        # otherwise kill the bridge we just started.
+        self.dcc_port = port
+        self._xsdb_proc = proc
+        return self.status()
+
+    def _spawn_bridge(self, xsdb: Path, core_filter: str) -> tuple[subprocess.Popen, int]:
+        connect_cmd = f"connect -url {self.hw_server_url}" if self.hw_server_url else "connect"
+        script = "\n".join([
+            "catch {fconfigure stdout -buffering line}",
+            connect_cmd,
+            f"targets -set -nocase -filter {{name =~ {core_filter}}}",
+            "set iDccPort [jtagterminal -socket]",
+            'puts "S2C-DCC-PORT=$iDccPort"',
+            "vwait forever",
+            "",
+        ])
+        script_path = Path(tempfile.mkstemp(prefix="s2c_dcc_", suffix=".tcl")[1])
+        script_path.write_text(script, encoding="utf-8")
+        proc = subprocess.Popen(
+            [str(xsdb), str(script_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        port_queue: "queue.Queue[int]" = queue.Queue()
+        tail: collections.deque[str] = collections.deque(maxlen=15)
+
+        def _scan_stdout() -> None:
+            stream = proc.stdout
+            if stream is None:
+                return
+            for line in stream:
+                text = line.strip()
+                if text:
+                    tail.append(text)
+                if text.startswith("S2C-DCC-PORT="):
+                    try:
+                        port_queue.put(int(text.split("=", 1)[1]))
+                    except ValueError:
+                        pass
+
+        threading.Thread(target=_scan_stdout, name=f"s2c-dcc-{self.session_id}", daemon=True).start()
+        try:
+            port = port_queue.get(timeout=CORESIGHT_BRIDGE_TIMEOUT_S)
+        except queue.Empty:
+            proc.kill()
+            detail = "\n".join(tail)
+            self.last_error = f"jtagterminal koprusu acilamadi: {detail}" if detail else \
+                "jtagterminal koprusu acilamadi (xsdb port bildirmedi)"
+            raise TestbenchSessionError(
+                "CoreSight koprusu kurulamadi: xsdb jtagterminal portu bildirmedi. "
+                "Kartin acik, JTAG kablosunun (USB/SmartLynq) bagli ve uygulamanin "
+                "yuklu oldugundan emin olun."
+                + (f"\nxsdb ciktisi:\n{detail}" if detail else ""))
+        return proc, port
+
+    def close(self) -> None:
+        super().close()
+        proc = self._xsdb_proc
+        self._xsdb_proc = None
+        if proc is not None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
 
 
 def list_serial_ports() -> list[dict]:
@@ -445,6 +620,21 @@ class TestbenchSessionManager:
         self._replace_session(session_id, session)
         return session.connect(port_name.strip(), int(baud), timeout_s, serial_factory=serial_factory)
 
+    def connect_coresight(
+        self,
+        session_id: str,
+        vitis_path: str,
+        hw_server_url: str,
+        processor: str,
+        timeout_s: float,
+        *,
+        bridge_factory=None,
+    ) -> TestbenchSessionStatus:
+        session = _TestbenchCoresightSession(self._clean_session_id(session_id))
+        self._replace_session(session_id, session)
+        return session.connect_coresight(
+            vitis_path, hw_server_url, processor, timeout_s, bridge_factory=bridge_factory)
+
     def _serial_session(self, session_id: str) -> _TestbenchSerialSession:
         clean_id = self._clean_session_id(session_id)
         with self._lock:
@@ -455,6 +645,19 @@ class TestbenchSessionManager:
 
     def console(self, session_id: str, since_seq: int) -> tuple[int, list[dict]]:
         return self._serial_session(session_id).console_since(int(since_seq))
+
+    def traffic(self, session_id: str, since_seq: int) -> tuple[int, list[dict]]:
+        clean_id = self._clean_session_id(session_id)
+        with self._lock:
+            session = self._sessions.get(clean_id)
+        if session is None:
+            raise TestbenchSessionError("testbench session not found")
+        return session.traffic_since(int(since_seq))
+
+    def list_sessions(self) -> list[TestbenchSessionStatus]:
+        with self._lock:
+            sessions = list(self._sessions.values())
+        return sorted((session.status() for session in sessions), key=lambda item: item.session_id)
 
     def write_raw(self, session_id: str, text: str) -> None:
         self._serial_session(session_id).write_raw(text)

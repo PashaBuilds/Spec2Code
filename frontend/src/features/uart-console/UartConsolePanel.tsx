@@ -146,8 +146,10 @@ export default function UartConsolePanel() {
   }
 
   async function sendLine() {
+    // Boş satıra da izin var: çıplak Enter, agent'ın "> " canlılık istemini
+    // tetikler (çakılma/takılma kontrolü).
     const text = input;
-    if (!connected || !text.trim()) return;
+    if (!connected) return;
     setInput("");
     try {
       await api.testbenchConsoleWrite(sessionId, text);
@@ -284,11 +286,11 @@ export default function UartConsolePanel() {
         <Input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={connected ? "Karta gönderilecek satır (Enter ile gönder)" : "Önce bağlan"}
+          placeholder={connected ? "Karta gönderilecek satır — boş Enter '>' canlılık istemi döndürür" : "Önce bağlan"}
           disabled={!connected}
           className="font-mono text-xs"
         />
-        <Button type="submit" size="sm" disabled={!connected || !input.trim()}>
+        <Button type="submit" size="sm" disabled={!connected}>
           <SendHorizonal className="h-4 w-4" aria-hidden /> Gönder
         </Button>
       </form>
