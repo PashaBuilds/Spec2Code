@@ -175,6 +175,7 @@ def _testbench_protocol_header() -> str:
         "    unsigned int uiAddress;\n"
         "    unsigned int uiLength;\n"
         "    unsigned int uiValue;\n"
+        "    unsigned int uiHasValue;\n"
         "    unsigned char ucArrData[SPEC2CODE_TESTBENCH_DATA_MAX];\n"
         "    unsigned int uiDataLength;\n"
         "} SSpec2codeTestbenchRequest;\n\n"
@@ -324,6 +325,7 @@ def _testbench_protocol_source() -> str:
         "    spRequest->uiAddress = 0U;\n"
         "    spRequest->uiLength = 0U;\n"
         "    spRequest->uiValue = 0U;\n"
+        "    spRequest->uiHasValue = 0U;\n"
         "    spRequest->uiDataLength = 0U;\n"
         "    spRequest->cArrDevice[0] = '\\0';\n"
         "    spRequest->cArrOperation[0] = '\\0';\n"
@@ -441,6 +443,7 @@ def _testbench_protocol_source() -> str:
         "            else if (spec2codeTestbenchStringEqual(cpToken, \"value\") == 1)\n"
         "            {\n"
         "                spRequest->uiValue = spec2codeTestbenchNumberParse(cpValue);\n"
+        "                spRequest->uiHasValue = 1U;\n"
         "            }\n"
         "            else if (spec2codeTestbenchStringEqual(cpToken, \"data\") == 1)\n"
         "            {\n"
@@ -585,6 +588,147 @@ def _operation_fixed_read_length(op: dict) -> int:
     return 0
 
 
+#: Log seviyeleri artan detayla: yalnizca seviyesi ayarlanan esik degerden
+#: KUCUK VEYA ESIT printler basilir. Varsayilan warning (2).
+_TESTBENCH_LOG_LEVELS: dict[str, int] = {
+    "error": 1,
+    "warning": 2,
+    "message": 3,  # gelen/giden S2C satirlari
+    "info": 4,
+    "debug": 5,
+}
+_TESTBENCH_LOG_DEFAULT_LEVEL = "warning"
+
+
+def _testbench_log_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_log.h\n"
+        " * @brief Leveled runtime logging for the Spec2Code test bench agent.\n"
+        " *\n"
+        " * Seviyeler artan detayla siralidir; bir print ancak seviyesi o an\n"
+        " * ayarli esikten KUCUK veya ESITSE basilir. Varsayilan: warning.\n"
+        ' * Cikti "S2C-LOG|<TAG>|..." satirlaridir: host tarafi bunlari yanit\n'
+        " * sanmaz (yanitlar \"S2C|\" ile baslar), konsol ve Veri Akisi\n"
+        " * ekranlarinda gorunur. Esik calisma zamaninda S2C komutuyla\n"
+        ' * degistirilir: S2C|id=1|op=log_level|value=4\n'
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_LOG_H\n"
+        "#define SPEC2CODE_TESTBENCH_LOG_H\n\n"
+        "#define SPEC2CODE_LOG_LEVEL_ERROR 1U\n"
+        "#define SPEC2CODE_LOG_LEVEL_WARNING 2U\n"
+        "#define SPEC2CODE_LOG_LEVEL_MESSAGE 3U\n"
+        "#define SPEC2CODE_LOG_LEVEL_INFO 4U\n"
+        "#define SPEC2CODE_LOG_LEVEL_DEBUG 5U\n"
+        "#define SPEC2CODE_LOG_LEVEL_DEFAULT SPEC2CODE_LOG_LEVEL_WARNING\n\n"
+        "typedef void (*FSpec2codeLogSink)(const char* cpLine);\n\n"
+        "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink);\n"
+        "unsigned int spec2codeLogLevelGet(void);\n"
+        "unsigned int spec2codeLogLevelSet(unsigned int uiLevel);\n"
+        "const char* spec2codeLogLevelName(unsigned int uiLevel);\n"
+        "void spec2codeLog(unsigned int uiLevel, const char* cpFormat, ...);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_LOG_H */\n"
+    )
+
+
+def _testbench_log_source() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_log.c\n"
+        " * @brief Leveled runtime logging for the Spec2Code test bench agent.\n"
+        " *\n"
+        " * Sink kaydedilmemisse xil_printf (stdout) kullanilir; agent\n"
+        " * transportlari kendi hat fonksiyonlarini sink olarak kaydeder ki\n"
+        " * loglar S2C trafigiyle ayni kanaldan (CoreSight DCC / UART) aksin.\n"
+        " */\n"
+        '#include "spec2code_testbench_log.h"\n'
+        '#include "xil_printf.h"\n\n'
+        "#include <stdarg.h>\n"
+        "#include <stdio.h>\n\n"
+        "#define SPEC2CODE_LOG_BODY_MAX 160U\n"
+        "#define SPEC2CODE_LOG_LINE_MAX 192U\n\n"
+        "static unsigned int S_uiLogLevel = SPEC2CODE_LOG_LEVEL_DEFAULT;\n"
+        "static FSpec2codeLogSink S_fpLogSink = NULL;\n\n"
+        "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink)\n"
+        "{\n"
+        "    S_fpLogSink = fpSink;\n"
+        "}\n\n"
+        "unsigned int spec2codeLogLevelGet(void)\n"
+        "{\n"
+        "    return S_uiLogLevel;\n"
+        "}\n\n"
+        "unsigned int spec2codeLogLevelSet(unsigned int uiLevel)\n"
+        "{\n"
+        "    if (uiLevel < SPEC2CODE_LOG_LEVEL_ERROR)\n"
+        "    {\n"
+        "        uiLevel = SPEC2CODE_LOG_LEVEL_ERROR;\n"
+        "    }\n"
+        "    if (uiLevel > SPEC2CODE_LOG_LEVEL_DEBUG)\n"
+        "    {\n"
+        "        uiLevel = SPEC2CODE_LOG_LEVEL_DEBUG;\n"
+        "    }\n"
+        "    S_uiLogLevel = uiLevel;\n"
+        "    return S_uiLogLevel;\n"
+        "}\n\n"
+        "const char* spec2codeLogLevelName(unsigned int uiLevel)\n"
+        "{\n"
+        "    switch (uiLevel)\n"
+        "    {\n"
+        "    case SPEC2CODE_LOG_LEVEL_ERROR: return \"error\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_WARNING: return \"warning\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_MESSAGE: return \"message\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_INFO: return \"info\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_DEBUG: return \"debug\";\n"
+        "    default: return \"unknown\";\n"
+        "    }\n"
+        "}\n\n"
+        "static const char* spec2codeLogLevelTag(unsigned int uiLevel)\n"
+        "{\n"
+        "    switch (uiLevel)\n"
+        "    {\n"
+        "    case SPEC2CODE_LOG_LEVEL_ERROR: return \"E\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_WARNING: return \"W\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_MESSAGE: return \"M\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_INFO: return \"I\";\n"
+        "    case SPEC2CODE_LOG_LEVEL_DEBUG: return \"D\";\n"
+        "    default: return \"?\";\n"
+        "    }\n"
+        "}\n\n"
+        "void spec2codeLog(unsigned int uiLevel, const char* cpFormat, ...)\n"
+        "{\n"
+        "    char cArrBody[SPEC2CODE_LOG_BODY_MAX];\n"
+        "    char cArrLine[SPEC2CODE_LOG_LINE_MAX];\n"
+        "    va_list sArgs;\n"
+        "    int iWritten;\n\n"
+        "    if ((uiLevel > S_uiLogLevel) || (cpFormat == NULL))\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    va_start(sArgs, cpFormat);\n"
+        "    iWritten = vsnprintf(cArrBody, sizeof(cArrBody), cpFormat, sArgs);\n"
+        "    va_end(sArgs);\n"
+        "    if (iWritten < 0)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    iWritten = snprintf(cArrLine, sizeof(cArrLine), \"S2C-LOG|%s|%s\\r\\n\",\n"
+        "                        spec2codeLogLevelTag(uiLevel), cArrBody);\n"
+        "    if (iWritten < 0)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    if (S_fpLogSink != NULL)\n"
+        "    {\n"
+        "        S_fpLogSink(cArrLine);\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        xil_printf(\"%s\", cArrLine);\n"
+        "    }\n"
+        "}\n"
+    )
+
+
 def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     agent = _testbench_transport_agent(spec)
     manifest = {
@@ -592,8 +736,15 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
         "project": spec.get("project", {}).get("name", ""),
         "agent_version": _app_version(),
         "protocol": "S2C line protocol v1",
-        "line_format": "S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; global: S2C|id=1|op=spec2code_version",
+        "line_format": ("S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; "
+                        "global: S2C|id=1|op=spec2code_version, S2C|id=1|op=log_level|value=1..5"),
         "transport_agent": agent,
+        "log": {
+            "op": "log_level",
+            "levels": dict(_TESTBENCH_LOG_LEVELS),
+            "default": _TESTBENCH_LOG_LEVELS[_TESTBENCH_LOG_DEFAULT_LEVEL],
+            "line_prefix": "S2C-LOG|",
+        },
         "devices": [],
     }
     if agent == "uart":
@@ -871,9 +1022,11 @@ def _testbench_i2c_helpers() -> list[str]:
         "    {",
         "        return XST_FAILURE;",
         "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
         "    iStatus = XIicPs_MasterSendPolled(spIic, &ucReg, 1, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
@@ -883,12 +1036,14 @@ def _testbench_i2c_helpers() -> list[str]:
         "    iStatus = XIicPs_MasterRecvPolled(spIic, ucpValue, 1, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
         "    {",
         "        /* wait */",
         "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -904,9 +1059,11 @@ def _testbench_i2c_helpers() -> list[str]:
         "    }",
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucValue;",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
         "    iStatus = XIicPs_MasterSendPolled(spIic, ucArrBuffer, 2, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
@@ -1207,6 +1364,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
     rows = _testbench_op_table(entries)
     includes = [
         f'#include "{project_name}_testbench_ops.h"',
+        '#include "spec2code_testbench_log.h"',
         '#include "xstatus.h"',
         '#include <stddef.h>',
         "",
@@ -1303,6 +1461,28 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        spec2codeTestbenchMessageSet(spResponse, \"Spec2Code \" SPEC2CODE_TESTBENCH_AGENT_VERSION);",
         "        return XST_SUCCESS;",
         "    }",
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"log_level\") == 1)",
+        "    {",
+        "        /* Calisma zamaninda log esigi: value verilirse ayarla, her",
+        "         * durumda gecerli seviyeyi dondur. 1=error..5=debug. */",
+        "        if (spRequest->uiHasValue == 1U)",
+        "        {",
+        "            (void)spec2codeLogLevelSet(spRequest->uiValue);",
+        "            spec2codeLog(SPEC2CODE_LOG_LEVEL_WARNING, \"log seviyesi degisti: %s (%u)\",",
+        "                         spec2codeLogLevelName(spec2codeLogLevelGet()), spec2codeLogLevelGet());",
+        "        }",
+        "        spResponse->uiOk = 1U;",
+        "        spResponse->iStatus = XST_SUCCESS;",
+        "        spResponse->uiValue = spec2codeLogLevelGet();",
+        "        spec2codeTestbenchMessageSet(spResponse, spec2codeLogLevelName(spec2codeLogLevelGet()));",
+        "        return XST_SUCCESS;",
+        "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
+        "                 spRequest->cArrDevice, spRequest->cArrOperation);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,",
+        "                 \"op parametreleri: reg=%s reg_addr=0x%X address=0x%X length=%u value=0x%X data_len=%u\",",
+        "                 spRequest->cArrRegister, spRequest->uiRegister, spRequest->uiAddress,",
+        "                 spRequest->uiLength, spRequest->uiValue, spRequest->uiDataLength);",
     ])
     for entry in entries:
         lines.extend(_testbench_device_branch(entry))
@@ -1319,17 +1499,32 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    SSpec2codeTestbenchRequest sRequest;",
         "    SSpec2codeTestbenchResponse sResponse;",
         "    int iStatus;",
+        "    int iFormatStatus;",
         "",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"RX %s\", cpRequestLine);",
         "    iStatus = spec2codeTestbenchRequestParse(cpRequestLine, &sRequest);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"istek cozulmedi (parse failed): %s\", cpRequestLine);",
         "        spec2codeTestbenchResponseClear(&sResponse);",
         "        sResponse.iStatus = iStatus;",
         "        spec2codeTestbenchMessageSet(&sResponse, \"request parse failed\");",
         "        return spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
         "    }",
         "    (void)spec2codeTestbenchDispatch(&sRequest, &sResponse);",
-        "    return spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
+        "    if (sResponse.uiOk == 1U)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op tamam: device=%s op=%s status=%d\",",
+        "                     sRequest.cArrDevice, sRequest.cArrOperation, sResponse.iStatus);",
+        "    }",
+        "    else",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"op HATA: device=%s op=%s status=%d mesaj=%s\",",
+        "                     sRequest.cArrDevice, sRequest.cArrOperation, sResponse.iStatus, sResponse.cArrMessage);",
+        "    }",
+        "    iFormatStatus = spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"TX %s\", cpResponseLine);",
+        "    return iFormatStatus;",
         "}",
         "",
     ])
@@ -1557,20 +1752,24 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         handle = entry["handle"]
         if entry["htype"] == "XIicPs":
             lines.extend([
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (I2C)");',
                 f"    spIicConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spIicConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code I2C config bulunamadi: {entry["id"]}\\r\\n");',
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
                 "        return XST_FAILURE;",
                 "    }",
                 f"    iStatus = XIicPs_CfgInitialize(&{handle}, spIicConfig, spIicConfig->BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = XIicPs_SetSClk(&{handle}, 100000U);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} sclk status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
             ])
@@ -1600,15 +1799,18 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             ])
         elif entry["htype"] == "XQspiPsu":
             lines.extend([
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (QSPI)");',
                 f"    spQspiConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spQspiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code QSPI config bulunamadi: {entry["id"]}\\r\\n");',
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
                 "        return XST_FAILURE;",
                 "    }",
                 f"    iStatus = XQspiPsu_CfgInitialize(&{handle}, spQspiConfig, spQspiConfig->BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = XQspiPsu_SetOptions(&{handle}, XQSPIPSU_MANUAL_START_OPTION);",
@@ -1624,6 +1826,8 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
                 f"    XQspiPsu_SelectFlash(&{handle}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);",
             ])
     lines.extend([
+        f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam ({len(entries)} controller); '
+        'device_init otomatik KOSULMAZ");',
         "    S_uiBoardReady = 1U;",
         "    return XST_SUCCESS;",
         "}",
@@ -1676,6 +1880,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
     headers = [
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
+        '#include "spec2code_testbench_log.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -1937,6 +2142,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
     headers = [
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
+        '#include "spec2code_testbench_log.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -2358,6 +2564,7 @@ def _testbench_uart_source(spec: dict) -> str:
     headers = [
         '#include "spec2code_testbench_uart.h"',
         f'#include "{project_name}_testbench_ops.h"',
+        '#include "spec2code_testbench_log.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -2483,6 +2690,10 @@ def _testbench_uart_source(spec: dict) -> str:
         "    unsigned int uiPrevWasCr;",
         "    unsigned char ucByte;",
         "",
+        "    /* Loglar S2C trafigiyle ayni UART'tan aksin. */",
+        "    spec2codeLogSinkSet(spec2codeTestbenchUartSendLine);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"UART agent dongusu basladi; log seviyesi=%s\",",
+        "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
         "    uiLineLength = 0U;",
         "    uiPrevWasCr = 0U;",
         "    for (;;)",
@@ -2638,6 +2849,7 @@ def _testbench_coresight_source(spec: dict) -> str:
     headers = [
         '#include "spec2code_testbench_coresight.h"',
         f'#include "{project_name}_testbench_ops.h"',
+        '#include "spec2code_testbench_log.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xcoresightpsdcc.h"',
@@ -2719,6 +2931,10 @@ def _testbench_coresight_source(spec: dict) -> str:
         "    unsigned int uiPrevWasCr;",
         "    unsigned char ucByte;",
         "",
+        "    /* Loglar S2C trafigiyle ayni DCC kanalindan aksin (jtagterminal). */",
+        "    spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"CoreSight agent dongusu basladi; log seviyesi=%s\",",
+        "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
         "    uiLineLength = 0U;",
         "    uiPrevWasCr = 0U;",
         "    for (;;)",
@@ -2863,6 +3079,8 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     paths = [
         tests_dir / "spec2code_testbench_protocol.h",
         tests_dir / "spec2code_testbench_protocol.c",
+        tests_dir / "spec2code_testbench_log.h",
+        tests_dir / "spec2code_testbench_log.c",
         tests_dir / f"{project_name}_testbench_ops.h",
         tests_dir / f"{project_name}_testbench_ops.c",
         tests_dir / "spec2code_testbench_manifest.json",
@@ -2897,6 +3115,8 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
     contents = [
         _apply_default_identifier_style(_testbench_protocol_header()),
         _apply_default_identifier_style(_testbench_protocol_source()),
+        _apply_default_identifier_style(_testbench_log_header()),
+        _apply_default_identifier_style(_testbench_log_source()),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
