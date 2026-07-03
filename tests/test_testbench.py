@@ -154,14 +154,6 @@ class CoresightEchoHandler(socketserver.StreamRequestHandler):
             self.wfile.flush()
 
 
-def _pyserial_available() -> bool:
-    try:
-        import serial  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 class TestbenchTests(unittest.TestCase):
     def test_serial_session_skips_console_noise_and_reads_protocol_response(self) -> None:
         fake = FakeSerial()
@@ -307,10 +299,11 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("message=first", entries[1]["line"])
         self.assertEqual(len(newer), 2)
 
-    @unittest.skipUnless(_pyserial_available(), "pyserial is required for the coresight bridge")
     def test_coresight_session_bridges_over_fake_jtagterminal_socket(self) -> None:
         # Kopru sahte: bridge_factory xsdb yerine hazir bir TCP portu verir;
-        # oturumun geri kalani gercek yol (pyserial socket:// + reader thread).
+        # oturumun geri kalani gercek yol (_TcpBridgeStream + reader thread).
+        # pyserial bilerek KULLANILMAZ: paketli exe'de socket:// URL isleyicisi
+        # bulunamiyordu ("invalid URL, protocol 'socket' not known").
         server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), CoresightEchoHandler)
         server.daemon_threads = True
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -668,6 +661,11 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn(f"Spec2Code test bench {version}", main_source)
         self.assertIn("proje: unit_coresight_agent", main_source)
         self.assertIn("S2C-CORESIGHT-AGENT-READY", main_source)
+        # Banner iki kanala da basilmali: seri konsol (xil_printf/stdout=UART)
+        # ve DCC (jtagterminal koprusu). BSP stdout ayarina dokunulmaz.
+        self.assertIn(f'xil_printf("Spec2Code test bench {version}', main_source)
+        self.assertIn(f'spec2codeTestbenchCoresightBannerLine("Spec2Code test bench {version}', main_source)
+        self.assertIn('xil_printf("S2C-CORESIGHT-AGENT-READY', main_source)
         self.assertFalse(lwip_generated)
         self.assertFalse(uart_generated)
         self.assertEqual(manifest["transport_agent"], "coresight")

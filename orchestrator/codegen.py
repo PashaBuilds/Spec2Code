@@ -2775,14 +2775,20 @@ def _testbench_coresight_main_source(spec: dict) -> str:
         if _testbench_runtime_is_freertos(spec)
         else ""
     )
+    banner_text = (
+        f"Spec2Code test bench {app_version} | proje: {project_name}"
+        " | transport: CoreSight DCC (psu_coresight_0)"
+    )
     return (
         "/**\n"
         " * @file spec2code_testbench_coresight_main.c\n"
         " * @brief Entry point for the Spec2Code CoreSight DCC test bench agent.\n"
         " *\n"
-        " * Banner and liveness prompt go over DCC (not xil_printf/stdout) so\n"
-        " * they land in the host's jtagterminal bridge even when stdout is a\n"
-        " * different UART.\n"
+        " * BSP stdin/stdout stays on the console UART: xil_printf keeps\n"
+        " * printing there, only the S2C protocol rides the DCC. The boot\n"
+        " * banner is printed on BOTH channels so the serial console shows\n"
+        " * life at power-up and the host's jtagterminal bridge sees the\n"
+        " * agent too.\n"
         + runtime_note +
         " */\n"
         '#include "spec2code_testbench_coresight_main.h"\n'
@@ -2813,8 +2819,12 @@ def _testbench_coresight_main_source(spec: dict) -> str:
         '        xil_printf("Spec2Code CoreSight agent baslatilamadi: %d\\r\\n", iStatus);\n'
         "        return iStatus;\n"
         "    }\n"
-        f'    spec2codeTestbenchCoresightBannerLine("Spec2Code test bench {app_version}'
-        f' | proje: {project_name} | transport: CoreSight DCC (psu_coresight_0)\\r\\n");\n'
+        "    /* Seri konsol (stdout=UART): acilis isareti. */\n"
+        f'    xil_printf("{banner_text}\\r\\n");\n'
+        '    xil_printf("S2C protokolu CoreSight DCC uzerinde; bu UART yalnizca konsol.\\r\\n");\n'
+        '    xil_printf("S2C-CORESIGHT-AGENT-READY\\r\\n");\n'
+        "    /* Host koprusu (jtagterminal): ayni banner DCC uzerinden. */\n"
+        f'    spec2codeTestbenchCoresightBannerLine("{banner_text}\\r\\n");\n'
         '    spec2codeTestbenchCoresightBannerLine("Enter\'a basinca \\"> \\" istemi doner'
         ' (canlilik kontrolu).\\r\\n");\n'
         '    spec2codeTestbenchCoresightBannerLine("S2C-CORESIGHT-AGENT-READY\\r\\n");\n'
