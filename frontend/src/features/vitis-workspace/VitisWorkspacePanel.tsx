@@ -32,6 +32,13 @@ function defaultVitisProcessor(platform: string, targetCore: string) {
     const r5 = /^r5_(\d)$/.exec(targetCore);
     if (r5) return `psv_cortexr5_${r5[1]}`;
   }
+  if (platform === "zynq_7000") {
+    const a9 = /^a9_(\d)$/.exec(targetCore);
+    if (a9) return `ps7_cortexa9_${a9[1]}`;
+  }
+  if (platform === "microblaze_7series" && !targetCore.startsWith("microblaze")) {
+    return "microblaze_0";
+  }
   return targetCore;
 }
 

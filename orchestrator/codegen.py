@@ -1320,33 +1320,36 @@ def _zynqmp_lwip_eth_controller(spec: dict) -> dict | None:
     return None
 
 
-#: PS UART drivers the serial agent can be generated for. The Versal
-#: uartpsv driver mirrors the uartps API one-to-one (Lookup/CfgInitialize/
-#: SetBaudRate/Recv/Send), so both share one template parameterized by
-#: driver prefix + header.
+#: UART drivers the serial agent can be generated for. The Versal uartpsv
+#: driver mirrors the uartps API one-to-one (Lookup/CfgInitialize/
+#: SetBaudRate/Recv/Send); MicroBlaze's AXI UARTLITE has the same polled
+#: Recv/Send shape but a single-call Initialize and a hardware-fixed baud.
 _TESTBENCH_UART_DRIVERS: dict[str, str] = {
     "XUartPs": "xuartps.h",
     "XUartPsv": "xuartpsv.h",
+    "XUartLite": "xuartlite.h",
 }
 
 
 def _testbench_uart_controller(spec: dict) -> dict | None:
-    """Deterministic PS UART pick for the serial test bench agent.
+    """Deterministic UART pick for the serial test bench agent.
 
-    Lowest instance name wins so the same design always binds the same
-    UART (usually the console UART, which the host client tolerates:
-    non-protocol lines are ignored on both sides).
+    PS UARTs win over PL UARTLITEs, then lowest instance name, so the same
+    design always binds the same UART (usually the console UART, which the
+    host client tolerates: non-protocol lines are ignored on both sides).
     """
     candidates = [
         controller
         for controller in spec.get("controllers", [])
         if controller.get("type") == "uart"
-        and controller.get("zone") == "ps"
         and controller.get("driver", "XUartPs") in _TESTBENCH_UART_DRIVERS
     ]
     if not candidates:
         return None
-    return sorted(candidates, key=lambda item: str(item.get("instance", "")))[0]
+    return sorted(
+        candidates,
+        key=lambda item: (item.get("zone") != "ps", str(item.get("instance", ""))),
+    )[0]
 
 
 def _testbench_transport_agent(spec: dict) -> str | None:
@@ -2351,29 +2354,49 @@ def _testbench_uart_source(spec: dict) -> str:
             if any(entry["htype"] == htype for entry in entries)
             for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
         ],
-        "int spec2codeTestbenchUartInit(void)",
-        "{",
-        f"    {uart_prefix}_Config* spUartConfig;",
-        "    int iStatus;",
-        "",
-        f"    spUartConfig = {uart_prefix}_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
-        "    if (spUartConfig == NULL)",
-        "    {",
-        '        xil_printf("Spec2Code UART config bulunamadi\\r\\n");',
-        "        return XST_FAILURE;",
-        "    }",
-        f"    iStatus = {uart_prefix}_CfgInitialize(&S_sTestbenchUart, spUartConfig, spUartConfig->BaseAddress);",
-        "    if (iStatus != XST_SUCCESS)",
-        "    {",
-        "        return iStatus;",
-        "    }",
-        f"    iStatus = {uart_prefix}_SetBaudRate(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_BAUD);",
-        "    if (iStatus != XST_SUCCESS)",
-        "    {",
-        "        return iStatus;",
-        "    }",
-        "    return XST_SUCCESS;",
-        "}",
+        *(
+            [
+                # AXI UARTLITE: single-call init; baud is fixed in hardware.
+                "int spec2codeTestbenchUartInit(void)",
+                "{",
+                "    int iStatus;",
+                "",
+                "    iStatus = XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                '        xil_printf("Spec2Code UART init basarisiz\\r\\n");',
+                "        return iStatus;",
+                "    }",
+                "    return XST_SUCCESS;",
+                "}",
+            ]
+            if uart_prefix == "XUartLite"
+            else [
+                "int spec2codeTestbenchUartInit(void)",
+                "{",
+                f"    {uart_prefix}_Config* spUartConfig;",
+                "    int iStatus;",
+                "",
+                f"    spUartConfig = {uart_prefix}_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+                "    if (spUartConfig == NULL)",
+                "    {",
+                '        xil_printf("Spec2Code UART config bulunamadi\\r\\n");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = {uart_prefix}_CfgInitialize(&S_sTestbenchUart, spUartConfig, spUartConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = {uart_prefix}_SetBaudRate(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_BAUD);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                "    return XST_SUCCESS;",
+                "}",
+            ]
+        ),
         "",
         "static void spec2codeTestbenchUartSendLine(const char* cpLine)",
         "{",
@@ -2460,6 +2483,11 @@ def _testbench_uart_main_header() -> str:
 
 
 def _testbench_uart_main_source(spec: dict) -> str:
+    banner = (
+        '    xil_printf("S2C-UART-AGENT-READY (uartlite, baud sabit donanimda)\\r\\n");\n'
+        if _testbench_uart_driver(spec) == "XUartLite"
+        else '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
+    )
     runtime_note = (
         " * The polled agent needs no scheduler; on a FreeRTOS BSP it runs\n"
         " * before vTaskStartScheduler would, which is intentional.\n"
@@ -2491,7 +2519,7 @@ def _testbench_uart_main_source(spec: dict) -> str:
         '        xil_printf("Spec2Code UART agent baslatilamadi: %d\\r\\n", iStatus);\n'
         "        return iStatus;\n"
         "    }\n"
-        '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
+        + banner +
         "    spec2codeTestbenchUartRun();\n"
         "    return XST_SUCCESS;\n"
         "}\n"

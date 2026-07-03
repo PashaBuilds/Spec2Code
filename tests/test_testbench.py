@@ -453,6 +453,57 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(manifest["transport_agent"], "uart")
         self.assertEqual(manifest["uart"]["driver"], "XUartPsv")
 
+    def test_microblaze_uartlite_agent_and_axi_device_gate(self) -> None:
+        # MicroBlaze: the UARTLITE agent is generated (single-call init,
+        # hardware-fixed baud), and attaching a device to an AXI IIC
+        # controller fails loudly instead of emitting XIicPs code that
+        # could never compile against the xiic BSP.
+        from orchestrator import cmodel
+
+        spec = load_sample_spec("unit_microblaze")
+        spec["project"]["platform"] = "microblaze_7series"
+        spec["project"]["runtime"] = "bare_metal"
+        spec["project"]["testbench_transport"] = "uart"
+        spec["controllers"] = [
+            {"id": "pl_uart_0", "type": "uart", "instance": "XPAR_AXI_UARTLITE_0",
+             "base_address": "0x40600000", "device_id": 0, "driver": "XUartLite",
+             "source": "xparameters", "zone": "pl"},
+            {"id": "pl_i2c_0", "type": "i2c", "instance": "XPAR_AXI_IIC_0",
+             "base_address": "0x40800000", "device_id": 0, "driver": "XIic",
+             "source": "xparameters", "zone": "pl"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            uart_source = (out_dir / "tests" / "spec2code_testbench_uart.c").read_text(encoding="utf-8")
+            main_source = (out_dir / "tests" / "spec2code_testbench_uart_main.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn('#include "xuartlite.h"', uart_source)
+        self.assertIn("XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_DEVICE_ID)", uart_source)
+        self.assertNotIn("SetBaudRate", uart_source)
+        self.assertNotIn("LookupConfig", uart_source)
+        self.assertIn("uartlite", main_source)
+        self.assertEqual(manifest["uart"]["driver"], "XUartLite")
+
+        # Honest gate: a device on the AXI IIC controller must be rejected.
+        spec["devices"] = [{
+            "id": "u1_tmp101", "part": "TMP101",
+            "descriptor_ref": "descriptors/tmp101.yaml",
+            "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x4A",
+                       "via_mux": None, "reset_gpio": None, "irq_line": None},
+            "operations_requested": ["temperature_read"],
+            "tests_requested": [],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(cmodel.CodegenError) as ctx:
+                codegen.generate(spec, Path(tmp) / "out")
+            self.assertIn("does not support", str(ctx.exception))
+            self.assertIn("XIic", str(ctx.exception))
+
     def test_testbench_transport_auto_prefers_eth_and_falls_back_to_uart(self) -> None:
         spec = load_sample_spec("unit_transport_auto")
         add_zynqmp_ps_ethernet(spec)

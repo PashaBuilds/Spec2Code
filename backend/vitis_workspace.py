@@ -561,6 +561,12 @@ def default_vitis_processor(platform: str, target_core: str) -> str:
         match = re.fullmatch(r"r5_(\d)", target_core)
         if match:
             return f"psv_cortexr5_{match.group(1)}"
+    if platform == "zynq_7000":
+        match = re.fullmatch(r"a9_(\d)", target_core)
+        if match:
+            return f"ps7_cortexa9_{match.group(1)}"
+    if platform == "microblaze_7series" and not target_core.startswith("microblaze"):
+        return "microblaze_0"
     return target_core
 
 
@@ -1035,12 +1041,18 @@ def patch_custom_ip_make_libs(workspace_path: Path, custom_ip_instances: list[st
     if normalize_custom_ip_driver_policy(policy) != "auto_none" or not workspace_path.exists():
         return []
     patched: list[str] = []
-    for make_libs in workspace_path.rglob("make.libs"):
-        if not make_libs.is_file():
-            continue
-        if _make_libs_matches_custom_ip(make_libs, custom_ip_instances) or _make_libs_looks_sourceless(make_libs):
-            if _write_noop_make_libs(make_libs):
-                patched.append(str(make_libs))
+    try:
+        # rglob races with the live BSP regeneration (directories vanish
+        # mid-walk while xsct prunes per-arch sources); a missing dir must
+        # not kill the watcher.
+        for make_libs in workspace_path.rglob("make.libs"):
+            if not make_libs.is_file():
+                continue
+            if _make_libs_matches_custom_ip(make_libs, custom_ip_instances) or _make_libs_looks_sourceless(make_libs):
+                if _write_noop_make_libs(make_libs):
+                    patched.append(str(make_libs))
+    except OSError:
+        return patched
     return patched
 
 

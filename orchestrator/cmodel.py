@@ -150,22 +150,39 @@ def _module_of(part: str) -> str:
     return mod
 
 
+#: Drivers the deterministic bus-op emitters actually speak. Everything the
+#: generator writes for i2c is XIicPs_* API (and so on); letting another
+#: driver (AXI XIic/XSpi, Zynq-7000 XQspiPs, Versal XOspiPsv) through here
+#: would emit code that cannot compile against that BSP - fail loudly instead.
+_SUPPORTED_BUS_DRIVERS: dict[str, set[str]] = {
+    "i2c": {"XIicPs"},
+    "spi": {"XSpiPs"},
+    "qspi": {"XQspiPsu"},
+}
+
+
 def _handle_for(controller: dict) -> tuple[str, str]:
     ctype = controller.get("type")
     var = {"i2c": "spIic", "spi": "spSpi", "qspi": "spQspi", "gpio": "spGpio"}.get(ctype, "spDev")
     driver = controller.get("driver")
-    if driver:
-        return driver, var
-    is_ps = controller.get("zone") == "ps"
-    table = {
-        ("i2c", True): "XIicPs", ("i2c", False): "XIic",
-        ("spi", True): "XSpiPs", ("spi", False): "XSpi",
-        ("qspi", True): "XQspiPs", ("qspi", False): "XSpi",
-    }
-    htype = table.get((ctype, is_ps))
-    if htype is None:
-        raise CodegenError(f"no BSP driver mapping for controller type '{ctype}'")
-    return htype, var
+    if not driver:
+        is_ps = controller.get("zone") == "ps"
+        table = {
+            ("i2c", True): "XIicPs", ("i2c", False): "XIic",
+            ("spi", True): "XSpiPs", ("spi", False): "XSpi",
+            ("qspi", True): "XQspiPs", ("qspi", False): "XSpi",
+        }
+        driver = table.get((ctype, is_ps))
+        if driver is None:
+            raise CodegenError(f"no BSP driver mapping for controller type '{ctype}'")
+    supported = _SUPPORTED_BUS_DRIVERS.get(str(ctype))
+    if supported is not None and driver not in supported:
+        raise CodegenError(
+            f"controller '{controller.get('id', '?')}' ({ctype}) uses driver '{driver}', which "
+            f"deterministic code generation does not support yet (supported: "
+            f"{', '.join(sorted(supported))}). AXI soft-IP (XIic/XSpi) and XQspiPs/XOspiPsv "
+            "paths are not implemented; attach the device to a supported PS controller.")
+    return driver, var
 
 
 def _spi_header_for(htype: str) -> str:
