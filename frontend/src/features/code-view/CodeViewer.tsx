@@ -344,88 +344,97 @@ export default function CodeViewer() {
         </div>
       </div>
 
-      {jobId ? (
-        <Tabs defaultValue="code">
-          <TabsList>
-            <TabsTrigger value="code">Üretilen kod</TabsTrigger>
-            <TabsTrigger value="vitis">Vitis &amp; Board</TabsTrigger>
-          </TabsList>
-          <TabsContent value="vitis">
-            <VitisWorkspacePanel jobId={jobId} />
-          </TabsContent>
-          <TabsContent value="code" />
-        </Tabs>
-      ) : null}
+      {(() => {
+        // Kod alanı yalnızca "Üretilen kod" sekmesinde yaşar; Vitis & Board
+        // sekmesi sade kalır (kod zaten diğer sekmede görülebiliyor).
+        const codeArea = (
+          <>
+            {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
 
-      {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
+            <div className="grid min-h-0 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
+              <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-elev">
+                <div className="flex h-10 items-center justify-between border-b border-border px-3">
+                  <span className="text-xs font-medium text-muted">Generated files</span>
+                  <Badge tone="neutral">{files.length}</Badge>
+                </div>
+                <div className="max-h-[64vh] overflow-auto p-2">
+                  <TreeRows nodes={tree} activePath={activePath} onSelect={setActive} />
+                </div>
+              </aside>
 
-      <div className="grid min-h-0 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-elev">
-          <div className="flex h-10 items-center justify-between border-b border-border px-3">
-            <span className="text-xs font-medium text-muted">Generated files</span>
-            <Badge tone="neutral">{files.length}</Badge>
-          </div>
-          <div className="max-h-[64vh] overflow-auto p-2">
-            <TreeRows nodes={tree} activePath={activePath} onSelect={setActive} />
-          </div>
-        </aside>
+              <section className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
+                    {activeDisplayPath}
+                  </span>
+                  {previousFiles.length > 0 && activeDiff ? (
+                    <Badge tone={diffTone(activeDiff.status)} className="font-mono">
+                      {diffLabel(activeDiff.status)}
+                      {activeDiff.status === "changed" ? ` +${activeDiff.addedLines}/-${activeDiff.removedLines}` : ""}
+                    </Badge>
+                  ) : null}
+                  {activeDownloadUrl ? (
+                    <DownloadLink href={activeDownloadUrl} download={activeFile.name}>
+                      <Download className="h-4 w-4" />
+                      Download file
+                    </DownloadLink>
+                  ) : null}
+                </div>
 
-        <section className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
-              {activeDisplayPath}
-            </span>
-            {previousFiles.length > 0 && activeDiff ? (
-              <Badge tone={diffTone(activeDiff.status)} className="font-mono">
-                {diffLabel(activeDiff.status)}
-                {activeDiff.status === "changed" ? ` +${activeDiff.addedLines}/-${activeDiff.removedLines}` : ""}
-              </Badge>
-            ) : null}
-            {activeDownloadUrl ? (
-              <DownloadLink href={activeDownloadUrl} download={activeFile.name}>
-                <Download className="h-4 w-4" />
-                Download file
-              </DownloadLink>
-            ) : null}
-          </div>
+                <div className="overflow-hidden rounded-lg border border-border bg-inset">
+                  <CodeMirror
+                    value={activeFile.content}
+                    height="60vh"
+                    theme={oneDark}
+                    extensions={[cpp()]}
+                    editable={false}
+                    readOnly
+                    basicSetup={{ lineNumbers: true, foldGutter: false }}
+                  />
+                </div>
 
-          <div className="overflow-hidden rounded-lg border border-border bg-inset">
-            <CodeMirror
-              value={activeFile.content}
-              height="60vh"
-              theme={oneDark}
-              extensions={[cpp()]}
-              editable={false}
-              readOnly
-              basicSetup={{ lineNumbers: true, foldGutter: false }}
-            />
-          </div>
-
-          <Card className="mt-3 bg-elev">
-            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-              <span className="text-xs font-medium text-muted">QC findings</span>
-              <span className="min-w-0 truncate font-mono text-xs text-faint">
-                {activeDisplayPath}
-              </span>
+                <Card className="mt-3 bg-elev">
+                  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                    <span className="text-xs font-medium text-muted">QC findings</span>
+                    <span className="min-w-0 truncate font-mono text-xs text-faint">
+                      {activeDisplayPath}
+                    </span>
+                  </div>
+                  {violations.length > 0 ? (
+                    <div>
+                      {violations.map((v, i) => (
+                        <ViolationRow key={`${v.rule}-${v.line}-${v.column}-${i}`} v={v} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3">
+                      {qc?.passed ? (
+                        <Badge tone="ok">no QC findings</Badge>
+                      ) : (
+                        <span className="text-xs text-muted">No findings for this file.</span>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </section>
             </div>
-            {violations.length > 0 ? (
-              <div>
-                {violations.map((v, i) => (
-                  <ViolationRow key={`${v.rule}-${v.line}-${v.column}-${i}`} v={v} />
-                ))}
-              </div>
-            ) : (
-              <div className="px-3 py-3">
-                {qc?.passed ? (
-                  <Badge tone="ok">no QC findings</Badge>
-                ) : (
-                  <span className="text-xs text-muted">No findings for this file.</span>
-                )}
-              </div>
-            )}
-          </Card>
-        </section>
-      </div>
+          </>
+        );
+
+        if (!jobId) return codeArea;
+        return (
+          <Tabs defaultValue="code">
+            <TabsList>
+              <TabsTrigger value="code">Üretilen kod</TabsTrigger>
+              <TabsTrigger value="vitis">Vitis &amp; Board</TabsTrigger>
+            </TabsList>
+            <TabsContent value="vitis">
+              <VitisWorkspacePanel jobId={jobId} />
+            </TabsContent>
+            <TabsContent value="code">{codeArea}</TabsContent>
+          </Tabs>
+        );
+      })()}
     </div>
   );
 }

@@ -8,12 +8,14 @@ export function maybeSeedDemo(): void {
   if (!new URLSearchParams(window.location.search).has("demo")) return;
 
   const zones: Zone[] = [{ id: "ps", label: "PS — Processing System" }];
+  // Canonical driver names + XPAR instances: the demo must generate real
+  // code end-to-end exactly like a parsed design would.
   const controllers: Controller[] = [
-    { id: "ps_i2c_0", type: "i2c", instance: "I2C0", base_address: "0xFF020000", driver: "iicps", source: "xparameters", zone: "ps" },
-    { id: "ps_i2c_1", type: "i2c", instance: "I2C1", base_address: "0xFF030000", driver: "iicps", source: "xparameters", zone: "ps" },
-    { id: "ps_qspi_0", type: "qspi", instance: "QSPI", base_address: "0xFF0F0000", driver: "qspipsu", source: "xparameters", zone: "ps" },
-    { id: "ps_uart_0", type: "uart", instance: "UART0", base_address: "0xFF000000", driver: "uartps", source: "xparameters", zone: "ps" },
-    { id: "ps_gem_3", type: "eth", instance: "GEM3", base_address: "0xFF0E0000", driver: "emacps", source: "xparameters", zone: "ps" },
+    { id: "ps_i2c_0", type: "i2c", instance: "XPAR_XIICPS_0", base_address: "0xFF020000", driver: "XIicPs", source: "xparameters", zone: "ps" },
+    { id: "ps_i2c_1", type: "i2c", instance: "XPAR_XIICPS_1", base_address: "0xFF030000", driver: "XIicPs", source: "xparameters", zone: "ps" },
+    { id: "ps_qspi_0", type: "qspi", instance: "XPAR_XQSPIPSU_0", base_address: "0xFF0F0000", driver: "XQspiPsu", source: "xparameters", zone: "ps" },
+    { id: "ps_uart_0", type: "uart", instance: "XPAR_XUARTPS_0", base_address: "0xFF000000", driver: "XUartPs", source: "xparameters", zone: "ps" },
+    { id: "ps_gem_3", type: "eth", instance: "XPAR_XEMACPS_3", base_address: "0xFF0E0000", driver: "XEmacPs", source: "xparameters", zone: "ps" },
   ];
   const muxes: Mux[] = [
     { id: "u1_tca9548a", part: "TCA9548A", controller_id: "ps_i2c_0", i2c_address: "0x70", channels: 8 },

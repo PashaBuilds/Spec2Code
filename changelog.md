@@ -31,6 +31,13 @@ Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
   tam sematik kuruldu; sirket-sekilli custom-IP XSA'sinda 8 PS
   denetleyici + mem_pcie_intr unmatched dogrulandi. python-multipart
   bagimliligi eklendi.
+- Generate sag kolonu duzeni: kod alani (dosya agaci + editor + QC
+  bulgulari + diff) artik yalnizca "Uretilen kod" sekmesinde; "Vitis &
+  Board" sekmesi sade (yalniz workspace + Board'da calistir kartlari).
+- ?demo tohumu kanonik surucu adlarina gecirildi (XIicPs/XQspiPsu/...)
+  - demo semasi artik gercek codegen'i uctan uca kosabiliyor (32 dosya,
+  QC yesil); ayrica surucu kapisinin UI'da net hata gosterdigi teyit
+  edildi.
 
 ## v0.1.99 - 2026-07-03
 
