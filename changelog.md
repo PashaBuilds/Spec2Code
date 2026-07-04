@@ -34,6 +34,10 @@ Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
 - Generate sag kolonu duzeni: kod alani (dosya agaci + editor + QC
   bulgulari + diff) artik yalnizca "Uretilen kod" sekmesinde; "Vitis &
   Board" sekmesi sade (yalniz workspace + Board'da calistir kartlari).
+- UART "Konsol" ekrani kaldirildi: protokol TX/RX'i "Akis" ekrani
+  zaten gosteriyor, ham seri terminal ihtiyaci harici programla
+  karsilaniyor. Komut paleti girdisi ve sekme kaldirildi; backend
+  console API'lari yerinde (Akis ve dis araclar kullanabilir).
 - ?demo tohumu kanonik surucu adlarina gecirildi (XIicPs/XQspiPsu/...)
   - demo semasi artik gercek codegen'i uctan uca kosabiliyor (32 dosya,
   QC yesil); ayrica surucu kapisinin UI'da net hata gosterdigi teyit

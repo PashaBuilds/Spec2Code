@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, Boxes, Cable, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -19,13 +19,12 @@ import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import TransactionTimeline from "@/features/testbench/TransactionTimeline";
 import TelemetryControl from "@/features/schematic/TelemetryControl";
 import { useBoardConnection } from "@/store/connection";
-import UartConsolePanel from "@/features/uart-console/UartConsolePanel";
 import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "uart" | "traffic" | "bringup" | "registers" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -115,7 +114,6 @@ export default function App() {
     { id: "knowledge", label: "Bilgi soru merkezi", hint: "görünüm", keywords: "knowledge datasheet soru", run: () => setView("knowledge") },
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
     { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
-    { id: "uart", label: "UART konsolu", hint: "görünüm", keywords: "seri com konsol log", run: () => setView("uart") },
     { id: "traffic", label: "Veri Akışı — TX/RX trafiği", hint: "görünüm", keywords: "trafik veri akış tx rx coresight dcc jtag", run: () => setView("traffic") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
@@ -185,7 +183,6 @@ export default function App() {
           ["knowledge", BookOpen, "Bilgi"],
           ["catalog", Library, "Katalog"],
           ["testbench", PlugZap, "Test Bench"],
-          ["uart", Cable, "Konsol"],
           ["traffic", Activity, "Akış"],
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
@@ -238,14 +235,6 @@ export default function App() {
               <TestBenchPanel />
             </div>
             <TransactionTimeline />
-          </div>
-        ))}
-        {keepAlive("uart", (
-          <div className="flex h-full min-h-0 flex-col p-4">
-            <h2 className="mb-3 shrink-0 text-sm font-semibold">UART konsolu</h2>
-            <div className="min-h-0 flex-1">
-              <UartConsolePanel />
-            </div>
           </div>
         ))}
         {keepAlive("traffic", (
