@@ -38,6 +38,19 @@ Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
   zaten gosteriyor, ham seri terminal ihtiyaci harici programla
   karsilaniyor. Komut paleti girdisi ve sekme kaldirildi; backend
   console API'lari yerinde (Akis ve dis araclar kullanabilir).
+- LTC2991 okumalari artik muhendislik birimlerinde (2991f Table 10):
+  voltage_read mV dondurur (LSB 305.18 uV; isaret/DV ayiklanir, negatif
+  0'a kirpilir), vcc_read mV (2500 mV + kod x 305.18 uV),
+  temperature_read isaretli santi-santigrat (0.01 C; 13-bit two's
+  complement, LSB 0.0625 C) - donus tipi int32'ye gecti (dispatch 4
+  byte big-endian tasir). current_read bilincli olarak raw kaldi:
+  Vsense_uV = kod x 19.075, akim = Vsense/Rshunt hesabi pair'e ozgu
+  shunt degeriyle uygulama tarafinda (aciklamalara islendi). Altyapi:
+  descriptor'lara genel `convert` blogu (mask/signed_bits/scale/offset/
+  clamp, tamsayi aritmetigi) - diger sensorlere de uygulanabilir.
+  Dogrulama: yeni regresyon testi (donusum katsayilari + int32 dispatch
+  + manifest), 137 test yesil; uretilen kod gercek zc702 BSP'sine karsi
+  -Wall -Wextra -Werror sifir uyari derlendi.
 - ?demo tohumu kanonik surucu adlarina gecirildi (XIicPs/XQspiPsu/...)
   - demo semasi artik gercek codegen'i uctan uca kosabiliyor (32 dosya,
   QC yesil); ayrica surucu kapisinin UI'da net hata gosterdigi teyit

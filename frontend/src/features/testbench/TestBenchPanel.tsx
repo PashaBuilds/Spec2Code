@@ -56,10 +56,16 @@ function needsData(op: TestbenchOperation): boolean {
 
 function operationNote(device: TestbenchManifestDevice, op: TestbenchOperation): string {
   if (device.part === "LTC2991" && op.name === "current_read") {
-    return "Bu cevap raw differential/current channel code döndürür. Current hesabı için seçili pair'in shunt milliohm değeri application tarafında kullanılmalıdır.";
+    return "Raw differential kod döner (işaret + 14 bit, two's complement): Vsense_µV = kod × 19.075. Akım = Vsense / Rshunt hesabı, pair'e özgü shunt değeriyle application tarafında yapılır.";
   }
   if (device.part === "LTC2991" && op.name === "voltage_read") {
-    return "Sekiz kanalın raw 16-bit transfer image değerleri iki byte MSB/LSB sırasıyla döner.";
+    return "Sekiz single-ended kanal milivolt cinsinden döner (LSB 305.18 µV; 0–5000 mV, negatifler 0'a kırpılır).";
+  }
+  if (device.part === "LTC2991" && op.name === "temperature_read") {
+    return "İç sıcaklık santi-santigrat (0.01 °C) cinsinden işaretli döner: 2350 = 23.50 °C.";
+  }
+  if (device.part === "LTC2991" && op.name === "vcc_read") {
+    return "VCC milivolt cinsinden döner (2500 mV + kod × 305.18 µV).";
   }
   if (op.name.includes("erase")) {
     return "Erase işlemi flash içeriğini geri dönüşsüz değiştirir; address ilgili sector içinden verilmelidir.";

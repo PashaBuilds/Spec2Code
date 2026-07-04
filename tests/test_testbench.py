@@ -556,6 +556,50 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(manifest["transport_agent"], "uart")
         self.assertEqual(manifest["uart"]["driver"], "XUartPsv")
 
+    def test_ltc2991_reads_convert_to_engineering_units(self) -> None:
+        # 2991f data format: SE LSB 305.18 uV, T_internal 0.0625 C (13-bit
+        # two's complement), VCC = 2.5 V + code * 305.18 uV. Reads must return
+        # mV / santi-Celsius, not raw transfer images.
+        spec = load_sample_spec("unit_ltc2991_units")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [{
+            "id": "u1_ltc2991", "part": "LTC2991",
+            "descriptor_ref": "descriptors/ltc2991.yaml",
+            "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x48",
+                       "via_mux": None, "reset_gpio": None, "irq_line": None},
+            "operations_requested": ["device_init", "voltage_read", "temperature_read", "vcc_read"],
+            "tests_requested": ["self_test"],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "ltc2991.c").read_text(encoding="utf-8")
+            header = (out_dir / "drivers" / "ltc2991.h").read_text(encoding="utf-8")
+            ops = (out_dir / "tests" / "unit_ltc2991_units_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        # Voltage: mV with sign strip + clamp (LSB 305.18 uV -> *30518/100000).
+        self.assertIn("(iCode * 30518) / 100000", driver)
+        self.assertIn("iCode -= 32768", driver)
+        # Temperature: santi-Celsius, 13-bit two's complement, signed int out.
+        self.assertIn("(iCode * 25) / 4", driver)
+        self.assertIn("iCode -= 8192", driver)
+        self.assertIn("int* ipTemperature", header)
+        # VCC: +2500 mV offset.
+        self.assertIn("iCode += 2500", driver)
+        # Dispatch carries the signed scalar (int32 path).
+        self.assertIn("int iValue;", ops)
+        self.assertIn("ltc2991TemperatureRead(spIic, &iValue)", ops)
+        ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
+        self.assertEqual(ltc_ops["temperature_read"]["fixed_read_length"], 4)
+        self.assertIn("mV", ltc_ops["voltage_read"]["label"])
+
     def test_self_test_skips_device_init_when_not_requested(self) -> None:
         # Regression (found on zc702): requesting only read ops + self_test
         # used to emit a self test that called <part>DeviceInit anyway ->

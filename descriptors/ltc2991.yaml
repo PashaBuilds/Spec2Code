@@ -83,28 +83,34 @@ operations:
     description: "Initialize from device.config using the LTC2991 profile-generated register write sequence."
     steps:
       - { op: comment, note: "LTC2991 profile emits STATUS_HIGH, CONTROL_V1V4, and CONTROL_V5V8 writes." }
+  # Conversions per 2991f data format (Table 10, p. 23): results are two's
+  # complement, single-ended LSB = 305.18 uV, differential LSB = 19.075 uV,
+  # T_internal LSB = 0.0625 C (13-bit), VCC = 2.5 V + code * 305.18 uV.
   - name: voltage_read
     returns: "voltages[8]"
-    description: "Read all eight voltage channels as raw 14-bit codes."
+    description: "Read all eight single-ended channels converted to millivolts (LSB 305.18 uV; sign/DV stripped, sub-zero clamps to 0 mV; integer division truncates toward zero, <=1 mV)."
+    convert: { mask: 0x7FFF, signed_bits: 15, scale_num: 30518, scale_den: 100000, clamp_min: 0, unit: "mV" }
     steps:
       - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_channels, reg: V1_MSB, count: 8 }
   - name: current_read
     returns: "currents[8]"
-    description: "Read all eight raw channel codes for differential/current-shunt pairs; application converts selected pairs using configured shunt values."
+    description: "Read all eight raw differential codes (sign + 14 bit two's complement). Vsense_uV = code * 19.075; I = Vsense / Rshunt is applied by the application because the shunt value is per-pair board data."
     steps:
       - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_channels, reg: V1_MSB, count: 8 }
   - name: temperature_read
-    returns: "uint16"
-    description: "Read the internal temperature as a raw code."
+    returns: "int32"
+    description: "Read the internal temperature converted to santi-Celsius (0.01 C units, signed; LSB 0.0625 C, 13-bit two's complement)."
+    convert: { mask: 0x1FFF, signed_bits: 13, scale_num: 25, scale_den: 4, unit: "0.01 C" }
     steps:
       - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_register, reg: T_INTERNAL_MSB }
       - { op: read_register, reg: T_INTERNAL_LSB }
   - name: vcc_read
     returns: "uint16"
-    description: "Read VCC as a raw code."
+    description: "Read VCC converted to millivolts (VCC = 2500 mV + code * 305.18 uV)."
+    convert: { mask: 0x3FFF, signed_bits: 0, scale_num: 30518, scale_den: 100000, offset: 2500, unit: "mV" }
     steps:
       - { op: poll, reg: STATUS_HIGH, field: BUSY, until: 0, timeout_ms: 10 }
       - { op: read_register, reg: VCC_MSB }

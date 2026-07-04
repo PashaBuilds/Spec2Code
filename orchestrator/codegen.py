@@ -504,10 +504,10 @@ def _testbench_risk(op_name: str) -> str:
 def _testbench_label(part: str, op_name: str) -> str:
     labels = {
         "LTC2991": {
-            "voltage_read": "Tüm voltaj kanallarını oku",
-            "current_read": "Akım/differential raw kodlarını oku",
-            "vcc_read": "VCC oku",
-            "temperature_read": "Internal temperature oku",
+            "voltage_read": "Tüm voltaj kanallarını oku (mV)",
+            "current_read": "Differential raw kodlarını oku (µV = kod × 19.075)",
+            "vcc_read": "VCC oku (mV)",
+            "temperature_read": "Internal temperature oku (0.01 °C)",
             "device_init": "LTC2991 init config uygula",
         },
         "AD7414": {
@@ -580,6 +580,8 @@ def _operation_fixed_read_length(op: dict) -> int:
         return array_count * 2
     if "uint16" in returns:
         return 2
+    if "int32" in returns:
+        return 4
     if "uint8" in returns:
         return 1
     for step in op.get("steps", []):
@@ -1154,6 +1156,24 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
         lines.append("}")
         void = out_name
         del void
+    elif "int32" in returns:
+        # Converted engineering-unit scalar (e.g. santi-Celsius): value goes
+        # out two's complement in uiValue, data carries 4 big-endian bytes.
+        lines.append(f"iStatus = {func}({hvar}, &iValue);")
+        lines.extend([
+            "if (iStatus == XST_SUCCESS)",
+            "{",
+            "    spResponse->uiValue = (unsigned int)iValue;",
+        ])
+        for shift in (24, 16, 8, 0):
+            lines.extend([
+                f"    iStatus = spec2codeTestbenchDataPush(spResponse, (unsigned char)(((unsigned int)iValue >> {shift}) & 0xFFU));",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+            ])
+        lines.append("}")
     elif "uint8" in returns:
         lines.append(f"iStatus = {func}({hvar}, &ucValue);")
         lines.extend([
@@ -1224,6 +1244,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     register_ops = _supports_i2c_register_ops(descriptor)
     needs_array = any(_array_return_count(str(op.get("returns", "")).lower()) for op in operations)
     needs_us_value = any("uint16" in str(op.get("returns", "")).lower() for op in operations)
+    needs_i_value = any("int32" in str(op.get("returns", "")).lower() for op in operations)
     needs_uc_value = register_ops or any("uint8" in str(op.get("returns", "")).lower() for op in operations)
     needs_uc_reg = register_ops
     needs_data = any(
@@ -1248,6 +1269,8 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     ]
     if needs_us_value:
         lines.append("        unsigned short usValue;")
+    if needs_i_value:
+        lines.append("        int iValue;")
     if needs_array:
         lines.append("        unsigned short usArrValues[8];")
     if needs_uc_value:

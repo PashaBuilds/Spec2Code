@@ -240,7 +240,38 @@ def _return_param(op_name: str, returns: str) -> tuple[str, str]:
         return "unsigned char", f"ucp{_pascal_suffix(obj)}"
     if "uint32" in ret:
         return "unsigned int", f"uip{_pascal_suffix(obj)}"
+    if "int32" in ret:
+        return "int", f"ip{_pascal_suffix(obj)}"
     return "unsigned short", f"usp{_pascal_suffix(obj)}"
+
+
+def _emit_convert_lines(e: "Emit", convert: dict, raw_expr: str) -> None:
+    """Fixed-point engineering-unit conversion into the local `iCode`.
+
+    value = sign_extend(raw & mask, signed_bits) * scale_num / scale_den
+            + offset, optionally clamped at clamp_min. Integer-only math;
+    division truncates toward zero (<=1 output-unit error, documented in the
+    descriptor description).
+    """
+    mask = int(convert.get("mask", 0xFFFF))
+    signed_bits = int(convert.get("signed_bits", 0))
+    scale_num = int(convert.get("scale_num", 1))
+    scale_den = int(convert.get("scale_den", 1))
+    offset = int(convert.get("offset", 0))
+    e.ln(f"iCode = (int)(({raw_expr}) & {_hexu32(mask)});")
+    if signed_bits:
+        e.open(f"if (iCode >= {1 << (signed_bits - 1)})")
+        e.ln(f"iCode -= {1 << signed_bits};  /* two's complement, {signed_bits} bit */")
+        e.close()
+    if scale_num != 1 or scale_den != 1:
+        e.ln(f"iCode = (iCode * {scale_num}) / {scale_den};")
+    if offset:
+        e.ln(f"iCode += {offset};")
+    if "clamp_min" in convert:
+        clamp = int(convert["clamp_min"])
+        e.open(f"if (iCode < {clamp})")
+        e.ln(f"iCode = {clamp};")
+        e.close()
 
 
 def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
@@ -485,6 +516,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             params.append(f"{out_c_type}* {out_param}")
 
         has_channels = any(s["op"] == "read_channels" for s in op["steps"])
+        convert = op.get("convert")
         scalar_combine = bool(returns) and "[" not in returns
         scalar_read_bytes = 0
         if scalar_combine:
@@ -508,6 +540,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             e.ln("unsigned char ucMsb;").ln("unsigned char ucLsb;")
         if scalar_read_bytes:
             e.ln("unsigned char ucArrBytes[4];")
+        if convert:
+            e.ln("int iCode;")
         e.blank()
 
         if is_init:
@@ -574,12 +608,22 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                     e.open(f"for (ucIndex = 0U; ucIndex < {count}U; ucIndex++)")
                     e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, (unsigned char)({base} + (ucIndex * 2U)), &ucMsb);").check_status()
                     e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, (unsigned char)({base} + (ucIndex * 2U) + 1U), &ucLsb);").check_status()
-                    e.ln(f"{out_param}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
+                    if convert:
+                        _emit_convert_lines(
+                            e, convert,
+                            "((unsigned short)ucMsb << 8) | (unsigned short)ucLsb")
+                        e.ln(f"{out_param}[ucIndex] = (unsigned short)iCode;")
+                    else:
+                        e.ln(f"{out_param}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
                     e.close()
 
         if scalar_combine and out_param:
             expr = _scalar_assign_expr(read_seen, out_c_type, byte_order, scalar_pieces)
-            e.ln(f"*{out_param} = ({out_c_type})({expr});")
+            if convert:
+                _emit_convert_lines(e, convert, expr)
+                e.ln(f"*{out_param} = ({out_c_type})iCode;")
+            else:
+                e.ln(f"*{out_param} = ({out_c_type})({expr});")
         e.ln("return XST_SUCCESS;")
 
         doxy_params = [(hvar, "Initialized I2C controller handle.")]
@@ -1248,6 +1292,13 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     def has_uint_out(name: str) -> bool:
         return any("unsigned int*" in param for param in funcs_by_name.get(name, CFunc("", "", [], [])).params)
 
+    def has_int_out(name: str) -> bool:
+        # Converted (engineering-unit) reads use a signed int out parameter.
+        return any(
+            param.strip().startswith("int*")
+            for param in funcs_by_name.get(name, CFunc("", "", [], [])).params
+        )
+
     st = Emit()
     st.ln("int iStatus;")
     if unit.transport in {"i2c", "i2c_eeprom"}:
@@ -1265,7 +1316,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned short usCurrent;")
         if any(n.endswith("TemperatureRead") and has_uint_out(n) for n in read_ops):
             st.ln("unsigned int uiTemperature;")
-        if any(n.endswith("TemperatureRead") and not has_uint_out(n) for n in read_ops):
+        if any(n.endswith("TemperatureRead") and has_int_out(n) for n in read_ops):
+            st.ln("int iTemperature;")
+        if any(n.endswith("TemperatureRead") and not has_uint_out(n) and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usTemperature;")
         if any(n.endswith("HumidityRead") for n in read_ops):
             st.ln("unsigned int uiHumidity;")
@@ -1321,6 +1374,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             if has_uint_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &uiTemperature);").check_status()
                 st.ln('xil_printf("' + part + ' temperature raw = %lu\\r\\n", (unsigned long)uiTemperature);')
+            elif has_int_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &iTemperature);").check_status()
+                st.ln('xil_printf("' + part + ' temperature = %d santi-C (0.01 C)\\r\\n", iTemperature);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usTemperature);").check_status()
                 st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)usTemperature);')
