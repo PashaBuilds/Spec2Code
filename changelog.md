@@ -3,6 +3,26 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.101 - 2026-07-05
+
+- YENI ENTEGRE: LMX1205 (TI 0.3-12.8 GHz JESD buffer/multiplier/divider,
+  4 clock + 4 SYSREF + LOGICLK) - resmi SNAS850 datasheet'inden (Aralik
+  2024, ADVANCE INFORMATION statusu notlara islendi) dogrulanarak eklendi.
+  SPI: 24-bit frame (R/W + 7-bit adres + 16-bit veri), mode 0, max 20 MHz
+  (LMX1204'un 10 kati). Readback MUXOUT'ta OTOMATIK: pin okuma sirasinda
+  kendiliginden aktiflesir, sonra tri-state olur - LMX1204'teki
+  MUXOUT_SEL/R86 adimlari yok; READBACK_CTRL (R1, reset 1) yazilan
+  degerleri dondurur, multiplier modunda paylasimli bus icin LD_DIS=1
+  kosulu "Okuma kosulu" olarak gosterilir. Bring-up sirasi (6.3.7): RESET
+  1->0 toggle -> programlama -> zorunlu son yazim DEV_IOPT_CTRL=0x6 (R55);
+  descriptor/kilavuz/bilgi ekranina islendi. multiplier_lock_detect
+  operasyonu (R37 bit 0) eklendi. Bilgi ekrani: 44 satirlik Table 7-1
+  register haritasi + 20 register icin SNAS850 7.1.x bitfield aktarimi +
+  VQFN-40 pin haritasi + sicaklik formulu (T = 0.65 x kod - 351 C).
+  Katalog, sematik, TICS Pro editoru, test bench etiketleri ve
+  dokumantasyon guncellendi. Dogrulama: 139 test + gercek Versal BSP'ye
+  karsi -Wall -Wextra -Werror sifir uyari derleme.
+
 ## v0.1.100 - 2026-07-04
 
 Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.

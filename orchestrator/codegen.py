@@ -535,6 +535,10 @@ def _testbench_label(part: str, op_name: str) -> str:
             "power_read": "POUT oku (mW, Linear11)",
         },
         "LMX1204": {"device_init": "TICS Pro init sequence uygula"},
+        "LMX1205": {
+            "device_init": "TICS Pro init sequence uygula",
+            "multiplier_lock_detect": "Multiplier lock detect oku (R37)",
+        },
     }
     generic = {
         "status_read": "Status oku",

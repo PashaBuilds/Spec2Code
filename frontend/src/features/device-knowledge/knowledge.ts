@@ -1020,12 +1020,12 @@ const tics24Fields: KnowledgeRegisterField[] = [
   {
     bits: "Word address alanı",
     name: "Address",
-    meaning: "Cihaz register adresidir; LMK04832 için 15 bit, LMX2820/LMX1204 için 7 bit yorumlanır.",
+    meaning: "Cihaz register adresidir; LMK04832 için 15 bit, LMX2820/LMX1204/LMX1205 için 7 bit yorumlanır.",
   },
   {
     bits: "Word data alanı",
     name: "Data",
-    meaning: "Cihaz register data alanıdır; LMK04832 için 8 bit, LMX2820/LMX1204 için 16 bit yazılır.",
+    meaning: "Cihaz register data alanıdır; LMK04832 için 8 bit, LMX2820/LMX1204/LMX1205 için 16 bit yazılır.",
   },
 ];
 
@@ -1066,7 +1066,7 @@ function ticsFrameRegister(): KnowledgeRegister {
   };
 }
 
-type TiClockPart = "LMK04832" | "LMX2820" | "LMX1204";
+type TiClockPart = "LMK04832" | "LMX2820" | "LMX1204" | "LMX1205";
 
 function tiClockFields(part: TiClockPart, address: string, fallbackName: string): KnowledgeRegisterField[] {
   return getTiClockBitfields(part, address) ?? [
@@ -1203,6 +1203,74 @@ function lmx1204Registers(): KnowledgeRegister[] {
       reset: row.reset,
       purpose: `LMX1204 Table 1-1 register map girdisi: ${row.feature}.`,
       fields: tiClockFields("LMX1204", hexAddress(row.address, 2), row.feature),
+    })),
+  ];
+}
+
+// SNAS850 Table 7-1 (Advance Information, Aralik 2024). Listede olmayan
+// offsetler reserved'dir ve degistirilmemelidir.
+const LMX1205_REGISTER_ROWS = [
+  { address: 0x00, name: "R0", reset: "0x0000", feature: "Powerdown and Reset" },
+  { address: 0x01, name: "R1", reset: "0x000A", feature: "MUXOUT pin setting (LD_DIS, READBACK_CTRL)" },
+  { address: 0x02, name: "R2", reset: "0x00BF", feature: "Channels, Logic Clock, SYSREF, SYNC and Temp Sensor Enable" },
+  { address: 0x03, name: "R3", reset: "0x0000", feature: "CLKIN Delay" },
+  { address: 0x04, name: "R4", reset: "0x000D", feature: "CLKOUT0 Enables, Power and Delay" },
+  { address: 0x05, name: "R5", reset: "0x000D", feature: "CLKOUT1 Enables, Power and Delay" },
+  { address: 0x06, name: "R6", reset: "0x000D", feature: "CLKOUT2 Enables, Power and Delay" },
+  { address: 0x07, name: "R7", reset: "0x000D", feature: "CLKOUT3 Enables, Power and Delay" },
+  { address: 0x08, name: "R8", reset: "0x5CA9", feature: "SYSREFOUT0 Enables, Power, VCM" },
+  { address: 0x09, name: "R9", reset: "0x5CA9", feature: "SYSREFOUT1 Enables, Power, VCM" },
+  { address: 0x0A, name: "R10", reset: "0x5CA9", feature: "SYSREFOUT2 Enables, Power, VCM" },
+  { address: 0x0B, name: "R11", reset: "0x5CA9", feature: "SYSREFOUT3 Enables, Power, VCM" },
+  { address: 0x0C, name: "R12", reset: "0x002B", feature: "LOGICLK Enables, Power, VCM and Output Formats" },
+  { address: 0x0D, name: "R13", reset: "0x002B", feature: "LOGISYSREF Enables, Power, VCM and Output Formats" },
+  { address: 0x0E, name: "R14", reset: "0x0084", feature: "LOGICLK Dividers" },
+  { address: 0x0F, name: "R15", reset: "0x0002", feature: "LOGICLK2 Enables, Dividers" },
+  { address: 0x10, name: "R16", reset: "0x0030", feature: "SYSREFREQ Input" },
+  { address: 0x11, name: "R17", reset: "0x0005", feature: "SYSREFREQ Input" },
+  { address: 0x12, name: "R18", reset: "0x0000", feature: "SYSREFREQ Input (SYSREFREQ_DLY)" },
+  { address: 0x13, name: "R19", reset: "0x0004", feature: "SYSREF Output (mode, pulse count, delay bypass)" },
+  { address: 0x14, name: "R20", reset: "0x8082", feature: "SYSREF Output Dividers" },
+  { address: 0x15, name: "R21", reset: "0x01FC", feature: "SYSREFOUT0 Delay" },
+  { address: 0x16, name: "R22", reset: "0x01FC", feature: "SYSREFOUT1 Delay" },
+  { address: 0x17, name: "R23", reset: "0x01FC", feature: "SYSREFOUT2 Delay" },
+  { address: 0x18, name: "R24", reset: "0x01FC", feature: "SYSREFOUT3 Delay" },
+  { address: 0x19, name: "R25", reset: "0x01FC", feature: "LOGISYSREFOUT Delay" },
+  { address: 0x1A, name: "R26", reset: "0x00D1", feature: "State Machine Clock (SMCLK_DIV/PRE/EN)" },
+  { address: 0x1B, name: "R27", reset: "0x3609", feature: "Clock MUX, Clock Dividers/Multiplier (FCAL)" },
+  { address: 0x1D, name: "R29", reset: "0x0000", feature: "SYSREFREQ Windowing readback - rb_CLKPOS[31:16]" },
+  { address: 0x1E, name: "R30", reset: "0x0000", feature: "SYSREFREQ Windowing readback - rb_CLKPOS[15:0]" },
+  { address: 0x1F, name: "R31", reset: "0x0000", feature: "Temperature Sensor readback - rb_TEMPSENSE" },
+  { address: 0x20, name: "R32", reset: "0x0000", feature: "Device Version ID readback - rb_VER_ID" },
+  { address: 0x24, name: "R36", reset: "0x84A3", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x25, name: "R37", reset: "0x0000", feature: "Lock Detect readback - rb_LOCK_DETECT" },
+  { address: 0x27, name: "R39", reset: "0x78E1", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x28, name: "R40", reset: "0x78E1", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x29, name: "R41", reset: "0x78F3", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x2A, name: "R42", reset: "0x76F3", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x2B, name: "R43", reset: "0x7707", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x2C, name: "R44", reset: "0x7707", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x2D, name: "R45", reset: "0x2ABF", feature: "Multiplier Mode (Reserved)" },
+  { address: 0x36, name: "R54", reset: "0x0000", feature: "Multiplier Mode (Reserved, bits 15:14 read-only)" },
+  { address: 0x37, name: "R55", reset: "0x0000", feature: "Current Optimization (DEV_IOPT_CTRL)" },
+  { address: 0x4D, name: "R77", reset: "0x0000", feature: "Multiplier Mode (Reserved)" },
+];
+
+function lmx1205Registers(): KnowledgeRegister[] {
+  return [
+    ticsFrameRegister(),
+    ...LMX1205_REGISTER_ROWS.map((row) => ({
+      name: row.name,
+      address: hexAddress(row.address, 2),
+      width: "16",
+      access: ["R29", "R30", "R31", "R32", "R37"].includes(row.name)
+        ? "RO readback"
+        : row.name === "R54"
+          ? "RO/RW mixed"
+          : "RW",
+      reset: row.reset,
+      purpose: `LMX1205 Table 7-1 register map girdisi: ${row.feature}.`,
+      fields: tiClockFields("LMX1205", hexAddress(row.address, 2), row.feature),
     })),
   ];
 }
@@ -3151,6 +3219,95 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
       ],
     },
   },
+
+  LMX1205: {
+    part: "LMX1205",
+    reviewedAt: "2026-07-05",
+    scope: "TICS Pro export ile 0.3-12.8 GHz JESD buffer/multiplier/divider init akışı.",
+    sources: [
+      {
+        label: "Texas Instruments LMX1205 datasheet (SNAS850)",
+        url: "https://www.ti.com/lit/ds/symlink/lmx1205.pdf",
+      },
+    ],
+    overview:
+      "0.3-12.8 GHz aralığında 4 clock + 4 SYSREF çıkışı ve LOGICLK/LOGISYSREF dağıtımı yapan JESD odaklı buffer/multiplier/divider cihazıdır. Register haritası LMX1204'ten tamamen farklıdır; datasheet ADVANCE INFORMATION (preproduction) statüsündedir, alanlar sonraki revizyonlarda değişebilir.",
+    keyFacts: [
+      "SPI frame 24 bittir: R/W (0=write, 1=read), 7-bit address ve 16-bit data MSB-first gönderilir (SNAS850 Fig. 5-1).",
+      "SPI hızı max 20 MHz'dir (LMX1204'ün 10 katı); CPOL=0, CPHA=0 önerilir.",
+      "Readback MUXOUT pininde otomatiktir: pin okuma işlemi sırasında kendiliğinden aktifleşir, işlem bitince otomatik tri-state olur — LMX1204'teki MUXOUT_SEL/R86 adımları bu parçada yoktur.",
+      "READBACK_CTRL (R1 bit 3) reset 1'dir: yazılan register değerleri okunur; 0 yapılırsa dahili state-machine durumu okunur.",
+      "Bring-up sırası (6.3.7): güç → RESET 1→0 toggle (arada ≥1 µs) → register programlama → son yazım DEV_IOPT_CTRL=0x6 (R55).",
+      "Dahili sıcaklık sensörü: T[°C] = 0.65 × rb_TEMPSENSE − 351 (R31 bits 10:0; 6.3.2 Eq. 1).",
+    ],
+    configuration: [
+      "TICS Pro'da CLKIN, CLKOUT, SYSREFOUT, LOGICLK ve buffer/multiplier/divider modunu oluştur; hex register export al.",
+      "Export edilen array'i Spec2Code TICS Pro alanına yapıştır; RESET toggle ile başlayıp DEV_IOPT_CTRL=0x6 ile bittiğini doğrula (6.3.7 gereksinimi).",
+      "Multiplier modunda R27 FCAL_EN=1 yazımı kalibrasyon tetikler (ilk kalibrasyon ~5 ms); 4.2 GHz üstünde MULT_HIPFD_EN R0 ile birlikte togglelanır.",
+    ],
+    registers: lmx1205Registers(),
+    recipes: [
+      {
+        title: "Initial programming",
+        goal: "POR sonrası SNAS850 6.3.7 sırasına uygun güvenli init yapmak.",
+        steps: [
+          "Besleme raylarından sonra ≥100 µs bekle (6.3.1); TICS Pro export'unu RESET 1→0 toggle ile başlat.",
+          "Register'ları programla; reserved görünen multiplier satırlarını export'tan geldiği gibi koru (program değerleri reset değerlerinden farklı olabilir).",
+          "Son yazım olarak DEV_IOPT_CTRL=0x6 (R55) gönder; multiplier modunda kalibrasyondan sonra 0x1'e çekilir (Table 7-45).",
+        ],
+      },
+      {
+        title: "Readback kullanımı",
+        goal: "MUXOUT üzerinden register ve durum okumak.",
+        steps: [
+          "MUXOUT'u MISO'ya bağla; okuma frame'i R/W=1 ile gönderildiğinde pin otomatik aktifleşir, sonra tri-state olur.",
+          "Multiplier modunda paylaşımlı bus'ta okuma öncesi LD_DIS=1 (R1 bit 4) yaz — MUXOUT aynı zamanda lock-detect çıkışıdır.",
+          "rb_LOCK_DETECT (R37 bit 0), rb_TEMPSENSE (R31) ve rb_VER_ID (R32) Registers ekranından canlı okunabilir.",
+        ],
+      },
+    ],
+    gotchas: [
+      "SNAS850 ADVANCE INFORMATION statüsündedir: register reset/alanları sonraki revizyonlarda değişebilir; silikonla doğrula.",
+      "Multiplier-reserved register'larda önerilen program değerleri reset değerlerinden farklı olabilir (ör. R39/R40 alan 8:4 reset 0xE, program 0x16) — TICS Pro export'u kaynak kabul et, elle değer türetme.",
+      "RESET biti bir sonraki register yazımında kendini temizler; açık 1→0 toggle ≥1 µs arayla önerilir.",
+      "DEV_IOPT_CTRL=0x6 son yazımı atlanırsa akım optimizasyonu eksik kalır; tüm modlarda (powerdown dahil) zorunludur.",
+    ],
+    codegenNotes: [
+      "Spec2Code LMX1205 için TICS Pro word'lerini write-only init sequence olarak üretir; multiplier_lock_detect operasyonu R37 bit 0'ı okur.",
+      "Registers ekranı generic register_read/register_write ile 16-bit erişim sağlar; MUXOUT auto-readback sayesinde okuma koşulu yalnız pin bağlantısıdır.",
+      "Backend validation 24-bit word sınırını ve R/W write bitini kontrol eder.",
+    ],
+    pinMap: {
+      packageName: "VQFN-40 (RHA)",
+      view: "Fonksiyonel pin görünümü",
+      verification: "SNAS850 Table 4-1 / Figure 4-1 pin tablosuyla kontrol edildi.",
+      note: "Clock/SYSREF pinleri diferansiyel çiftlerdir; pin map mantıksal grupları gösterir, layout/matching rehberi yerine geçmez. CE/hardware enable pini yoktur — güç kontrolü SPI üzerindendir (R0 POWERDOWN).",
+      pins: [
+        { number: "10", name: "CS#", role: "SPI chip select (aktif düşük, 200 Ω seri direnç)", tone: "bus", side: "left" },
+        { number: "8", name: "SCK", role: "SPI clock", tone: "bus", side: "left" },
+        { number: "9", name: "SDI", role: "SPI data input", tone: "bus", side: "left" },
+        { number: "1", name: "MUXOUT", role: "Auto readback / multiplier lock status", tone: "control", side: "left" },
+        { number: "2/3", name: "SYSREFREQ_P/N", role: "SYSREF request girişi (JESD204B/C)", tone: "analog", side: "left" },
+        { number: "6/7", name: "CLKIN_P/N", role: "Reference clock girişi", tone: "analog", side: "right" },
+        { number: "14/15", name: "CLKOUT0_N/P", role: "Clock output 0 çifti", tone: "analog", side: "right" },
+        { number: "18/19", name: "CLKOUT1_N/P", role: "Clock output 1 çifti", tone: "analog", side: "right" },
+        { number: "32/33", name: "CLKOUT2_N/P", role: "Clock output 2 çifti", tone: "analog", side: "right" },
+        { number: "36/37", name: "CLKOUT3_N/P", role: "Clock output 3 çifti", tone: "analog", side: "right" },
+        { number: "11/12", name: "SYSREFOUT0_N/P", role: "SYSREF output 0 çifti", tone: "analog", side: "right" },
+        { number: "39/40", name: "SYSREFOUT3_N/P", role: "SYSREF output 3 çifti", tone: "analog", side: "right" },
+        { number: "27/28", name: "LOGICLKOUT0_N/P", role: "Logic clock çifti (CML/LVDS)", tone: "analog", side: "right" },
+        { number: "23/24", name: "LOGISYSREFOUT_N/P", role: "Logic SYSREF / LOGICLKOUT1 çifti", tone: "analog", side: "right" },
+        { number: "20", name: "BIAS01", role: "Multiplier bypass (kullanılmıyorsa açık)", tone: "control", side: "left" },
+        { number: "31", name: "BIAS23", role: "Multiplier bypass (kullanılmıyorsa açık)", tone: "control", side: "left" },
+      ],
+      groups: [
+        { label: "SPI", pins: ["CS#", "SCK", "SDI", "MUXOUT"], tone: "bus", description: "Programming ve auto-readback." },
+        { label: "Clock", pins: ["CLKIN_P/N", "CLKOUT0_N/P", "CLKOUT1_N/P", "CLKOUT2_N/P", "CLKOUT3_N/P"], tone: "analog", description: "Reference ve clock output çiftleri." },
+        { label: "SYSREF", pins: ["SYSREFREQ_P/N", "SYSREFOUT0_N/P", "SYSREFOUT3_N/P"], tone: "analog", description: "JESD SYSREF request/output çiftleri." },
+        { label: "Logic", pins: ["LOGICLKOUT0_N/P", "LOGISYSREFOUT_N/P"], tone: "analog", description: "FPGA logic clock/SYSREF çıkışları." },
+      ],
+    },
+  },
 };
 
 export function getRegisterTransfers(part: string, reg: KnowledgeRegister): KnowledgeRegisterTransfer[] {
@@ -3180,7 +3337,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
     ];
   }
 
-  if (normalizedPart === "LMK04832" || normalizedPart === "LMX2820" || normalizedPart === "LMX1204") {
+  if (normalizedPart === "LMK04832" || normalizedPart === "LMX2820" || normalizedPart === "LMX1204" || normalizedPart === "LMX1205") {
     return ticsRegisterTransfer(normalizedPart, reg);
   }
 

@@ -520,6 +520,8 @@ Bu surumde desteklenen baslica entegreler:
 - LMK04832
 - LMX2820
 - LMX1204
+- LMX1205
+- LTM4681
 
 Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
 deterministik descriptor/codegen destegi yoktur.

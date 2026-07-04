@@ -43,14 +43,18 @@ class KnowledgeInventoryTests(unittest.TestCase):
     def test_ti_clock_register_inventory_counts_are_complete(self) -> None:
         lmk = section("LMK04832_REGISTER_ROWS")
         lmx1204 = section("LMX1204_REGISTER_ROWS")
+        lmx1205 = section("LMX1205_REGISTER_ROWS")
         lmx2820 = section("LMX2820_REGISTER_ROWS")
 
         self.assertEqual(len(re.findall(r"\[0x[0-9A-F]{3},", lmk)), 125)
         self.assertEqual(len(re.findall(r"address: 0x[0-9A-F]{2}", lmx1204)), 35)
+        # SNAS850 Table 7-1: 44 satir (reserved offsetler haric).
+        self.assertEqual(len(re.findall(r"address: 0x[0-9A-F]{2}", lmx1205)), 44)
         self.assertEqual(len(re.findall(r"address: 0x[0-9A-F]{2}", lmx2820)), 123)
 
         self.assertIn("[0x555, \"SPI_LOCK\"]", lmk)
         self.assertIn("{ address: 0x5A, name: \"R90\"", lmx1204)
+        self.assertIn("{ address: 0x4D, name: \"R77\"", lmx1205)
         self.assertIn("{ address: 0x7A, reset: \"0x0\" }", lmx2820)
 
     def test_ti_clock_bitfield_inventory_is_wired_for_all_registers(self) -> None:
@@ -66,10 +70,16 @@ class KnowledgeInventoryTests(unittest.TestCase):
         lmk = part_section("LMK04832")
         lmx2820 = part_section("LMX2820")
         lmx1204 = part_section("LMX1204")
+        lmx1205 = part_section("LMX1205")
 
         self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{3}": \[', lmk, flags=re.MULTILINE)), 125)
         self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{2}": \[', lmx2820, flags=re.MULTILINE)), 123)
         self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{2}": \[', lmx1204, flags=re.MULTILINE)), 35)
+        # SNAS850 7.1.x tablolarindan aktarilan bolum: 20 register (kalanlar
+        # durust fallback metniyle isaretlenir).
+        self.assertEqual(len(re.findall(r'^\s+"0x[0-9A-F]{2}": \[', lmx1205, flags=re.MULTILINE)), 20)
+        for required in ["READBACK_CTRL", "LD_DIS", "DEV_IOPT_CTRL", "RB_TEMPSENSE", "RB_LOCK_DETECT"]:
+            self.assertIn(required, lmx1205)
 
         for required in [
             "PLL2_REF_2X_EN",

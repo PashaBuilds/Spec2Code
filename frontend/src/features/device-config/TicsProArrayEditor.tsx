@@ -47,7 +47,7 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
 
   const model = descriptor?.transport.register_model;
   const supportsTics = descriptor?.transport.type === "spi" && model?.ticspro_words;
-  const isTicsExport = ["LMK04832", "LMX2820", "LMX1204"].includes(device.part.toUpperCase());
+  const isTicsExport = ["LMK04832", "LMX2820", "LMX1204", "LMX1205"].includes(device.part.toUpperCase());
   const configKey = isTicsExport ? "ticspro_registers" : "register_words";
   const parsedWords = useMemo(() => parseWords(draft), [draft]);
   const decoded = useMemo(

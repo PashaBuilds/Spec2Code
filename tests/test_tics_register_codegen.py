@@ -69,6 +69,17 @@ def tics_spec() -> dict:
                 "operations_requested": ["device_init"],
                 "tests_requested": ["self_test"],
             },
+            {
+                "id": "u5_lmx1205",
+                "part": "LMX1205",
+                "descriptor_ref": "descriptors/lmx1205.yaml",
+                # SNAS850 6.3.7 sirasi: RESET toggle, programlama, son yazim
+                # DEV_IOPT_CTRL=0x6 (R55/0x37).
+                "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 4, "reset_gpio": None},
+                "config": {"ticspro_registers": ["0x000001", "0x000000", "0x0200BF", "0x370006"]},
+                "operations_requested": ["device_init", "multiplier_lock_detect"],
+                "tests_requested": ["self_test"],
+            },
         ],
         "generation_options": {"qc_max_rounds": 3, "include_doxygen": True, "line_ending": "crlf"},
     }
@@ -136,12 +147,34 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             self.assertIn("0x002E7FU,  /* address 0x2E, value 0x7F */", adar_source)
             self.assertIn("adar1000RegisterWrite(spSpi, S_uiArrAdar1000InitSequence[uiIndex]);", adar_source)
 
+            # LMX1205 (SNAS850): 20 MHz SPI, multiplier lock detect R37 bit 0,
+            # MUXOUT auto-readback -> generic register_read manifest'te.
+            self.assertIn("drivers/lmx1205.h", written)
+            self.assertIn("drivers/lmx1205.c", written)
+            lmx1205_header = (out_dir / "drivers" / "lmx1205.h").read_text(encoding="utf-8")
+            lmx1205_source = (out_dir / "drivers" / "lmx1205.c").read_text(encoding="utf-8")
+            self.assertIn("#define LMX1205_SPI_MAX_SCK_HZ 20000000U", lmx1205_header)
+            self.assertIn("#define LMX1205_REG_R37 0x25U", lmx1205_header)
+            self.assertIn("int lmx1205MultiplierLockDetect(XSpiPs* spSpi, unsigned char* ucpMultiplier);", lmx1205_header)
+            self.assertIn("0x370006U,  /* address 0x37, value 0x6 */", lmx1205_source)
+            self.assertIn("lmx1205RegisterWrite(spSpi, S_uiArrLmx1205InitSequence[uiIndex]);", lmx1205_source)
+
             manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
             parts = {device["part"] for device in manifest["devices"]}
             self.assertIn("LMK04832", parts)
             self.assertIn("LMX2820", parts)
             self.assertIn("LMX1204", parts)
             self.assertIn("ADAR1000", parts)
+            self.assertIn("LMX1205", parts)
+            lmx1205_entry = next(device for device in manifest["devices"] if device["part"] == "LMX1205")
+            lmx1205_ops = {op["name"]: op for op in lmx1205_entry["operations"]}
+            self.assertIn("multiplier_lock_detect", lmx1205_ops)
+            self.assertIn("register_read", lmx1205_ops)
+            self.assertIn("MUXOUT", lmx1205_ops["register_read"]["description"])
+            self.assertIn("register_write", lmx1205_ops)
+            lmx1205_regs = {reg["name"]: reg for reg in lmx1205_entry["registers"]}
+            self.assertEqual(lmx1205_regs["R55"]["offset"], 0x37)
+            self.assertEqual(lmx1205_regs["R37"]["access"], "ro")
             retired_fragments = ("spec2code_" + "mo" + "ck", "_" + "mo" + "ck" + "_plan")
             self.assertFalse(any(any(fragment in path.lower() for fragment in retired_fragments) for path in written))
 

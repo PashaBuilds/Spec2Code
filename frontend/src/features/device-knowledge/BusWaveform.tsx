@@ -14,7 +14,7 @@ interface ByteFrame {
 }
 
 const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "TMP101", "SHT21", "24LC32A", "DS1682", "LTC2945"]);
-const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "ADAR1000", "LMK04832", "LMX2820", "LMX1204"]);
+const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "ADAR1000", "LMK04832", "LMX2820", "LMX1204", "LMX1205"]);
 
 function protocolForPart(part: string): Protocol | null {
   const normalized = part.toUpperCase();
@@ -377,6 +377,7 @@ function spiModeNote(part: string) {
   const normalized = part.toUpperCase();
   if (normalized === "LMK04832") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 5 MHz.";
   if (normalized === "LMX1204") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 2 MHz.";
+  if (normalized === "LMX1205") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 20 MHz.";
   if (normalized === "LMX2820") return "SPI mode 0, 24-bit frame, MSB-first; max SCK 40 MHz.";
   if (normalized === "ADAR1000") return "SPI mode 0, 24-bit frame: R/W + A14:A0 + D7:D0, MSB-first; max SCLK 25 MHz.";
   return "CS# low boyunca opcode/address/data MSB-first clocklanır; dummy/read clocks controller transferiyle üretilir.";

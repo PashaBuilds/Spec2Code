@@ -1,0 +1,89 @@
+descriptor_version: "1.0"
+part: "LMX1205"
+manufacturer: "Texas Instruments"
+summary: "Low-noise 0.3-12.8 GHz JESD buffer, multiplier, divider, and SYSREF distribution device."
+transport:
+  type: spi
+  byte_order: big
+  register_model:
+    ticspro_words: true
+    # SNAS850 (ARALIK 2024, Advance Information - preproduction; alanlar
+    # sonraki revizyonlarda degisebilir) Fig. 5-1 + 5.6/5.7: 24-bit frame =
+    # R/W (0=write, 1=read) + 7-bit adres + 16-bit veri, MSB-first, CPOL=0
+    # CPHA=0. SPI hizi max 20 MHz (LMX1204'un 10 kati). Programlama sirasi
+    # datasheet'te belirtilmemis -> TICS Pro export sirasi aynen korunur.
+    frame_bits: 24
+    address_bits: 7
+    address_shift: 16
+    data_bits: 16
+    rw_bit: 23
+    write_value: 0
+    default_order: exported
+    spi_mode: 0
+    max_sck_hz: 20000000
+    # Readback SNAS850 5.7 ile dogrulandi: veri MUXOUT (pin 1) uzerinde SCK
+    # dusen kenarda cikar; MUXOUT okuma islemi sirasinda OTOMATIK aktiflesir
+    # ve islem bitince otomatik tri-state olur - LMX1204'teki MUXOUT_SEL/R86
+    # adimlari bu parcada yoktur. READBACK_CTRL (R1 bit 3, reset 1) yazilan
+    # register degerlerini dondurur; 0 yapilirsa dahili durum okunur.
+    # Multiplier modunda MUXOUT ayni zamanda lock-detect ciktisidir:
+    # paylasimli bus'ta okuma icin LD_DIS=1 (R1 bit 4) yazilmalidir.
+    readback:
+      verified: true
+      requires: "MUXOUT (pin 1) MISO'ya bagli olmali - okuma sirasinda otomatik aktiflesir, sonra tri-state olur; multiplier modunda paylasimli bus icin LD_DIS=1 (R1 bit 4) gerekir"
+access_primitives:
+  write_register_word: { pattern: ticspro_24bit_word }
+registers:
+  # Resetler SNAS850 Table 7-1/7-3..7-45; RESET biti bir sonraki register
+  # yaziminda kendini temizler (soft reset = POR esdegeri).
+  - { name: R0, offset: 0x00, width: 16, access: rw, reset: 0x0000,
+      fields: [
+        { name: RESET, bits: "0", description: "Soft reset (POR esdegeri); sonraki register yaziminda kendini temizler" },
+        { name: POWERDOWN, bits: "1", description: "Dusuk guc; register durumlari korunur" } ] }
+  - { name: R1, offset: 0x01, width: 16, access: rw, reset: 0x000A,
+      fields: [
+        { name: LD_DIS, bits: "4", description: "1=multiplier modunda MUXOUT lock-detect cikisi kapatilir (paylasimli bus readback icin gerekli)" },
+        { name: READBACK_CTRL, bits: "3", description: "1=yazilan degerler okunur (reset), 0=dahili durum okunur" } ] }
+  - { name: R2, offset: 0x02, width: 16, access: rw, reset: 0x00BF,
+      fields: [
+        { name: TEMPSENSE_EN, bits: "9" },
+        { name: SYNC_EN, bits: "8" },
+        { name: SYSREF_EN, bits: "6" },
+        { name: LOGIC_EN, bits: "4" },
+        { name: CH3_EN, bits: "3" },
+        { name: CH2_EN, bits: "2" },
+        { name: CH1_EN, bits: "1" },
+        { name: CH0_EN, bits: "0" } ] }
+  - { name: R4, offset: 0x04, width: 16, access: rw, reset: 0x000D,
+      fields: [
+        { name: CLK0_DLY, bits: "10:4" },
+        { name: CLK0_PWR, bits: "3:1" },
+        { name: CLK0_EN, bits: "0" } ] }
+  - { name: R27, offset: 0x1B, width: 16, access: rw, reset: 0x3609,
+      fields: [
+        { name: MULT_HIPFD_EN, bits: "11", description: "4.2 GHz ustu multiplier modunda R0 ile birlikte dusuk->yuksek togglelanir" },
+        { name: FCAL_EN, bits: "9", description: "1 ile yazmak multiplier frekans kalibrasyonunu tetikler; multiplier kullanilmiyorsa 0" },
+        { name: CLK_DIV_RST, bits: "6", description: "ana clock bolucusunu resetler (yalniz Divider Mode)" },
+        { name: CLK_DIV, bits: "5:3", description: "Divider Mode: bolme = CLK_DIV+1 (1-7); Multiplier Mode: carpan = CLK_MULT (1-7)" },
+        { name: CLK_MUX, bits: "2:0", description: "1=Buffer, 2=Dividers, 3=Multiplier (0=Reserved)" } ] }
+  - { name: R31, offset: 0x1F, width: 16, access: ro,
+      fields: [ { name: rb_TEMPSENSE, bits: "10:0", description: "dahili sicaklik kodu; T[C] = 0.65 x kod - 351 (SNAS850 6.3.2 Eq. 1)" } ] }
+  - { name: R32, offset: 0x20, width: 16, access: ro,
+      fields: [ { name: rb_VER_ID, bits: "15:0", description: "silikon surum kimligi" } ] }
+  - { name: R37, offset: 0x25, width: 16, access: ro,
+      fields: [ { name: rb_LOCK_DETECT, bits: "0", description: "multiplier modunda lock detect: 0=Unlock, 1=Lock" } ] }
+  - { name: R55, offset: 0x37, width: 16, access: rw, reset: 0x0000,
+      fields: [
+        { name: DEV_IOPT_CTRL, bits: "5:0", description: "Tum modlarda (powerdown dahil) 0x6 yazilmasi zorunlu son adim (SNAS850 Table 7-45, 6.3.7)" } ] }
+operations:
+  - name: device_init
+    description: "Apply the ordered 24-bit register-word array over SPI. SNAS850 6.3.7 bring-up sirasi: RESET 1->0 toggle (>=1 us arayla), register programlama, son yazim DEV_IOPT_CTRL=0x6 - dizinin bu sirayi icerdigini dogrula."
+    steps:
+      - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes. Required bring-up (SNAS850 6.3.7): RESET toggle first, DEV_IOPT_CTRL=0x6 as the final write; the exported array must include them." }
+  - name: multiplier_lock_detect
+    returns: "uint8"
+    description: "Multiplier modunda lock detect durumunu oku (R37 bit 0); 1 = Lock Detect. Buffer/Divider modlarinda anlamsizdir."
+    steps:
+      - { op: read_register, reg: R37, mask: 0x01, right_shift: 0 }
+test_hints:
+  self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

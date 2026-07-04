@@ -194,6 +194,19 @@
       ]
     },
     {
+      "part": "LMX1205",
+      "transport": "spi",
+      "status": "builtin",
+      "descriptor": "descriptors/lmx1205.yaml",
+      "summary": "0.3-12.8 GHz JESD buffer, multiplier, divider, and SYSREF distribution; initialized from a TICS Pro register array",
+      "match_tokens": [
+        "LMX1205",
+        "lmx1205_",
+        "DEV_IOPT_CTRL",
+        "READBACK_CTRL"
+      ]
+    },
+    {
       "part": "LTM4681",
       "transport": "i2c",
       "status": "builtin",

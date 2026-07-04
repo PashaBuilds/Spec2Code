@@ -5,7 +5,7 @@ export interface TiClockBitfield {
   values?: string[];
 }
 
-type TiClockPart = "LMK04832" | "LMX2820" | "LMX1204";
+type TiClockPart = "LMK04832" | "LMX2820" | "LMX1204" | "LMX1205";
 
 type TiClockBitfieldMap = Record<TiClockPart, Record<string, TiClockBitfield[]>>;
 
@@ -5414,6 +5414,524 @@ export const TI_CLOCK_BITFIELDS: TiClockBitfieldMap = {
         bits: "15:0",
         name: "RESERVED",
         meaning: "R/W alan; reset 0x00. TI açıklaması: Reserved. Set to 0x60 immediately after setting LOGICLK_DIV_BYPASS = 0x1 and setting R79 = 0x0104. If LOGICLK_DIV_BYPASS is not used or left at the default value, this register does not need to be written and can be skipped. However, if transitioning from LOGICLK_DIV_BYPASS = 0x1 to 0x0, this register must be re-written to 0x00. See also R79 Register."
+      }
+    ]
+  },
+  // SNAS850 (Aralik 2024, ADVANCE INFORMATION) 7.1.x tablolarindan; alanlar
+  // sonraki revizyonlarda degisebilir.
+  LMX1205: {
+    "0x00": [
+      {
+        bits: "15:2",
+        name: "RESERVED",
+        meaning: "R alan; reset 0x0000. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "1",
+        name: "POWERDOWN",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Sets the device in a low-power state. The states of other registers are maintained."
+      },
+      {
+        bits: "0",
+        name: "RESET",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Soft Reset. Resets the entire logic and registers (equivalent to power-on reset). Self-clearing on next register write."
+      }
+    ],
+    "0x01": [
+      {
+        bits: "15:5",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program to 0x0."
+      },
+      {
+        bits: "4",
+        name: "LD_DIS",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: If set to 0x1, disables the lock detect status coming out at MUXOUT pin in multiplier mode. Must be set to 1 when interfacing multiple devices and wants to perform a readback operation in multiplier mode.",
+        values: [
+          "0x0: Lock Detect",
+          "0x1: Readback"
+        ]
+      },
+      {
+        bits: "3",
+        name: "READBACK_CTRL",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Set to 0x1 to readback the written register values. Set to 0x0 to readback the value set by device internal state machine."
+      },
+      {
+        bits: "2:0",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x2. TI açıklaması: Program this field to 0x2."
+      }
+    ],
+    "0x02": [
+      {
+        bits: "15:10",
+        name: "RESERVED",
+        meaning: "R alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "9",
+        name: "TEMPSENSE_EN",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Temperature sensor enable override bit."
+      },
+      {
+        bits: "8",
+        name: "SYNC_EN",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables synchronization path for the dividers and allows the clock position capture circuitry to be enabled. Used for multi-device synchronization. Redundant if SYSREF_EN = 0x1."
+      },
+      {
+        bits: "7",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Program this field to 0x1."
+      },
+      {
+        bits: "6",
+        name: "SYSREF_EN",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREF subsystem (and SYNC subsystem when SYSREFREQ_MODE = 0x0). 0x0 completely disables all SYNC, SYSREF, and clock position capture circuitry, overriding other powerdown/enable bits except SYNC_EN."
+      },
+      {
+        bits: "5",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Program this field to 0x1."
+      },
+      {
+        bits: "4",
+        name: "LOGIC_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables LOGICLK subsystem (LOGICLKOUT, LOGISYSREFOUT)."
+      },
+      {
+        bits: "3",
+        name: "CH3_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CH3 (CLKOUT3, SYSREFOUT3). 0 completely disables CH3 circuitry, overriding other powerdown/enable bits."
+      },
+      {
+        bits: "2",
+        name: "CH2_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CH2 (CLKOUT2, SYSREFOUT2). 0 completely disables CH2 circuitry, overriding other powerdown/enable bits."
+      },
+      {
+        bits: "1",
+        name: "CH1_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CH1 (CLKOUT1, SYSREFOUT1). 0 completely disables CH1 circuitry, overriding other powerdown/enable bits."
+      },
+      {
+        bits: "0",
+        name: "CH0_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CH0 (CLKOUT0, SYSREFOUT0). 0 completely disables CH0 circuitry, overriding other powerdown/enable bits."
+      }
+    ],
+    "0x04": [
+      {
+        bits: "15:11",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "10:4",
+        name: "CLK0_DLY",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT0 output clock. Delay range 55ps, step size 0.9ps."
+      },
+      {
+        bits: "3:1",
+        name: "CLK0_PWR",
+        meaning: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT0. Larger values correspond to higher output power."
+      },
+      {
+        bits: "0",
+        name: "CLK0_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT0 output buffer."
+      }
+    ],
+    "0x05": [
+      {
+        bits: "15:11",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "10:4",
+        name: "CLK1_DLY",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT1 output clock. Delay range 55ps, step size 0.9ps."
+      },
+      {
+        bits: "3:1",
+        name: "CLK1_PWR",
+        meaning: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT1. Larger values correspond to higher output power."
+      },
+      {
+        bits: "0",
+        name: "CLK1_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT1 output buffer."
+      }
+    ],
+    "0x06": [
+      {
+        bits: "15:11",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "10:4",
+        name: "CLK2_DLY",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT2 output clock. Delay range 55ps, step size 0.9ps."
+      },
+      {
+        bits: "3:1",
+        name: "CLK2_PWR",
+        meaning: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT2. Larger values correspond to higher output power."
+      },
+      {
+        bits: "0",
+        name: "CLK2_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT2 output buffer."
+      }
+    ],
+    "0x07": [
+      {
+        bits: "15:11",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "10:4",
+        name: "CLK3_DLY",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT3 output clock. Delay range 55ps, step size 0.9ps."
+      },
+      {
+        bits: "3:1",
+        name: "CLK3_PWR",
+        meaning: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT3. Larger values correspond to higher output power."
+      },
+      {
+        bits: "0",
+        name: "CLK3_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT3 output buffer."
+      }
+    ],
+    "0x08": [
+      {
+        bits: "15",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "14",
+        name: "SYSREF0_PWR_LOW",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT0 output driver at low power. Set to 0 for single ended higher swing."
+      },
+      {
+        bits: "13",
+        name: "SYSREF0_AC",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT0 AC coupled mode."
+      },
+      {
+        bits: "12:10",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x7. TI açıklaması: Program this field to 0x7."
+      },
+      {
+        bits: "9:4",
+        name: "SYSREF0_VCM",
+        meaning: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT0 with 25mV step size. SYSREF0_PWR must be set properly."
+      },
+      {
+        bits: "3:1",
+        name: "SYSREF0_PWR",
+        meaning: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT0."
+      },
+      {
+        bits: "0",
+        name: "SYSREF0_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT0 output buffer."
+      }
+    ],
+    "0x09": [
+      {
+        bits: "15",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "14",
+        name: "SYSREF1_PWR_LOW",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT1 output driver at low power. Set to 0 for single ended higher swing."
+      },
+      {
+        bits: "13",
+        name: "SYSREF1_AC",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT1 AC coupled mode."
+      },
+      {
+        bits: "12:10",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x7. TI açıklaması: Program this field to 0x7."
+      },
+      {
+        bits: "9:4",
+        name: "SYSREF1_VCM",
+        meaning: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT1 with 25mV step size. SYSREF1_PWR must be set properly."
+      },
+      {
+        bits: "3:1",
+        name: "SYSREF1_PWR",
+        meaning: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT1."
+      },
+      {
+        bits: "0",
+        name: "SYSREF1_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT1 output buffer."
+      }
+    ],
+    "0x0A": [
+      {
+        bits: "15",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "14",
+        name: "SYSREF2_PWR_LOW",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT2 output driver at low power. Set to 0 for single ended higher swing."
+      },
+      {
+        bits: "13",
+        name: "SYSREF2_AC",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT2 AC coupled mode."
+      },
+      {
+        bits: "12:10",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x7. TI açıklaması: Program this field to 0x7."
+      },
+      {
+        bits: "9:4",
+        name: "SYSREF2_VCM",
+        meaning: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT2 with 25mV step size. SYSREF2_PWR must be set properly."
+      },
+      {
+        bits: "3:1",
+        name: "SYSREF2_PWR",
+        meaning: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT2."
+      },
+      {
+        bits: "0",
+        name: "SYSREF2_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT2 output buffer."
+      }
+    ],
+    "0x0B": [
+      {
+        bits: "15",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "14",
+        name: "SYSREF3_PWR_LOW",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT3 output driver at low power. Set to 0 for single ended higher swing."
+      },
+      {
+        bits: "13",
+        name: "SYSREF3_AC",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT3 AC coupled mode."
+      },
+      {
+        bits: "12:10",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x7. TI açıklaması: Program this field to 0x7."
+      },
+      {
+        bits: "9:4",
+        name: "SYSREF3_VCM",
+        meaning: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT3 with 25mV step size. SYSREF3_PWR must be set properly."
+      },
+      {
+        bits: "3:1",
+        name: "SYSREF3_PWR",
+        meaning: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT3."
+      },
+      {
+        bits: "0",
+        name: "SYSREF3_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT3 output buffer."
+      }
+    ],
+    "0x0E": [
+      {
+        bits: "15",
+        name: "LOGICLK_DIV_RST",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Manual reset for logic clock divider."
+      },
+      {
+        bits: "14:13",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "12:3",
+        name: "LOGICLK_DIV",
+        meaning: "R/W alan; reset 0x10. TI açıklaması: Sets LOGICLK divider value. Max input from LOGICLK_DIV_PRE 3200MHz; max LOGICLKOUT 800MHz.",
+        values: [
+          "0x0-0x1: Reserved",
+          "0x2: ÷2",
+          "0x3: ÷3",
+          "...",
+          "0x3FF: ÷1023"
+        ]
+      },
+      {
+        bits: "2:0",
+        name: "LOGICLK_DIV_PRE",
+        meaning: "R/W alan; reset 0x4. TI açıklaması: Pre-divider; output 3.2GHz max; other values reserved.",
+        values: [
+          "0x1: ÷1",
+          "0x2: ÷2",
+          "0x4: ÷4"
+        ]
+      }
+    ],
+    "0x14": [
+      {
+        bits: "15:14",
+        name: "SYSREF_DLY_DIV",
+        meaning: "R/W alan; reset 0x2. TI açıklaması: Sets the delay generator clock division (interpolator frequency/resolution). Enum listesi datasheet'te 0x4'e kadar basilidir (Advance Information tutarsizligi).",
+        values: [
+          "0x0: ÷2 (≤1.6GHz)",
+          "0x1: ÷4 (1.6-3.2GHz)",
+          "0x2: ÷8 (3.2-6.4GHz)",
+          "0x4: ÷16 (6.4-12.8GHz)"
+        ]
+      },
+      {
+        bits: "13:2",
+        name: "SYSREF_DIV",
+        meaning: "R/W alan; reset 0x20. TI açıklaması: SYSREF divider. Input from SYSREF_DIV_PRE 3200MHz max; output 100MHz max. Odd divides only when delay generators bypassed.",
+        values: [
+          "0x0-0x1: Reserved",
+          "0x2: ÷2",
+          "...",
+          "0xFFF: ÷4095"
+        ]
+      },
+      {
+        bits: "1:0",
+        name: "SYSREF_DIV_PRE",
+        meaning: "R/W alan; reset 0x2. TI açıklaması: SYSREF pre-divider.",
+        values: [
+          "0x0: ÷1",
+          "0x1: ÷2",
+          "0x2: ÷4",
+          "0x3: Reserved"
+        ]
+      }
+    ],
+    "0x1B": [
+      {
+        bits: "15:12",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x3. TI açıklaması: Program this field to 0x3."
+      },
+      {
+        bits: "11",
+        name: "MULT_HIPFD_EN",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Above 4.2GHz in multiplier mode, toggle this bit low to high along with R0. To set high without R0, increases current by 20mA."
+      },
+      {
+        bits: "10",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Program this field to 0x1."
+      },
+      {
+        bits: "9",
+        name: "FCAL_EN",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Writing this register with this bit high triggers a multiplier frequency calibration. If multiplier unused, set to 0."
+      },
+      {
+        bits: "8:7",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "6",
+        name: "CLK_DIV_RST",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Resets the main clock divider. If divider value changed during operation, set high then low after setting the new value. No effect outside Divider Mode."
+      },
+      {
+        bits: "5:3",
+        name: "CLK_DIV",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Divider Mode: divide = CLK_DIV + 1, valid 1-7 (0 reverts to buffer). Multiplier Mode (CLK_MULT): multiplier = CLK_MULT, valid 1-7. Ignored in Buffer Mode."
+      },
+      {
+        bits: "2:0",
+        name: "CLK_MUX",
+        meaning: "R/W alan; reset 0x1. TI açıklaması: Selects the clock path.",
+        values: [
+          "0x0: Reserved",
+          "0x1: Buffer",
+          "0x2: Dividers",
+          "0x3: Multiplier"
+        ]
+      }
+    ],
+    "0x1D": [
+      {
+        bits: "15:0",
+        name: "RB_CLKPOS_HIGH",
+        meaning: "R alan; reset 0x0000. TI açıklaması: rb_CLKPOS[31:16] - snapshot of CLKIN rising-edge positions relative to a SYSREFREQ rising edge; each bit is a CLKIN sample separated by SYSREFREQ_DLY_STEP delay; first and last bits always set (boundary uncertainty). Used to compute SYSREFREQ_DLY_STEP maximizing setup/hold."
+      }
+    ],
+    "0x1E": [
+      {
+        bits: "15:0",
+        name: "RB_CLKPOS_LOW",
+        meaning: "R alan; reset 0x0000. TI açıklaması: rb_CLKPOS[15:0] - LSBs of rb_CLKPOS."
+      }
+    ],
+    "0x1F": [
+      {
+        bits: "15:11",
+        name: "RESERVED",
+        meaning: "R alan; reset 0x0. TI açıklaması: Reserved (not used)."
+      },
+      {
+        bits: "10:0",
+        name: "RB_TEMPSENSE",
+        meaning: "R alan; reset 0x0. TI açıklaması: Readback value of on-die temperature sensor. Sicaklik [C] = 0.65 x kod - 351 (SNAS850 6.3.2 Eq. 1)."
+      }
+    ],
+    "0x20": [
+      {
+        bits: "15:0",
+        name: "RB_VER_ID",
+        meaning: "R alan; reset 0x0000. TI açıklaması: Version ID."
+      }
+    ],
+    "0x25": [
+      {
+        bits: "15:1",
+        name: "RESERVED",
+        meaning: "R alan; reset 0x0. TI açıklaması: Reserved (not used)."
+      },
+      {
+        bits: "0",
+        name: "RB_LOCK_DETECT",
+        meaning: "R alan; reset 0x0. TI açıklaması: Reads back the lock detect status in multiplier mode.",
+        values: [
+          "0x0: Unlock",
+          "0x1: Lock Detect"
+        ]
+      }
+    ],
+    "0x37": [
+      {
+        bits: "15:6",
+        name: "RESERVED",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Program this field to 0x0."
+      },
+      {
+        bits: "5:0",
+        name: "DEV_IOPT_CTRL",
+        meaning: "R/W alan; reset 0x0. TI açıklaması: Set this field to 0x6 in all modes, also in powerdown. Set this field to 0x6 before calibration in multiplier mode and changed to 0x1 after calibration."
       }
     ]
   }
