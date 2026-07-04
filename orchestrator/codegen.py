@@ -16,7 +16,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
-from orchestrator import cmodel
+from orchestrator import cmodel, tics
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -578,6 +578,39 @@ def _supports_i2c_register_ops(descriptor: dict) -> bool:
     return any("name" in reg and "offset" in reg and str(reg.get("access", "")).lower() != "reserved" for reg in registers)
 
 
+def _supports_spi_register_ops(descriptor: dict) -> bool:
+    """Generic single-register access over a 24-bit TICS-style SPI frame.
+
+    Writes reuse the exact word format device_init already emits. Anything
+    without a 24-bit register model stays out (no generic path to be honest
+    about).
+    """
+    if descriptor.get("transport", {}).get("type") != "spi":
+        return False
+    if descriptor.get("memory"):
+        return False
+    model = tics.register_model(descriptor)
+    if not model or int(model.get("frame_bits", 24) or 24) != 24:
+        return False
+    registers = descriptor.get("registers") or []
+    return any("name" in reg and "offset" in reg and str(reg.get("access", "")).lower() != "reserved" for reg in registers)
+
+
+def _spi_readback(descriptor: dict) -> dict | None:
+    """Datasheet-verified readback info, or None (write-only generic access).
+
+    Register reads over SPI are hardware/config-conditional (dedicated SDO
+    vs. MUXOUT pin muxing). A part only gets a generic `register_read` when
+    its descriptor carries `register_model.readback.verified: true`, set
+    after checking the official datasheet; `requires` documents the wiring/
+    config precondition and is surfaced in the UI.
+    """
+    readback = tics.register_model(descriptor).get("readback")
+    if isinstance(readback, dict) and readback.get("verified") is True:
+        return readback
+    return None
+
+
 def _array_return_count(returns: str) -> int:
     match = re.search(r"\[(\d+)\]", returns)
     return int(match.group(1)) if match else 0
@@ -830,10 +863,52 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_value": True,
                 },
             ])
+        if _supports_spi_register_ops(descriptor):
+            model = tics.register_model(descriptor)
+            data_bits = int(model.get("data_bits", 8) or 8)
+            readback = _spi_readback(descriptor)
+            if readback is not None:
+                requires = str(readback.get("requires", "")).strip()
+                operations.append({
+                    "name": "register_read",
+                    "label": "Register oku",
+                    "description": (
+                        f"SPI 24-bit frame ile {data_bits}-bit register oku."
+                        + (f" KOŞUL: {requires}" if requires else "")
+                    ),
+                    "risk": "safe",
+                    "implemented": True,
+                    "fixed_read_length": data_bits // 8,
+                    "requires_address": False,
+                    "requires_length": False,
+                    "requires_data": False,
+                    "requires_register": True,
+                    "requires_value": False,
+                })
+            operations.append({
+                "name": "register_write",
+                "label": "Register yaz",
+                "description": f"SPI 24-bit frame ile {data_bits}-bit register yaz (device_init ile aynı word formatı).",
+                "risk": "risky",
+                "implemented": True,
+                "fixed_read_length": 0,
+                "requires_address": False,
+                "requires_length": False,
+                "requires_data": False,
+                "requires_register": True,
+                "requires_value": True,
+            })
+        transport_type = descriptor.get("transport", {}).get("type", "")
+        # Generic register access moves one native frame: 1 byte on I2C
+        # (PMBus word commands have dedicated operations), data_bits wide on
+        # TICS-style SPI parts.
+        native_width = 8
+        if transport_type == "spi" and _supports_spi_register_ops(descriptor):
+            native_width = int(tics.register_model(descriptor).get("data_bits", 8) or 8)
         manifest["devices"].append({
             "id": device.get("id", ""),
             "part": device.get("part", ""),
-            "transport": descriptor.get("transport", {}).get("type", ""),
+            "transport": transport_type,
             "attach": device.get("attach", {}),
             "registers": [
                 {
@@ -844,9 +919,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 }
                 for reg in descriptor.get("registers", [])
                 if "name" in reg and str(reg.get("access", "")).lower() not in {"reserved"}
-                # Generic register access reads/writes single bytes; wider
-                # commands (PMBus words) are served by dedicated operations.
-                and int(reg.get("width", 8)) == 8
+                and int(reg.get("width", 8)) == native_width
             ],
             "operations": operations,
         })
@@ -984,10 +1057,26 @@ def _testbench_op_table(entries: list[dict]) -> list[dict]:
                 "label": "Register yaz",
                 "risk": "risky",
             })
+        if _supports_spi_register_ops(descriptor):
+            if _spi_readback(descriptor) is not None:
+                rows.append({
+                    "device": device.get("id", ""),
+                    "part": device.get("part", ""),
+                    "operation": "register_read",
+                    "label": "Register oku",
+                    "risk": "safe",
+                })
+            rows.append({
+                "device": device.get("id", ""),
+                "part": device.get("part", ""),
+                "operation": "register_write",
+                "label": "Register yaz",
+                "risk": "risky",
+            })
     return rows
 
 
-def _testbench_register_resolver(entry: dict) -> list[str]:
+def _testbench_register_resolver(entry: dict, *, wide: bool = False) -> list[str]:
     module = entry["module"]
     MOD = module.upper()
     regs = [
@@ -997,10 +1086,19 @@ def _testbench_register_resolver(entry: dict) -> list[str]:
     if not regs:
         return []
     func = f"{module}TestbenchRegisterResolve"
+    # SPI TICS parts carry 15-bit register addresses; the resolver output and
+    # the raw-address ceiling widen accordingly.
+    out_type = "unsigned int" if wide else "unsigned char"
+    out_var = "uipReg" if wide else "ucpReg"
+    if wide:
+        address_bits = int(tics.register_model(entry["descriptor"]).get("address_bits", 15) or 15)
+        raw_limit = f"{_c_hex((1 << address_bits) - 1)}"
+    else:
+        raw_limit = "0xFFU"
     lines = [
-        f"static int {func}(const char* cpRegister, unsigned int uiRegister, unsigned char* ucpReg)",
+        f"static int {func}(const char* cpRegister, unsigned int uiRegister, {out_type}* {out_var})",
         "{",
-        "    if (ucpReg == NULL)",
+        f"    if ({out_var} == NULL)",
         "    {",
         "        return XST_FAILURE;",
         "    }",
@@ -1009,14 +1107,14 @@ def _testbench_register_resolver(entry: dict) -> list[str]:
         lines.extend([
             f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == 1)",
             "    {",
-            f"        *ucpReg = {MOD}_REG_{reg['name']};",
+            f"        *{out_var} = {MOD}_REG_{reg['name']};",
             "        return XST_SUCCESS;",
             "    }",
         ])
     lines.extend([
-        "    if (uiRegister <= 0xFFU)",
+        f"    if (uiRegister <= {raw_limit})",
         "    {",
-        "        *ucpReg = (unsigned char)uiRegister;",
+        f"        *{out_var} = ({out_type})uiRegister;",
         "        return XST_SUCCESS;",
         "    }",
         "    return XST_FAILURE;",
@@ -1024,6 +1122,10 @@ def _testbench_register_resolver(entry: dict) -> list[str]:
         "",
     ])
     return lines
+
+
+def _c_hex(value: int) -> str:
+    return f"0x{value:X}U"
 
 
 def _testbench_i2c_helpers() -> list[str]:
@@ -1085,6 +1187,80 @@ def _testbench_i2c_helpers() -> list[str]:
         "    {",
         "        /* wait */",
         "    }",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+    ]
+
+
+def _testbench_spi_helpers() -> list[str]:
+    return [
+        "static int spec2codeTestbenchSpiRegisterWrite(XSpiPs* spSpi, unsigned char ucSelect,",
+        "                                              unsigned int uiWord)",
+        "{",
+        "    unsigned char ucArrTx[3];",
+        "    int iStatus;",
+        "",
+        "    if (spSpi == NULL)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
+        "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
+        "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg write: word=0x%06X\", uiWord);",
+        "    iStatus = XSpiPs_SetSlaveSelect(spSpi, ucSelect);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = XSpiPs_PolledTransfer(spSpi, ucArrTx, NULL, 3U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "    }",
+        "    return iStatus;",
+        "}",
+        "",
+        "static int spec2codeTestbenchSpiRegisterRead(XSpiPs* spSpi, unsigned char ucSelect,",
+        "                                             unsigned int uiWord, unsigned int uiDataBytes,",
+        "                                             unsigned int* uipValue)",
+        "{",
+        "    unsigned char ucArrTx[3];",
+        "    unsigned char ucArrRx[3];",
+        "    int iStatus;",
+        "",
+        "    if ((spSpi == NULL) || (uipValue == NULL) || (uiDataBytes == 0U) || (uiDataBytes > 2U))",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
+        "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
+        "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
+        "    ucArrRx[0] = 0U;",
+        "    ucArrRx[1] = 0U;",
+        "    ucArrRx[2] = 0U;",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read: word=0x%06X\", uiWord);",
+        "    iStatus = XSpiPs_SetSlaveSelect(spSpi, ucSelect);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = XSpiPs_PolledTransfer(spSpi, ucArrTx, ucArrRx, 3U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    if (uiDataBytes == 2U)",
+        "    {",
+        "        *uipValue = ((unsigned int)ucArrRx[1] << 8U) | (unsigned int)ucArrRx[2];",
+        "    }",
+        "    else",
+        "    {",
+        "        *uipValue = (unsigned int)ucArrRx[2];",
+        "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -1255,6 +1431,8 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     getter = entry["getter"]
     operations = _requested_operations(device, descriptor)
     register_ops = _supports_i2c_register_ops(descriptor)
+    spi_register_ops = _supports_spi_register_ops(descriptor)
+    spi_readback = _spi_readback(descriptor) if spi_register_ops else None
     needs_array = any(_array_return_count(str(op.get("returns", "")).lower()) for op in operations)
     needs_us_value = any("uint16" in str(op.get("returns", "")).lower() for op in operations)
     needs_i_value = any(
@@ -1294,6 +1472,11 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         lines.append("        unsigned char ucValue;")
     if needs_uc_reg:
         lines.append("        unsigned char ucReg;")
+    if spi_register_ops:
+        lines.append("        unsigned int uiReg;")
+        lines.append("        unsigned int uiWord;")
+    if spi_readback is not None:
+        lines.append("        unsigned int uiRegValue;")
     if needs_data:
         lines.append("        unsigned char ucArrData[SPEC2CODE_TESTBENCH_DATA_MAX];")
     if needs_ui_index:
@@ -1365,6 +1548,67 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                return iStatus;",
             "            }",
             f"            iStatus = spec2codeTestbenchI2cRegisterWrite({hvar}, {MOD}_I2C_ADDR, ucReg, (unsigned char)spRequest->uiValue);",
+            "            spResponse->iStatus = iStatus;",
+            "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
+            "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
+            "            return iStatus;",
+            "        }",
+        ])
+
+    if spi_register_ops:
+        model = tics.register_model(descriptor)
+        frame_bits = int(model.get("frame_bits", 24) or 24)
+        address_bits = int(model.get("address_bits", 15) or 15)
+        address_shift = int(model.get("address_shift", 8) or 8)
+        rw_bit = int(model.get("rw_bit", frame_bits - 1) or (frame_bits - 1))
+        write_value = int(model.get("write_value", 0) or 0)
+        read_value = 0 if write_value else 1
+        data_bits = int(model.get("data_bits", 8) or 8)
+        data_bytes = data_bits // 8
+        address_mask = _c_hex((1 << address_bits) - 1)
+        data_mask = _c_hex((1 << data_bits) - 1)
+        resolve = [
+            f"            iStatus = {module}TestbenchRegisterResolve(spRequest->cArrRegister, spRequest->uiRegister, &uiReg);",
+            "            if (iStatus != XST_SUCCESS)",
+            "            {",
+            "                spResponse->iStatus = iStatus;",
+            "                spec2codeTestbenchMessageSet(spResponse, \"register not found\");",
+            "                return iStatus;",
+            "            }",
+        ]
+        if spi_readback is not None:
+            lines.extend([
+                "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_read\") == 1)",
+                "        {",
+                *resolve,
+                f"            uiWord = ((unsigned int){read_value}U << {rw_bit}U) | ((uiReg & {address_mask}) << {address_shift}U);",
+                f"            iStatus = spec2codeTestbenchSpiRegisterRead({hvar}, {MOD}_SPI_SELECT, uiWord, {data_bytes}U, &uiRegValue);",
+                "            spResponse->iStatus = iStatus;",
+                "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
+                "            spResponse->uiValue = uiRegValue;",
+                "            if (iStatus == XST_SUCCESS)",
+                "            {",
+            ])
+            if data_bytes == 2:
+                lines.append("                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiRegValue >> 8U) & 0xFFU));")
+            lines.extend([
+                "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)(uiRegValue & 0xFFU));",
+                "                spec2codeTestbenchMessageSet(spResponse, \"register_read ok\");",
+                "            }",
+                "            return iStatus;",
+                "        }",
+            ])
+        write_word_terms = []
+        if write_value:
+            write_word_terms.append(f"((unsigned int){write_value}U << {rw_bit}U)")
+        write_word_terms.append(f"((uiReg & {address_mask}) << {address_shift}U)")
+        write_word_terms.append(f"((unsigned int)spRequest->uiValue & {data_mask})")
+        lines.extend([
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_write\") == 1)",
+            "        {",
+            *resolve,
+            f"            uiWord = {' | '.join(write_word_terms)};",
+            f"            iStatus = spec2codeTestbenchSpiRegisterWrite({hvar}, {MOD}_SPI_SELECT, uiWord);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
@@ -1448,12 +1692,18 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
             )
         ],
         *(_testbench_i2c_helpers() if any(entry["descriptor"].get("transport", {}).get("type") == "i2c" for entry in entries) else []),
+        *(_testbench_spi_helpers() if any(_supports_spi_register_ops(entry["descriptor"]) for entry in entries) else []),
     ]
     emitted_resolvers: set[str] = set()
     for entry in entries:
         module = entry["module"]
-        if module not in emitted_resolvers and _supports_i2c_register_ops(entry["descriptor"]):
+        if module in emitted_resolvers:
+            continue
+        if _supports_i2c_register_ops(entry["descriptor"]):
             lines.extend(_testbench_register_resolver(entry))
+            emitted_resolvers.add(module)
+        elif _supports_spi_register_ops(entry["descriptor"]):
+            lines.extend(_testbench_register_resolver(entry, wide=True))
             emitted_resolvers.add(module)
 
     lines.extend([

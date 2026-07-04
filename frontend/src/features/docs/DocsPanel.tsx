@@ -396,9 +396,16 @@ const SECTIONS: DocSection[] = [
           Cihaz başına son 8 snapshot tarayıcıda saklanır.
         </P>
         <P>
-          Register <B>yazmak</B> için Test Bench'teki <M>register_write</M> operasyonunu kullan
-          (yalnız <M>rw</M> registerlar; PMBus word komutları gibi çok baytlı komutlar kendi
-          operasyonlarından okunur).
+          Register <B>yazmak</B> için satırdaki kalem simgesini kullan: değeri hex gir, onayla —
+          yazım sonrası aynı register geri okunarak satır yerinde doğrulanır (yalnız <M>rw</M> ve{" "}
+          <M>wo</M> registerlar; PMBus word komutları gibi çok baytlı komutlar kendi
+          operasyonlarından okunur). SPI parçalarında geri okumanın donanım/konfigürasyon koşulu
+          sol panelde &quot;Okuma koşulu&quot; olarak gösterilir: LMK04832&apos;de veri SDIO&apos;dan ya da
+          &quot;SPI readback&quot; seçilen MUX pininden, LMX2820&apos;de adanmış MUXOUT pininden
+          (konfigürasyonsuz), LMX1204&apos;te <M>MUXOUT_SEL=1</M> (R23) yazıldıktan sonra MUXOUT&apos;tan,
+          ADAR1000&apos;de <M>SDOACTIVE=1</M> (0x000 ← 0x18) ile SDO&apos;dan gelir — ilgili pin MISO&apos;ya
+          bağlı olmalıdır. Aynı <M>register_read</M>/<M>register_write</M> operasyonları Test Bench
+          ekranından da kullanılabilir.
         </P>
       </>
     ),

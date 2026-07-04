@@ -22,6 +22,16 @@ transport:
     max_sck_hz: 40000000
     rewrite_last_address: 0x00
     rewrite_last_address_after_ms: 10
+    # Readback resmi olarak var (SNAS783C 7.3.6 "MUXOUT Pin and Readback";
+    # 6.6 SERIAL INTERFACE READ TIMING, tOD = SCK->MUXout). MUXOUT (pin 23)
+    # ADANMIS SPI readback cikisidir - bu parcada MUXOUT_LD_SEL alani yok,
+    # lock detect ayri LD pininde (pin 38, LD_TYPE R17[6]) oldugundan
+    # register konfigurasyonu gerekmez. Okuma frame'i (R/W=1) yazmayla ayni
+    # LMX1204-ailesi formati (SNAS800B fig. 5-1; SNAS783C bit diyagrami
+    # basmamistir, TI E2E staff teyidi).
+    readback:
+      verified: true
+      requires: "MUXOUT (pin 23) MISO'ya bagli olmali - adanmis SPI readback cikisi, register konfigurasyonu gerekmez (lock detect ayri LD pininde)"
 access_primitives:
   write_register_word: { pattern: ticspro_24bit_word }
 registers:
@@ -35,7 +45,16 @@ registers:
   - { name: R1, offset: 0x01, width: 16, access: rw }
   - { name: R35, offset: 0x23, width: 16, access: rw }
   - { name: R36, offset: 0x24, width: 16, access: rw }
+  # Readback durum registerlari (SNAU251A Tables 1-77..1-79).
+  - { name: R74, offset: 0x4A, width: 16, access: ro,
+      fields: [
+        { name: rb_LD, bits: "15:14", description: "VCO kalibrasyon/lock durumu" },
+        { name: rb_VCO_CAPCTRL, bits: "12:5" },
+        { name: rb_VCO_SEL, bits: "4:2" } ] }
   - { name: R75, offset: 0x4B, width: 16, access: rw }
+  - { name: R76, offset: 0x4C, width: 16, access: ro,
+      fields: [
+        { name: rb_TEMP_SENS, bits: "10:0", description: "dahili sicaklik sensoru okumasi" } ] }
 operations:
   - name: device_init
     description: "Apply the ordered TICS Pro 24-bit register array, then re-write R0 after the LDO settle delay."

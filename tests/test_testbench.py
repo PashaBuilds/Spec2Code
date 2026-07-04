@@ -600,6 +600,76 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("register_write", ops)  # PAGE ile kanal seçimi
         self.assertIn("vout_read", ops)
 
+    def test_spi_tics_register_rw_ops_with_honest_readback_gate(self) -> None:
+        # Generic register access over the 24-bit TICS frame: every SPI part
+        # with a register model gets register_write (same word format as
+        # device_init). register_read is emitted only when the descriptor
+        # carries a datasheet-verified readback block; its hardware/config
+        # precondition travels to the UI as a "KOŞUL:" note (LMK04832:
+        # SNAS688C 8.6 - data on SDIO or a MUX pin; LMX2820: SNAS783C 7.3.6 -
+        # dedicated MUXOUT readback output, no config).
+        spec = load_sample_spec("unit_spi_reg_rw")
+        spec["controllers"] = [
+            {"id": "ps_spi_0", "type": "spi", "instance": "XPAR_XSPIPS_0",
+             "base_address": "0xFF040000", "device_id": 0, "driver": "XSpiPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {
+                "id": "u1_lmk04832", "part": "LMK04832",
+                "descriptor_ref": "descriptors/lmk04832.yaml",
+                "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 0,
+                           "reset_gpio": None, "irq_line": None},
+                "operations_requested": ["device_init", "pll1_lock_detect"],
+                "tests_requested": ["self_test"],
+                "config": {"ticspro_registers": ["0x000010", "0x016302"]},
+            },
+            {
+                "id": "u2_lmx2820", "part": "LMX2820",
+                "descriptor_ref": "descriptors/lmx2820.yaml",
+                "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 1,
+                           "reset_gpio": None, "irq_line": None},
+                "operations_requested": ["device_init"],
+                "tests_requested": ["self_test"],
+                "config": {"ticspro_registers": ["0x004070", "0x230000"]},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            ops_source = (out_dir / "tests" / f"{spec['project']['name']}_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        devices = {device["id"]: device for device in manifest["devices"]}
+        lmk_ops = {op["name"]: op for op in devices["u1_lmk04832"]["operations"]}
+        lmx_ops = {op["name"]: op for op in devices["u2_lmx2820"]["operations"]}
+        self.assertIn("register_write", lmk_ops)
+        self.assertIn("register_read", lmk_ops)
+        self.assertIn("KOŞUL", lmk_ops["register_read"]["description"])
+        self.assertIn("SPI_3WIRE_DIS", lmk_ops["register_read"]["description"])
+        self.assertIn("register_write", lmx_ops)
+        self.assertIn("register_read", lmx_ops)
+        self.assertIn("MUXOUT", lmx_ops["register_read"]["description"])
+        self.assertEqual(lmx_ops["register_read"]["fixed_read_length"], 2)  # 16-bit veri
+        # 16-bit LMX registers are the native frame width -> in the manifest.
+        lmx_regs = {reg["name"]: reg for reg in devices["u2_lmx2820"]["registers"]}
+        self.assertIn("R0", lmx_regs)
+        self.assertEqual(lmx_regs["R0"]["width"], 16)
+        self.assertEqual(lmx_regs["R74"]["access"], "ro")  # rb_* durum registerlari
+
+        # Agent side: shared SPI helpers + wide (15-bit) resolver + packing.
+        self.assertIn("spec2codeTestbenchSpiRegisterWrite", ops_source)
+        self.assertIn("spec2codeTestbenchSpiRegisterRead", ops_source)
+        self.assertIn("unsigned int* uipReg", ops_source)
+        # LMK04832 write word: addr<<8 | 8-bit data; read word carries R/W=1 at bit 23.
+        self.assertIn("((uiReg & 0x7FFFU) << 8U) | ((unsigned int)spRequest->uiValue & 0xFFU)", ops_source)
+        self.assertIn("((unsigned int)1U << 23U) | ((uiReg & 0x7FFFU) << 8U)", ops_source)
+        # LMX2820 words: addr<<16 | 16-bit data; read pulls 2 data bytes.
+        self.assertIn("((uiReg & 0x7FU) << 16U) | ((unsigned int)spRequest->uiValue & 0xFFFFU)", ops_source)
+        self.assertIn("((unsigned int)1U << 23U) | ((uiReg & 0x7FU) << 16U)", ops_source)
+
     def test_ltc2991_reads_convert_to_engineering_units(self) -> None:
         # 2991f data format: SE LSB 305.18 uV, T_internal 0.0625 C (13-bit
         # two's complement), VCC = 2.5 V + code * 305.18 uV. Reads must return

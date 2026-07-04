@@ -16,6 +16,15 @@ transport:
     default_order: exported
     spi_mode: 0
     max_sck_hz: 25000000
+    # Readback Rev. B datasheet ile dogrulandi: 24-bit ADI SPI frame, R/W=1
+    # okuma, 15-bit adres + 8-bit veri. POR 3-wire'dir (INTERFACE_CONFIG_A
+    # 0x000 = 0x00): okuma verisi adres basligindan sonra SDIO'da cikar.
+    # 4-wire icin SDOACTIVE bit 4 + aynali SDOACTIVE_ bit 3 -> 0x18 yazilir,
+    # veri SDO pininde. SDO'nun paylasimli bus'ta bilinen readback hatasi
+    # icin Rev. B "SDO Readback Problem and Solution" bolumune bak.
+    readback:
+      verified: true
+      requires: "4-wire icin SDOACTIVE=1 (INTERFACE_CONFIG_A 0x000 <- 0x18) yazilmis ve SDO MISO'ya bagli olmali (3-wire'da veri SDIO'da cikar)"
 access_primitives:
   write_register_word: { pattern: spi_24bit_rw_addr_data }
 registers:

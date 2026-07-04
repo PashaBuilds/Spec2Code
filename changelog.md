@@ -7,6 +7,36 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
 
+- Registers ekranina YAZMA: tablo artik manifest'ten her zaman cizilir
+  (snapshot beklemez; Erisim sutunu eklendi), rw/wo satirlardaki kalemle
+  hex deger girilir, onay sonrasi yazilir ve ayni register geri okunarak
+  satir yerinde dogrulanir (wo registerlarda son yazilan deger gosterilir;
+  ro satirlar kilitli). Snapshot wo registerlari atlar. Yazimlar Test
+  Bench'teki gibi onay ister ve islem zaman cizelgesine islenir.
+- SPI TICS parcalarina generic register R/W (LMK04832, LMX2820, LMX1204,
+  ADAR1000): ajan 24-bit frame'i register modelinden paketler (yazma
+  device_init ile ayni word formati; 15-bit adres cozucu, 8/16-bit veri).
+  Okuma (readback) resmi datasheet'lerden dogrulanarak acildi ve
+  donanim/konfigurasyon kosulu manifest'e "KOSUL:" olarak islenip UI'da
+  "Okuma kosulu" kutusunda gosterilir:
+  - LMK04832 (SNAS688C 8.5/8.6): adanmis SDO yok - veri 3-wire'da
+    SDIO'da, 4-wire'da "SPI readback" secilen MUX pininde (or. RESET_MUX
+    reg 0x14A[5:3]=6). Onceki "SPI_3WIRE_DIS=1 4-wire readback acar"
+    yorumu duzeltildi: o bit yalniz SDIO cikisini kapatir.
+  - LMX2820 (SNAS783C 7.3.6/6.6): MUXOUT (pin 23) adanmis readback
+    cikisi, konfigurasyon gerekmez (bu parcada MUXOUT_LD_SEL yok; lock
+    detect ayri LD pini). rb_* durum registerlari (R74/R76) haritaya
+    eklendi.
+  - LMX1204 (SNAS800B 5.7/Fig. 5-1): once MUXOUT_SEL=1 (R23/0x17 bit 6,
+    reset 0=Lock Detect) yazilmali; R23 haritaya eklendi. Not: okunan
+    deger dahili cihaz durumu olabilir.
+  - ADAR1000 (Rev. B): 4-wire icin SDOACTIVE=1 (INTERFACE_CONFIG_A
+    0x000 <- 0x18); 3-wire'da veri SDIO'da.
+  16-bit LMX registerlari artik manifest'e girer (genislik filtresi
+  transport'a duyarli: I2C 8-bit, SPI native data_bits). Demo semasina
+  LMK04832 (XSpiPs) eklendi. Dogrulama: 139 test + tum katalog gercek
+  BSP'ye karsi -Wall -Wextra -Werror sifir uyari (XSpiPs basliklari
+  resmi Vitis surucu kaynagindan).
 - YENI EKRAN: "Kilavuz" - uygulamaya gomulu Turkce kullanim kilavuzu
   (frontend/src/features/docs/DocsPanel.tsx). Saha el kitabi/datasheet
   estetigi: numarali 14 bolum (genel bakis, .xsa girisi, sematik,

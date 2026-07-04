@@ -14,6 +14,7 @@ export function maybeSeedDemo(): void {
     { id: "ps_i2c_0", type: "i2c", instance: "XPAR_XIICPS_0", base_address: "0xFF020000", driver: "XIicPs", source: "xparameters", zone: "ps" },
     { id: "ps_i2c_1", type: "i2c", instance: "XPAR_XIICPS_1", base_address: "0xFF030000", driver: "XIicPs", source: "xparameters", zone: "ps" },
     { id: "ps_qspi_0", type: "qspi", instance: "XPAR_XQSPIPSU_0", base_address: "0xFF0F0000", driver: "XQspiPsu", source: "xparameters", zone: "ps" },
+    { id: "ps_spi_0", type: "spi", instance: "XPAR_XSPIPS_0", base_address: "0xFF040000", driver: "XSpiPs", source: "xparameters", zone: "ps" },
     { id: "ps_uart_0", type: "uart", instance: "XPAR_XUARTPS_0", base_address: "0xFF000000", driver: "XUartPs", source: "xparameters", zone: "ps" },
     { id: "ps_gem_3", type: "eth", instance: "XPAR_XEMACPS_3", base_address: "0xFF0E0000", driver: "XEmacPs", source: "xparameters", zone: "ps" },
   ];
@@ -40,6 +41,13 @@ export function maybeSeedDemo(): void {
       id: "u5_mt25qu02g",
       part: "MT25QU02G",
       attach: { controller_id: "ps_qspi_0", spi_chip_select: 0 },
+    },
+    {
+      id: "u6_lmk04832",
+      part: "LMK04832",
+      attach: { controller_id: "ps_spi_0", spi_chip_select: 0 },
+      // Kısa temsili TICS Pro dizisi: 4-wire (SPI_3WIRE_DIS=1) + PLL2 N.
+      config: { ticspro_registers: ["0x000010", "0x016302", "0x018300"] },
     },
   ];
 
