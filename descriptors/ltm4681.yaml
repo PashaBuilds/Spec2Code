@@ -1,0 +1,115 @@
+descriptor_version: "1.0"
+part: "LTM4681"
+manufacturer: "Analog Devices"
+summary: "Quad 31.25A (parallelable to 125A) uModule regulator with PMBus digital power system management."
+# Datasheet: LTM4681 Rev. A 04/22. ONE module = TWO PMBus slave dies with
+# separate SDA/SCL pin pairs: die "01" (channels 0/1, default address 0x4F)
+# and die "23" (channels 2/3, default 0x4E) - add one Spec2Code device per
+# die; the two buses may share one controller or use two. Global addresses
+# 0x5A/0x5B always respond - never assign them. Each die has 2 PAGEs
+# (0x00/0x01; 0xFF = both); paged reads apply to the PAGE currently
+# selected via register_write.
+transport:
+  type: i2c
+  address_width: 8           # PMBus command code
+  default_address: 0x4F      # die 01 (Ch0/1); die 23 defaults to 0x4E
+  byte_order: little         # SMBus word: LSB first
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+registers:
+  # Byte-size PMBus commands only (word/block commands are reached through
+  # the dedicated telemetry operations; generic 1-byte register access
+  # would corrupt word writes). Status registers are write-1-to-clear.
+  - { name: PAGE, offset: 0x00, width: 8, access: rw, reset: 0x00,
+      fields: [ { name: PAGE_SELECT, bits: "7:0",
+                  description: "0x00 = channel A, 0x01 = channel B of this die, 0xFF = both pages" } ] }
+  - { name: OPERATION, offset: 0x01, width: 8, access: rw, reset: 0x80,
+      fields: [
+        { name: ON, bits: "7" },
+        { name: MARGIN, bits: "5:4", description: "01 = margin low, 10 = margin high (with 0x25/0x26 limits)" } ] }
+  - { name: ON_OFF_CONFIG, offset: 0x02, width: 8, access: rw, reset: 0x1E }
+  - { name: WRITE_PROTECT, offset: 0x10, width: 8, access: rw, reset: 0x00,
+      fields: [ { name: LEVEL, bits: "7:5", description: "0x00/0x20/0x40/0x80 protection levels; WP pin overrides" } ] }
+  - { name: CAPABILITY, offset: 0x19, width: 8, access: ro, reset: 0xB0 }
+  - { name: VOUT_MODE, offset: 0x20, width: 8, access: ro, reset: 0x14,
+      fields: [ { name: EXPONENT, bits: "4:0", description: "Linear16 exponent, hardwired to -12 (0b10100)" } ] }
+  - { name: STATUS_BYTE, offset: 0x78, width: 8, access: rw, reset: 0x00,
+      fields: [
+        { name: BUSY, bits: "7" },
+        { name: "OFF", bits: "6" },
+        { name: VOUT_OV, bits: "5" },
+        { name: IOUT_OC, bits: "4" },
+        { name: VIN_UV, bits: "3" },
+        { name: TEMPERATURE, bits: "2" },
+        { name: CML, bits: "1" },
+        { name: NONE_OF_THE_ABOVE, bits: "0" } ] }
+  - { name: STATUS_VOUT, offset: 0x7A, width: 8, access: rw, reset: 0x00 }
+  - { name: STATUS_IOUT, offset: 0x7B, width: 8, access: rw, reset: 0x00 }
+  - { name: STATUS_TEMPERATURE, offset: 0x7D, width: 8, access: rw, reset: 0x00 }
+  - { name: STATUS_CML, offset: 0x7E, width: 8, access: rw, reset: 0x00 }
+  - { name: STATUS_MFR_SPECIFIC, offset: 0x80, width: 8, access: rw, reset: 0x00 }
+  - { name: PMBUS_REVISION, offset: 0x98, width: 8, access: ro, reset: 0x22 }
+  - { name: MFR_ADDRESS, offset: 0xE6, width: 8, access: rw, reset: 0x4F,
+      fields: [ { name: ADDRESS, bits: "7:0", description: "NVM slave address; die 01 default 0x4F, die 23 default 0x4E; 0x80 disables" } ] }
+  - { name: MFR_COMMON, offset: 0xEF, width: 8, access: ro, reset: 0x00,
+      fields: [
+        { name: WRITE_PROTECTED, bits: "4" },
+        { name: BUSY_CALCS, bits: "5", description: "1 = not busy with internal calculations" },
+        { name: BUSY_TRANSACTION, bits: "6", description: "1 = not busy with another PMBus transaction" } ] }
+  # Word (2-byte) PMBus commands used by the telemetry operations. width 16
+  # keeps them out of the generic 1-byte register access path.
+  - { name: STATUS_WORD_W, offset: 0x79, width: 16, access: ro, reset: 0x0000 }
+  - { name: READ_VIN_W, offset: 0x88, width: 16, access: ro, reset: 0x0000 }
+  - { name: READ_VOUT_W, offset: 0x8B, width: 16, access: ro, reset: 0x0000 }
+  - { name: READ_IOUT_W, offset: 0x8C, width: 16, access: ro, reset: 0x0000 }
+  - { name: READ_TEMPERATURE_1_W, offset: 0x8D, width: 16, access: ro, reset: 0x0000 }
+  - { name: READ_POUT_W, offset: 0x96, width: 16, access: ro, reset: 0x0000 }
+  - { name: MFR_SPECIAL_ID_W, offset: 0xE7, width: 16, access: ro, reset: 0x0000 }
+operations:
+  - name: device_init
+    description: "No writes: the LTM4681 boots its configuration from internal ECC EEPROM (NVM). Runtime changes go through PMBus registers; persist with STORE_USER_ALL."
+    steps:
+      - { op: comment, note: "Configuration restores from NVM at power-up; nothing to initialize over the bus." }
+  - name: id_read
+    returns: "uint16"
+    description: "Read MFR_SPECIAL_ID (0xE7). Expected 0x500n (low nibble = die revision); note the datasheet also prints 0x414n in one table (LTM4680 copy-paste), so both are shown raw for the operator."
+    steps:
+      - { op: read_registers, reg: MFR_SPECIAL_ID_W, length: 2 }
+  - name: status_read
+    returns: "uint16"
+    description: "Read STATUS_WORD (0x79) for the currently selected PAGE (write the PAGE register to switch channels)."
+    steps:
+      - { op: read_registers, reg: STATUS_WORD_W, length: 2 }
+  - name: vout_read
+    returns: "int32"
+    description: "Read READ_VOUT converted to millivolts. Linear16 with the exponent hardwired to -12 (VOUT_MODE=0x14): mV = raw * 1000 / 4096. Paged: select the channel via the PAGE register first."
+    convert: { mask: 0xFFFF, unsigned: true, scale_num: 1000, scale_den: 4096, unit: "mV" }
+    steps:
+      - { op: read_registers, reg: READ_VOUT_W, length: 2 }
+  - name: voltage_read
+    returns: "int32"
+    description: "Read READ_VIN converted to millivolts (PMBus Linear11: value = mantissa * 2^exponent volts). Global per die."
+    convert: { format: pmbus_l11, scale_num: 1000, unit: "mV" }
+    steps:
+      - { op: read_registers, reg: READ_VIN_W, length: 2 }
+  - name: current_read
+    returns: "int32"
+    description: "Read READ_IOUT converted to milliamps (PMBus Linear11). Paged: select the channel via the PAGE register first."
+    convert: { format: pmbus_l11, scale_num: 1000, unit: "mA" }
+    steps:
+      - { op: read_registers, reg: READ_IOUT_W, length: 2 }
+  - name: temperature_read
+    returns: "int32"
+    description: "Read READ_TEMPERATURE_1 (external/channel sensor, used for fault processing) converted to santi-Celsius (0.01 C, signed; PMBus Linear11). Paged."
+    convert: { format: pmbus_l11, scale_num: 100, unit: "0.01 C" }
+    steps:
+      - { op: read_registers, reg: READ_TEMPERATURE_1_W, length: 2 }
+  - name: power_read
+    returns: "int32"
+    description: "Read READ_POUT converted to milliwatts (PMBus Linear11). Paged."
+    convert: { format: pmbus_l11, scale_num: 1000, unit: "mW" }
+    steps:
+      - { op: read_registers, reg: READ_POUT_W, length: 2 }
+test_hints:
+  self_test: { description: "Read PMBUS_REVISION (expect 0x22), STATUS_WORD, and VIN/VOUT telemetry." }

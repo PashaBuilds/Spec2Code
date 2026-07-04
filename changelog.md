@@ -38,6 +38,24 @@ Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
   zaten gosteriyor, ham seri terminal ihtiyaci harici programla
   karsilaniyor. Komut paleti girdisi ve sekme kaldirildi; backend
   console API'lari yerinde (Akis ve dis araclar kullanabilir).
+- YENI ENTEGRE: LTM4681 (quad 31.25A uModule, PMBus/I2C) - resmi Rev.A
+  datasheet'ten dogrulanarak eklendi. Cift die mimarisi: bir modul =
+  iki PMBus slave (Ch0/1 @ 0x4F, Ch2/3 @ 0x4E; ayri SDA/SCL ciftleri) -
+  her die icin bir Spec2Code cihazi eklenir; die basina 2 PAGE (kanal
+  secimi PAGE registerina register_write ile). Operasyonlar birimli:
+  vout_read mV (Linear16, exp -12 sabit), voltage_read/current_read/
+  power_read mV/mA/mW ve temperature_read santi-C (PMBus Linear11 -
+  cmodel'e dinamik-uslu `pmbus_l11` donusumu eklendi, 64-bit ara deger).
+  id_read MFR_SPECIAL_ID (0x500n beklenir; datasheet'teki 0x414n
+  celiskisi nota islendi), status_read STATUS_WORD. Bayt registerlar
+  (PAGE/OPERATION/STATUS_*/MFR_COMMON...) Registers ekraninda R/W;
+  word komutlari genel 1-bayt register yolundan filtrelenir (manifest
+  yalniz width=8 registerlari listeler). Katalog + etiketler + sematik
+  descriptor listesi guncellendi. NOT: LTM4671 analog-only cikti
+  (36 sayfada I2C/PMBus yok) - istek uzerine kapsam disi birakildi.
+  Self-test uretecine PMBus word/int-out dallari (Id/Status/Current/
+  Power) eklendi. Dogrulama: 138 test + gercek Versal BSP'ye karsi
+  -Wall -Wextra -Werror sifir uyari.
 - Birimli okumalar tum katalogda: AD7414 -> santi-C (10-bit D15..D6,
   0.25 C/LSB), TMP101 -> santi-C (12-bit D15..D4, 0.0625 C/LSB), SHT21
   -> santi-C ve santi-%RH (datasheet formulleri: T=-46.85+175.72*S/2^16,

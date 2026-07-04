@@ -556,6 +556,50 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(manifest["transport_agent"], "uart")
         self.assertEqual(manifest["uart"]["driver"], "XUartPsv")
 
+    def test_ltm4681_pmbus_codegen_l11_l16_and_word_register_filter(self) -> None:
+        # LTM4681 (Rev A datasheet): PMBus dual-die module. READ_VOUT is
+        # Linear16 with exponent hardwired to -12 (VOUT_MODE=0x14) -> mV =
+        # raw*1000/4096; VIN/IOUT/TEMP/POUT are Linear11 (dynamic exponent).
+        spec = load_sample_spec("unit_ltm4681")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [{
+            "id": "u1_ltm4681", "part": "LTM4681",
+            "descriptor_ref": "descriptors/ltm4681.yaml",
+            "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x4F",
+                       "via_mux": None, "reset_gpio": None, "irq_line": None},
+            "operations_requested": ["device_init", "id_read", "status_read", "vout_read",
+                                     "voltage_read", "current_read", "temperature_read", "power_read"],
+            "tests_requested": ["self_test"],
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "ltm4681.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        # Linear11 decode: two's complement 11-bit mantissa + 5-bit exponent,
+        # 64-bit intermediate so positive exponents cannot overflow.
+        self.assertIn("iCode -= 2048", driver)
+        self.assertIn("iExp -= 32", driver)
+        self.assertIn("llValue", driver)
+        # Linear16 VOUT with fixed -12 exponent.
+        self.assertIn("* 1000U) / 4096U", driver)
+        device_entry = manifest["devices"][0]
+        reg_names = {reg["name"] for reg in device_entry["registers"]}
+        # Word commands stay out of the generic 1-byte register path.
+        self.assertIn("PAGE", reg_names)
+        self.assertIn("STATUS_BYTE", reg_names)
+        self.assertNotIn("READ_VOUT_W", reg_names)
+        ops = {op["name"] for op in device_entry["operations"]}
+        self.assertIn("register_write", ops)  # PAGE ile kanal seçimi
+        self.assertIn("vout_read", ops)
+
     def test_ltc2991_reads_convert_to_engineering_units(self) -> None:
         # 2991f data format: SE LSB 305.18 uV, T_internal 0.0625 C (13-bit
         # two's complement), VCC = 2.5 V + code * 305.18 uV. Reads must return

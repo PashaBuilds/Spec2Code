@@ -6,61 +6,205 @@
     "from_datasheet": "Descriptor will be extracted from a datasheet (RAG)."
   },
   "devices": [
-    { "part": "LTC2991", "transport": "i2c", "status": "builtin",
+    {
+      "part": "LTC2991",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/ltc2991.yaml",
       "summary": "8-channel I2C voltage/temperature monitor",
-      "match_tokens": ["LTC2991", "ltc2991_", "CONTROL_V1V2", "V1_MSB"] },
-    { "part": "TCA9548A", "transport": "i2c_mux", "status": "builtin",
+      "match_tokens": [
+        "LTC2991",
+        "ltc2991_",
+        "CONTROL_V1V2",
+        "V1_MSB"
+      ]
+    },
+    {
+      "part": "TCA9548A",
+      "transport": "i2c_mux",
+      "status": "builtin",
       "descriptor": "descriptors/tca9548a.yaml",
       "summary": "8-channel I2C switch / multiplexer",
-      "match_tokens": ["TCA9548A", "tca9548a_", "channel_select"] },
-    { "part": "MT25Q128", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "TCA9548A",
+        "tca9548a_",
+        "channel_select"
+      ]
+    },
+    {
+      "part": "MT25Q128",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/mt25q128.yaml",
       "summary": "128 Mbit SPI NOR flash, 3-byte addressing",
-      "match_tokens": ["MT25Q128", "mt25q128_", "SECTOR_ERASE", "0xD8"] },
-    { "part": "MT25QU02G", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "MT25Q128",
+        "mt25q128_",
+        "SECTOR_ERASE",
+        "0xD8"
+      ]
+    },
+    {
+      "part": "MT25QU02G",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/mt25qu02g.yaml",
       "summary": "2 Gbit SPI NOR flash, 4-byte addressing",
-      "match_tokens": ["MT25QU02G", "mt25qu02g_", "ENTER_4BYTE", "0xB7"] },
-    { "part": "AD7414", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "MT25QU02G",
+        "mt25qu02g_",
+        "ENTER_4BYTE",
+        "0xB7"
+      ]
+    },
+    {
+      "part": "AD7414",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/ad7414.yaml",
       "summary": "10-bit I2C temperature sensor with programmable alert thresholds",
-      "match_tokens": ["AD7414", "ad7414_", "TEMPERATURE", "CONFIGURATION"] },
-    { "part": "TMP101", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "AD7414",
+        "ad7414_",
+        "TEMPERATURE",
+        "CONFIGURATION"
+      ]
+    },
+    {
+      "part": "TMP101",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/tmp101.yaml",
       "summary": "I2C/SMBus temperature sensor with ALERT output and programmable resolution",
-      "match_tokens": ["TMP101", "tmp101_", "TEMPERATURE", "CONFIGURATION", "OS_ALERT"] },
-    { "part": "SHT21", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "TMP101",
+        "tmp101_",
+        "TEMPERATURE",
+        "CONFIGURATION",
+        "OS_ALERT"
+      ]
+    },
+    {
+      "part": "SHT21",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/sht21.yaml",
       "summary": "I2C humidity and temperature sensor with command-based measurement frames",
-      "match_tokens": ["SHT21", "sht21_", "TRIGGER_T_HOLD", "USER_REGISTER", "SOFT_RESET"] },
-    { "part": "24LC32A", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "SHT21",
+        "sht21_",
+        "TRIGGER_T_HOLD",
+        "USER_REGISTER",
+        "SOFT_RESET"
+      ]
+    },
+    {
+      "part": "24LC32A",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/24lc32a.yaml",
       "summary": "32-Kbit I2C serial EEPROM with 32-byte page writes",
-      "match_tokens": ["24LC32A", "24AA32A", "24XX32A", "24lc32a_", "EEPROM", "PAGE_WRITE"] },
-    { "part": "DS1682", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "24LC32A",
+        "24AA32A",
+        "24XX32A",
+        "24lc32a_",
+        "EEPROM",
+        "PAGE_WRITE"
+      ]
+    },
+    {
+      "part": "DS1682",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/ds1682.yaml",
       "summary": "I2C total elapsed-time recorder with alarm and event counter",
-      "match_tokens": ["DS1682", "ds1682_", "ETC_LOW", "EVENT_LOW"] },
-    { "part": "LTC2945", "transport": "i2c", "status": "builtin",
+      "match_tokens": [
+        "DS1682",
+        "ds1682_",
+        "ETC_LOW",
+        "EVENT_LOW"
+      ]
+    },
+    {
+      "part": "LTC2945",
+      "transport": "i2c",
+      "status": "builtin",
       "descriptor": "descriptors/ltc2945.yaml",
       "summary": "Wide range I2C power monitor for current, voltage, power, and ADIN",
-      "match_tokens": ["LTC2945", "ltc2945_", "POWER_MSB2", "SENSE_MSB"] },
-    { "part": "ADAR1000", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "LTC2945",
+        "ltc2945_",
+        "POWER_MSB2",
+        "SENSE_MSB"
+      ]
+    },
+    {
+      "part": "ADAR1000",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/adar1000.yaml",
       "summary": "4-channel X/Ku-band SPI beamformer with RAM-backed beam and bias control",
-      "match_tokens": ["ADAR1000", "adar1000_", "RX_ENABLES", "TX_ENABLES", "MEM_CTRL", "BEAM"] },
-    { "part": "LMK04832", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "ADAR1000",
+        "adar1000_",
+        "RX_ENABLES",
+        "TX_ENABLES",
+        "MEM_CTRL",
+        "BEAM"
+      ]
+    },
+    {
+      "part": "LMK04832",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/lmk04832.yaml",
       "summary": "JESD204B dual-loop clock jitter cleaner; initialized from a TICS Pro register array",
-      "match_tokens": ["LMK04832", "lmk04832_", "TICS", "PLL2_N"] },
-    { "part": "LMX2820", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "LMK04832",
+        "lmk04832_",
+        "TICS",
+        "PLL2_N"
+      ]
+    },
+    {
+      "part": "LMX2820",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/lmx2820.yaml",
       "summary": "22.6 GHz PLLatinum RF synthesizer; initialized from a TICS Pro register array",
-      "match_tokens": ["LMX2820", "lmx2820_", "TICS", "FCAL_EN"] },
-    { "part": "LMX1204", "transport": "spi", "status": "builtin",
+      "match_tokens": [
+        "LMX2820",
+        "lmx2820_",
+        "TICS",
+        "FCAL_EN"
+      ]
+    },
+    {
+      "part": "LMX1204",
+      "transport": "spi",
+      "status": "builtin",
       "descriptor": "descriptors/lmx1204.yaml",
       "summary": "JESD clock/SYSREF buffer, multiplier, and divider; initialized from a TICS Pro register array",
-      "match_tokens": ["LMX1204", "lmx1204_", "TICS", "SYSREF"] }
+      "match_tokens": [
+        "LMX1204",
+        "lmx1204_",
+        "TICS",
+        "SYSREF"
+      ]
+    },
+    {
+      "part": "LTM4681",
+      "transport": "i2c",
+      "status": "builtin",
+      "descriptor": "descriptors/ltm4681.yaml",
+      "summary": "Quad 31.25A uModule regulator with PMBus digital power management (dual die: 0x4F ch0/1 + 0x4E ch2/3)",
+      "match_tokens": [
+        "LTM4681",
+        "ltm4681_",
+        "MFR_SPECIAL_ID",
+        "READ_VOUT"
+      ]
+    }
   ]
 }

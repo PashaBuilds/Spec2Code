@@ -524,6 +524,16 @@ def _testbench_label(part: str, op_name: str) -> str:
             "pll2_lock_loss": "PLL2 lock loss oku",
         },
         "LMX2820": {"device_init": "TICS Pro init sequence uygula"},
+        "LTM4681": {
+            "device_init": "NVM'den açılır; bus yazımı gerekmez",
+            "id_read": "MFR_SPECIAL_ID oku (0x500n beklenir)",
+            "status_read": "STATUS_WORD oku (seçili PAGE)",
+            "vout_read": "VOUT oku (mV, L16 exp -12)",
+            "voltage_read": "VIN oku (mV, Linear11)",
+            "current_read": "IOUT oku (mA, Linear11)",
+            "temperature_read": "Kanal sıcaklığı oku (0.01 °C, Linear11)",
+            "power_read": "POUT oku (mW, Linear11)",
+        },
         "LMX1204": {"device_init": "TICS Pro init sequence uygula"},
     }
     generic = {
@@ -834,6 +844,9 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 }
                 for reg in descriptor.get("registers", [])
                 if "name" in reg and str(reg.get("access", "")).lower() not in {"reserved"}
+                # Generic register access reads/writes single bytes; wider
+                # commands (PMBus words) are served by dedicated operations.
+                and int(reg.get("width", 8)) == 8
             ],
             "operations": operations,
         })
