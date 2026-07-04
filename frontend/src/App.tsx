@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -22,9 +22,10 @@ import { useBoardConnection } from "@/store/connection";
 import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
+import DocsPanel from "@/features/docs/DocsPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -117,6 +118,7 @@ export default function App() {
     { id: "traffic", label: "Veri Akışı — TX/RX trafiği", hint: "görünüm", keywords: "trafik veri akış tx rx coresight dcc jtag", run: () => setView("traffic") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
+    { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
   ];
 
@@ -186,6 +188,7 @@ export default function App() {
           ["traffic", Activity, "Akış"],
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
+          ["docs", BookOpenText, "Kılavuz"],
           ["import", FileInput, "Import"],
         ] as const).map(([id, Icon, label]) => (
           <Button
@@ -259,6 +262,11 @@ export default function App() {
             <div className="min-h-0 flex-1">
               <RegistersPanel />
             </div>
+          </div>
+        ))}
+        {keepAlive("docs", (
+          <div className="h-full min-h-0 p-4">
+            <DocsPanel />
           </div>
         ))}
         {keepAlive("import", (

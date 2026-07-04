@@ -7,6 +7,17 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
 
+- YENI EKRAN: "Kilavuz" - uygulamaya gomulu Turkce kullanim kilavuzu
+  (frontend/src/features/docs/DocsPanel.tsx). Saha el kitabi/datasheet
+  estetigi: numarali 14 bolum (genel bakis, .xsa girisi, sematik,
+  generate+QC, Vitis workspace, Board'da calistir, baglanti/transportlar,
+  Test Bench + Akis, Bring-up, Registers, Headless CLI, platform destek
+  matrisi, sorun giderme, kisayollar), SVG boru hatti ve transport
+  diyagramlari (bus renkleriyle), ipucu/uyari kutulari, tablolar ve kod
+  bloklari. Sol tarafta yapiskan icindekiler: baslik+anahtar kelime
+  aramasi ve scrollspy (icindekilerden tiklayinca hedef kilitlenir,
+  elle kaydirinca izleyici devralir; dipte son bolum aydinlanir).
+  Komut paletine "Kullanim kilavuzu" girdisi eklendi.
 - XSA parser (backend/parsers/xsa.py): XSA icindeki .hwh hardware
   handoff'u okunur. Islemci modullerinden platform otomatik algilanir
   (psu/ps7/psv cortex, microblaze). Board-level hwh'lerde PS tek blok
