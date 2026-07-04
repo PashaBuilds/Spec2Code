@@ -254,23 +254,33 @@ def _emit_convert_lines(e: "Emit", convert: dict, raw_expr: str) -> None:
     descriptor description).
     """
     mask = int(convert.get("mask", 0xFFFF))
+    rshift = int(convert.get("rshift", 0))
     signed_bits = int(convert.get("signed_bits", 0))
     scale_num = int(convert.get("scale_num", 1))
     scale_den = int(convert.get("scale_den", 1))
     offset = int(convert.get("offset", 0))
-    e.ln(f"iCode = (int)(({raw_expr}) & {_hexu32(mask)});")
-    if signed_bits:
-        e.open(f"if (iCode >= {1 << (signed_bits - 1)})")
-        e.ln(f"iCode -= {1 << signed_bits};  /* two's complement, {signed_bits} bit */")
+    is_unsigned = bool(convert.get("unsigned", False))
+    var = "uiCode" if is_unsigned else "iCode"
+    ctype = "unsigned int" if is_unsigned else "int"
+    shifted = f"({raw_expr}) >> {rshift}" if rshift else raw_expr
+    e.ln(f"{var} = ({ctype})(({shifted}) & {_hexu32(mask)});")
+    if signed_bits and not is_unsigned:
+        e.open(f"if ({var} >= {1 << (signed_bits - 1)})")
+        e.ln(f"{var} -= {1 << signed_bits};  /* two's complement, {signed_bits} bit */")
         e.close()
     if scale_num != 1 or scale_den != 1:
-        e.ln(f"iCode = (iCode * {scale_num}) / {scale_den};")
+        suffix = "U" if is_unsigned else ""
+        e.ln(f"{var} = ({var} * {scale_num}{suffix}) / {scale_den}{suffix};")
     if offset:
-        e.ln(f"iCode += {offset};")
+        suffix = "U" if is_unsigned else ""
+        if offset < 0:
+            e.ln(f"{var} -= {-offset}{suffix};")
+        else:
+            e.ln(f"{var} += {offset}{suffix};")
     if "clamp_min" in convert:
         clamp = int(convert["clamp_min"])
-        e.open(f"if (iCode < {clamp})")
-        e.ln(f"iCode = {clamp};")
+        e.open(f"if ({var} < {clamp})")
+        e.ln(f"{var} = {clamp};")
         e.close()
 
 
@@ -541,7 +551,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         if scalar_read_bytes:
             e.ln("unsigned char ucArrBytes[4];")
         if convert:
-            e.ln("int iCode;")
+            e.ln("unsigned int uiCode;" if convert.get("unsigned") else "int iCode;")
         e.blank()
 
         if is_init:
@@ -612,7 +622,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                         _emit_convert_lines(
                             e, convert,
                             "((unsigned short)ucMsb << 8) | (unsigned short)ucLsb")
-                        e.ln(f"{out_param}[ucIndex] = (unsigned short)iCode;")
+                        cvar = "uiCode" if convert.get("unsigned") else "iCode"
+                        e.ln(f"{out_param}[ucIndex] = (unsigned short){cvar};")
                     else:
                         e.ln(f"{out_param}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
                     e.close()
@@ -621,7 +632,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             expr = _scalar_assign_expr(read_seen, out_c_type, byte_order, scalar_pieces)
             if convert:
                 _emit_convert_lines(e, convert, expr)
-                e.ln(f"*{out_param} = ({out_c_type})iCode;")
+                cvar = "uiCode" if convert.get("unsigned") else "iCode"
+                e.ln(f"*{out_param} = ({out_c_type}){cvar};")
             else:
                 e.ln(f"*{out_param} = ({out_c_type})({expr});")
         e.ln("return XST_SUCCESS;")
@@ -1308,7 +1320,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned char ucStatus;")
         if any(n.endswith("VoltageRead") and is_array_read(n) for n in read_ops):
             st.ln("unsigned short usArrVoltages[8];")
-        if any(n.endswith("VoltageRead") and not is_array_read(n) for n in read_ops):
+        if any(n.endswith("VoltageRead") and not is_array_read(n) and has_int_out(n) for n in read_ops):
+            st.ln("int iVoltage;")
+        if any(n.endswith("VoltageRead") and not is_array_read(n) and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usVoltage;")
         if any(n.endswith("CurrentRead") and is_array_read(n) for n in read_ops):
             st.ln("unsigned short usArrCurrents[8];")
@@ -1320,15 +1334,21 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("int iTemperature;")
         if any(n.endswith("TemperatureRead") and not has_uint_out(n) and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usTemperature;")
-        if any(n.endswith("HumidityRead") for n in read_ops):
+        if any(n.endswith("HumidityRead") and has_int_out(n) for n in read_ops):
+            st.ln("int iHumidity;")
+        if any(n.endswith("HumidityRead") and not has_int_out(n) for n in read_ops):
             st.ln("unsigned int uiHumidity;")
         if any(n.endswith("UserRegisterRead") for n in read_ops):
             st.ln("unsigned char ucUser;")
         if any(n.endswith("PowerRead") for n in read_ops):
             st.ln("unsigned int uiPower;")
-        if any(n.endswith("SenseRead") for n in read_ops):
+        if any(n.endswith("SenseRead") and has_int_out(n) for n in read_ops):
+            st.ln("int iSense;")
+        if any(n.endswith("SenseRead") and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usSense;")
-        if any(n.endswith("AdinRead") for n in read_ops):
+        if any(n.endswith("AdinRead") and has_int_out(n) for n in read_ops):
+            st.ln("int iAdin;")
+        if any(n.endswith("AdinRead") and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usAdin;")
         if any(n.endswith("ElapsedRead") for n in read_ops):
             st.ln("unsigned int uiElapsed;")
@@ -1359,7 +1379,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
         elif name.endswith("VoltageRead"):
             if is_array_read(name):
                 st.ln(f"iStatus = {name}({hvar}, usArrVoltages);").check_status()
-                st.ln('xil_printf("' + part + ' V1 raw = %u\\r\\n", (unsigned int)usArrVoltages[0]);')
+                st.ln('xil_printf("' + part + ' V1 = %u\\r\\n", (unsigned int)usArrVoltages[0]);')
+            elif has_int_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &iVoltage);").check_status()
+                st.ln('xil_printf("' + part + ' voltage = %d\\r\\n", iVoltage);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usVoltage);").check_status()
                 st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)usVoltage);')
@@ -1381,8 +1404,12 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
                 st.ln(f"iStatus = {name}({hvar}, &usTemperature);").check_status()
                 st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)usTemperature);')
         elif name.endswith("HumidityRead"):
-            st.ln(f"iStatus = {name}({hvar}, &uiHumidity);").check_status()
-            st.ln('xil_printf("' + part + ' humidity raw = %lu\\r\\n", (unsigned long)uiHumidity);')
+            if has_int_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &iHumidity);").check_status()
+                st.ln('xil_printf("' + part + ' humidity = %d santi-RH\\r\\n", iHumidity);')
+            else:
+                st.ln(f"iStatus = {name}({hvar}, &uiHumidity);").check_status()
+                st.ln('xil_printf("' + part + ' humidity raw = %lu\\r\\n", (unsigned long)uiHumidity);')
         elif name.endswith("UserRegisterRead"):
             st.ln(f"iStatus = {name}({hvar}, &ucUser);").check_status()
             st.ln('xil_printf("' + part + ' user register = %02X\\r\\n", ucUser);')
@@ -1390,14 +1417,22 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln(f"iStatus = {name}({hvar}, &uiPower);").check_status()
             st.ln('xil_printf("' + part + ' power raw = %lu\\r\\n", (unsigned long)uiPower);')
         elif name.endswith("SenseRead"):
-            st.ln(f"iStatus = {name}({hvar}, &usSense);").check_status()
-            st.ln('xil_printf("' + part + ' sense raw = %u\\r\\n", (unsigned int)usSense);')
+            if has_int_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &iSense);").check_status()
+                st.ln('xil_printf("' + part + ' sense = %d uV\\r\\n", iSense);')
+            else:
+                st.ln(f"iStatus = {name}({hvar}, &usSense);").check_status()
+                st.ln('xil_printf("' + part + ' sense raw = %u\\r\\n", (unsigned int)usSense);')
         elif name.endswith("AdinRead"):
-            st.ln(f"iStatus = {name}({hvar}, &usAdin);").check_status()
-            st.ln('xil_printf("' + part + ' ADIN raw = %u\\r\\n", (unsigned int)usAdin);')
+            if has_int_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &iAdin);").check_status()
+                st.ln('xil_printf("' + part + ' ADIN = %d uV\\r\\n", iAdin);')
+            else:
+                st.ln(f"iStatus = {name}({hvar}, &usAdin);").check_status()
+                st.ln('xil_printf("' + part + ' ADIN raw = %u\\r\\n", (unsigned int)usAdin);')
         elif name.endswith("ElapsedRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiElapsed);").check_status()
-            st.ln('xil_printf("' + part + ' elapsed ticks = %lu\\r\\n", (unsigned long)uiElapsed);')
+            st.ln('xil_printf("' + part + ' elapsed = %lu s\\r\\n", (unsigned long)uiElapsed);')
         elif name.endswith("AlarmRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiAlarm);").check_status()
             st.ln('xil_printf("' + part + ' alarm ticks = %lu\\r\\n", (unsigned long)uiAlarm);')

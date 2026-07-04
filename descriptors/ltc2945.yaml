@@ -79,24 +79,29 @@ operations:
     description: "Read the status register."
     steps:
       - { op: read_register, reg: STATUS }
+  # 12-bit results are left-aligned in D15..D4. LSB weights per datasheet:
+  # delta-sense 25 uV, VIN 25 mV, ADIN 0.5 mV.
   - name: power_read
     returns: "uint32"
-    description: "Read the raw 24-bit power calculation register."
+    description: "Read the raw 24-bit power product (VIN x delta-sense). Kept raw on purpose: P = code * 25 uV * 25 mV / Rsense needs the board's sense resistor, which is application data."
     steps:
       - { op: read_registers, reg: POWER_MSB2, length: 3 }
   - name: sense_read
-    returns: "uint16"
-    description: "Read the raw 12-bit delta-sense/current ADC register image."
+    returns: "int32"
+    description: "Read the delta-sense (shunt) voltage converted to microvolts (12-bit in D15..D4, LSB 25 uV). I = Vsense / Rsense is applied by the application."
+    convert: { rshift: 4, mask: 0xFFF, signed_bits: 0, scale_num: 25, scale_den: 1, unit: "uV" }
     steps:
       - { op: read_registers, reg: SENSE_MSB, length: 2 }
   - name: voltage_read
-    returns: "uint16"
-    description: "Read the raw 12-bit VIN ADC register image."
+    returns: "int32"
+    description: "Read VIN converted to millivolts (12-bit in D15..D4, LSB 25 mV)."
+    convert: { rshift: 4, mask: 0xFFF, signed_bits: 0, scale_num: 25, scale_den: 1, unit: "mV" }
     steps:
       - { op: read_registers, reg: VIN_MSB, length: 2 }
   - name: adin_read
-    returns: "uint16"
-    description: "Read the raw 12-bit auxiliary ADIN ADC register image."
+    returns: "int32"
+    description: "Read ADIN converted to microvolts (12-bit in D15..D4, LSB 0.5 mV)."
+    convert: { rshift: 4, mask: 0xFFF, signed_bits: 0, scale_num: 500, scale_den: 1, unit: "uV" }
     steps:
       - { op: read_registers, reg: ADIN_MSB, length: 2 }
 test_hints:

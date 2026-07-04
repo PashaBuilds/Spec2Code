@@ -34,9 +34,11 @@ operations:
     description: "Initialize the I2C controller; TMP101 powers up in continuous conversion mode."
     steps:
       - { op: comment, note: "TMP101 default configuration is continuous conversion, comparator mode, active-low ALERT." }
+  # TMP101 temperature: 12-bit two's complement in D15..D4, 0.0625 C/LSB.
   - name: temperature_read
-    returns: "uint16"
-    description: "Read the 12-bit two's-complement temperature register as the raw 16-bit transfer image."
+    returns: "int32"
+    description: "Read the temperature converted to santi-Celsius (0.01 C units, signed; 12-bit two's complement in D15..D4, LSB 0.0625 C)."
+    convert: { rshift: 4, mask: 0xFFF, signed_bits: 12, scale_num: 25, scale_den: 4, unit: "0.01 C" }
     steps:
       - { op: read_registers, reg: TEMPERATURE, length: 2 }
   - name: config_read

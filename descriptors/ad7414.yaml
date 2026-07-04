@@ -31,9 +31,11 @@ operations:
     description: "Initialize the I2C controller; the AD7414 powers up in continuous conversion mode."
     steps:
       - { op: comment, note: "AD7414 default mode is continuous conversion; no device register write required." }
+  # AD7414 temperature: 10-bit two's complement in D15..D6, 0.25 C/LSB.
   - name: temperature_read
-    returns: "uint16"
-    description: "Read the 10-bit two's-complement temperature register as the raw 16-bit transfer image."
+    returns: "int32"
+    description: "Read the temperature converted to santi-Celsius (0.01 C units, signed; 10-bit two's complement in D15..D6, LSB 0.25 C)."
+    convert: { rshift: 6, mask: 0x3FF, signed_bits: 10, scale_num: 25, scale_den: 1, unit: "0.01 C" }
     steps:
       - { op: read_registers, reg: TEMPERATURE, length: 2 }
   - name: config_read

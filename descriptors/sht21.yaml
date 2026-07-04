@@ -41,14 +41,18 @@ operations:
     description: "Initialize the I2C controller; SHT21 has no mandatory startup register write."
     steps:
       - { op: comment, note: "Use soft reset only when the application explicitly wants to reinitialize the sensor." }
+  # Datasheet formulas: T = -46.85 + 175.72*S/2^16, RH = -6 + 125*S/2^16;
+  # S = frame[23:8] with the two status bits masked to 0 (CRC in [7:0]).
   - name: temperature_read
-    returns: "uint32"
-    description: "Issue hold-master temperature command; raw frame [23:16]=MSB [15:8]=LSB (bits 1:0 are status, mask to 0 before T=-46.85+175.72*S/65536) [7:0]=CRC-8."
+    returns: "int32"
+    description: "Hold-master temperature converted to santi-Celsius (0.01 C, signed): T = -46.85 + 175.72*S/65536, S = frame[23:8] with status bits masked."
+    convert: { rshift: 8, mask: 0xFFFC, signed_bits: 0, scale_num: 17572, scale_den: 65536, offset: -4685, unit: "0.01 C" }
     steps:
       - { op: read_registers, reg: TRIGGER_T_HOLD, length: 3 }
   - name: humidity_read
-    returns: "uint32"
-    description: "Issue hold-master humidity command; raw frame [23:16]=MSB [15:8]=LSB (bits 1:0 are status, mask to 0 before RH=-6+125*S/65536) [7:0]=CRC-8."
+    returns: "int32"
+    description: "Hold-master humidity converted to santi-%RH (0.01 %RH): RH = -6 + 125*S/65536, S = frame[23:8] with status bits masked; sub-zero clamps to 0."
+    convert: { rshift: 8, mask: 0xFFFC, signed_bits: 0, scale_num: 12500, scale_den: 65536, offset: -600, clamp_min: 0, unit: "0.01 %RH" }
     steps:
       - { op: read_registers, reg: TRIGGER_RH_HOLD, length: 3 }
   - name: user_register_read

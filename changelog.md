@@ -38,6 +38,16 @@ Tek dosya girisi: .xsa'dan uctan uca akis - xparameters.h artik opsiyonel.
   zaten gosteriyor, ham seri terminal ihtiyaci harici programla
   karsilaniyor. Komut paleti girdisi ve sekme kaldirildi; backend
   console API'lari yerinde (Akis ve dis araclar kullanabilir).
+- Birimli okumalar tum katalogda: AD7414 -> santi-C (10-bit D15..D6,
+  0.25 C/LSB), TMP101 -> santi-C (12-bit D15..D4, 0.0625 C/LSB), SHT21
+  -> santi-C ve santi-%RH (datasheet formulleri: T=-46.85+175.72*S/2^16,
+  RH=-6+125*S/2^16; status bitleri maskelenir), LTC2945 sense -> uV
+  (LSB 25 uV), VIN -> mV (LSB 25 mV), ADIN -> uV (LSB 0.5 mV; power
+  bilincli raw: Rsense uygulama verisi), DS1682 elapsed/alarm -> saniye
+  (0.25 s tik). convert altyapisina `rshift` (hizalama) ve `unsigned`
+  (32-bit sayac, tasmasiz) eklendi. Tum donusumlu parcalar + ajan gercek
+  Versal BSP'sine karsi -Wall -Wextra -Werror sifir uyari derlendi;
+  137 test yesil. (uint32/int32 substring eslesme hatasi da duzeltildi.)
 - LTC2991 okumalari artik muhendislik birimlerinde (2991f Table 10):
   voltage_read mV dondurur (LSB 305.18 uV; isaret/DV ayiklanir, negatif
   0'a kirpilir), vcc_read mV (2500 mV + kod x 305.18 uV),

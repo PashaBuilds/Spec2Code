@@ -56,14 +56,17 @@ operations:
     description: "Read status/configuration bits including alarm flag and event counter MSB."
     steps:
       - { op: read_register, reg: CONFIGURATION }
+  # ETC/ALARM tick = 0.25 s; converted to whole seconds (truncates <=0.75 s).
   - name: elapsed_read
     returns: "uint32"
-    description: "Read the 32-bit elapsed time counter in quarter-second ticks."
+    description: "Read the elapsed time counter converted to seconds (32-bit counter of 0.25 s ticks; division truncates up to 0.75 s)."
+    convert: { mask: 0xFFFFFFFF, unsigned: true, scale_num: 1, scale_den: 4, unit: "s" }
     steps:
       - { op: read_registers, reg: ETC_LOW, length: 4 }
   - name: alarm_read
     returns: "uint32"
-    description: "Read the 32-bit alarm trip point in quarter-second ticks."
+    description: "Read the alarm trip point converted to seconds (0.25 s ticks; division truncates up to 0.75 s)."
+    convert: { mask: 0xFFFFFFFF, unsigned: true, scale_num: 1, scale_den: 4, unit: "s" }
     steps:
       - { op: read_registers, reg: ALARM_LOW, length: 4 }
   - name: event_read
