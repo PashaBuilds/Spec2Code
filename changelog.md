@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.105 - Taslak
+
+- Vitis sekmesi metinleri kurulum moduna uyarlandi: "Kaynaklari guncelle
+  + build" modunda ilerleme basligi artik "Workspace olusturuluyor"
+  yerine "Kaynaklar guncelleniyor + build aliniyor" der (bitiste
+  "Kaynaklar guncellendi, build hazir", basarisizlikta "Guncelleme +
+  build tamamlanmadi"); backend olay mesajlari (baslangic/bitis) de
+  moda gore yazilir. Update modunda workspace olusturulmaz - metinler
+  bunu yansitir.
+
 ## v0.1.104 - 2026-07-05
 
 Saha oturumunun ikinci dalgasi: I2C hat taramasi, canli bit izleme,

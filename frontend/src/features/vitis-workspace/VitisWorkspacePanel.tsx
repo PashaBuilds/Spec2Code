@@ -103,10 +103,14 @@ function VitisProgress({
   events,
   running,
   error,
+  mode,
 }: {
   events: JobEvent[];
   running: boolean;
   error: string;
+  /** Metinler moda uysun: update modunda workspace OLUŞTURULMAZ,
+   * yalnız üretilen kaynaklar değiştirilip app build alınır. */
+  mode: "full" | "update";
 }) {
   const progress = latestProgress(events);
   const stage = latestStage(events);
@@ -130,7 +134,13 @@ function VitisProgress({
             <CircleDashed className="h-4 w-4 text-faint" aria-hidden />
           )}
           <span className="text-xs font-semibold text-text">
-            {error ? "Vitis akışı hata ile durdu" : stage === "done" ? "Workspace hazır" : running ? "Workspace oluşturuluyor" : "Hazır"}
+            {error
+              ? "Vitis akışı hata ile durdu"
+              : stage === "done"
+                ? mode === "update" ? "Kaynaklar güncellendi, build hazır" : "Workspace hazır"
+                : running
+                  ? mode === "update" ? "Kaynaklar güncelleniyor + build alınıyor" : "Workspace oluşturuluyor"
+                  : "Hazır"}
           </span>
         </div>
         <span className="font-mono text-[10px] text-faint">{Math.round(progress)}%</span>
@@ -699,7 +709,7 @@ export function VitisWorkspacePanel({
 
       {(events.length > 0 || error || result) && (
         <div className="mt-3">
-          <VitisProgress events={events} running={running} error={error} />
+          <VitisProgress events={events} running={running} error={error} mode={buildMode} />
           <CompileIssuesPanel issues={compileIssues} />
           <VitisDoctorPanel doctor={result?.vitis_doctor} selfHeal={result?.self_heal} />
         </div>
@@ -728,7 +738,9 @@ export function VitisWorkspacePanel({
         <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 p-3 text-[11px] leading-relaxed text-muted">
           <div className="mb-2 flex items-center gap-2">
             <AlertTriangle className="h-3.5 w-3.5 text-danger" aria-hidden />
-            <span className="font-semibold text-danger">Workspace tamamlanmadı</span>
+            <span className="font-semibold text-danger">
+              {buildMode === "update" ? "Güncelleme + build tamamlanmadı" : "Workspace tamamlanmadı"}
+            </span>
             {typeof result.xsct_exit_code === "number" ? (
               <Badge tone={result.xsct_exit_code === 0 ? "warn" : "danger"}>exit {result.xsct_exit_code}</Badge>
             ) : null}

@@ -2315,7 +2315,12 @@ class VitisWorkspaceJobManager:
             "event": "vitis.start",
             "stage": "start",
             "progress": 5,
-            "message": "Vitis workspace akışı başlatıldı.",
+            # Update modunda workspace OLUŞTURULMAZ; açıklama moda uysun.
+            "message": (
+                "Kaynak güncelleme + build akışı başlatıldı (mevcut workspace)."
+                if job.config.mode == "update"
+                else "Vitis workspace akışı başlatıldı."
+            ),
         })
         try:
             await asyncio.to_thread(self._blocking, job)
@@ -2997,7 +3002,11 @@ class VitisWorkspaceJobManager:
             "event": "vitis.done",
             "stage": "done",
             "progress": 100,
-            "message": "Vitis workspace hazır.",
+            "message": (
+                "Kaynaklar güncellendi, application build hazır."
+                if job.config.mode == "update"
+                else "Vitis workspace hazır."
+            ),
             "workspace_path": str(workspace_path),
             "platform_name": platform_name,
             "system_name": system_name,
