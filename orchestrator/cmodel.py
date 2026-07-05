@@ -962,9 +962,15 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
                    [f"{htype}* {hvar}", "unsigned char ucOpcode"], send.out(), static=True)
 
     rd = Emit()
-    rd.ln("unsigned char ucArrTx[" + max_def + "];").ln("unsigned char ucArrRx[" + max_def + "];")
+    rd.ln("unsigned char ucArrTx[" + max_def + "];")
     if _is_qspipsu(htype):
-        rd.ln("XQspiPsu_Msg sArrMessage[1];")
+        # RX DMA hedefi: driver Xil_DCacheInvalidateRange uygular; tampon
+        # cache-line (64B) hizali olmazsa komsu stack verisi bozulabilir
+        # (resmi flash orneklerindeki aligned(64) kaligi).
+        rd.ln("unsigned char ucArrRx[" + max_def + "] __attribute__((aligned(64)));")
+        rd.ln("XQspiPsu_Msg sArrMessage[2];")
+    else:
+        rd.ln("unsigned char ucArrRx[" + max_def + "];")
     rd.ln("unsigned int uiIndex;").ln("unsigned int uiHeader;").ln("int iStatus;").blank()
     rd.ln("uiHeader = 1U + (unsigned int)ucAddrBytes;")
     rd.open(f"if ((uiHeader + uiLength) > (unsigned int){max_def})").ln("return XST_FAILURE;").close()
@@ -972,19 +978,34 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     rd.open("for (uiIndex = 0U; uiIndex < (unsigned int)ucAddrBytes; uiIndex++)")
     rd.ln("ucArrTx[1U + uiIndex] = (unsigned char)((uiAddress >> (8U * ((unsigned int)ucAddrBytes - 1U - uiIndex))) & 0xFFU);")
     rd.close()
-    rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucArrTx[uiHeader + uiIndex] = 0x00U;").close()
     if _is_qspipsu(htype):
+        # SAHA BULGUSU (2026-07-05): TEK mesajda TX|RX kombine + DMA yolu
+        # (toplam >= 8 bayt) KILITLENIR: XQspiPsu_SetupRxDma 4'e
+        # bolunmeyen uzunlukta Msg->ByteCount'u kirpar (or. 9->8) ama TX
+        # kurulumu 9 bayti yukledi - tek ortak ByteCount iki yonu birden
+        # temsil edemez (id_read'in calismasi <8 baytin IO moduna
+        # dusmesindendir). Resmi surucu akisi: cmd+addr TX-only mesaj,
+        # veri RX-only mesaj; CS iki giris boyunca asserted kalir.
         rd.ln("sArrMessage[0].TxBfrPtr = ucArrTx;")
-        rd.ln("sArrMessage[0].RxBfrPtr = ucArrRx;")
-        rd.ln("sArrMessage[0].ByteCount = uiHeader + uiLength;")
+        rd.ln("sArrMessage[0].RxBfrPtr = NULL;")
+        rd.ln("sArrMessage[0].ByteCount = uiHeader;")
         rd.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
-        rd.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX;")
-        rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
+        rd.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
+        rd.ln("sArrMessage[1].TxBfrPtr = NULL;")
+        rd.ln("sArrMessage[1].RxBfrPtr = ucArrRx;")
+        rd.ln("sArrMessage[1].ByteCount = uiLength;")
+        rd.ln("sArrMessage[1].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        rd.ln("sArrMessage[1].Flags = XQSPIPSU_MSG_FLAG_RX;")
+        rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 2U);").check_status()
+        rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiIndex];").close()
+        rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader);")
+        rd.ln("spec2codeBusTraceSpi(0U, NULL, ucArrRx, uiLength);")
     else:
+        rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucArrTx[uiHeader + uiIndex] = 0x00U;").close()
         rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
         rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, uiHeader + uiLength);").check_status()
-    rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiHeader + uiIndex];").close()
-    rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
+        rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiHeader + uiIndex];").close()
+        rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
     rd.ln("return XST_SUCCESS;")
     f_read = CFunc(_func_name(module, "command_read"), "int",
                    [f"{htype}* {hvar}", "unsigned char ucOpcode", "unsigned int uiAddress",

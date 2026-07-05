@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.106 - Taslak
+
+- SAHA: QSPI flash data_read ajani KILITLIYORDU (address=0x0 length=4:
+  "op basla" son log, cevap yok, sonraki tum komutlar cevapsiz - agent
+  tek is parcaciginda calisir). Kok neden: command_read TEK mesajda
+  TX|RX kombine gonderiyordu; toplam 1+4+4=9 bayt >= 8 oldugundan
+  transfer DMA okuma yoluna girer ve XQspiPsu_SetupRxDma 4'e bolunmeyen
+  uzunlukta Msg->ByteCount'u kirpar (9->8) - ayni ByteCount'u TX
+  kurulumu 9 olarak kullanmisti; tek ortak alan iki yonu birden temsil
+  edemez ve polled dongu sonsuz bekler. id_read'in calismasi toplam 4
+  baytin surucu tarafindan IO moduna dusurulmesindendir (<8 bayt
+  kurali). Duzeltme resmi surucu akisiyla hizalar: cmd+addr TX-only
+  mesaj + veri RX-only mesaj (CS iki giris boyunca asserted kalir) ve
+  RX tamponu DMA cache-invalidate icin 64 bayt hizali. TICS register
+  okumalari (3 baytlik kombine frame) surucunun <8 bayt IO-mod
+  kuralinda kaldigindan etkilenmez ve degistirilmedi.
+  NOT: duzeltme yeni firmware gerektirir (kaynaklari guncelle + build
+  sonrasi ELF'i karta yukle).
+
 ## v0.1.105 - 2026-07-05
 
 - SAHA: I2C hat taramasi probu okumadan YAZMAYA cevrildi (1 bayt 0x00).

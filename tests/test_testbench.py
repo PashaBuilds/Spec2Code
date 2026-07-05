@@ -1285,6 +1285,57 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", lwip_source)
 
+    def test_qspi_flash_command_read_splits_tx_and_rx_messages(self) -> None:
+        # SAHA BULGUSU (2026-07-05): mt25qu02g data_read (address=0x0
+        # length=4) ajani KILITLEDI - "op basla" son log, TRACE/cevap yok,
+        # sonraki tum komutlar cevapsiz. Kok neden: command_read TEK mesajda
+        # TX|RX kombine gonderiyordu. Toplam 1+4+4=9 bayt >= 8 oldugundan
+        # transfer DMA okuma yoluna girer ve XQspiPsu_SetupRxDma 4'e
+        # bolunmeyen uzunlukta Msg->ByteCount'u kirpar (9->8, resmi surucu
+        # xqspipsu_hw.c) - ayni ByteCount'u TX kurulumu 9 olarak kullandi;
+        # tek ortak alan iki yonu birden temsil edemez ve polled dongu
+        # sonsuz bekler. id_read'in calismasi toplam 4 baytin surucu
+        # tarafindan IO moduna dusurulmesindendir (<8 bayt kurali).
+        # Beklenen: resmi ornek akisi - cmd+addr TX-only mesaj + veri
+        # RX-only mesaj (CS iki giris boyunca asserted), RX tamponu DMA
+        # cache-invalidate icin 64B hizali.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {
+                "id": "ps_qspi_0", "type": "qspi", "instance": "XPAR_XQSPIPSU_0",
+                "base_address": "0xFF0F0000", "device_id": 0, "driver": "XQspiPsu",
+                "source": "xparameters", "zone": "ps",
+            },
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {
+                "id": "u2_mt25qu02g", "part": "MT25QU02G",
+                "descriptor_ref": "descriptors/mt25qu02g.yaml",
+                "attach": {
+                    "controller_id": "ps_qspi_0", "spi_chip_select": 0,
+                    "address_width": 32, "reset_gpio": None,
+                },
+                "operations_requested": ["device_init", "id_read", "data_read"],
+                "tests_requested": ["self_test"],
+            },
+        ]
+        add_zynqmp_ps_ethernet(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "mt25qu02g.c").read_text(encoding="utf-8")
+
+        self.assertIn("sArrMessage[0].ByteCount = uiHeader;", driver)
+        self.assertIn("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;", driver)
+        self.assertIn("sArrMessage[1].ByteCount = uiLength;", driver)
+        self.assertIn("sArrMessage[1].Flags = XQSPIPSU_MSG_FLAG_RX;", driver)
+        self.assertIn("sArrMessage, 2U);", driver)
+        self.assertIn("__attribute__((aligned(64)))", driver)
+        # Kilitlenen kombine desen bu birimde bir daha uretilmemeli.
+        self.assertNotIn("XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX", driver)
+
     @unittest.skipUnless(shutil.which("gcc") or shutil.which("cc"), "host C compiler required")
     def test_generated_request_parser_round_trips_on_host_compiler(self) -> None:
         # Regresyon (sahada bulundu): satir kopyalama TextCopy ile yapilinca
