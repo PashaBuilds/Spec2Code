@@ -35,6 +35,16 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
+- KRITIK DUZELTME (saha, 2026-07-05): ayni parcadan birden cok cihaz
+  (or. 3 x LTC2991) tek surucu modulunu ve tek I2C adres sabitini
+  paylasiyordu - hangi cihaz secilirse secilsin hep ayni fiziksel cip
+  okunuyordu. Artik her ornek kendi modulunu alir (ltc2991, ltc2991b,
+  ltc2991c...): ayri .c/.h, ayri adres/mux sabitleri, dispatch her
+  cihazi kendi fonksiyonlarina baglar. Ilk ornek geriye donuk uyumlu
+  adlari korur. (Regresyon testi + cift-modul gercek BSP derlemesi.)
+- Ajan dispatch'ine op baslangic DEBUG logu eklendi ("op basla: cihaz
+  op") - log seviyesi 5'te asili kalan/uzun suren surucu cagrilari
+  Akis'tan tespit edilebilir.
 - YENI EKRAN: "Seri Hat" (Akis'in yani) - her S2C komut/yanit cifti id
   ile eslestirilip kart olarak gosterilir: zaman, cihaz, operasyon,
   sure (ms), ok/hata ve COZULMUS deger. Manifest'e her operasyonun BUS

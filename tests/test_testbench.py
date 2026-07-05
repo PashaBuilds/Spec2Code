@@ -911,6 +911,53 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(device_ops["device_init"]["fixed_read_length"], 1)
         self.assertIn("RB_PLL_STATUS", device_ops["device_init"]["description"])
 
+    def test_multiple_devices_of_same_part_get_isolated_modules(self) -> None:
+        # SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken
+        # modül adı parçadan türediği için her örnek AYNI ltc2991.c'yi ve
+        # tek LTC2991_I2C_ADDR sabitini paylaşıyordu — kullanıcı hangi
+        # cihazı seçerse seçsin hep aynı fiziksel çip okunuyordu. Beklenen:
+        # her örnek kendi modülü/dosyası/adres sabitiyle üretilir.
+        spec = load_sample_spec("unit_multi_ltc2991")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {"id": "u1_ltc2991", "part": "LTC2991",
+             "descriptor_ref": "descriptors/ltc2991.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x48",
+                        "via_mux": None, "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "temperature_read"],
+             "tests_requested": ["self_test"]},
+            {"id": "u2_ltc2991", "part": "LTC2991",
+             "descriptor_ref": "descriptors/ltc2991.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x49",
+                        "via_mux": None, "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "temperature_read"],
+             "tests_requested": ["self_test"]},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            written = {Path(path).relative_to(out_dir).as_posix() for path in codegen.generate(spec, out_dir)}
+            first = (out_dir / "drivers" / "ltc2991.h").read_text(encoding="utf-8")
+            second = (out_dir / "drivers" / "ltc2991b.h").read_text(encoding="utf-8")
+            ops = (out_dir / "tests" / "unit_multi_ltc2991_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn("drivers/ltc2991.c", written)
+        self.assertIn("drivers/ltc2991b.c", written)
+        self.assertIn("#define LTC2991_I2C_ADDR 0x48U", first)
+        self.assertIn("#define LTC2991B_I2C_ADDR 0x49U", second)
+        # Dispatch her cihazı kendi modülüne bağlar.
+        self.assertIn("ltc2991TemperatureRead(spIic, &iValue)", ops)
+        self.assertIn("ltc2991bTemperatureRead(spIic, &iValue)", ops)
+        self.assertIn("LTC2991B_I2C_ADDR", ops)  # ikinci cihazın register/post-init yolu
+        parts = [device["id"] for device in manifest["devices"]]
+        self.assertEqual(parts, ["u1_ltc2991", "u2_ltc2991"])
+
     def test_self_test_skips_device_init_when_not_requested(self) -> None:
         # Regression (found on zc702): requesting only read ops + self_test
         # used to emit a self test that called <part>DeviceInit anyway ->

@@ -35,6 +35,9 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
   const connections: ReviewConnection[] = [];
   const initWrites: ReviewInitWrite[] = [];
   const files: ReviewFilePlan[] = [];
+  // Aynı parçadan birden çok cihaz kendi modül dosyasını alır (codegen ile
+  // aynı sonek düzeni: ltc2991, ltc2991b, ltc2991c...).
+  const moduleCounts = new Map<string, number>();
 
   for (const mux of spec.muxes) {
     const controller = controllers.get(mux.controller_id);
@@ -62,7 +65,7 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       bus: controller?.instance ?? device.attach.controller_id,
       endpoint,
     });
-    pushUnitFiles(files, device.part);
+    pushUnitFiles(files, device.part, moduleCounts);
     initWrites.push(...deviceInitWrites(device));
   }
 
@@ -93,8 +96,14 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
   };
 }
 
-function pushUnitFiles(files: ReviewFilePlan[], part: string) {
-  const module = moduleOf(part);
+function pushUnitFiles(files: ReviewFilePlan[], part: string, counts?: Map<string, number>) {
+  const base = moduleOf(part);
+  let module = base;
+  if (counts) {
+    const n = counts.get(base) ?? 0;
+    counts.set(base, n + 1);
+    if (n > 0) module = n <= 25 ? `${base}${String.fromCharCode(97 + n)}` : `${base}x${n}`;
+  }
   files.push(
     { path: `drivers/${module}.h`, kind: "driver" },
     { path: `drivers/${module}.c`, kind: "driver" },

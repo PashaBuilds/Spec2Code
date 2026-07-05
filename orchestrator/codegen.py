@@ -1148,6 +1148,9 @@ def _testbench_getter(htype: str) -> str | None:
 def _testbench_device_entries(spec: dict, get_descriptor: Callable[[str], dict]) -> list[dict]:
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     muxes = {mux["id"]: mux for mux in spec.get("muxes", [])}
+    # Ayni parcadan birden cok cihaz kendi moduluyle eslesmelidir (adres/mux
+    # derleme sabiti) - surucu birimleriyle ayni harita kullanilir.
+    modules = cmodel.device_module_map(spec)
     entries: list[dict] = []
     for device in spec.get("devices", []):
         descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
@@ -1162,7 +1165,7 @@ def _testbench_device_entries(spec: dict, get_descriptor: Callable[[str], dict])
             "device": device,
             "descriptor": descriptor,
             "controller": controller,
-            "module": cmodel._module_of(device.get("part", "")),
+            "module": modules.get(device.get("id", ""), cmodel._module_of(device.get("part", ""))),
             "htype": htype,
             "hvar": hvar,
             "getter": _testbench_getter(htype),
@@ -1815,6 +1818,9 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         lines.extend([
             f"        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"{op_name}\") == 1)",
             "        {",
+            # Debug seviyesinde op başlangıcı loglanır: uzun süren/asılı kalan
+            # bir sürücü çağrısı, "basla" görünüp yanıt gelmemesinden anlaşılır.
+            f"            spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"op basla: {entry['device'].get('id', '')} {op_name}\");",
         ])
         for call_line in _testbench_call_lines(entry, op):
             lines.append(f"            {call_line}" if call_line else "")

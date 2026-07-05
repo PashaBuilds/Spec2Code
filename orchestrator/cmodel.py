@@ -150,6 +150,32 @@ def _module_of(part: str) -> str:
     return mod
 
 
+def device_module_map(spec: dict) -> dict[str, str]:
+    """Cihaz kimliği -> C modül adı (spec sırasına göre kararlı).
+
+    SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken modül
+    adı parçadan türediği için her örnek AYNI ltc2991.c'yi (son yazılan
+    kazanır) ve içindeki tek LTC2991_I2C_ADDR sabitini paylaşıyordu — tüm
+    örnekler tek fiziksel çipten okuyordu. Adres/mux kanalı derleme zamanı
+    sabiti olduğundan her örnek kendi modülünü alır: ilki geriye dönük
+    uyumlu kalır (ltc2991), sonrakiler harf soneki alır (ltc2991b,
+    ltc2991c, ...).
+    """
+    counts: dict[str, int] = {}
+    mapping: dict[str, str] = {}
+    for device in spec.get("devices", []):
+        base = _module_of(device.get("part", ""))
+        n = counts.get(base, 0)
+        counts[base] = n + 1
+        if n == 0:
+            mapping[device.get("id", "")] = base
+        elif n <= 25:
+            mapping[device.get("id", "")] = f"{base}{chr(ord('a') + n)}"
+        else:
+            mapping[device.get("id", "")] = f"{base}x{n}"
+    return mapping
+
+
 #: Drivers the deterministic bus-op emitters actually speak. Everything the
 #: generator writes for i2c is XIicPs_* API (and so on); letting another
 #: driver (AXI XIic/XSpi, Zynq-7000 XQspiPs, Versal XOspiPsv) through here
@@ -551,8 +577,9 @@ def _check_convert_config(device: dict, op_name: str, op: dict) -> bool:
 
 
 def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
-                     mux_module: Optional[str], mux_channel: Optional[int]) -> CUnit:
-    module = _module_of(device["part"])
+                     mux_module: Optional[str], mux_channel: Optional[int],
+                     module: Optional[str] = None) -> CUnit:
+    module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
     attach = device["attach"]
@@ -741,8 +768,9 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
 
 def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
-                     mux_module: Optional[str], mux_channel: Optional[int]) -> CUnit:
-    module = _module_of(device["part"])
+                     mux_module: Optional[str], mux_channel: Optional[int],
+                     module: Optional[str] = None) -> CUnit:
+    module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
     attach = device["attach"]
@@ -1088,8 +1116,9 @@ def _delay_func(module: str) -> CFunc:
     )
 
 
-def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
-    module = _module_of(device["part"])
+def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
+                              module: Optional[str] = None) -> CUnit:
+    module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
     attach = device["attach"]
@@ -1256,8 +1285,9 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
     )
 
 
-def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
-    module = _module_of(device["part"])
+def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
+                     module: Optional[str] = None) -> CUnit:
+    module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
     attach = device["attach"]
@@ -1630,6 +1660,7 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
     controllers = {c["id"]: c for c in spec["controllers"]}
     muxes = {m["id"]: m for m in spec.get("muxes", [])}
     runtime = spec["project"].get("runtime", "bare_metal")
+    modules = device_module_map(spec)
     units: list[CUnit] = []
 
     for mux in spec.get("muxes", []):
@@ -1655,14 +1686,18 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                     raise CodegenError(f"device {device['id']} via unknown mux {via['mux_id']}")
                 mux_module, mux_channel = _module_of(mux["part"]), via["channel"]
             if descriptor.get("memory"):
-                unit = _i2c_eeprom_unit(device, controller, descriptor, mux_module, mux_channel)
+                unit = _i2c_eeprom_unit(device, controller, descriptor, mux_module, mux_channel,
+                                        module=modules.get(device["id"]))
             else:
-                unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel)
+                unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel,
+                                        module=modules.get(device["id"]))
         elif transport == "spi":
             if tics.has_tics_register_model(descriptor):
-                unit = _spi_register_device_unit(device, controller, descriptor)
+                unit = _spi_register_device_unit(device, controller, descriptor,
+                                                 module=modules.get(device["id"]))
             else:
-                unit = _spi_device_unit(device, controller, descriptor)
+                unit = _spi_device_unit(device, controller, descriptor,
+                                        module=modules.get(device["id"]))
         else:
             raise CodegenError(
                 f"device {device['id']}: transport '{transport}' not supported by codegen yet "
