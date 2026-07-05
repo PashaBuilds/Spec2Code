@@ -201,7 +201,7 @@ const SECTIONS: DocSection[] = [
           ["1", <M key="s">Setup</M>, <>Vivado'dan çıkan <M>.xsa</M> dosyasını sürükle (veya yolunu yapıştır) — platform ve denetleyiciler kendiliğinden algılanır.</>],
           ["2", <M key="ş">Schematic</M>, "Denetleyiciye tıkla, entegre ekle (adres / CS / mux kanalı), gerekiyorsa cihaz konfigürasyonunu düzenle."],
           ["3", <M key="g">Generate</M>, "Sürücüler + test ajanı üretilir, QC koşar; sağ kolonda kodu incele."],
-          ["4", <M key="v">Vitis & Board</M>, "Workspace kur (veya mevcut olanı güncelle) → ELF; JTAG ile karta yükle."],
+          ["4", <M key="v">Vitis / Board</M>, "Vitis sekmesinde workspace kur (veya güncelle) → ELF; Board sekmesinden JTAG ile karta yükle."],
           ["5", <M key="t">Test Bench</M>, "Karta bağlan, operasyonları çalıştır; Bring-up ile tüm kartı tek tuşla yokla."],
         ]} />
         <Callout tone="ok" title="İPUCU">
@@ -266,8 +266,9 @@ const SECTIONS: DocSection[] = [
         <P>
           <B>Generate</B> düğmesi spec'i doğrular, sürücüleri (<M>drivers/</M>), testleri ve kart
           test ajanını (<M>tests/</M>) üretir, ardından QC (stil + statik analiz) koşar. Sol kolonda
-          canlı olay akışı, sağda iki sekme: <B>Üretilen kod</B> (dosya ağacı, editör, QC bulguları,
-          önceki koşuma göre diff) ve <B>Vitis &amp; Board</B>.
+          canlı olay akışı, sağda üç sekme: <B>Üretilen kod</B> (dosya ağacı, editör, QC bulguları,
+          önceki koşuma göre diff), <B>Vitis</B> (workspace kurulumu) ve <B>Board</B> (JTAG ile
+          karta yükleme).
         </P>
         <P>
           Fiziksel büyüklük okuyan tüm operasyonlar <B>mühendislik birimleriyle</B> döner: gerilimler
@@ -309,8 +310,9 @@ const SECTIONS: DocSection[] = [
     body: (
       <>
         <P>
-          Vitis &amp; Board sekmesindeki kart, ELF'i tek tuşla karta yükler. Akış platforma göre
-          otomatik seçilir:
+          <B>Board</B> sekmesi, Vitis sekmesinde kurulan workspace&apos;in ELF&apos;ini tek tuşla karta
+          yükler (yol ve isimler Vitis sekmesindeki formdan gelir). Akış platforma göre otomatik
+          seçilir:
         </P>
         <DocTable head={["Platform", "Boot akışı"]} rows={[
           ["Zynq UltraScale+", <>sistem reset → <M>psu_init</M> → bitstream (varsa) → A53/R5 → ELF → çalıştır</>],

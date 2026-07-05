@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.102 - 2026-07-05
+
+- Generate sag kolonu 3 sekmeye ayrildi: "Uretilen kod", "Vitis"
+  (workspace kurulumu/guncelleme) ve "Board" (JTAG ile karta yukleme) -
+  onceki birlesik "Vitis & Board" sekmesi bolundu. Backend degismedi;
+  iki sekme tek panel ornegini paylasir (workspace canli log soketi,
+  sonuc ve Board kartinin "workspace hazir" durumu sekme gecislerinde
+  kaybolmaz). Board sekmesi basliginda hangi workspace'in yuklenecegi
+  (yol + hazir/bekleniyor rozeti) gosterilir; yol ve isimler Vitis
+  sekmesindeki formdan gelir. Kilavuz (1.0/4.0/6.0) guncellendi.
+
 ## v0.1.101 - 2026-07-05
 
 - YENI ENTEGRE: LMX1205 (TI 0.3-12.8 GHz JESD buffer/multiplier/divider,

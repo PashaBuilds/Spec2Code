@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, FolderCog, Loader2, Play, TerminalSquare } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, FolderCog, Loader2, Play, Rocket, TerminalSquare } from "lucide-react";
 import { Badge, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui";
 import { api, openVitisSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -358,7 +358,15 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
   );
 }
 
-export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
+export function VitisWorkspacePanel({
+  jobId,
+  section = "vitis",
+}: {
+  jobId: string;
+  /** Hangi yarının görüneceği; iki sekme tek panel örneğini paylaşır ki
+   * workspace soketi/sonucu ve Board kartının ready durumu kaybolmasın. */
+  section?: "vitis" | "board";
+}) {
   const project = useStore((s) => s.project);
   const defaultNameBase = useMemo(() => safeProjectName(project.name, "spec2code"), [project.name]);
   const defaultProcessor = useMemo(
@@ -492,7 +500,8 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
     ?? ((result?.custom_ip_make_libs_patched_count ?? 0) + (result?.custom_ip_xsa_make_libs_patched_count ?? 0));
 
   return (
-    <section className="rounded-lg border border-border bg-elev p-4">
+    <div>
+    <section className={cn("rounded-lg border border-border bg-elev p-4", section !== "vitis" && "hidden")}>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -790,6 +799,32 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         </div>
       )}
 
+    </section>
+
+    <section className={cn("rounded-lg border border-border bg-elev p-4", section !== "board" && "hidden")}>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Rocket className="h-4 w-4 text-accent" aria-hidden />
+            <h3 className="text-sm font-semibold text-text">Board</h3>
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
+            Vitis sekmesinde kurulan workspace&apos;in çıktısını (ELF + bitstream/PDI) JTAG ile karta yükler;
+            yol ve isimler o sekmedeki formdan gelir.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <Badge tone={workspaceReady ? "ok" : "neutral"}>
+            {workspaceReady ? "workspace hazır" : "workspace bekleniyor"}
+          </Badge>
+          {cleanPathInput(workspacePath) ? (
+            <Badge tone="neutral" className="max-w-[280px]">
+              <span className="truncate font-mono">{cleanPathInput(workspacePath)}</span>
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+
       <RunOnBoardCard
         vitisPath={cleanPathInput(vitisPath)}
         workspacePath={cleanPathInput(workspacePath)}
@@ -800,5 +835,6 @@ export function VitisWorkspacePanel({ jobId }: { jobId: string }) {
         ready={workspaceReady}
       />
     </section>
+    </div>
   );
 }

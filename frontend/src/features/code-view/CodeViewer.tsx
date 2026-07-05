@@ -274,6 +274,7 @@ export default function CodeViewer() {
   const previousFiles = useStore((s) => s.previousFiles);
   const qc = useStore((s) => s.job.qc);
   const [active, setActive] = useState<string>(() => files[0]?.path ?? "");
+  const [buildTab, setBuildTab] = useState<"code" | "vitis" | "board">("code");
   const tree = useMemo(() => buildTree(files), [files]);
   const diffs = useMemo(() => buildDiff(previousFiles, files), [previousFiles, files]);
 
@@ -345,8 +346,8 @@ export default function CodeViewer() {
       </div>
 
       {(() => {
-        // Kod alanı yalnızca "Üretilen kod" sekmesinde yaşar; Vitis & Board
-        // sekmesi sade kalır (kod zaten diğer sekmede görülebiliyor).
+        // Kod alanı yalnızca "Üretilen kod" sekmesinde yaşar; Vitis ve
+        // Board sekmeleri sade kalır (kod zaten diğer sekmede görülebiliyor).
         const codeArea = (
           <>
             {previousFiles.length > 0 ? <DiffPanel diffs={diffs} /> : null}
@@ -422,17 +423,23 @@ export default function CodeViewer() {
         );
 
         if (!jobId) return codeArea;
+        // Vitis ve Board ayrı sekmelerdir ama tek panel örneği yaşar:
+        // workspace soketi/durumu ve Board kartının ready bayrağı sekme
+        // geçişlerinde kaybolmaz (yalnız görünürlük değişir).
         return (
-          <Tabs defaultValue="code">
-            <TabsList>
-              <TabsTrigger value="code">Üretilen kod</TabsTrigger>
-              <TabsTrigger value="vitis">Vitis &amp; Board</TabsTrigger>
-            </TabsList>
-            <TabsContent value="vitis">
-              <VitisWorkspacePanel jobId={jobId} />
-            </TabsContent>
-            <TabsContent value="code">{codeArea}</TabsContent>
-          </Tabs>
+          <>
+            <Tabs value={buildTab} onValueChange={(value) => setBuildTab(value as "code" | "vitis" | "board")}>
+              <TabsList>
+                <TabsTrigger value="code">Üretilen kod</TabsTrigger>
+                <TabsTrigger value="vitis">Vitis</TabsTrigger>
+                <TabsTrigger value="board">Board</TabsTrigger>
+              </TabsList>
+              <TabsContent value="code">{codeArea}</TabsContent>
+            </Tabs>
+            <div className={cn("mt-3", buildTab === "code" && "hidden")}>
+              <VitisWorkspacePanel jobId={jobId} section={buildTab === "board" ? "board" : "vitis"} />
+            </div>
+          </>
         );
       })()}
     </div>
