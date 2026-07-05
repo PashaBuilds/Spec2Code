@@ -1055,7 +1055,9 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "op": "i2c_scan",
             "mux_op": "i2c_mux_set",
             "range": [0x08, 0x77],
-            "probe": "1-byte read",
+            # Prob yazma: recv-polled sahada NACK'te de basari dondurdu.
+            "probe": "1-byte write 0x00 (register pointer reset)",
+            "skip_address_param": True,
             "controllers": [
                 {"id": c.get("id", ""), "instance": c.get("instance", "")}
                 for c in spec.get("controllers", [])
@@ -2010,10 +2012,18 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     """Global I2C hat taraması opları (yalnız I2C denetleyicisi kullanılıyorsa).
 
     i2c_scan: reg=<controller_id> — o ANKİ hattı 0x08..0x77 aralığında
-    1-baytlık okuma denemesiyle yoklar; ACK veren adresler data alanında
-    döner (value = adet). Mux arkası haritalama host tarafında i2c_mux_set
-    (address=<mux adresi>, value=<kontrol baytı>; 0x00=kapat, 1<<kanal=seç)
-    ile kanal kanal orkestre edilir — TCA9548A kontrol baytı protokolü.
+    1-baytlık YAZMA (0x00) ile yoklar; ACK veren adresler data alanında
+    döner (value = adet). Prob YAZMA çünkü SAHA BULGUSU (2026-07-05):
+    XIicPs_MasterRecvPolled adres NACK'inde de XST_SUCCESS döndürdü ve
+    0x08..0x77 arası HER adres "cevap verdi" göründü; send yolu ise NACK'ı
+    güvenilir raporluyor (EEPROM ack-poll ve DS1682 hızlı-fail vakası aynı
+    yolla doğrulandı). 0x00 baytı register-pointer'lı cihazlarda yalnız
+    pointer'ı sıfırlar, EEPROM'da tek bayt adres MSB'si olarak kalır (yazma
+    tamamlanmaz). address=<atlanacak adres> (0 = yok): kanal taramasında
+    aktif switch'in kendi adresine 0x00 yazılsaydı seçili kanal kapanırdı —
+    host aktif switch adresini atlatır. Mux arkası haritalama host tarafında
+    i2c_mux_set (address=<mux adresi>, value=<kontrol baytı>; 0x00=kapat,
+    1<<kanal=seç) ile kanal kanal orkestre edilir — TCA9548A protokolü.
     """
     if "XIicPs" not in handle_types:
         return []
@@ -2036,9 +2046,15 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "        }",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"i2c tarama basliyor: %s\", spRequest->cArrRegister);",
         "        uiFound = 0U;",
+        "        ucProbe = 0x00U;",
         "        for (uiScanAddr = 0x08U; uiScanAddr <= 0x77U; uiScanAddr++)",
         "        {",
-        "            iProbeStatus = XIicPs_MasterRecvPolled(spScanIic, &ucProbe, 1, (unsigned short)uiScanAddr);",
+        "            if (uiScanAddr == spRequest->uiAddress)",
+        "            {",
+        "                /* Aktif switch'e 0x00 yazmak secili kanali kapatirdi. */",
+        "                continue;",
+        "            }",
+        "            iProbeStatus = XIicPs_MasterSendPolled(spScanIic, &ucProbe, 1, (unsigned short)uiScanAddr);",
         "            while (XIicPs_BusIsBusy(spScanIic) == TRUE)",
         "            {",
         "                /* wait */",
@@ -2193,9 +2209,17 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"spec2code_version\") == 1) ||",
         "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"version\") == 1))",
         "    {",
+        "        const char* pcVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;",
+        "        unsigned int uiVersionIndex;",
+        "",
         "        spResponse->uiOk = 1U;",
         "        spResponse->iStatus = XST_SUCCESS;",
         "        spec2codeTestbenchMessageSet(spResponse, \"Spec2Code \" SPEC2CODE_TESTBENCH_AGENT_VERSION);",
+        "        /* Surum ASCII olarak data alaninda da doner (UI cozer). */",
+        "        for (uiVersionIndex = 0U; pcVersion[uiVersionIndex] != (char)0; uiVersionIndex++)",
+        "        {",
+        "            (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)pcVersion[uiVersionIndex]);",
+        "        }",
         "        return XST_SUCCESS;",
         "    }",
         "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"log_level\") == 1)",

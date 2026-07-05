@@ -31,6 +31,20 @@ function formatScalar(value: number, unit: string): string | null {
   return null;
 }
 
+/** data alanı yazdırılabilir ASCII ise metne çevirir (örn. ajan sürümü);
+ * boşsa veya yazdırılamayan bayt içeriyorsa null döner. */
+export function asciiFromDataHex(dataHex: string): string | null {
+  const clean = (dataHex || "").replace(/[^0-9a-fA-F]/g, "");
+  if (clean.length < 2 || clean.length % 2 !== 0) return null;
+  let text = "";
+  for (let i = 0; i + 2 <= clean.length; i += 2) {
+    const byte = Number.parseInt(clean.slice(i, i + 2), 16);
+    if (byte < 0x20 || byte > 0x7e) return null;
+    text += String.fromCharCode(byte);
+  }
+  return text;
+}
+
 /** data alanındaki big-endian u16 çiftlerini sayıya çevirir. */
 export function u16ValuesFromDataHex(dataHex: string): number[] {
   const clean = (dataHex || "").replace(/[^0-9a-fA-F]/g, "");

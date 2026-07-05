@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Send, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Radar, Send, ShieldCheck, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
 import I2cScanCard from "./I2cScanCard";
 import { api } from "@/lib/api";
 import { timeLabelMs } from "@/lib/console";
-import { formatConvertedValue } from "@/lib/units";
+import { asciiFromDataHex, formatConvertedValue } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { useBoardConnection } from "@/store/connection";
 import { useStore } from "@/store/useStore";
@@ -115,7 +115,13 @@ function ResultPanel({
   const ok = result.parsed.ok === "1";
   const data = result.parsed.data ?? "";
   const bytes = byteGroups(data);
-  const decoded = formatConvertedValue(operation, result.parsed);
+  // Sürüm sorgusu: data ASCII sürüm taşır (eski firmware'de boş — mesajdan
+  // ayıklanır); cihaz operasyonu metasıyla ASLA decode edilmez.
+  const isVersionQuery = result.request_line.includes("op=spec2code_version");
+  const versionText = isVersionQuery
+    ? asciiFromDataHex(data) ?? /v\d+\.\d+\.\d+/.exec(result.parsed.message ?? "")?.[0] ?? null
+    : null;
+  const decoded = isVersionQuery ? versionText : formatConvertedValue(operation, result.parsed);
 
   return (
     <div className={cn("rounded-md border p-3", ok ? "border-ok/30 bg-ok/10" : "border-danger/30 bg-danger/10")}>
@@ -198,6 +204,12 @@ export default function TestBenchPanel() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<TestbenchCommandResponse | null>(null);
   const [resultMeta, setResultMeta] = useState<ResultMeta | null>(null);
+  // Cevabı ÜRETEN operasyon: decode rozeti buna göre çözülür (sürüm
+  // sorgusu null bırakır; seçili op ile decode edilirse "0 °C" gibi
+  // yanlış çözümler çıkar — saha bulgusu).
+  const [resultOperation, setResultOperation] = useState<TestbenchOperation | null>(null);
+  // Sol menü görünümü: entegre sayfaları veya I2C Hat Tarama sayfası.
+  const [view, setView] = useState<"device" | "i2c-scan">("device");
 
   const selectedDevice = useMemo(
     () => manifest?.devices.find((device) => device.id === selectedDeviceId) ?? manifest?.devices[0] ?? null,
@@ -287,6 +299,7 @@ export default function TestBenchPanel() {
         timeout_s: board.timeoutSeconds(),
       });
       setResult(response);
+      setResultOperation(selectedOperation);
       setResultMeta({ sentAtMs, durationMs: Math.round(performance.now() - startedAt) });
     } catch (err) {
       reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
@@ -315,6 +328,7 @@ export default function TestBenchPanel() {
         timeout_s: board.timeoutSeconds(),
       });
       setResult(response);
+      setResultOperation(null);
       setResultMeta({ sentAtMs, durationMs: Math.round(performance.now() - startedAt) });
     } catch (err) {
       reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
@@ -374,6 +388,28 @@ export default function TestBenchPanel() {
             Sürüm sorgula
           </Button>
 
+          {manifest.i2c_scan && manifest.i2c_scan.controllers.length > 0 ? (
+            <div className="space-y-1.5">
+              <Label>Hat Tarama</Label>
+              <button
+                type="button"
+                onClick={() => setView("i2c-scan")}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+                  view === "i2c-scan"
+                    ? "border-accent/50 bg-accent/10 text-text"
+                    : "border-border bg-inset text-muted hover:text-text",
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-xs">I2C</span>
+                  <span className="block truncate text-[11px] text-faint">adres haritası · 0x08–0x77</span>
+                </span>
+                <Radar className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+              </button>
+            </div>
+          ) : null}
+
           <div className="space-y-1.5">
             <Label>Entegre</Label>
             {manifest.devices.map((device) => (
@@ -381,13 +417,14 @@ export default function TestBenchPanel() {
                 key={device.id}
                 type="button"
                 onClick={() => {
+                  setView("device");
                   setSelectedDeviceId(device.id);
                   setResult(null);
                   setResultMeta(null);
                 }}
                 className={cn(
                   "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                  selectedDevice?.id === device.id
+                  view === "device" && selectedDevice?.id === device.id
                     ? "border-accent/50 bg-accent/10 text-text"
                     : "border-border bg-inset text-muted hover:text-text",
                 )}
@@ -404,7 +441,26 @@ export default function TestBenchPanel() {
       </aside>
 
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
-        {selectedDevice && selectedOperation ? (
+        {view === "i2c-scan" ? (
+          <div className="p-4">
+            <div className="mb-4">
+              <div className="flex items-center gap-2">
+                <Radar className="h-4 w-4 text-accent" aria-hidden />
+                <h2 className="text-sm font-semibold text-text">I2C Hat Taraması</h2>
+              </div>
+              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
+                Hattın tam adres haritası: doğrudan hat + her switch'in her kanalı sırasıyla. Cihaz kimliği
+                çıkarılmaz — yalnız "bu pozisyonda bu adres cevap veriyor" bilgisi döner.
+              </p>
+            </div>
+            <I2cScanCard
+              manifest={manifest}
+              sessionId={board.sessionId}
+              connected={isConnected}
+              timeoutSeconds={board.timeoutSeconds()}
+            />
+          </div>
+        ) : selectedDevice && selectedOperation ? (
           <div className="p-4">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -538,14 +594,7 @@ export default function TestBenchPanel() {
                 ) : null}
               </div>
 
-              <ResultPanel result={result} meta={resultMeta} operation={selectedOperation} />
-
-              <I2cScanCard
-                manifest={manifest}
-                sessionId={board.sessionId}
-                connected={isConnected}
-                timeoutSeconds={board.timeoutSeconds()}
-              />
+              <ResultPanel result={result} meta={resultMeta} operation={resultOperation} />
             </div>
           </div>
         ) : (

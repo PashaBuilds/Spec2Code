@@ -11,6 +11,9 @@ interface ByteFrame {
   label: string;
   bits: string[];
   role: ByteRole;
+  /** Bit rolleri (A6..A0/W, D7..D0): gerçek 0/1 değerleri biliniyorsa
+   * hücrede değer üstte, rol altta gösterilir. */
+  subs?: string[];
 }
 
 const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "TMP101", "SHT21", "24LC32A", "DS1682", "LTC2945"]);
@@ -116,7 +119,7 @@ function byteFrameFromLabel(label: string, role: ByteRole): ByteFrame[] {
 
   const hex = firstHexByte(trimmed);
   if (hex != null) {
-    return [{ label: trimmed, bits: hexBits(hex), role }];
+    return [{ label: trimmed, bits: hexBits(hex), subs: symbolicBits(role === "rx" ? "D" : "b"), role }];
   }
 
   if (/\[0\.\.|uiLength|payload|ucp|buffer|ucArr|data/i.test(trimmed)) {
@@ -169,11 +172,12 @@ function ClockPulse({ muted = false }: { muted?: boolean }) {
   );
 }
 
-function BitCell({ bit, tone = "normal" }: { bit: string; tone?: BitTone }) {
+function BitCell({ bit, sub, tone = "normal" }: { bit: string; sub?: string; tone?: BitTone }) {
   return (
     <div
       className={cn(
-        "grid h-6 min-w-7 place-items-center rounded border px-1 font-mono text-[10px]",
+        "flex min-w-7 flex-col items-center justify-center rounded border px-1 font-mono text-[10px] leading-none",
+        sub ? "h-9 gap-1" : "h-6",
         tone === "master"
           ? "border-accent/40 bg-accent/15 text-accent"
           : tone === "slave"
@@ -185,7 +189,8 @@ function BitCell({ bit, tone = "normal" }: { bit: string; tone?: BitTone }) {
             : "border-border bg-inset text-text",
       )}
     >
-      {bit}
+      <span>{bit}</span>
+      {sub ? <span className="text-[8px] opacity-60">{sub}</span> : null}
     </div>
   );
 }
@@ -222,7 +227,9 @@ function I2cByte({
       </div>
       <div className={rowClass}>
         <span className={labelClass}>SDA</span>
-        {frame.bits.map((bit, index) => <BitCell key={`${frame.label}-sda-${index}`} bit={bit} tone={dataDriver} />)}
+        {frame.bits.map((bit, index) => (
+          <BitCell key={`${frame.label}-sda-${index}`} bit={bit} sub={frame.subs?.[index]} tone={dataDriver} />
+        ))}
         <BitCell bit={ackLabel} tone={ackDriver} />
       </div>
       <div className={`${rowClass} text-center font-mono text-[9px] text-faint`}>
@@ -232,6 +239,23 @@ function I2cByte({
       </div>
     </div>
   );
+}
+
+/** SLA baytı: gerçek 7-bit adres biliniyorsa (Seri Hat) hücrelerde gerçek
+ * 0/1 değerleri, altlarında A6..A0/W rolleri; katalogda sembolik kalır. */
+function slaFrame(rw: "W" | "R", address: number | undefined): ByteFrame {
+  const roles = ["A6", "A5", "A4", "A3", "A2", "A1", "A0", rw];
+  if (address == null) return { label: `SLA+${rw}`, bits: roles, role: "tx" };
+  const wireByte = ((address << 1) | (rw === "R" ? 1 : 0)) & 0xff;
+  return {
+    label: `SLA+${rw} = 0x${wireByte.toString(16).toUpperCase().padStart(2, "0")} (adres 0x${address
+      .toString(16)
+      .toUpperCase()
+      .padStart(2, "0")})`,
+    bits: hexBits(wireByte),
+    subs: roles,
+    role: "tx",
+  };
 }
 
 function I2cWaveform({ transfer }: { transfer: KnowledgeRegisterTransfer }) {
@@ -269,15 +293,15 @@ function I2cWaveform({ transfer }: { transfer: KnowledgeRegisterTransfer }) {
           <span>Satırlar</span>
           <span>Her byte kartında SCL, SDA ve clock numarası kendi satırının solunda gösterilir.</span>
           <span>SDA</span>
-          <span>Tek SDA hattında master/slave aktif sürücü rengiyle ayrılır; adres catalog'da instance bağımsız olduğu için semboliktir.</span>
+          <span>
+            {transfer.i2cAddress != null
+              ? "Tek SDA hattında master/slave aktif sürücü rengiyle ayrılır; hücrelerde gerçek bit değeri üstte, bit rolü (A6..A0, D7..D0) altta yazar."
+              : "Tek SDA hattında master/slave aktif sürücü rengiyle ayrılır; adres catalog'da instance bağımsız olduğu için semboliktir."}
+          </span>
         </div>
         <div className="flex min-w-max items-start gap-2">
           <EventChip label="START" />
-          <I2cByte
-            frame={{ label: "SLA+W", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "W"], role: "tx" }}
-            dataDriver="master"
-            ackDriver="slave"
-          />
+          <I2cByte frame={slaFrame("W", transfer.i2cAddress)} dataDriver="master" ackDriver="slave" />
           {tx.visible.map((frame, index) => (
             <I2cByte key={`${frame.label}-${index}`} frame={frame} dataDriver="master" ackDriver="slave" />
           ))}
@@ -285,11 +309,7 @@ function I2cWaveform({ transfer }: { transfer: KnowledgeRegisterTransfer }) {
           {read && (
             <>
               <EventChip label="RESTART" />
-              <I2cByte
-                frame={{ label: "SLA+R", bits: ["A6", "A5", "A4", "A3", "A2", "A1", "A0", "R"], role: "tx" }}
-                dataDriver="master"
-                ackDriver="slave"
-              />
+              <I2cByte frame={slaFrame("R", transfer.i2cAddress)} dataDriver="master" ackDriver="slave" />
               {rx.visible.map((frame, index) => (
                 <I2cByte
                   key={`${frame.label}-${index}`}
@@ -335,11 +355,25 @@ function SpiByte({
       </div>
       <div className={rowClass}>
         <span className={labelClass}>MOSI</span>
-        {mosiBits.map((bit, index) => <BitCell key={`${frame.label}-mosi-${index}`} bit={bit} tone={direction === "mosi" ? "normal" : "idle"} />)}
+        {mosiBits.map((bit, index) => (
+          <BitCell
+            key={`${frame.label}-mosi-${index}`}
+            bit={bit}
+            sub={direction === "mosi" ? frame.subs?.[index] : undefined}
+            tone={direction === "mosi" ? "normal" : "idle"}
+          />
+        ))}
       </div>
       <div className={rowClass}>
         <span className={labelClass}>MISO</span>
-        {misoBits.map((bit, index) => <BitCell key={`${frame.label}-miso-${index}`} bit={bit} tone={direction === "miso" ? "normal" : "idle"} />)}
+        {misoBits.map((bit, index) => (
+          <BitCell
+            key={`${frame.label}-miso-${index}`}
+            bit={bit}
+            sub={direction === "miso" ? frame.subs?.[index] : undefined}
+            tone={direction === "miso" ? "normal" : "idle"}
+          />
+        ))}
       </div>
       <div className={`${rowClass} text-center font-mono text-[9px] text-faint`}>
         <span className={labelClass}>CLK</span>

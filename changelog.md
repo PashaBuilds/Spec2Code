@@ -5,6 +5,28 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.105 - Taslak
 
+- SAHA: I2C hat taramasi probu okumadan YAZMAYA cevrildi (1 bayt 0x00).
+  Gercek kartta XIicPs_MasterRecvPolled adres NACK'inde de basari
+  dondurup 0x08-0x77 arasi HER adresi "cevap verdi" gosteriyordu; send
+  yolu NACK'i guvenilir raporlar (EEPROM ack-poll ayni ilke). 0x00 cogu
+  cihazda yalniz register pointer'ini sifirlar. Kanal taranirken aktif
+  switch'in kendi adresi ajana atlatilir (0x00 yazilsaydi secili kanal
+  kapanirdi) - ajan op'una address=<atlanacak adres> parametresi eklendi.
+  NOT: duzeltme yeni firmware gerektirir (kaynaklari guncelle + build).
+- I2C Hat Taramasi ayri sayfa oldu: Test Bench sol menusunde entegrelerin
+  ustunde "Hat Tarama" basligi altinda "I2C" girisi; tarama karti yalniz
+  bu sayfada gorunur, entegre sayfalarindan kaldirildi.
+- SAHA: Surum sorgusu cevabi artik dogru cozulur. Cevap secili cihaz
+  operasyonunun metasiyla decode ediliyordu ("0 °C" gibi yanlis rozet);
+  sonucu ureten operasyon ayrica izlenir. Ajan surumu ASCII olarak data
+  alaninda da doner (eski firmware'de mesajdan ayiklanir) ve yesil
+  rozette "= v0.1.105" olarak gosterilir.
+- Seri Hat dalga formlarinda gercek bit degerleri: bayt degeri biliniyorsa
+  hucrede 0/1 ustte, bit rolu (A6..A0/W, D7..D0, b7..b0) altta yazar.
+  SLA satiri gercek hat baytini ve 7-bit adresi verir: "SLA+W = 0x90
+  (adres 0x48)" - kablo planinda kartin manifest adresi, canli izde
+  TRACE satirindaki gercek adres kullanilir. Katalog (Bilgi) sembolik
+  kalir. Kilavuz 8.0 guncellendi.
 - Vitis sekmesi metinleri kurulum moduna uyarlandi: "Kaynaklari guncelle
   + build" modunda ilerleme basligi artik "Workspace olusturuluyor"
   yerine "Kaynaklar guncelleniyor + build aliniyor" der (bitiste

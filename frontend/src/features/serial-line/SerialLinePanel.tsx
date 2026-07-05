@@ -144,6 +144,8 @@ function wireTransfers(
   const wire = (operation as { wire?: WireStep[] } | null)?.wire;
   if (!wire || wire.length === 0) return [];
   const isI2c = device.transport.startsWith("i2c");
+  // Kablo planında SLA baytları kartın gerçek 7-bit adresiyle çizilir.
+  const deviceI2cAddress = isI2c ? parseNumberish(device.attach?.i2c_address ?? "") ?? undefined : undefined;
   const rawFill = Boolean(card.rx) && (operation?.result_unit ?? "") === "";
   const rxAll = dataBytes(card.rx?.data ?? "");
   let rxCursor = 0;
@@ -174,6 +176,7 @@ function wireTransfers(
           ? {
               title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${length} byte`,
               tx: [regLabel], rx: real ?? symbolic(length), code: [], note: pollNote,
+              i2cAddress: deviceI2cAddress,
             }
           : {
               title: regLabel, access: "READ", txBytes: "3 byte", rxBytes: `${spi.dataBits / 8} byte`,
@@ -192,6 +195,7 @@ function wireTransfers(
           tx: [`${regName} + 2n`, `${regName} + 2n + 1`],
           rx: ["MSB", "LSB"], code: [],
           note: `n = 0..${count - 1}; her kanal için MSB+LSB okunur`,
+          i2cAddress: deviceI2cAddress,
         },
       });
     } else if (step.kind === "reg_write") {
@@ -201,6 +205,7 @@ function wireTransfers(
           ? {
               title: regLabel, access: "WRITE", txBytes: "2 byte", rxBytes: "0 byte",
               tx: [regLabel, hexByte(writeValue)], rx: ["-"], code: [], note: step.note,
+              i2cAddress: deviceI2cAddress,
             }
           : {
               title: regLabel, access: "WRITE", txBytes: "3 byte", rxBytes: "0 byte",
@@ -282,6 +287,8 @@ function traceTransfers(
       const regName = regNameByAddr.get(regAddr) ?? trace.reg ?? "REG";
       const regLabel = `${regName} (${trace.reg ?? "?"})`;
       const bytes = hexPairs(trace.data);
+      // İzdeki gerçek slave adresi: SLA baytı gerçek bitleriyle çizilir.
+      const busAddress = parseNumberish(trace.addr) ?? undefined;
       if ((trace.dir ?? "r") === "w") {
         return {
           title: `${regName} yaz${suffix}`,
@@ -289,6 +296,7 @@ function traceTransfers(
             title: regLabel, access: "WRITE", txBytes: `${1 + bytes.length} byte`, rxBytes: "0 byte",
             tx: [regLabel, ...bytes], rx: ["-"], code: [],
             note: count > 1 ? `${count} kez tekrarlandı` : undefined,
+            i2cAddress: busAddress,
           },
         };
       }
@@ -298,6 +306,7 @@ function traceTransfers(
           title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${bytes.length || 1} byte`,
           tx: [regLabel], rx: bytes.length ? bytes : ["DATA"], code: [],
           note: count > 1 ? `hazır olana dek ${count} kez okundu` : undefined,
+          i2cAddress: busAddress,
         },
       };
     }

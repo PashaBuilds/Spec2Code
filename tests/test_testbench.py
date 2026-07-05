@@ -924,6 +924,10 @@ class TestbenchTests(unittest.TestCase):
         # Hat taraması: ajan global i2c_scan (0x08..0x77 yoklama) ve
         # i2c_mux_set (switch kontrol baytı) oplarını sunar; manifest UI'ye
         # taranabilir denetleyicileri ve mux topolojisini bildirir.
+        # SAHA BULGUSU (2026-07-05): prob YAZMA olmalı — recv-polled prob
+        # gerçek kartta NACK'te de XST_SUCCESS döndürüp her adresi "dolu"
+        # gösterdi. Kanal taramasında aktif switch adresi atlanır (0x00
+        # yazılsaydı seçili kanal kapanırdı).
         spec = load_sample_spec("unit_i2c_scan")
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / spec["project"]["name"]
@@ -935,8 +939,15 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "i2c_scan")', ops)
         self.assertIn("for (uiScanAddr = 0x08U; uiScanAddr <= 0x77U; uiScanAddr++)", ops)
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "i2c_mux_set")', ops)
+        # Prob 0x00 yazmasıdır; okuma probu üretimden kalkmıştır.
+        scan_block = ops.split('"i2c_scan"')[1].split('"i2c_mux_set"')[0]
+        self.assertIn("XIicPs_MasterSendPolled(spScanIic, &ucProbe, 1, (unsigned short)uiScanAddr)", scan_block)
+        self.assertNotIn("XIicPs_MasterRecvPolled", scan_block)
+        self.assertIn("if (uiScanAddr == spRequest->uiAddress)", scan_block)
         scan = manifest["i2c_scan"]
         self.assertEqual(scan["range"], [8, 119])
+        self.assertIn("write", scan["probe"])
+        self.assertTrue(scan["skip_address_param"])
         controller_ids = {c["id"] for c in scan["controllers"]}
         self.assertIn("ps_i2c_0", controller_ids)
         self.assertTrue(all("address" in m and "channels" in m for m in scan["muxes"]))
@@ -987,6 +998,12 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(calls[2][2], 0x01)
         self.assertEqual(calls[4][2], 0x02)
         self.assertEqual(calls[6][2], 0x00)
+        # Kanal taramalarinda aktif switch adresi ajana atlatilir (yazma
+        # probu 0x00'i switch'e yazsaydi secili kanal kapanirdi); dogrudan
+        # taramada atlama yoktur.
+        self.assertIsNone(calls[1][1])
+        self.assertEqual(calls[3][1], 0x70)
+        self.assertEqual(calls[5][1], 0x70)
 
     def test_multiple_devices_of_same_part_get_isolated_modules(self) -> None:
         # SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken
@@ -1444,6 +1461,10 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn(f'#define SPEC2CODE_TESTBENCH_AGENT_VERSION "{version}"', ops_source)
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "spec2code_version")', ops_source)
         self.assertIn('spec2codeTestbenchMessageSet(spResponse, "Spec2Code " SPEC2CODE_TESTBENCH_AGENT_VERSION);', ops_source)
+        # SAHA BULGUSU (2026-07-05): surum yaniti data alanini bos birakiyordu;
+        # surum ASCII baytlari olarak data'da da doner ve UI yesil rozette cozer.
+        self.assertIn("const char* pcVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;", ops_source)
+        self.assertIn("spec2codeTestbenchDataPush(spResponse, (unsigned char)pcVersion[uiVersionIndex]);", ops_source)
         self.assertIn("if (spRequest->cArrOperation[0] == '\\0')", protocol_source)
 
     def test_app_version_can_be_read_from_packaged_metadata_without_frontend_source(self) -> None:

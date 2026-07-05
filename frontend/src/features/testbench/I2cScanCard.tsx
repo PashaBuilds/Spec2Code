@@ -28,7 +28,9 @@ function AddressChips({ addresses, empty = "—" }: { addresses: number[]; empty
 
 /** I2C hat taraması: 0x08..0x77 adres yoklaması + switch arkası kanal kanal
  * harita. Yalnız "bu pozisyonda bu adres cevap veriyor" bilgisi döner —
- * cihaz kimliği çıkarılmaz (1-baytlık okuma yoklaması). */
+ * cihaz kimliği çıkarılmaz. Prob 1-baytlık 0x00 YAZMAsıdır (recv-polled
+ * prob sahada NACK'te de başarı döndürdü); kanal taramasında aktif
+ * switch'in kendi adresi ajana atlatılır. */
 export default function I2cScanCard({
   manifest,
   sessionId,
@@ -93,9 +95,10 @@ export default function I2cScanCard({
         ) : null}
       </div>
       <p className="mb-3 text-xs leading-relaxed text-muted">
-        Hattaki her adres 1-baytlık okuma ile yoklanır; switch (I2C mux) varsa arkasındaki her kanal
-        sırasıyla seçilip ayrıca taranır ve tam harita çıkarılır. Yalnız adres/pozisyon bilgisi döner —
-        cihaz kimliği çıkarılmaz.
+        Hattaki her adres 1-baytlık yazma (0x00) ile yoklanır — bu bayt çoğu cihazda yalnız register
+        pointer'ını sıfırlar. Switch (I2C mux) varsa arkasındaki her kanal sırasıyla seçilip ayrıca
+        taranır ve tam harita çıkarılır; kanal taranırken aktif switch'in kendi adresi atlanır. Yalnız
+        adres/pozisyon bilgisi döner — cihaz kimliği çıkarılmaz.
       </p>
 
       <div className="mb-3 flex flex-wrap items-end gap-3">

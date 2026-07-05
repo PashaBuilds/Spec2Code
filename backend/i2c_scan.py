@@ -1,8 +1,12 @@
 """I2C hat taraması orkestrasyonu.
 
 Ajan iki basit global op sunar: `i2c_scan` (o anki hattı 0x08..0x77
-yoklar, ACK veren adresleri data alanında döndürür) ve `i2c_mux_set`
-(TCA9548A tarzı switch kontrol baytı: 0x00 = kapat, 1<<kanal = seç).
+1-baytlık 0x00 YAZMA probuyla yoklar, ACK veren adresleri data alanında
+döndürür; address=<atlanacak adres>) ve `i2c_mux_set` (TCA9548A tarzı
+switch kontrol baytı: 0x00 = kapat, 1<<kanal = seç). Prob yazmadır: sahada
+recv-polled prob NACK'te de başarı döndürüp her adresi "dolu" gösterdi.
+Kanal taranırken aktif switch'in kendi adresi ajana atlatılır — 0x00
+yazılsaydı seçili kanal kapanırdı.
 Bu modül tam haritayı çıkarır: önce TÜM switch'ler kapatılıp doğrudan
 hat taranır (switch arkası cihazlar doğrudan hatta görünmesin), sonra
 her switch'in her kanalı sırayla seçilip taranır ve switch kapatılır.
@@ -64,9 +68,10 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
                 f"{step}: switch {mux.get('id', hex(int(mux['address'])))} kontrol baytı yazılamadı "
                 f"({parsed.get('message', 'yanıt yok')})")
 
-    def scan_once(step: str) -> list[int]:
+    def scan_once(step: str, skip_address: int | None = None) -> list[int]:
         parsed = _send(session_id, "i2c_scan", controller_id,
-                       command_id=next_id(), timeout_s=timeout_s)
+                       command_id=next_id(), address=skip_address,
+                       timeout_s=timeout_s)
         if parsed.get("ok") != "1":
             raise I2cScanError(f"{step}: tarama başarısız ({parsed.get('message', 'yanıt yok')})")
         return _addresses_from_data(parsed.get("data", ""))
@@ -86,7 +91,8 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
         channels: list[dict] = []
         for channel in range(int(mux.get("channels", 8))):
             mux_set(mux, 1 << channel, f"kanal {channel} seçimi")
-            found = scan_once(f"{mux.get('id', '')} kanal {channel}")
+            found = scan_once(f"{mux.get('id', '')} kanal {channel}",
+                              skip_address=int(mux["address"]))
             channels.append({
                 "channel": channel,
                 # Kanal açıkken doğrudan hattaki cihazlar ve switch'in kendisi

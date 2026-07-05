@@ -34,6 +34,10 @@ export interface KnowledgeRegisterTransfer {
   code: string[];
   note?: string;
   tone?: KnowledgeTransferTone;
+  /** Kartın gerçek 7-bit I2C adresi. Verilirse SLA+W/SLA+R baytları
+   * sembolik yerine gerçek bit değerleriyle çizilir (Seri Hat). Katalog
+   * transferleri instance bağımsız olduğundan boş bırakır. */
+  i2cAddress?: number;
 }
 
 export interface KnowledgeRecipe {

@@ -368,16 +368,21 @@ const SECTIONS: DocSection[] = [
           başlamayan satırları yok sayar.
         </P>
         <P>
-          <B>I2C hat taraması</B> (Test Bench altında): hattaki her adres 1-baytlık okumayla
-          yoklanır (0x08–0x77); switch (TCA9548A gibi) varsa arkasındaki her kanal sırasıyla seçilip
-          ayrıca taranır ve tam harita pozisyon pozisyon tablo olarak döner. Cihaz kimliği
-          çıkarılmaz — yalnız "bu pozisyonda bu adres cevap veriyor" bilgisi.
+          <B>I2C Hat Taraması</B> (Test Bench'te sol menüde "Hat Tarama" başlığı altında ayrı
+          sayfa): hattaki her adres 1-baytlık yazmayla (0x00 — çoğu cihazda yalnız register
+          pointer'ını sıfırlar) yoklanır (0x08–0x77); switch (TCA9548A gibi) varsa arkasındaki her
+          kanal sırasıyla seçilip ayrıca taranır ve tam harita pozisyon pozisyon tablo olarak döner.
+          Kanal taranırken aktif switch'in kendi adresi atlanır. Cihaz kimliği çıkarılmaz — yalnız
+          "bu pozisyonda bu adres cevap veriyor" bilgisi.
         </P>
         <P>
           <B>Seri Hat</B> ekranı her komut/yanıt çiftini id eşleşmeli kart yapar:{" "}
           <M>register_read</M>/<M>register_write</M> gerçek baytlarla katalogdaki bus zaman
           diyagramı olarak çizilir; çok adımlı sürücü operasyonlarında bus frame'leri cihaz içinde
           koştuğundan kart, protokol alanlarını, yanıt baytlarını ve çözülmüş değeri gösterir.
+          Baytın gerçek değeri biliniyorsa (kartın I2C adresi, canlı iz baytları) hücrede gerçek
+          bit değeri (0/1) üstte, bit rolü (A6..A0, D7..D0) altta yazar; SLA satırı ayrıca hat
+          baytını ve 7-bit adresi verir (örn. <M>SLA+W = 0x90 (adres 0x48)</M>).
         </P>
       </>
     ),
