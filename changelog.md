@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.107 - Taslak
+## v0.1.107 - 2026-07-05
 
 - SAHA: flash'tan 256 bayt okumak timeout'a dusuyordu (128 calisirken).
   Kok neden: ajan cevap satiri tamponu 512 karakterdi; 256 baytlik data
