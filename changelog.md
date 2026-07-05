@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.108 - Taslak
+## v0.1.108 - 2026-07-05
 
 - Genis (16-bit) registerlar Registers ekraninda: manifest'teki genislik
   filtresi AD7414 TEMPERATURE, TMP101 TEMPERATURE/TLOW/THIGH ve LTM4681
