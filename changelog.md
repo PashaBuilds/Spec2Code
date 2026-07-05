@@ -5,6 +5,24 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.108 - Taslak
 
+- SAHA (DS1682 cozuldu): elapsed/alarm okumasi fail olurken register
+  snapshot'in 21/21 basarili olmasi kok nedeni gosterdi - snapshot
+  register basina TEK baytlik okuma yapar (kanitli calisan yol),
+  elapsed_read ise tek pointer + 4 baytlik BLOK recv kullaniyordu ve
+  bu kartta blok recv aninda dusuyor. read_registers artik ardisik
+  register adreslerini tek-bayt okumalarla toplar; kosan sayac icin
+  datasheet yontemi uygulanir (iki gecis karsilastirilir, uyusmazsa
+  ucuncu gecis gecerlidir). Yeni firmware gerektirir.
+- I2C hatalari artik SESSIZ degil: her basarisiz transfer
+  spec2codeBusTraceI2cError kancasiyla adres/register/asama (p=pointer,
+  r=recv, w=yazma, m=mux kanal secimi) raporlar; test bench guclu
+  implementasyonu ERROR seviyesinde loglar - VARSAYILAN log seviyesinde
+  bile "TRACEERR|...|addr=0x6B|reg=0x05|asama=r|status=1" satiri
+  gorunur. Surucusu bagimsiz projelerde kanca zayif no-op'tur.
+- Flash binary okuma ozeti artik ilk 16 + SON 16 bayti gosterir:
+  chunk'lar arasi adres ilerleyisinin hizli saglamasi (yinelenen blok
+  suphesi ilk bakista dogrulanir/curutulur).
+
 - Registers ekrani katalogla birebir: descriptor register haritalari
   katalogdaki (datasheet-dogrulanmis) tam haritayla esitlendi -
   LMK04832 10 -> 125, LMX2820 7 -> 123, LMX1205 9 -> 44, LMX1204

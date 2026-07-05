@@ -1323,6 +1323,61 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", lwip_source)
 
+    def test_i2c_failures_name_their_stage_and_block_reads_use_single_byte_primitive(self) -> None:
+        # SAHA BULGUSU (2026-07-05): DS1682 elapsed_read tek satir "failed"
+        # ile dustu - iz yok, asama yok. Ayni kartta register snapshot
+        # (tek-bayt okumalar) 21/21 basariliydi; fark TEK pointer + COK
+        # BAYTLI blok recv idi. Beklenen: (1) read_registers ardisik
+        # register adreslerini kanitli tek-bayt okumalarla toplar (sayac
+        # tutarliligi icin iki gecis + uyusmazsa ucuncu), (2) her I2C
+        # basarisizligi spec2codeBusTraceI2cError kancasiyla adres/register/
+        # asama raporlar (testbench guclu impl. ERROR seviyesinde loglar),
+        # (3) mux kanal secimi de ayni kancayi kullanir.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = [
+            {"id": "u1_tca9548a", "part": "TCA9548A", "controller_id": "ps_i2c_0",
+             "i2c_address": "0x70", "channels": 8},
+        ]
+        spec["devices"] = [
+            {"id": "u8_ds1682", "part": "DS1682",
+             "descriptor_ref": "descriptors/ds1682.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x6B",
+                        "via_mux": {"mux_id": "u1_tca9548a", "channel": 5},
+                        "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "elapsed_read", "event_read"],
+             "tests_requested": ["self_test"]},
+        ]
+        add_zynqmp_ps_ethernet(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            ds1682 = (out_dir / "drivers" / "ds1682.c").read_text(encoding="utf-8")
+            mux_source = (out_dir / "drivers" / "tca9548a.c").read_text(encoding="utf-8")
+            trace_header = (out_dir / "drivers" / "spec2code_bus_trace.h").read_text(encoding="utf-8")
+            trace_source = (out_dir / "tests" / "spec2code_testbench_trace.c").read_text(encoding="utf-8")
+
+        # (1) Blok recv uretimden kalkti; ardisik adresler tek-bayt okunur.
+        self.assertNotIn("XIicPs_MasterRecvPolled(spIic, ucpBuffer, (int)uiLength", ds1682)
+        self.assertIn("ds1682RegisterRead(spIic, (unsigned char)(ucReg + uiIndex), &ucpBuffer[uiIndex]);", ds1682)
+        # Iki gecis + uyusmazsa ucuncu (DS1682 ETC 0.25 s'de artar).
+        self.assertEqual(ds1682.count("ds1682RegistersReadOnce(spIic, ucReg,"), 3)
+        # (2) Basarisizlik asamasi raporlanir: pointer/recv/yazma.
+        self.assertIn("spec2codeBusTraceI2cError(DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
+        self.assertIn("spec2codeBusTraceI2cError(DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
+        # ('w' asamasi register_write kullanan cihazlarda uretilir; bu op
+        # kumesi salt okuma oldugundan yazma yardimcisi budanir.)
+        # (3) Mux secimi de konusur; kanca zayif varsayilanla driver'da,
+        # guclu ERROR-log implementasyonuyla testbench'te bulunur.
+        self.assertIn("spec2codeBusTraceI2cError(TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
+        self.assertIn("void spec2codeBusTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
+        self.assertIn("TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", trace_source)
+
     def test_agent_line_buffer_fits_full_data_payload_and_guards_overflow(self) -> None:
         # SAHA BULGUSU (2026-07-05): 256 baytlik flash okumasi timeout'a
         # dustu. Cevap satiri ~750 karakterdir (prefix ~64 + 512 hex data +

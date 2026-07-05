@@ -460,7 +460,12 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     sel = Emit()
     sel.ln("unsigned char ucMask;").ln("int iStatus;").blank()
     sel.ln("ucMask = (unsigned char)(1U << ucChannel);")
-    sel.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});").check_status()
+    sel.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});")
+    sel.open("if (iStatus != XST_SUCCESS)")
+    sel.ln("/* Sessiz hizli fail birakma: hangi switch/kanal dustu logda gorunsun. */")
+    sel.ln(f"spec2codeBusTraceI2cError({addr_def}, ucChannel, 'm', iStatus);")
+    sel.ln("return iStatus;")
+    sel.close()
     sel.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait for the transfer to complete */").close()
     sel.ln("return XST_SUCCESS;")
     select = CFunc(
@@ -474,7 +479,11 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     dis = Emit()
     dis.ln("unsigned char ucMask;").ln("int iStatus;").blank()
     dis.ln("ucMask = 0x00U;")
-    dis.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});").check_status()
+    dis.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});")
+    dis.open("if (iStatus != XST_SUCCESS)")
+    dis.ln(f"spec2codeBusTraceI2cError({addr_def}, 0xFFU, 'm', iStatus);")
+    dis.ln("return iStatus;")
+    dis.close()
     dis.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait for the transfer to complete */").close()
     dis.ln("return XST_SUCCESS;")
     disable = CFunc(
@@ -486,7 +495,7 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     return CUnit(
         module=module, part=mux["part"], summary=descriptor.get("summary", ""), transport="i2c_mux",
         header_includes=["xil_types.h", "xiicps.h"],
-        driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=[(addr_def, _hexu8(addr), f"{mux['part']} I2C address")],
         funcs=[select, disable], public_names=[select.name, disable.name])
 
@@ -494,10 +503,20 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
 # --- I2C device unit --------------------------------------------------------------------
 
 def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CFunc]:
+    # Basarisizlik noktalari SESSIZ kalmaz (SAHA: DS1682 hizli fail tek
+    # "failed" satiriyla dondu, iz/asama yoktu): her NACK/timeout hata
+    # kancasina adres+register+asama ile raporlanir.
+    def check_traced(e: Emit, reg_expr: str, stage: str) -> None:
+        e.open("if (iStatus != XST_SUCCESS)")
+        e.ln(f"spec2codeBusTraceI2cError({addr_def}, {reg_expr}, '{stage}', iStatus);")
+        e.ln("return iStatus;")
+        e.close()
+
     w = Emit()
     w.ln("unsigned char ucArrBuffer[2];").ln("int iStatus;").blank()
     w.ln("ucArrBuffer[0] = ucReg;").ln("ucArrBuffer[1] = ucValue;")
-    w.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 2, {addr_def});").check_status()
+    w.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 2, {addr_def});")
+    check_traced(w, "ucReg", "w")
     w.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     w.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'w', &ucValue, 1U);")
     w.ln("return XST_SUCCESS;")
@@ -506,31 +525,60 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
 
     r = Emit()
     r.ln("int iStatus;").blank()
-    r.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});").check_status()
+    r.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});")
+    check_traced(r, "ucReg", "p")
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    r.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpValue, 1, {addr_def});").check_status()
+    r.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpValue, 1, {addr_def});")
+    check_traced(r, "ucReg", "r")
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     r.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpValue, 1U);")
     r.ln("return XST_SUCCESS;")
     read = CFunc(_func_name(module, "register_read"), "int",
                  [f"{htype}* {hvar}", "unsigned char ucReg", "unsigned char* ucpValue"], r.out(), static=True)
 
+    # SAHA BULGUSU (2026-07-05): DS1682'de tek pointer + COK BAYTLI recv
+    # (blok okuma) aninda dusuyordu; ayni karttaki register snapshot ise
+    # register basina TEK baytlik okumayla 21/21 basariliydi. read_registers
+    # ardisik REGISTER adresleridir (her baytin kendi adresi var) - blok
+    # yerine kanitli tek-bayt okumalarla toplanir.
+    once = Emit()
+    once.ln("unsigned int uiIndex;")
+    once.ln("int iStatus;").blank()
+    once.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)")
+    once.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, (unsigned char)(ucReg + uiIndex), &ucpBuffer[uiIndex]);")
+    once.open("if (iStatus != XST_SUCCESS)").ln("return iStatus;").close()
+    once.close()
+    once.ln("return XST_SUCCESS;")
+    read_once = CFunc(_func_name(module, "registers_read_once"), "int",
+                      [f"{htype}* {hvar}", "unsigned char ucReg",
+                       "unsigned char* ucpBuffer", "unsigned int uiLength"],
+                      once.out(), static=True)
+
     rb = Emit()
+    rb.ln("unsigned char ucArrCheck[8];")
+    rb.ln("unsigned int uiIndex;")
+    rb.ln("unsigned int uiSame;")
     rb.ln("int iStatus;").blank()
-    rb.open("if ((ucpBuffer == NULL) || (uiLength == 0U))")
+    rb.open("if ((ucpBuffer == NULL) || (uiLength == 0U) || (uiLength > 8U))")
     rb.ln("return XST_FAILURE;")
     rb.close()
-    rb.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});").check_status()
-    rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    rb.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});").check_status()
-    rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    rb.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
+    rb.ln("/* Sayac kosarken tutarlilik (DS1682 ETC 0.25 s'de bir artar):")
+    rb.ln(" * iki gecis karsilastirilir, uyusmazsa ucuncu gecis gecerlidir. */")
+    rb.ln(f"iStatus = {_func_name(module, 'registers_read_once')}({hvar}, ucReg, ucpBuffer, uiLength);").check_status()
+    rb.ln(f"iStatus = {_func_name(module, 'registers_read_once')}({hvar}, ucReg, ucArrCheck, uiLength);").check_status()
+    rb.ln("uiSame = 1U;")
+    rb.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)")
+    rb.open("if (ucpBuffer[uiIndex] != ucArrCheck[uiIndex])").ln("uiSame = 0U;").close()
+    rb.close()
+    rb.open("if (uiSame == 0U)")
+    rb.ln(f"iStatus = {_func_name(module, 'registers_read_once')}({hvar}, ucReg, ucpBuffer, uiLength);").check_status()
+    rb.close()
     rb.ln("return XST_SUCCESS;")
     read_block = CFunc(_func_name(module, "registers_read"), "int",
                        [f"{htype}* {hvar}", "unsigned char ucReg",
                         "unsigned char* ucpBuffer", "unsigned int uiLength"],
                        rb.out(), static=True)
-    return [write, read, read_block]
+    return [write, read, read_once, read_block]
 
 
 def convert_config_issue(device: dict, op: dict) -> str | None:

@@ -137,8 +137,11 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
       const seconds = (performance.now() - startedAt) / 1000;
       const name = `${device.id}_${hexAddr(address)}_${length}B.bin`;
       downloadBlob(bytes, name);
+      // İlk + son 16 bayt: chunk'lar arası adres ilerleyişinin hızlı sağlaması
+      // (tekrarlayan bloklar ilk bakışta görünür).
       setSummary(
-        `${length} bayt okundu (${seconds.toFixed(1)} sn, ~${Math.round(length / Math.max(seconds, 0.001))} B/s) → ${name} · ilk 16 bayt: ${hexFromBytes(bytes.slice(0, 16))}`,
+        `${length} bayt okundu (${seconds.toFixed(1)} sn, ~${Math.round(length / Math.max(seconds, 0.001))} B/s) → ${name} · ` +
+        `ilk 16: ${hexFromBytes(bytes.slice(0, 16))} · son 16: ${hexFromBytes(bytes.slice(Math.max(0, length - 16)))}`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
