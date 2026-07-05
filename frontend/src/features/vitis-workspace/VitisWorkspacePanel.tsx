@@ -7,6 +7,10 @@ import { useStore } from "@/store/useStore";
 import RunOnBoardCard from "./RunOnBoardCard";
 import type { JobEvent, VitisCompileIssue, VitisDoctor, VitisSelfHeal, VitisWorkspaceResult } from "@/lib/types";
 
+// Koşan/son Vitis işinin kimliği: panel unmount olsa da (adım/ekran
+// geçişi, sayfa yenileme) mount'ta işe yeniden bağlanmak için saklanır.
+const VITIS_JOB_STORAGE_KEY = "spec2code.vitisJobId";
+
 const VITIS_STAGES = [
   { id: "locate", label: "XSCT", progress: 14 },
   { id: "version", label: "Sürüm", progress: 25 },
@@ -414,6 +418,63 @@ export function VitisWorkspacePanel({
     }
   }
 
+  function attachSocket(vitisJobId: string) {
+    // Backend soketi tamponlanmış olayları replay edip canlı akışa geçer;
+    // yeniden bağlanmada log geçmişi kaybolmaz.
+    closeSocketRef.current?.();
+    setEvents([]);
+    closeSocketRef.current = openVitisSocket(
+      vitisJobId,
+      (event) => {
+        setEvents((current) => [...current, event]);
+        if (event.event === "vitis.error" && typeof event.message === "string") {
+          setError(event.message);
+        }
+        if (event.event === "vitis.compile_errors" && Array.isArray(event.issues)) {
+          setCompileIssues(event.issues as VitisCompileIssue[]);
+        }
+        if (event.event === "vitis.done") {
+          void refreshResult(vitisJobId);
+        }
+      },
+      () => {
+        setRunning(false);
+        void refreshResult(vitisJobId);
+      },
+    );
+  }
+
+  // Saha bulgusu (2026-07-05): kurulum sürerken başka adıma/ekrana geçip
+  // dönünce panel unmount olduğundan buton state'ine düşüyordu; iş backend'de
+  // sürüyordu ama UI yansıtmıyordu. Mount'ta son işe yeniden bağlan:
+  // koşuyorsa ilerleme + log geri gelir, bittiyse sonuç gösterilir.
+  useEffect(() => {
+    const storedJobId = localStorage.getItem(VITIS_JOB_STORAGE_KEY);
+    if (!storedJobId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await api.vitisWorkspaceResult(storedJobId);
+        if (cancelled) return;
+        if (response.status === "running" || response.status === "pending") {
+          setRunning(true);
+          attachSocket(storedJobId);
+        } else {
+          setResult(response.result);
+          setCompileIssues(response.result?.compile_issues ?? []);
+          if (response.error) setError(response.error);
+        }
+      } catch {
+        // İş backend'de yok (yeniden başlatılmış olabilir) — kaydı temizle.
+        localStorage.removeItem(VITIS_JOB_STORAGE_KEY);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function start() {
     const vitisInput = cleanPathInput(vitisPath);
     const xsaInput = cleanPathInput(xsaPath);
@@ -458,25 +519,8 @@ export function VitisWorkspacePanel({
         mode: buildMode,
       });
 
-      closeSocketRef.current = openVitisSocket(
-        response.vitis_job_id,
-        (event) => {
-          setEvents((current) => [...current, event]);
-          if (event.event === "vitis.error" && typeof event.message === "string") {
-            setError(event.message);
-          }
-          if (event.event === "vitis.compile_errors" && Array.isArray(event.issues)) {
-            setCompileIssues(event.issues as VitisCompileIssue[]);
-          }
-          if (event.event === "vitis.done") {
-            void refreshResult(response.vitis_job_id);
-          }
-        },
-        () => {
-          setRunning(false);
-          void refreshResult(response.vitis_job_id);
-        },
-      );
+      localStorage.setItem(VITIS_JOB_STORAGE_KEY, response.vitis_job_id);
+      attachSocket(response.vitis_job_id);
     } catch (err) {
       setError(fieldError(err));
       setRunning(false);

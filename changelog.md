@@ -35,6 +35,13 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
+- Vitis paneli kosan ise YENIDEN BAGLANIR: workspace kurulumu surerken
+  baska adima/ekrana gecip donunce panel bos buton durumuna dusuyordu
+  (is backend'de suruyordu ama UI yansitmiyordu). vitis_job_id artik
+  kalici; panel acilista son isi sorgular - is kosuyorsa ilerleme cubugu
+  ve log akisi geri gelir (backend soketi tamponlanmis olaylari replay
+  eder), bittiyse sonuc/hata gosterilir; is backend'de yoksa kayit
+  sessizce temizlenir. Sayfa yenileme de ayni yoldan kurtarilir.
 
 - LTC2991 okumalari kartta ~46.4 s surup status=1 ile dusuyordu. Kok
   neden iki katmanli: (1) init profili repeated-acquisition actigi icin
