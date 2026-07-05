@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.106 - Taslak
+## v0.1.106 - 2026-07-05
 
 - SAHA: QSPI flash data_read ajani KILITLIYORDU (address=0x0 length=4:
   "op basla" son log, cevap yok, sonraki tum komutlar cevapsiz - agent
