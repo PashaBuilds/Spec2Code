@@ -64,6 +64,12 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     url = f"http://{args.host}:{port}"
+    # Backend'in cozdugu surum ajan koduna damgalanir (SPEC2CODE_TESTBENCH_
+    # AGENT_VERSION): "dev" gorunuyorsa paketteki surum metadatasi
+    # okunamiyor demektir - sahada aninda teshis icin aciliste basilir.
+    from orchestrator.codegen import _app_version
+
+    print(f"Spec2Code backend version: {_app_version()}")
     print(f"Spec2Code is starting on {url}")
     print("Press Ctrl+C to stop.")
     if not args.no_browser:

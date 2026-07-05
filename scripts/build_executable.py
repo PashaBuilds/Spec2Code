@@ -106,12 +106,16 @@ def _data_file_arg(source: Path, target_name: str) -> str:
     return f"{source}{os.pathsep}{target_name}"
 
 
-def _copy_release_docs(bundle_dir: Path) -> None:
+def _copy_release_docs(bundle_dir: Path, metadata_path: Path) -> None:
     for name in ("changelog.md", "userguide.md", "kimi_vitis_debug_guide.md"):
         source = ROOT / name
         if not source.is_file():
             raise FileNotFoundError(f"required release document is missing: {name}")
         shutil.copy2(source, bundle_dir / name)
+    # Surum exe'nin YANINDA da durur: _app_version exe dizinine de bakar,
+    # boylece _MEIPASS icindeki kopya herhangi bir nedenle okunamasa bile
+    # ajan "dev" damgalanmaz; kullanici da dosyayi acip dogrulayabilir.
+    shutil.copy2(metadata_path, bundle_dir / "spec2code_version.txt")
 
 
 def main() -> int:
@@ -165,7 +169,7 @@ def main() -> int:
     shutil.rmtree(bundle_dir, ignore_errors=True)
     bundle_dir.mkdir(parents=True)
     shutil.copy2(executable, bundle_dir / executable.name)
-    _copy_release_docs(bundle_dir)
+    _copy_release_docs(bundle_dir, metadata_path)
 
     archive = shutil.make_archive(str(bundle_dir), "zip", root_dir=bundle_dir)
     print(archive)

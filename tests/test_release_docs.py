@@ -41,7 +41,12 @@ class ReleaseDocsTests(unittest.TestCase):
 
             fake_executable = bundle_dir / "Spec2Code.exe"
             fake_executable.write_bytes(b"fake")
-            build_executable._copy_release_docs(bundle_dir)
+            # Surum metadatasi exe'nin YANINDA da paketlenir: _MEIPASS
+            # kopyasi okunamazsa bile ajan "dev" damgalanmasin ve
+            # kullanici dosyayi acip surumu dogrulayabilsin.
+            metadata = Path(tmp) / "spec2code_version.txt"
+            metadata.write_text("v9.9.9\n", encoding="utf-8")
+            build_executable._copy_release_docs(bundle_dir, metadata)
 
             archive = Path(tmp) / "bundle.zip"
             with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -51,7 +56,8 @@ class ReleaseDocsTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as zf:
                 self.assertEqual(
                     sorted(zf.namelist()),
-                    ["Spec2Code.exe", "changelog.md", "kimi_vitis_debug_guide.md", "userguide.md"],
+                    ["Spec2Code.exe", "changelog.md", "kimi_vitis_debug_guide.md",
+                     "spec2code_version.txt", "userguide.md"],
                 )
 
 

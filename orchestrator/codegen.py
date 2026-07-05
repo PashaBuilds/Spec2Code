@@ -104,7 +104,9 @@ def _app_version() -> str:
     for root in roots:
         version_file = root / "spec2code_version.txt"
         if version_file.is_file():
-            value = version_file.read_text(encoding="utf-8", errors="replace").strip()
+            # utf-8-sig: BOM'lu yazilmis dosyada fullmatch sessizce
+            # kacmasin (SAHA: paketli uygulama ajana "dev" damgaladi).
+            value = version_file.read_text(encoding="utf-8-sig", errors="replace").strip()
             if re.fullmatch(r"v\d+\.\d+\.\d+", value):
                 return value
 
@@ -115,12 +117,17 @@ def _app_version() -> str:
         if match:
             return match.group(1)
 
-    changelog = _ROOT / "changelog.md"
-    if changelog.is_file():
-        text = changelog.read_text(encoding="utf-8", errors="replace")
-        match = re.search(r"^##\s+(v\d+\.\d+\.\d+)\s+", text, re.MULTILINE)
-        if match:
-            return match.group(1)
+    # Changelog yedegi TUM koklerde aranir: release bundle'inda changelog.md
+    # exe'nin YANINDA durur (_ROOT frozen uygulamada _MEIPASS'tir ve orada
+    # changelog yoktur - yalniz _ROOT'a bakmak paketli uygulamada bu yedegi
+    # olu koda ceviriyordu).
+    for root in roots:
+        changelog = root / "changelog.md"
+        if changelog.is_file():
+            text = changelog.read_text(encoding="utf-8-sig", errors="replace")
+            match = re.search(r"^##\s+(v\d+\.\d+\.\d+)\s+", text, re.MULTILINE)
+            if match:
+                return match.group(1)
 
     return "dev"
 

@@ -3,6 +3,20 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.109 - Taslak
+
+- SAHA: paketli uygulama ajani "dev" surumuyle damgaliyordu ("Surum
+  sorgula" cevabinda v0.1.x yerine dev). Surum cozumleme zinciri tek
+  noktadan cok noktaya cikarildi: (1) spec2code_version.txt artik
+  exe'nin YANINDA da paketlenir (gorunur + dogrulanabilir), (2) BOM'lu
+  metadata tolere edilir (utf-8-sig), (3) changelog yedegi yalniz
+  kaynak agacinda degil exe dizini dahil tum koklerde aranir (release
+  bundle'inda changelog.md exe'nin yanindadir - eski kod paketli
+  uygulamada bu yedegi hic kullanamiyordu), (4) uygulama aciliste
+  cozdugu surumu basar: "Spec2Code backend version: vX" - sahada tek
+  bakista teshis. NOT: karttaki "dev" ancak yeni uygulamayla yeniden
+  Generate + build + ELF yukleyince degisir.
+
 ## v0.1.108 - 2026-07-05
 
 - Genis (16-bit) registerlar Registers ekraninda: manifest'teki genislik

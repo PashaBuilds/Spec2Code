@@ -4,6 +4,7 @@ import re
 import shutil
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1699,10 +1700,51 @@ class TestbenchTests(unittest.TestCase):
             version_file.write_text("v9.8.7\n", encoding="utf-8")
             source_version.rename(backup)
             self.assertEqual(codegen._app_version(), "v9.8.7")
+            # SAHA (2026-07-05): paketli uygulama ajani "dev" damgaladi.
+            # BOM'lu yazilmis metadata fullmatch'i sessizce kaciriyordu;
+            # utf-8-sig okumayla tolere edilir.
+            version_file.write_bytes("﻿v9.8.6\r\n".encode("utf-8"))
+            self.assertEqual(codegen._app_version(), "v9.8.6")
         finally:
             if backup.exists():
                 backup.rename(source_version)
             version_file.unlink(missing_ok=True)
+            for name, value in old_env.items():
+                if value is not None:
+                    os.environ[name] = value
+
+    def test_app_version_falls_back_to_changelog_next_to_the_executable(self) -> None:
+        # Frozen (PyInstaller) benzetimi: _ROOT gecici bos dizindir (_MEIPASS
+        # gibi - icinde version.ts/changelog yoktur), cwd bos, ama release
+        # bundle'inda changelog.md exe'nin YANINDA durur. Eski kod changelog
+        # yedegini yalniz _ROOT'ta aradigindan paketli uygulamada bu yedek
+        # olu koddu ve ajan "dev" damgalaniyordu.
+        old_env = {name: os.environ.pop(name, None) for name in ("SPEC2CODE_VERSION", "VITE_SPEC2CODE_VERSION", "RELEASE_VERSION")}
+        old_root = codegen._ROOT
+        old_exe = sys.executable
+        old_cwd = os.getcwd()
+        # TemporaryDirectory yerine elle temizlik: Windows, cwd olarak
+        # kullanilan dizini silemez - once chdir geri alinmali.
+        tmp = tempfile.mkdtemp()
+        try:
+            frozen_root = Path(tmp) / "meipass"
+            exe_dir = Path(tmp) / "bundle"
+            empty_cwd = Path(tmp) / "cwd"
+            for p in (frozen_root, exe_dir, empty_cwd):
+                p.mkdir()
+            (exe_dir / "changelog.md").write_text(
+                "# Spec2Code Changelog\n\n## v7.7.7 - 2026-07-05\n\n- test\n", encoding="utf-8")
+            exe_path = exe_dir / "Spec2Code.exe"
+            exe_path.write_bytes(b"")
+            codegen._ROOT = frozen_root
+            sys.executable = str(exe_path)
+            os.chdir(empty_cwd)
+            self.assertEqual(codegen._app_version(), "v7.7.7")
+        finally:
+            codegen._ROOT = old_root
+            sys.executable = old_exe
+            os.chdir(old_cwd)
+            shutil.rmtree(tmp, ignore_errors=True)
             for name, value in old_env.items():
                 if value is not None:
                     os.environ[name] = value
