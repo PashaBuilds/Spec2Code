@@ -653,6 +653,83 @@ def _post_init_status(descriptor: dict) -> dict | None:
     return None
 
 
+def _op_wire_plan(device: dict, descriptor: dict, op: dict) -> list[dict]:
+    """Operasyonun BUS seviyesindeki transfer planı (Seri Hat görselleştirme).
+
+    Descriptor adımlarından türetilir: UI her adımı katalogdaki bus zaman
+    diyagramıyla (gerçek register adları/adresleri, init'te gerçek yazılan
+    değerlerle) çizer. Poll adımları "hazır olana dek tekrarlanır" notuyla
+    tek transfer olarak temsil edilir — iterasyon sayısı çalışma zamanında
+    belli olur, uydurulmaz.
+    """
+    transport = descriptor.get("transport", {}).get("type", "")
+    regs = {r["name"]: r for r in descriptor.get("registers", []) if "name" in r}
+    cmds = {c["name"]: c for c in descriptor.get("commands", [])}
+
+    def reg_addr(name: str) -> int:
+        return int(regs.get(name, {}).get("offset", 0))
+
+    plan: list[dict] = []
+    op_name = op.get("name", "")
+
+    if op_name == "device_init":
+        if transport == "i2c" and not descriptor.get("memory"):
+            for write in device_profiles.i2c_init_writes(device):
+                plan.append({
+                    "kind": "reg_write", "reg": write["reg"],
+                    "addr": reg_addr(write["reg"]), "value": int(write["value"]),
+                    "note": write.get("note", ""),
+                })
+        elif transport == "spi" and tics.register_model(descriptor):
+            words = tics.normalize_words(device.get("config"))
+            if words:
+                plan.append({"kind": "tics_init", "count": len(words),
+                             "first_word": f"0x{words[0] & 0xFFFFFF:06X}"})
+        post = _post_init_status(descriptor)
+        if post is not None:
+            plan.append({"kind": "reg_read", "reg": post["reg"],
+                         "addr": reg_addr(post["reg"]), "length": post["bytes"],
+                         "note": "init doğrulama okuması"})
+        return plan
+
+    for step in op.get("steps", []):
+        sop = step.get("op", "")
+        if sop == "comment":
+            continue
+        if sop == "poll":
+            plan.append({"kind": "reg_read", "reg": step["reg"], "addr": reg_addr(step["reg"]),
+                         "length": 1, "repeat": "poll",
+                         "note": f"{step.get('field', 'hazır')} biti {step.get('until', 1)} olana dek tekrarlanır"})
+        elif sop == "read_register":
+            plan.append({"kind": "reg_read", "reg": step["reg"], "addr": reg_addr(step["reg"]), "length": 1})
+        elif sop == "read_registers":
+            plan.append({"kind": "reg_read", "reg": step["reg"], "addr": reg_addr(step["reg"]),
+                         "length": int(step.get("length", 1))})
+        elif sop == "read_channels":
+            plan.append({"kind": "reg_read_channels", "reg": step["reg"], "addr": reg_addr(step["reg"]),
+                         "count": int(step.get("count", 8))})
+        elif sop == "write_register":
+            plan.append({"kind": "reg_write", "reg": step["reg"], "addr": reg_addr(step["reg"]),
+                         "value": int(step.get("value", 0))})
+        elif sop == "send_command":
+            cmd = cmds.get(step.get("cmd", ""), {})
+            plan.append({"kind": "cmd", "cmd": step.get("cmd", ""),
+                         "opcode": int(cmd.get("opcode", 0)), "addr_bytes": 0, "length": 0})
+        elif sop == "read_command_address":
+            cmd = cmds.get(step.get("cmd", ""), {})
+            plan.append({"kind": "cmd_read", "cmd": step.get("cmd", ""),
+                         "opcode": int(cmd.get("opcode", 0)),
+                         "addr_bytes": int(cmd.get("address_bytes", 0)),
+                         "length": int(step["length"]) if "length" in step else None})
+        elif sop == "write_command_address":
+            cmd = cmds.get(step.get("cmd", ""), {})
+            plan.append({"kind": "cmd_write", "cmd": step.get("cmd", ""),
+                         "opcode": int(cmd.get("opcode", 0)),
+                         "addr_bytes": int(cmd.get("address_bytes", 0)),
+                         "length": int(step["length"]) if "length" in step else None})
+    return plan
+
+
 def _array_return_count(returns: str) -> int:
     match = re.search(r"\[(\d+)\]", returns)
     return int(match.group(1)) if match else 0
@@ -887,6 +964,8 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 # (0xF23 yerine 38.75 C): donus tipi ve convert birimi.
                 "result_returns": str(op.get("returns", "") or ""),
                 "result_unit": str((op.get("convert") or {}).get("unit", "") or ""),
+                # Seri Hat: operasyonun bus seviyesindeki transfer plani.
+                "wire": _op_wire_plan(device, descriptor, op),
             })
         if _supports_i2c_register_ops(descriptor):
             operations.extend([
@@ -904,6 +983,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_value": False,
                     "result_returns": "uint8",
                     "result_unit": "",
+                    "wire": [{"kind": "reg_read", "runtime": True, "length": 1}],
                 },
                 {
                     "name": "register_write",
@@ -917,6 +997,9 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_data": False,
                     "requires_register": True,
                     "requires_value": True,
+                    "result_returns": "",
+                    "result_unit": "",
+                    "wire": [{"kind": "reg_write", "runtime": True}],
                 },
             ])
         if _supports_spi_register_ops(descriptor):
@@ -942,6 +1025,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_value": False,
                     "result_returns": "uint16" if data_bits == 16 else "uint8",
                     "result_unit": "",
+                    "wire": [{"kind": "reg_read", "runtime": True, "length": data_bits // 8}],
                 })
             operations.append({
                 "name": "register_write",
@@ -955,6 +1039,9 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 "requires_data": False,
                 "requires_register": True,
                 "requires_value": True,
+                "result_returns": "",
+                "result_unit": "",
+                "wire": [{"kind": "reg_write", "runtime": True}],
             })
         transport_type = descriptor.get("transport", {}).get("type", "")
         # Generic register access moves one native frame: 1 byte on I2C

@@ -18,7 +18,25 @@ import type {
 
 const TRAFFIC_POLL_MS = 500;
 const SESSIONS_POLL_MS = 2000;
-const MAX_CARDS = 60;
+const MAX_CARDS = 40;
+const MAX_WAVES_PER_CARD = 3;
+
+/** Manifest'teki bus transfer planı adımı (codegen _op_wire_plan üretir). */
+interface WireStep {
+  kind: string;
+  reg?: string;
+  addr?: number;
+  value?: number;
+  length?: number | null;
+  count?: number;
+  note?: string;
+  repeat?: string;
+  runtime?: boolean;
+  cmd?: string;
+  opcode?: number;
+  addr_bytes?: number;
+  first_word?: string;
+}
 
 /** S2C satırını key=value sözlüğüne çözer; S2C satırı değilse null. */
 export function parseS2CLine(line: string): Record<string, string> | null {
@@ -45,6 +63,10 @@ interface TransferCard {
 
 function hexByte(value: number): string {
   return `0x${(value & 0xff).toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+function hexAddr(value: number): string {
+  return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
 function dataBytes(dataHex: string): string[] {
@@ -74,64 +96,121 @@ function spiWordBytes(rw: 0 | 1, regAddr: number, data: number, addrShift: numbe
   return [hexByte(word >> 16), hexByte(word >> 8), hexByte(word)];
 }
 
-/** register_read / register_write için gerçek baytlı bus diyagram tarifi;
- * diğer (çok adımlı) operasyonlarda null — o kartlar dürüstçe yalnız
- * protokol alanlarını ve yanıt baytlarını gösterir. */
-function waveformTransfer(card: TransferCard, device: TestbenchManifestDevice | null): KnowledgeRegisterTransfer | null {
-  if (!device || !card.rx) return null;
-  const op = card.tx.op ?? "";
-  if (op !== "register_read" && op !== "register_write") return null;
-  const regAddr = parseNumberish(card.tx.reg_addr);
-  if (regAddr === null) return null;
-  const regLabel = card.tx.reg ? `${card.tx.reg} (${card.tx.reg_addr})` : card.tx.reg_addr ?? "?";
+function symbolic(count: number): string[] {
+  if (count <= 1) return ["DATA"];
+  if (count === 2) return ["MSB", "LSB"];
+  return Array.from({ length: Math.min(count, 4) }, (_, i) => `D${count - 1 - i}`);
+}
+
+/** Kartın bus diyagramları: manifest'teki kablo planı gerçek adres/register
+ * adlarıyla katalog transferlerine çevrilir. Ham (birimsiz) okumalarda yanıt
+ * baytları diyagramdaki RX hücrelerine yazılır; dönüştürülmüş sonuçlarda
+ * kablo baytları ajanda kaldığından hücreler MSB/LSB etiketiyle kalır ve
+ * sonuç ayrıca "= değer" rozetinde gösterilir (uydurma bayt yok). */
+function wireTransfers(
+  card: TransferCard,
+  device: TestbenchManifestDevice | null,
+  operation: TestbenchOperation | null,
+): Array<{ transfer: KnowledgeRegisterTransfer; title: string }> {
+  if (!device) return [];
+  const wire = (operation as { wire?: WireStep[] } | null)?.wire;
+  if (!wire || wire.length === 0) return [];
   const isI2c = device.transport.startsWith("i2c");
-  const value = parseNumberish(card.tx.value);
-  const rxData = dataBytes(card.rx.data ?? "");
-
-  if (isI2c) {
-    if (op === "register_read") {
-      return {
-        title: `register_read ${regLabel}`,
-        access: "READ",
-        txBytes: "1 byte",
-        rxBytes: "1 byte",
-        tx: [regLabel],
-        rx: rxData.length ? rxData : ["-"],
-        code: [card.txLine, card.rxLine ?? ""],
-      };
-    }
-    return {
-      title: `register_write ${regLabel}`,
-      access: "WRITE",
-      txBytes: "2 byte",
-      rxBytes: "0 byte",
-      tx: [regLabel, value !== null ? hexByte(value) : "?"],
-      rx: ["-"],
-      code: [card.txLine, card.rxLine ?? ""],
-    };
-  }
-
-  const { addrShift, dataBits } = spiFrameModel(device.part);
-  if (op === "register_read") {
-    return {
-      title: `register_read ${regLabel}`,
-      access: "READ",
-      txBytes: "3 byte",
-      rxBytes: `${dataBits / 8} byte`,
-      tx: spiWordBytes(1, regAddr, 0, addrShift),
-      rx: rxData.length ? rxData : ["-"],
-      code: [card.txLine, card.rxLine ?? ""],
-    };
-  }
-  return {
-    title: `register_write ${regLabel}`,
-    access: "WRITE",
-    txBytes: "3 byte",
-    rxBytes: "0 byte",
-    tx: spiWordBytes(0, regAddr, value ?? 0, addrShift),
-    rx: ["-"],
-    code: [card.txLine, card.rxLine ?? ""],
+  const rawFill = Boolean(card.rx) && (operation?.result_unit ?? "") === "";
+  const rxAll = dataBytes(card.rx?.data ?? "");
+  let rxCursor = 0;
+  const takeRx = (count: number): string[] | null => {
+    if (!rawFill) return null;
+    const slice = rxAll.slice(rxCursor, rxCursor + count);
+    rxCursor += count;
+    return slice.length === count ? slice : null;
   };
+  const spi = spiFrameModel(device.part);
+
+  const out: Array<{ transfer: KnowledgeRegisterTransfer; title: string }> = [];
+  for (const step of wire) {
+    // Generic register_read/register_write: register çalışma zamanında
+    // istekten gelir.
+    const regAddr = step.runtime ? parseNumberish(card.tx.reg_addr) ?? 0 : step.addr ?? 0;
+    const regName = step.runtime ? (card.tx.reg || card.tx.reg_addr || "REG") : step.reg ?? "REG";
+    const regLabel = `${regName} (${hexAddr(regAddr)})`;
+    const writeValue = step.runtime ? parseNumberish(card.tx.value) ?? 0 : step.value ?? 0;
+    const pollNote = step.repeat === "poll" ? `${step.note ?? "hazır olana dek tekrarlanır"} (×N)` : step.note;
+
+    if (step.kind === "reg_read") {
+      const length = step.length ?? 1;
+      const real = takeRx(length);
+      out.push({
+        title: `${regName} oku${step.repeat === "poll" ? " (poll)" : ""}`,
+        transfer: isI2c
+          ? {
+              title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${length} byte`,
+              tx: [regLabel], rx: real ?? symbolic(length), code: [], note: pollNote,
+            }
+          : {
+              title: regLabel, access: "READ", txBytes: "3 byte", rxBytes: `${spi.dataBits / 8} byte`,
+              tx: spiWordBytes(1, regAddr, 0, spi.addrShift), rx: real ?? symbolic(spi.dataBits / 8),
+              code: [], note: pollNote,
+            },
+      });
+    } else if (step.kind === "reg_read_channels") {
+      const count = step.count ?? 8;
+      out.push({
+        title: `${count} kanal oku (${regName}…)`,
+        transfer: {
+          title: regLabel, access: "READ",
+          txBytes: `${count * 2} x 1 byte register pointer`,
+          rxBytes: `${count * 2} byte toplam (${count} x MSB+LSB)`,
+          tx: [`${regName} + 2n`, `${regName} + 2n + 1`],
+          rx: ["MSB", "LSB"], code: [],
+          note: `n = 0..${count - 1}; her kanal için MSB+LSB okunur`,
+        },
+      });
+    } else if (step.kind === "reg_write") {
+      out.push({
+        title: `${regName} yaz`,
+        transfer: isI2c
+          ? {
+              title: regLabel, access: "WRITE", txBytes: "2 byte", rxBytes: "0 byte",
+              tx: [regLabel, hexByte(writeValue)], rx: ["-"], code: [], note: step.note,
+            }
+          : {
+              title: regLabel, access: "WRITE", txBytes: "3 byte", rxBytes: "0 byte",
+              tx: spiWordBytes(0, regAddr, writeValue, spi.addrShift), rx: ["-"], code: [], note: step.note,
+            },
+      });
+    } else if (step.kind === "tics_init") {
+      const first = parseNumberish(step.first_word) ?? 0;
+      out.push({
+        title: `TICS init dizisi (${step.count ?? 0} word)`,
+        transfer: {
+          title: "TICS Pro word", access: "WRITE",
+          txBytes: `${step.count ?? 0} x 3 byte`, rxBytes: "0 byte",
+          tx: [hexByte(first >> 16), hexByte(first >> 8), hexByte(first)], rx: ["-"], code: [],
+          note: `${step.count ?? 0} word sırayla yazılır — ilki gösteriliyor`,
+        },
+      });
+    } else if (step.kind === "cmd" || step.kind === "cmd_read" || step.kind === "cmd_write") {
+      const opcode = step.opcode ?? 0;
+      const addrBytes = step.addr_bytes ?? 0;
+      const length = step.length ?? null;
+      const isRead = step.kind === "cmd_read";
+      const real = isRead && length ? takeRx(length) : null;
+      out.push({
+        title: `${step.cmd ?? "CMD"} (${hexByte(opcode)})`,
+        transfer: {
+          title: step.cmd ?? "CMD",
+          access: isRead ? "READ" : "WRITE",
+          txBytes: `${1 + addrBytes} byte${step.kind === "cmd_write" ? " + payload" : ""}`,
+          rxBytes: isRead ? (length ? `${length} byte` : "N byte") : "0 byte",
+          tx: [hexByte(opcode), ...(addrBytes ? [`ADDR[${addrBytes}]`] : [])],
+          rx: isRead ? (real ?? symbolic(length ?? 2)) : ["-"],
+          code: [], note: step.note,
+        },
+      });
+    }
+  }
+  return out;
 }
 
 function transportLabel(status: TestbenchSessionStatus): string {
@@ -141,9 +220,8 @@ function transportLabel(status: TestbenchSessionStatus): string {
 }
 
 /** Akış'ın kardeşi: her S2C komut/yanıt çifti id ile eşleştirilir ve
- * register erişimleri katalogdaki bus diyagramıyla GERÇEK baytlar üzerinden
- * görselleştirilir. Çok adımlı sürücü operasyonları dürüstçe protokol kartı
- * olarak kalır (bus-level frame'ler cihazın içindedir). */
+ * operasyonun BUS seviyesindeki transferleri katalogdaki zaman diyagramıyla
+ * (gerçek register adresleri, init'te gerçek değerler) çizilir. */
 export default function SerialLinePanel() {
   const files = useStore((s) => s.job.files);
   const previousFiles = useStore((s) => s.previousFiles);
@@ -297,10 +375,10 @@ export default function SerialLinePanel() {
           </Button>
         </div>
         <p className="w-full text-[11px] leading-relaxed text-faint">
-          Her kart bir S2C komut/yanıt çiftidir (id ile eşleşir). <code className="font-mono">register_read</code>/
-          <code className="font-mono">register_write</code> gerçek baytlarla bus zaman diyagramı olarak çizilir;
-          çok adımlı sürücü operasyonlarında bus frame'leri cihazın içinde koştuğundan kart, protokol alanlarını
-          ve yanıt baytlarını gösterir.
+          Her kart bir S2C komut/yanıt çiftidir (id eşleşmeli) ve operasyonun bus üzerindeki
+          transferleri katalogdaki zaman diyagramıyla çizilir. Ham okumalarda yanıt baytları
+          diyagrama işlenir; dönüştürülmüş sonuçlarda kablo baytları ajanda kaldığından hücreler
+          MSB/LSB olarak kalır, sonuç "=" rozetinde gösterilir.
         </p>
       </div>
 
@@ -314,7 +392,7 @@ export default function SerialLinePanel() {
         {cards.length === 0 ? (
           <p className="mt-6 text-center text-xs text-faint">
             {sessionId
-              ? "Transfer bekleniyor... Test Bench'ten komut gönderin; her komut burada id eşleşmeli kart olarak görünecek."
+              ? "Transfer bekleniyor... Test Bench'ten komut gönderin; her komut burada bus diyagramıyla görünecek."
               : "Önce Test Bench veya Registers ekranından bir bağlantı kurun; session burada listelenecek."}
           </p>
         ) : (
@@ -323,7 +401,7 @@ export default function SerialLinePanel() {
             const operation = operationFor(card, device);
             const ok = card.rx?.ok === "1";
             const decoded = card.rx ? formatConvertedValue(operation, card.rx) : null;
-            const transfer = waveformTransfer(card, device);
+            const waves = wireTransfers(card, device, operation);
             const durationMs = card.rxAt !== undefined ? Math.max(0, Math.round((card.rxAt - card.txAt) * 1000)) : null;
             return (
               <div
@@ -352,10 +430,34 @@ export default function SerialLinePanel() {
                   ) : null}
                 </div>
 
-                {transfer && device ? (
-                  <BusWaveform part={device.part} transfer={transfer} defaultOpen />
+                {waves.length > 0 && device ? (
+                  <div className="space-y-2">
+                    {waves.slice(0, MAX_WAVES_PER_CARD).map((wave, index) => (
+                      <div key={`${card.key}-w${index}`}>
+                        <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-faint">
+                          {index + 1}/{waves.length} — {wave.title}
+                        </div>
+                        <BusWaveform part={device.part} transfer={wave.transfer} defaultOpen />
+                      </div>
+                    ))}
+                    {waves.length > MAX_WAVES_PER_CARD ? (
+                      <p className="text-[11px] text-faint">
+                        + {waves.length - MAX_WAVES_PER_CARD} transfer daha (aynı desen devam eder)
+                      </p>
+                    ) : null}
+                  </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <p className="text-[11px] text-faint">
+                    Bu operasyon için kablo planı yok (eski üretimden manifest olabilir — yeni Generate sonrası
+                    diyagramlar gelir).
+                  </p>
+                )}
+
+                <details className="mt-2">
+                  <summary className="cursor-pointer list-none text-[10px] uppercase tracking-wide text-faint">
+                    S2C satırları
+                  </summary>
+                  <div className="mt-1 space-y-1">
                     <code className="block break-all rounded border border-border bg-inset px-2 py-1 font-mono text-[11px] text-text">
                       → {card.txLine}
                     </code>
@@ -364,18 +466,8 @@ export default function SerialLinePanel() {
                         ← {card.rxLine}
                       </code>
                     ) : null}
-                    {card.rx?.data ? (
-                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                        <span className="mr-1 text-[10px] uppercase tracking-wide text-faint">data</span>
-                        {dataBytes(card.rx.data).map((byte, index) => (
-                          <span key={`${byte}-${index}`} className="rounded border border-border bg-inset px-1.5 py-0.5 font-mono text-[11px] text-text">
-                            {byte.slice(2)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
-                )}
+                </details>
               </div>
             );
           })

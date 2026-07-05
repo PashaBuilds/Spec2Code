@@ -37,11 +37,17 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   (uV/mV/mA).
 - YENI EKRAN: "Seri Hat" (Akis'in yani) - her S2C komut/yanit cifti id
   ile eslestirilip kart olarak gosterilir: zaman, cihaz, operasyon,
-  sure (ms), ok/hata ve COZULMUS deger. register_read/register_write
-  transferleri katalogdaki bus zaman diyagramiyla GERCEK baytlar
-  uzerinden cizilir (I2C start/addr/reg/data, SPI 24-bit frame); cok
-  adimli surucu operasyonlarinda bus frame'leri cihaz icinde kostugundan
-  kart durustce protokol alanlarini ve yanit baytlarini gosterir.
+  sure (ms), ok/hata ve COZULMUS deger. Manifest'e her operasyonun BUS
+  seviyesindeki kablo plani islenir (codegen "wire": poll/register
+  okuma-yazma adimlari, kanal taramasi, flash komut frame'leri, TICS
+  init dizisi) ve HER kart katalogdaki bus zaman diyagramiyla cizilir:
+  gercek register adlari/adresleri, init'te gercek yazilan degerler,
+  ham okumalarda gercek yanit baytlari (I2C start/addr/reg/data, SPI
+  24-bit frame). Poll adimlari "hazir olana dek x N" notuyla, cok
+  adimli operasyonlarin donusturulmus sonuclarinda RX hucreleri MSB/LSB
+  etiketiyle kalir (kablo baytlari ajanda kalir - uydurma bayt yok),
+  deger "=" rozetinde gosterilir. Ham S2C satirlari kart altinda
+  katlanabilir durur.
 - Donusturulmus sonuclar artik ondalik + birimle gosterilir: Test Bench
   sonuc karti ve Seri Hat kartlari value alanini manifest'teki yeni
   result_returns/result_unit metaverisiyle cozer - 0xF23 -> "= 38.75 C",

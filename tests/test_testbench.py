@@ -790,6 +790,18 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(ltc_ops["voltage_read"]["result_returns"], "voltages[8]")
         self.assertEqual(ltc_ops["voltage_read"]["result_unit"], "mV")
         self.assertEqual(ltc_ops["register_read"]["result_returns"], "uint8")
+        # Seri Hat kablo planı: poll (STATUS_LOW) + 8 kanal MSB/LSB okuması.
+        voltage_wire = ltc_ops["voltage_read"]["wire"]
+        self.assertEqual(voltage_wire[0]["kind"], "reg_read")
+        self.assertEqual(voltage_wire[0]["reg"], "STATUS_LOW")
+        self.assertEqual(voltage_wire[0]["repeat"], "poll")
+        self.assertEqual(voltage_wire[1]["kind"], "reg_read_channels")
+        self.assertEqual(voltage_wire[1]["count"], 8)
+        init_wire = ltc_ops["device_init"]["wire"]
+        self.assertEqual([step["kind"] for step in init_wire],
+                         ["reg_write", "reg_write", "reg_write", "reg_write", "reg_read"])
+        self.assertEqual(init_wire[2]["value"], 0x10)  # repeated acquisition
+        self.assertTrue(ltc_ops["register_read"]["wire"][0]["runtime"])
 
         # Saha regresyonu (2026-07-05, gerçek ZynqMP): repeated-acquisition
         # modunda BUSY hiç düşmediğinden "BUSY==0 bekle" poll'u 100000
