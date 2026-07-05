@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Send, ShieldCheck, 
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
 import { api } from "@/lib/api";
+import { timeLabelMs } from "@/lib/console";
 import { cn } from "@/lib/utils";
 import { useBoardConnection } from "@/store/connection";
 import { useStore } from "@/store/useStore";
@@ -83,7 +84,12 @@ function registerLabel(register: TestbenchRegister): string {
   return `${register.name} (${hex(register.offset, register.offset > 0xff ? 4 : 2)})`;
 }
 
-function ResultPanel({ result }: { result: TestbenchCommandResponse | null }) {
+interface ResultMeta {
+  sentAtMs: number;
+  durationMs: number;
+}
+
+function ResultPanel({ result, meta }: { result: TestbenchCommandResponse | null; meta: ResultMeta | null }) {
   if (!result) {
     return (
       <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
@@ -103,6 +109,11 @@ function ResultPanel({ result }: { result: TestbenchCommandResponse | null }) {
         <Badge tone={ok ? "ok" : "danger"}>{ok ? "ok" : "hata"}</Badge>
         <Badge tone="neutral">status {result.parsed.status ?? "-"}</Badge>
         {result.parsed.value ? <Badge tone="accent">value {result.parsed.value}</Badge> : null}
+        {meta ? (
+          <span className="ml-auto font-mono text-[11px] text-muted" title="Gönderim zamanı ve komutun toplam gidiş-dönüş süresi">
+            {timeLabelMs(meta.sentAtMs, { ms: true })} · {meta.durationMs} ms
+          </span>
+        ) : null}
       </div>
 
       <div className="grid gap-2 text-[11px] md:grid-cols-2">
@@ -132,7 +143,10 @@ function ResultPanel({ result }: { result: TestbenchCommandResponse | null }) {
       </div>
 
       {result.parsed.message ? (
-        <p className="mt-3 text-xs leading-relaxed text-muted">{result.parsed.message}</p>
+        <div className="mt-3">
+          <div className="mb-1 text-[11px] text-faint">Mesaj</div>
+          <p className="break-all text-xs leading-relaxed text-text">{result.parsed.message}</p>
+        </div>
       ) : null}
     </div>
   );
@@ -163,6 +177,7 @@ export default function TestBenchPanel() {
   const [versionRunning, setVersionRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TestbenchCommandResponse | null>(null);
+  const [resultMeta, setResultMeta] = useState<ResultMeta | null>(null);
 
   const selectedDevice = useMemo(
     () => manifest?.devices.find((device) => device.id === selectedDeviceId) ?? manifest?.devices[0] ?? null,
@@ -233,6 +248,8 @@ export default function TestBenchPanel() {
     setRunning(true);
     setError("");
 
+    const sentAtMs = Date.now();
+    const startedAt = performance.now();
     try {
       const response = await api.testbenchCommand({
         host: board.transport === "tcp" ? board.host.trim() : board.transport,
@@ -250,6 +267,7 @@ export default function TestBenchPanel() {
         timeout_s: board.timeoutSeconds(),
       });
       setResult(response);
+      setResultMeta({ sentAtMs, durationMs: Math.round(performance.now() - startedAt) });
     } catch (err) {
       reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -264,6 +282,8 @@ export default function TestBenchPanel() {
     setVersionRunning(true);
     setError("");
 
+    const sentAtMs = Date.now();
+    const startedAt = performance.now();
     try {
       const response = await api.testbenchCommand({
         host: board.transport === "tcp" ? board.host.trim() : board.transport,
@@ -275,6 +295,7 @@ export default function TestBenchPanel() {
         timeout_s: board.timeoutSeconds(),
       });
       setResult(response);
+      setResultMeta({ sentAtMs, durationMs: Math.round(performance.now() - startedAt) });
     } catch (err) {
       reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -342,6 +363,7 @@ export default function TestBenchPanel() {
                 onClick={() => {
                   setSelectedDeviceId(device.id);
                   setResult(null);
+                  setResultMeta(null);
                 }}
                 className={cn(
                   "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
@@ -388,6 +410,7 @@ export default function TestBenchPanel() {
                   onClick={() => {
                     setSelectedOperationName(op.name);
                     setResult(null);
+                    setResultMeta(null);
                   }}
                   className={cn(
                     "rounded-md border px-3 py-2 text-left text-xs transition-colors",
@@ -495,7 +518,7 @@ export default function TestBenchPanel() {
                 ) : null}
               </div>
 
-              <ResultPanel result={result} />
+              <ResultPanel result={result} meta={resultMeta} />
             </div>
           </div>
         ) : (

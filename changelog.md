@@ -3,6 +3,38 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.103 - 2026-07-05
+
+Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
+
+- LTC2991 okumalari kartta ~46.4 s surup status=1 ile dusuyordu. Kok
+  neden iki katmanli: (1) init profili repeated-acquisition actigi icin
+  (PWM_T_INTERNAL_CONTROL=0x10) cip surekli donusumde ve STATUS_HIGH.BUSY
+  hic 0 olmuyor - "BUSY==0 bekle" poll'u hicbir zaman tutmuyordu; (2)
+  poll butcesi 100000 ITERASYONDU ve her iterasyon tam bir I2C okumasi
+  (~0.46 ms @100 kHz) oldugundan tukenmesi ~46 s aliyordu (UI 5 s
+  timeout'unu asar). Duzeltme: poll'lar olcume ozgu READY (data-valid)
+  bitlerini bekler (voltage/current -> STATUS_LOW.V1_READY,
+  temperature -> STATUS_HIGH.T_INTERNAL_READY, vcc -> VCC_READY) ve
+  poll butcesi 1000 denemeye indirildi (~0.5 s tavan; EEPROM ACK poll
+  butcesi de ayni sekilde). Regresyon testleri eklendi.
+- device_init operasyonlari testbench'in bastan baslattigi paylasilan
+  denetleyicide XIicPs/XSpiPs/XQspiPsu_CfgInitialize'i yeniden
+  cagiriyordu: sahada mt25qu02g device_init status=5
+  (XST_DEVICE_IS_STARTED) dondu; I2C'de de canli SCLK ayarini
+  bozabiliyordu. Tum device_init'ler artik IsReady bayragini kontrol
+  edip baslatilmis denetleyicide controller-init blogunu atlar
+  (standalone kullanimda davranis ayni kalir).
+- Test Bench sonuc kartina gonderim zamani (HH:MM:SS.mmm) ve toplam
+  gidis-donus suresi (ms) eklendi; "message" alani etiketli ve belirgin
+  gosterilir (surum sorgusunun cevabi message'ta tasinir - data alani
+  bos olmasi normaldir). NOT: Akis ekraninda ms'li zaman damgalari
+  zaten vardir (ekranda sol sutun, indirilen logda satir basi);
+  agent'in "Spec2Code dev" bildirmesi eski bir uretimden kalan ELF'tir,
+  yeni Generate + update-mode build surumu getirir. Agent log seviyesi
+  bagli iken baglanti kartindaki "Agent log seviyesi" secicisinden
+  degistirilir (1 error ... 5 debug).
+
 ## v0.1.102 - 2026-07-05
 
 - Generate sag kolonu 3 sekmeye ayrildi: "Uretilen kod", "Vitis"

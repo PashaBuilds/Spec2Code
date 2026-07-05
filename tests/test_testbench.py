@@ -714,6 +714,19 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(ltc_ops["temperature_read"]["fixed_read_length"], 4)
         self.assertIn("mV", ltc_ops["voltage_read"]["label"])
 
+        # Saha regresyonu (2026-07-05, gerçek ZynqMP): repeated-acquisition
+        # modunda BUSY hiç düşmediğinden "BUSY==0 bekle" poll'u 100000
+        # deneme (~46 s) sonunda status=1 ile bitiyordu. Beklenen davranış:
+        # ölçüme özgü READY biti beklenir ve poll bütçesi ~0.5 s tavandır.
+        self.assertIn("LTC2991_POLL_TIMEOUT 1000U", header)
+        self.assertIn("((ucPoll >> 1) & 0x1U) != 1U", driver)  # T_INTERNAL_READY == 1
+        self.assertIn("(ucPoll & 0x1U) != 1U", driver)         # VCC_READY / V1_READY == 1
+        self.assertNotIn("((ucPoll >> 2) & 0x1U) != 0U", driver)  # BUSY beklemesi kalktı
+        # device_init, testbench'in başlattığı paylaşılan denetleyiciyi
+        # yeniden CfgInitialize etmemeli (mt25qu02g'de XST_DEVICE_IS_STARTED
+        # olarak görüldü; I2C'de canlı SCLK ayarını bozuyordu).
+        self.assertIn("if (spIic->IsReady != XIL_COMPONENT_IS_READY)", driver)
+
     def test_self_test_skips_device_init_when_not_requested(self) -> None:
         # Regression (found on zc702): requesting only read ops + self_test
         # used to emit a self test that called <part>DeviceInit anyway ->

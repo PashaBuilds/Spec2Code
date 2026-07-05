@@ -522,7 +522,10 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     defines = [
         (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
         (sclk_def, "100000U", "I2C SCL frequency (Hz)"),
-        (to_def, "100000U", "polling loop budget"),
+        # Her poll denemesi tam bir I2C register okumasıdır (~0.5 ms @100
+        # kHz): 1000 deneme ~0.5 s tavan demektir. Onceki 100000U butcesi
+        # sahada op basina ~46 s surdu (UI 5 s timeout'unu asar).
+        (to_def, "1000U", "poll attempts; each is one I2C register read (~0.5 s cap)"),
     ]
     defines += [(f"{MOD}_REG_{n}", _hexu8(rg["offset"]), "") for n, rg in regs.items()]
     private_decls = _private_i2c_init_sequence(module, MOD, profile_writes)
@@ -582,10 +585,15 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         e.blank()
 
         if is_init:
+            # Shared, already-running controllers (test bench boot) must not
+            # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
+            # on some drivers and resets live bus settings on others.
+            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
             e.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
             e.ln(f"iStatus = XIicPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
             e.ln(f"iStatus = XIicPs_SetSClk({hvar}, {sclk_def});").check_status()
+            e.close()
 
         inject_mux(e)
 
@@ -613,7 +621,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                     mask_expr = "(ucPoll & 0x1U)" if bit == 0 else f"((ucPoll >> {bit}) & 0x1U)"
                     e.open_scope()
                     e.ln("unsigned char ucPoll;")
-                    e.ln(f"unsigned int uiTimeout = {to_def};  /* ~{step.get('timeout_ms', 0)} ms budget */")
+                    e.ln(f"unsigned int uiTimeout = {to_def};  /* deneme sayisi; her deneme bir I2C okumasi */")
                     e.open("do")
                     e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, {MOD}_REG_{step['reg']}, &ucPoll);").check_status()
                     e.open("if (uiTimeout == 0U)").ln("return XST_FAILURE;").close()
@@ -703,7 +711,9 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     defines = [
         (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
         (sclk_def, "100000U", "I2C SCL frequency (Hz)"),
-        (to_def, "100000U", "polling loop budget"),
+        # ACK poll denemesi kisa bir adres yazimidir (~0.2 ms); EEPROM write
+        # cycle max ~5 ms oldugundan 1000 deneme (>=100 ms) bol tavandir.
+        (to_def, "1000U", "ACK poll attempts; each is one short I2C write"),
         (size_def, f"{size_bytes}U", "EEPROM memory size"),
         (page_def, f"{page_size}U", "EEPROM physical page size"),
     ]
@@ -719,10 +729,13 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     init.ln("int iStatus;")
     init.ln(f"{htype}_Config* spConfig;")
     init.blank()
+    # Paylaşılan/başlatılmış denetleyicide yeniden init yok (test bench).
+    init.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
     init.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
     init.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
     init.ln(f"iStatus = XIicPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
     init.ln(f"iStatus = XIicPs_SetSClk({hvar}, {sclk_def});").check_status()
+    init.close()
     init.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
         name=_func_name(module, "device_init"), ret="int", params=[f"{htype}* {hvar}"], body=init.out(),
@@ -1104,6 +1117,9 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
             e.open(f"if ({out_param} == NULL)").ln("return XST_FAILURE;").close()
 
         if is_init:
+            # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden
+            # CfgInitialize etme (XST_DEVICE_IS_STARTED / canlı ayar kaybı).
+            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
             if _is_qspipsu(htype):
                 e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
             else:
@@ -1118,6 +1134,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict) 
                 e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
                 e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
                 e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+            e.close()
 
         if is_init and words:
             e.open(f"for (uiIndex = 0U; uiIndex < {MOD}_INIT_SEQUENCE_COUNT; uiIndex++)")
@@ -1252,6 +1269,10 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
         e.blank()
 
         if is_init:
+            # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden
+            # CfgInitialize etme: XQspiPsu XST_DEVICE_IS_STARTED döndürür
+            # (sahada mt25qu02g device_init status=5 olarak görüldü).
+            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
             if _is_qspipsu(htype):
                 e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
             else:
@@ -1266,6 +1287,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict) -> CUnit:
                 e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
                 e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
                 e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+            e.close()
 
         for step in op["steps"]:
             sop = step["op"]
