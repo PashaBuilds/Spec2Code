@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.108 - Taslak
+
+- Registers ekrani katalogla birebir: descriptor register haritalari
+  katalogdaki (datasheet-dogrulanmis) tam haritayla esitlendi -
+  LMK04832 10 -> 125, LMX2820 7 -> 123, LMX1205 9 -> 44, LMX1204
+  6 -> 35 register (alan/bit tanimlari ve aciklamalariyla). Diger
+  entegreler zaten birebirdi (ADAR1000 78, LTC2945 50, LTC2991 30,
+  DS1682 24, ...). Mevcut girdiler aynen korundu; ekler manifest,
+  Registers ekrani, register_read/write ve uretilen C register
+  tablolarina tek kaynaktan yansir.
+
 ## v0.1.107 - 2026-07-05
 
 - SAHA: flash'tan 256 bayt okumak timeout'a dusuyordu (128 calisirken).

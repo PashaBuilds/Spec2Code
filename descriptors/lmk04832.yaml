@@ -52,6 +52,1615 @@ registers:
         { name: RB_PLL1_DLD, bits: "2" },
         { name: RB_PLL2_DLD_LOST, bits: "1" },
         { name: RB_PLL2_DLD, bits: "0" } ] }
+  # --- Katalogdan birlestirilen register haritasi (Registers ekrani
+  # katalogla birebir olsun; kaynak: knowledge.ts, datasheet-dogrulanmis). ---
+  - name: REG_002
+    offset: 2
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: POWERDOWN."
+    fields:
+      - name: POWERDOWN
+        bits: "0"
+        description: "Cihaz genel power-down kontrolüdür. 0: normal operation; 1: power down device"
+  - name: REG_003
+    offset: 3
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_DEVICE_TYPE."
+    fields:
+      - name: ID_DEVICE_TYPE
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product type bilgisini taşır."
+  - name: REG_004
+    offset: 4
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_PROD[15:8]."
+    fields:
+      - name: ID_PROD_15_8
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product/vendor bilgisinin ilgili byte’ını taşır."
+  - name: REG_005
+    offset: 5
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_PROD[7:0]."
+    fields:
+      - name: ID_PROD_7_0
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product/vendor bilgisinin ilgili byte’ını taşır."
+  - name: REG_006
+    offset: 6
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_MASKREV."
+    fields:
+      - name: ID_MASKREV
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product/vendor bilgisinin ilgili byte’ını taşır."
+  - name: REG_00C
+    offset: 0xc
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_VNDR[15:8]."
+    fields:
+      - name: ID_VNDR_15_8
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product/vendor bilgisinin ilgili byte’ını taşır."
+  - name: REG_00D
+    offset: 0xd
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: ID_VNDR[7:0]."
+    fields:
+      - name: ID_VNDR_7_0
+        bits: "7:0"
+        description: "Read-only kimlik alanıdır; cihaz/product/vendor bilgisinin ilgili byte’ını taşır."
+  - name: REG_100
+    offset: 0x100
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK0_1_DIV[7:0]."
+    fields:
+      - name: DCLK0_1_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_101
+    offset: 0x101
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK0_1_DDLY[7:0]."
+    fields:
+      - name: DCLK0_1_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_102
+    offset: 0x102
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout0_1/DCLK0_1 control."
+    fields:
+      - name: CLKOUT0_1_PD
+        bits: "7"
+        description: "CLKout0 1 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT0_1_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT0_1_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK0_1_DDLY_PD
+        bits: "4"
+        description: "DCLK0 1 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK0_1_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK0_1_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_103
+    offset: 0x103
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK0_1 source/control."
+    fields:
+      - name: CLKOUT0_SRC_MUX
+        bits: "5"
+        description: "CLKout0 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK0_1_PD
+        bits: "4"
+        description: "DCLK0 1 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK0_1_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK0_1_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK0_1_POL
+        bits: "1"
+        description: "DCLK0 1 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK0_1_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_104
+    offset: 0x104
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK0_1 source/control."
+    fields:
+      - name: CLKOUT1_SRC_MUX
+        bits: "5"
+        description: "CLKout1 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK0_1_PD
+        bits: "4"
+        description: "SCLK0 1 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK0_1_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK0_1_POL
+        bits: "1"
+        description: "SCLK0 1 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK0_1_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_105
+    offset: 0x105
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK0_1 analog delay."
+    fields:
+      - name: SCLK0_1_ADLY_EN
+        bits: "5"
+        description: "SCLK0 1 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK0_1_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_106
+    offset: 0x106
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK0_1 digital delay."
+    fields:
+      - name: SCLK0_1_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_107
+    offset: 0x107
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout1/CLKout0 format."
+    fields:
+      - name: CLKOUT1_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT0_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_108
+    offset: 0x108
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK2_3_DIV[7:0]."
+    fields:
+      - name: DCLK2_3_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_109
+    offset: 0x109
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK2_3_DDLY[7:0]."
+    fields:
+      - name: DCLK2_3_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_10A
+    offset: 0x10a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout2_3/DCLK2_3 control."
+    fields:
+      - name: CLKOUT2_3_PD
+        bits: "7"
+        description: "CLKout2 3 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT2_3_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT2_3_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK2_3_DDLY_PD
+        bits: "4"
+        description: "DCLK2 3 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK2_3_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK2_3_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_10B
+    offset: 0x10b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK2_3 source/control."
+    fields:
+      - name: CLKOUT2_SRC_MUX
+        bits: "5"
+        description: "CLKout2 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK2_3_PD
+        bits: "4"
+        description: "DCLK2 3 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK2_3_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK2_3_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK2_3_POL
+        bits: "1"
+        description: "DCLK2 3 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK2_3_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_10C
+    offset: 0x10c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK2_3 source/control."
+    fields:
+      - name: CLKOUT3_SRC_MUX
+        bits: "5"
+        description: "CLKout3 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK2_3_PD
+        bits: "4"
+        description: "SCLK2 3 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK2_3_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK2_3_POL
+        bits: "1"
+        description: "SCLK2 3 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK2_3_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_10D
+    offset: 0x10d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK2_3 analog delay."
+    fields:
+      - name: SCLK2_3_ADLY_EN
+        bits: "5"
+        description: "SCLK2 3 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK2_3_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_10E
+    offset: 0x10e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK2_3 digital delay."
+    fields:
+      - name: SCLK2_3_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_10F
+    offset: 0x10f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout3/CLKout2 format."
+    fields:
+      - name: CLKOUT3_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT2_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_110
+    offset: 0x110
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK4_5_DIV[7:0]."
+    fields:
+      - name: DCLK4_5_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_111
+    offset: 0x111
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK4_5_DDLY[7:0]."
+    fields:
+      - name: DCLK4_5_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_112
+    offset: 0x112
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout4_5/DCLK4_5 control."
+    fields:
+      - name: CLKOUT4_5_PD
+        bits: "7"
+        description: "CLKout4 5 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT4_5_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT4_5_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK4_5_DDLY_PD
+        bits: "4"
+        description: "DCLK4 5 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK4_5_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK4_5_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_113
+    offset: 0x113
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK4_5 source/control."
+    fields:
+      - name: CLKOUT4_SRC_MUX
+        bits: "5"
+        description: "CLKout4 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK4_5_PD
+        bits: "4"
+        description: "DCLK4 5 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK4_5_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK4_5_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK4_5_POL
+        bits: "1"
+        description: "DCLK4 5 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK4_5_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_114
+    offset: 0x114
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK4_5 source/control."
+    fields:
+      - name: CLKOUT5_SRC_MUX
+        bits: "5"
+        description: "CLKout5 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK4_5_PD
+        bits: "4"
+        description: "SCLK4 5 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK4_5_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK4_5_POL
+        bits: "1"
+        description: "SCLK4 5 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK4_5_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_115
+    offset: 0x115
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK4_5 analog delay."
+    fields:
+      - name: SCLK4_5_ADLY_EN
+        bits: "5"
+        description: "SCLK4 5 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK4_5_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_116
+    offset: 0x116
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK4_5 digital delay."
+    fields:
+      - name: SCLK4_5_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_117
+    offset: 0x117
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout5/CLKout4 format."
+    fields:
+      - name: CLKOUT5_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT4_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_118
+    offset: 0x118
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK6_7_DIV[7:0]."
+    fields:
+      - name: DCLK6_7_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_119
+    offset: 0x119
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK6_7_DDLY[7:0]."
+    fields:
+      - name: DCLK6_7_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_11A
+    offset: 0x11a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout6_7/DCLK6_7 control."
+    fields:
+      - name: CLKOUT6_7_PD
+        bits: "7"
+        description: "CLKout6 7 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT6_7_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT6_7_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK6_7_DDLY_PD
+        bits: "4"
+        description: "DCLK6 7 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK6_7_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK6_7_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_11B
+    offset: 0x11b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK6_7 source/control."
+    fields:
+      - name: CLKOUT6_SRC_MUX
+        bits: "5"
+        description: "CLKout6 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK6_7_PD
+        bits: "4"
+        description: "DCLK6 7 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK6_7_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK6_7_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK6_7_POL
+        bits: "1"
+        description: "DCLK6 7 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK6_7_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_11C
+    offset: 0x11c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK6_7 source/control."
+    fields:
+      - name: CLKOUT7_SRC_MUX
+        bits: "5"
+        description: "CLKout7 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK6_7_PD
+        bits: "4"
+        description: "SCLK6 7 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK6_7_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK6_7_POL
+        bits: "1"
+        description: "SCLK6 7 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK6_7_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_11D
+    offset: 0x11d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK6_7 analog delay."
+    fields:
+      - name: SCLK6_7_ADLY_EN
+        bits: "5"
+        description: "SCLK6 7 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK6_7_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_11E
+    offset: 0x11e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK6_7 digital delay."
+    fields:
+      - name: SCLK6_7_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_11F
+    offset: 0x11f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout7/CLKout6 format."
+    fields:
+      - name: CLKOUT7_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT6_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_120
+    offset: 0x120
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK8_9_DIV[7:0]."
+    fields:
+      - name: DCLK8_9_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_121
+    offset: 0x121
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK8_9_DDLY[7:0]."
+    fields:
+      - name: DCLK8_9_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_122
+    offset: 0x122
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout8_9/DCLK8_9 control."
+    fields:
+      - name: CLKOUT8_9_PD
+        bits: "7"
+        description: "CLKout8 9 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT8_9_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT8_9_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK8_9_DDLY_PD
+        bits: "4"
+        description: "DCLK8 9 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK8_9_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK8_9_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_123
+    offset: 0x123
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK8_9 source/control."
+    fields:
+      - name: CLKOUT8_SRC_MUX
+        bits: "5"
+        description: "CLKout8 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK8_9_PD
+        bits: "4"
+        description: "DCLK8 9 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK8_9_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK8_9_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK8_9_POL
+        bits: "1"
+        description: "DCLK8 9 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK8_9_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_124
+    offset: 0x124
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK8_9 source/control."
+    fields:
+      - name: CLKOUT9_SRC_MUX
+        bits: "5"
+        description: "CLKout9 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK8_9_PD
+        bits: "4"
+        description: "SCLK8 9 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK8_9_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK8_9_POL
+        bits: "1"
+        description: "SCLK8 9 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK8_9_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_125
+    offset: 0x125
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK8_9 analog delay."
+    fields:
+      - name: SCLK8_9_ADLY_EN
+        bits: "5"
+        description: "SCLK8 9 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK8_9_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_126
+    offset: 0x126
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK8_9 digital delay."
+    fields:
+      - name: SCLK8_9_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_127
+    offset: 0x127
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout9/CLKout8 format."
+    fields:
+      - name: CLKOUT9_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT8_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_128
+    offset: 0x128
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK10_11_DIV[7:0]."
+    fields:
+      - name: DCLK10_11_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_129
+    offset: 0x129
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK10_11_DDLY[7:0]."
+    fields:
+      - name: DCLK10_11_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_12A
+    offset: 0x12a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout10_11/DCLK10_11 control."
+    fields:
+      - name: CLKOUT10_11_PD
+        bits: "7"
+        description: "CLKout10 11 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT10_11_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT10_11_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK10_11_DDLY_PD
+        bits: "4"
+        description: "DCLK10 11 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK10_11_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK10_11_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_12B
+    offset: 0x12b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK10_11 source/control."
+    fields:
+      - name: CLKOUT10_SRC_MUX
+        bits: "5"
+        description: "CLKout10 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK10_11_PD
+        bits: "4"
+        description: "DCLK10 11 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK10_11_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK10_11_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK10_11_POL
+        bits: "1"
+        description: "DCLK10 11 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK10_11_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_12C
+    offset: 0x12c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK10_11 source/control."
+    fields:
+      - name: CLKOUT11_SRC_MUX
+        bits: "5"
+        description: "CLKout11 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK10_11_PD
+        bits: "4"
+        description: "SCLK10 11 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK10_11_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK10_11_POL
+        bits: "1"
+        description: "SCLK10 11 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK10_11_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_12D
+    offset: 0x12d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK10_11 analog delay."
+    fields:
+      - name: SCLK10_11_ADLY_EN
+        bits: "5"
+        description: "SCLK10 11 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK10_11_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_12E
+    offset: 0x12e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK10_11 digital delay."
+    fields:
+      - name: SCLK10_11_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_12F
+    offset: 0x12f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout11/CLKout10 format."
+    fields:
+      - name: CLKOUT11_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT10_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_130
+    offset: 0x130
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK12_13_DIV[7:0]."
+    fields:
+      - name: DCLK12_13_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_131
+    offset: 0x131
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK12_13_DDLY[7:0]."
+    fields:
+      - name: DCLK12_13_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_132
+    offset: 0x132
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout12_13/DCLK12_13 control."
+    fields:
+      - name: CLKOUT12_13_PD
+        bits: "7"
+        description: "CLKout12 13 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: CLKOUT12_13_ODL
+        bits: "6"
+        description: "Output drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: CLKOUT12_13_IDL
+        bits: "5"
+        description: "Input drive level seçimidir; higher current/lower noise floor davranışını etkiler."
+      - name: DCLK12_13_DDLY_PD
+        bits: "4"
+        description: "DCLK12 13 DDLY PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK12_13_DDLY_9_8
+        bits: "3:2"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+      - name: DCLK12_13_DIV_9_8
+        bits: "1:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_133
+    offset: 0x133
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DCLK12_13 source/control."
+    fields:
+      - name: CLKOUT12_SRC_MUX
+        bits: "5"
+        description: "CLKout12 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: DCLK12_13_PD
+        bits: "4"
+        description: "DCLK12 13 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: DCLK12_13_BYP
+        bits: "3"
+        description: "Even clock için high-performance bypass path kontrolüdür. 0: normal path; 1: bypass path"
+      - name: DCLK12_13_DCC
+        bits: "2"
+        description: "Duty-cycle correction kontrol alanıdır; device clock divider çıkışında duty-cycle düzeltmesini açar."
+      - name: DCLK12_13_POL
+        bits: "1"
+        description: "DCLK12 13 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: DCLK12_13_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_134
+    offset: 0x134
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK12_13 source/control."
+    fields:
+      - name: CLKOUT13_SRC_MUX
+        bits: "5"
+        description: "CLKout13 SRC MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: SCLK12_13_PD
+        bits: "4"
+        description: "SCLK12 13 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SCLK12_13_DIS_MODE
+        bits: "3:2"
+        description: "SYSREF global power-down aktifken çıkışın disable davranışını seçer."
+      - name: SCLK12_13_POL
+        bits: "1"
+        description: "SCLK12 13 POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: SCLK12_13_HS
+        bits: "0"
+        description: "Half-step faz ayarıdır; ilgili clock/SYSREF yolunda yarım cycle faz kaydırma davranışını kontrol eder."
+  - name: REG_135
+    offset: 0x135
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK12_13 analog delay."
+    fields:
+      - name: SCLK12_13_ADLY_EN
+        bits: "5"
+        description: "SCLK12 13 ADLY EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: SCLK12_13_ADLY
+        bits: "4:0"
+        description: "Analog delay alanıdır; SYSREF analog gecikme yolunu ve yaklaşık delay step değerini kontrol eder."
+  - name: REG_136
+    offset: 0x136
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SCLK12_13 digital delay."
+    fields:
+      - name: SCLK12_13_DDLY
+        bits: "3:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_137
+    offset: 0x137
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKout13/CLKout12 format."
+    fields:
+      - name: CLKOUT13_FMT
+        bits: "7:4"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+      - name: CLKOUT12_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_138
+    offset: 0x138
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: VCO_MUX / OSCout_MUX / OSCout_FMT."
+    fields:
+      - name: VCO_MUX
+        bits: "6:5"
+        description: "VCO MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: OSCOUT_MUX
+        bits: "4"
+        description: "OSCout MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: OSCOUT_FMT
+        bits: "3:0"
+        description: "Output format seçim alanıdır; clock çıkış standardı veya sürücü formatı bu alandan belirlenir."
+  - name: REG_139
+    offset: 0x139
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_REQ_EN / SYNC_BYPASS / SYSREF_MUX."
+    fields:
+      - name: SYSREF_REQ_EN
+        bits: "4"
+        description: "SYSREF REQ EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: SYNC_BYPASS
+        bits: "3"
+        description: "SYNC polarity invert ve ilgili circuitry bypass kontrolüdür. 0: normal; 1: bypass"
+      - name: SYSREF_MUX
+        bits: "1:0"
+        description: "SYSREF MUX alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler."
+  - name: REG_13A
+    offset: 0x13a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_DIV[12:8]."
+    fields:
+      - name: SYSREF_DIV_12_8
+        bits: "4:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_13B
+    offset: 0x13b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_DIV[7:0]."
+    fields:
+      - name: SYSREF_DIV_7_0
+        bits: "7:0"
+        description: "Divider/counter değerinin ilgili bit alanıdır; çok byte alanlarda MSB/LSB register’ları birlikte yorumlanır."
+  - name: REG_13C
+    offset: 0x13c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_DDLY[12:8]."
+    fields:
+      - name: SYSREF_DDLY_12_8
+        bits: "4:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_13D
+    offset: 0x13d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_DDLY[7:0]."
+    fields:
+      - name: SYSREF_DDLY_7_0
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_13E
+    offset: 0x13e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_PULSE_CNT."
+    fields:
+      - name: SYSREF_PULSE_CNT
+        bits: "1:0"
+        description: "SYSREF pulser modunda üretilecek pulse sayısını seçer."
+  - name: REG_13F
+    offset: 0x13f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_RCLK_MUX / PLL2_NCLK_MUX / feedback mux."
+    fields:
+      - name: PLL2_RCLK_MUX
+        bits: "7"
+        description: "PLL2 RCLK MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: PLL2_NCLK_MUX
+        bits: "5"
+        description: "PLL2 NCLK MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: PLL1_NCLK_MUX
+        bits: "4:3"
+        description: "PLL1 NCLK MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: FB_MUX
+        bits: "2:1"
+        description: "FB MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: FB_MUX_EN
+        bits: "0"
+        description: "FB MUX EN alanı ilgili pin/status/output mux kaynağını seçer. 0: disabled/not enabled; 1: enabled"
+  - name: REG_140
+    offset: 0x140
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1/VCO/OSCin/SYSREF power-down."
+    fields:
+      - name: PLL1_PD
+        bits: "7"
+        description: "PLL1 PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: VCO_LDO_PD
+        bits: "6"
+        description: "VCO LDO PD alanı ilgili PLL digital lock detect sinyalini, lock-lost latch'ini veya bu sinyalin SYNC/status yoluna bağlanmasını kontrol eder. 0: normal/enabled; 1: power-down"
+      - name: VCO_PD
+        bits: "5"
+        description: "VCO PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: OSCIN_PD
+        bits: "4"
+        description: "OSCin PD alanı ilgili clock/PLL/SYSREF bloğunu normal çalışma ile power-down arasında seçer. 0: normal/enabled; 1: power-down"
+      - name: SYSREF_GBL_PD
+        bits: "3"
+        description: "SYSREF GBL PD alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: normal/enabled; 1: power-down"
+      - name: SYSREF_PD
+        bits: "2"
+        description: "SYSREF PD alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: normal/enabled; 1: power-down"
+      - name: SYSREF_DDLY_PD
+        bits: "1"
+        description: "SYSREF DDLY PD alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: normal/enabled; 1: power-down"
+      - name: SYSREF_PLSR_PD
+        bits: "0"
+        description: "SYSREF PLSR PD alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: normal/enabled; 1: power-down"
+  - name: REG_141
+    offset: 0x141
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF DDLY enable mask."
+    fields:
+      - name: DDLYD_SYSREF_EN
+        bits: "7"
+        description: "DDLYd SYSREF EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD12_EN
+        bits: "6"
+        description: "DDLYd12 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD10_EN
+        bits: "5"
+        description: "DDLYd10 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD8_EN
+        bits: "4"
+        description: "DDLYd8 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD6_EN
+        bits: "3"
+        description: "DDLYd6 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD4_EN
+        bits: "2"
+        description: "DDLYd4 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD2_EN
+        bits: "1"
+        description: "DDLYd2 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: DDLYD0_EN
+        bits: "0"
+        description: "DDLYd0 EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+  - name: REG_142
+    offset: 0x142
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DDLYd_STEP_CNT."
+    fields:
+      - name: DDLYD_STEP_CNT
+        bits: "7:0"
+        description: "Digital delay alanıdır; SYNC/SYSREF veya device clock faz gecikmesini register image üzerinden belirler."
+  - name: REG_143
+    offset: 0x143
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYSREF_CLR / SYNC control."
+    fields:
+      - name: SYSREF_CLR
+        bits: "7"
+        description: "SYSREF CLR alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler."
+      - name: SYNC_1SHOT_EN
+        bits: "6"
+        description: "SYNC 1SHOT EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: SYNC_POL
+        bits: "5"
+        description: "SYNC POL alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: normal polarity; 1: inverted polarity"
+      - name: SYNC_EN
+        bits: "4"
+        description: "SYNC EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: SYNC_PLL2_DLD
+        bits: "3"
+        description: "SYNC event kaynağı olarak PLL2 digital lock detect'i kullanır; 1 iken SYNC, PLL2_DLD=1 olana kadar assert tutulabilir. 0: PLL2 DLD, SYNC üretimini etkilemez; 1: PLL2 DLD=1 olana kadar SYNC assert davranışına katılır"
+      - name: SYNC_PLL1_DLD
+        bits: "2"
+        description: "SYNC event kaynağı olarak PLL1 digital lock detect'i kullanır; 1 iken SYNC, PLL1_DLD=1 olana kadar assert tutulabilir. 0: PLL1 DLD, SYNC üretimini etkilemez; 1: PLL1 DLD=1 olana kadar SYNC assert davranışına katılır"
+      - name: SYNC_MODE
+        bits: "1:0"
+        description: "SYNC event üretim metodunu seçer; SYNC pini ve etkinse PLL1/PLL2 DLD flag'lerinin pulser/SYNC akışını nasıl tetikleyeceğini belirler. 0: SYNC pini ve DLD flag'leri SYNC event üretmez; 1: SYNC event, SYNC pini veya etkin DLD flag'i ile üretilir; 2: pulser üzerinden SYNC/SYSREF pulse üretimi; tetik SYNC pini veya etkin DLD flag'i olabilir; 3: register 0x13E yazımı ile pulser üzerinden SYNC/SYSREF pulse üretimi"
+  - name: REG_144
+    offset: 0x144
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SYNC disable mask."
+    fields:
+      - name: SYNC_DISSYSREF
+        bits: "7"
+        description: "SYNC DISSYSREF alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler."
+      - name: SYNC_DIS12
+        bits: "6"
+        description: "DCLKout12/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS10
+        bits: "5"
+        description: "DCLKout10/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS8
+        bits: "4"
+        description: "DCLKout8/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS6
+        bits: "3"
+        description: "DCLKout6/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS4
+        bits: "2"
+        description: "DCLKout4/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS2
+        bits: "1"
+        description: "DCLKout2/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+      - name: SYNC_DIS0
+        bits: "0"
+        description: "DCLKout0/SYSREF ilişkili output divider'ın SYNC event ile hizalanmasını engeller; 1 iken ilgili output normal çalışmaya devam eder."
+  - name: REG_145
+    offset: 0x145
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1R/PLL2R sync source."
+    fields:
+      - name: PLL1R_SYNC_EN
+        bits: "6"
+        description: "PLL1R SYNC EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: PLL1R_SYNC_SRC
+        bits: "5:4"
+        description: "PLL1 R divider senkronizasyonu için tetik kaynağını seçer; PLL1R_SYNC_EN ile birlikte kullanılır. 0: reserved; 1: SYNC pini; 2: CLKin0; 3: reserved"
+      - name: PLL2R_SYNC_EN
+        bits: "3"
+        description: "PLL2R SYNC EN alanı SYSREF/SYNC üretimi, divider reset/hizalama veya output senkronizasyon maskesi davranışını belirler. 0: disabled/not enabled; 1: enabled"
+  - name: REG_146
+    offset: 0x146
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin enable/type."
+    fields:
+      - name: CLKIN_SEL_PIN_EN
+        bits: "7"
+        description: "CLKin SEL PIN EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN_SEL_PIN_POL
+        bits: "6"
+        description: "CLKin SEL PIN POL alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: normal polarity; 1: inverted polarity"
+      - name: CLKIN2_EN
+        bits: "5"
+        description: "CLKin2 EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN1_EN
+        bits: "4"
+        description: "CLKin1 EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN0_EN
+        bits: "3"
+        description: "CLKin0 EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN2_TYPE
+        bits: "2"
+        description: "CLKin2 TYPE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN1_TYPE
+        bits: "1"
+        description: "CLKin1 TYPE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN0_TYPE
+        bits: "0"
+        description: "CLKin0 TYPE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_147
+    offset: 0x147
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin selection/demux."
+    fields:
+      - name: CLKIN_SEL_AUTO_REVERT_EN
+        bits: "7"
+        description: "CLKin SEL AUTO REVERT EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN_SEL_AUTO_EN
+        bits: "6"
+        description: "CLKin SEL AUTO EN alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: CLKIN_SEL_MANUAL
+        bits: "5:4"
+        description: "CLKin SEL MANUAL alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN1_DEMUX
+        bits: "3:2"
+        description: "CLKin1 DEMUX alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN0_DEMUX
+        bits: "1:0"
+        description: "CLKin0 DEMUX alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_148
+    offset: 0x148
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin_SEL0 mux/type."
+    fields:
+      - name: CLKIN_SEL0_MUX
+        bits: "5:3"
+        description: "CLKin SEL0 MUX alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN_SEL0_TYPE
+        bits: "2:0"
+        description: "CLKin SEL0 TYPE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_149
+    offset: 0x149
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin_SEL1 mux/type."
+    fields:
+      - name: SDIO_RDBK_TYPE
+        bits: "6"
+        description: "SDIO RDBK TYPE alanı ilgili pinin input/output tipi veya output driver tipini seçer."
+      - name: CLKIN_SEL1_MUX
+        bits: "5:3"
+        description: "CLKin SEL1 MUX alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: CLKIN_SEL1_TYPE
+        bits: "2:0"
+        description: "CLKin SEL1 TYPE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_14A
+    offset: 0x14a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: RESET_MUX / RESET_TYPE."
+    fields:
+      - name: RESET_MUX
+        bits: "5:3"
+        description: "RESET MUX alanı ilgili pin/status/output mux kaynağını seçer."
+      - name: RESET_TYPE
+        bits: "2:0"
+        description: "RESET TYPE alanı ilgili pinin input/output tipi veya output driver tipini seçer."
+  - name: REG_14B
+    offset: 0x14b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: LOS/HOLDOVER/MAN_DAC control."
+    fields:
+      - name: LOS_TIMEOUT
+        bits: "7:6"
+        description: "CLKin üzerinde aktivite görülmediğinde loss-of-signal kaynaklı clock switch event oluşması için kullanılan timeout/frekans eşiğini seçer. 0: 5 MHz typical; 1: 25 MHz typical; 2: 100 MHz typical; 3: 200 MHz typical"
+      - name: LOS_EN
+        bits: "5"
+        description: "LOS EN alanı clock input loss-of-signal algılama, timeout veya harici LOS kaynağı davranışını belirler. 0: disabled/not enabled; 1: enabled"
+      - name: TRACK_EN
+        bits: "4"
+        description: "TRACK EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: HOLDOVER_FORCE
+        bits: "3"
+        description: "Cihazı yazılımla holdover moduna zorlar; normal otomatik giriş koşullarından bağımsız holdover davranışı test/servis için kullanılabilir."
+      - name: MAN_DAC_EN
+        bits: "2"
+        description: "MAN DAC EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+      - name: MAN_DAC_9_8
+        bits: "1:0"
+        description: "MAN DAC alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+  - name: REG_14C
+    offset: 0x14c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: MAN_DAC[7:0]."
+    fields:
+      - name: MAN_DAC_7_0
+        bits: "7:0"
+        description: "MAN DAC alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+  - name: REG_14D
+    offset: 0x14d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DAC_TRIP_LOW."
+    fields:
+      - name: DAC_TRIP_LOW
+        bits: "5:0"
+        description: "DAC TRIP LOW alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+  - name: REG_14E
+    offset: 0x14e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DAC_TRIP_HIGH."
+    fields:
+      - name: DAC_CLK_MULT
+        bits: "7:6"
+        description: "DAC CLK MULT alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+      - name: DAC_TRIP_HIGH
+        bits: "5:0"
+        description: "DAC TRIP HIGH alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+  - name: REG_14F
+    offset: 0x14f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: DAC_CLK_CNTR."
+    fields:
+      - name: DAC_CLK_CNTR
+        bits: "7:0"
+        description: "DAC CLK CNTR alanı holdover DAC değeri, tracking eşiği veya DAC clock davranışını belirler."
+  - name: REG_150
+    offset: 0x150
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: Holdover and CLKin switching control."
+    fields:
+      - name: CLKIN_OVERRIDE
+        bits: "6"
+        description: "CLKin OVERRIDE alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+      - name: HOLDOVER_EXIT_MODE
+        bits: "5"
+        description: "Holdover çıkış kararının LOS durumuna mı yoksa PLL1 digital lock detect durumuna mı dayanacağını seçer. 0: LOS status aktif clock'u geçerli gösterdiğinde holdover'dan çık; 1: PLL1 phase detector/DLD geçerli clock'u onayladığında holdover'dan çık"
+      - name: HOLDOVER_PLL1_DET
+        bits: "4"
+        description: "PLL1 DLD high'dan low'a düştüğünde holdover/clock switch event üretimini etkinleştirir. 0: PLL1 DLD düşüşü clock switch event üretmez; 1: PLL1 DLD düşüşü clock switch event üretir"
+      - name: LOS_EXTERNAL_INPUT
+        bits: "3"
+        description: "Internal LOS devresi yerine harici pinleri CLKin LOS status kaynağı olarak kullanır; CLKin_SEL0/1 ve Status_LD1 pin type ayarı input olmalıdır. 0: internal LOS kullanılır; 1: external LOS input pinleri kullanılır"
+      - name: HOLDOVER_VTUNE_DET
+        bits: "2"
+        description: "DAC Vtune rail detector'ı etkinleştirir; DAC belirlenen Vtune eşiğine ulaştığında mevcut clock invalid kabul edilip switch event üretilebilir. 0: Vtune detector disabled; 1: Vtune detector enabled"
+      - name: CLKIN_SWITCH_CP_TRI
+        bits: "1"
+        description: "CLKin SWITCH CP TRI alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler. 0: active; 1: tri-state"
+      - name: HOLDOVER_EN
+        bits: "0"
+        description: "HOLDOVER EN alanı holdover giriş/çıkış kararı, holdover sayacı veya holdover status davranışını belirler. 0: disabled/not enabled; 1: enabled"
+  - name: REG_151
+    offset: 0x151
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: HOLDOVER_DLD_CNT[13:8]."
+    fields:
+      - name: HOLDOVER_DLD_CNT_13_8
+        bits: "5:0"
+        description: "Holdover'dan çıkmadan önce PLL1 phase detector tarafında görülmesi gereken geçerli clock sayısının üst bitleridir."
+  - name: REG_152
+    offset: 0x152
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: HOLDOVER_DLD_CNT[7:0]."
+    fields:
+      - name: HOLDOVER_DLD_CNT_7_0
+        bits: "7:0"
+        description: "Holdover'dan çıkmadan önce PLL1 phase detector tarafında görülmesi gereken geçerli clock sayısının alt bitleridir."
+  - name: REG_153
+    offset: 0x153
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin0_R[13:8]."
+    fields:
+      - name: CLKIN0_R_13_8
+        bits: "5:0"
+        description: "CLKin0 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_154
+    offset: 0x154
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin0_R[7:0]."
+    fields:
+      - name: CLKIN0_R_7_0
+        bits: "7:0"
+        description: "CLKin0 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_155
+    offset: 0x155
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin1_R[13:8]."
+    fields:
+      - name: CLKIN1_R_13_8
+        bits: "5:0"
+        description: "CLKin1 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_156
+    offset: 0x156
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin1_R[7:0]."
+    fields:
+      - name: CLKIN1_R_7_0
+        bits: "7:0"
+        description: "CLKin1 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_157
+    offset: 0x157
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin2_R[13:8]."
+    fields:
+      - name: CLKIN2_R_13_8
+        bits: "5:0"
+        description: "CLKin2 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_158
+    offset: 0x158
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin2_R[7:0]."
+    fields:
+      - name: CLKIN2_R_7_0
+        bits: "7:0"
+        description: "CLKin2 R alanı CLKin seçimi, CLKin routing/demux, input enable veya input buffer davranışını belirler."
+  - name: REG_159
+    offset: 0x159
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1_N[13:8]."
+    fields:
+      - name: PLL1_N_13_8
+        bits: "5:0"
+        description: "PLL1 feedback N divider değerinin üst bitleridir; PLL1 phase detector feedback oranını belirler."
+  - name: REG_15A
+    offset: 0x15a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1_N[7:0]."
+    fields:
+      - name: PLL1_N_7_0
+        bits: "7:0"
+        description: "PLL1 feedback N divider değerinin alt bitleridir; 14-bit PLL1_N değeri için 0 geçerli değildir."
+  - name: REG_15B
+    offset: 0x15b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1 window / charge-pump control."
+    fields:
+      - name: PLL1_WND_SIZE
+        bits: "7:6"
+        description: "PLL1 digital lock detect için phase-error pencere boyutunu seçer; hata bu pencerenin altında kaldığında PLL1 lock counter artar. 0: 4 ns; 1: 9 ns; 2: 19 ns; 3: 43 ns"
+      - name: PLL1_CP_TRI
+        bits: "5"
+        description: "PLL1 charge pump output pinini tri-state durumuna alır. 0: CPout1 active; 1: CPout1 tri-state"
+      - name: PLL1_CP_POL
+        bits: "4"
+        description: "PLL1 CP POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: PLL1_CP_GAIN
+        bits: "3:0"
+        description: "PLL1 charge pump output current seviyesini seçer; datasheet tablosunda 0=50 uA, 15=1550 uA aralığı verilir."
+  - name: REG_15C
+    offset: 0x15c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1_DLD_CNT[13:8]."
+    fields:
+      - name: PLL1_DLD_CNT_13_8
+        bits: "5:0"
+        description: "PLL1 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL1_WND_SIZE içinde kalması gereken cycle sayısının üst bitleridir."
+  - name: REG_15D
+    offset: 0x15d
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1_DLD_CNT[7:0]."
+    fields:
+      - name: PLL1_DLD_CNT_7_0
+        bits: "7:0"
+        description: "PLL1 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL1_WND_SIZE içinde kalması gereken cycle sayısının alt bitleridir."
+  - name: REG_15E
+    offset: 0x15e
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: HOLDOVER_EXIT_NADJ."
+    fields:
+      - name: HOLDOVER_EXIT_NADJ
+        bits: "4:0"
+        description: "Holdover çıkışında resetlenen PLL1 R ve PLL1 N divider'ları arasındaki relatif timing offset'i 2's complement değer olarak ayarlar."
+  - name: REG_15F
+    offset: 0x15f
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1_LD_MUX / PLL1_LD_TYPE."
+    fields:
+      - name: PLL1_LD_MUX
+        bits: "7:3"
+        description: "PLL1 LD MUX alanı ilgili PLL digital lock detect sinyalini, lock-lost latch'ini veya bu sinyalin SYNC/status yoluna bağlanmasını kontrol eder."
+      - name: PLL1_LD_TYPE
+        bits: "2:0"
+        description: "PLL1 LD TYPE alanı ilgili PLL digital lock detect sinyalini, lock-lost latch'ini veya bu sinyalin SYNC/status yoluna bağlanmasını kontrol eder."
+  - name: REG_160
+    offset: 0x160
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_R[11:8]."
+    fields:
+      - name: PLL2_R_11_8
+        bits: "3:0"
+        description: "PLL2 reference R divider değerinin üst bitleridir; PLL2 phase detector referans frekansını belirler."
+  - name: REG_161
+    offset: 0x161
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_R[7:0]."
+    fields:
+      - name: PLL2_R_7_0
+        bits: "7:0"
+        description: "PLL2 reference R divider değerinin alt bitleridir; 12-bit PLL2_R oranı PLL2 PFD frekansını belirler."
+  - name: REG_162
+    offset: 0x162
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_P / OSCin_FREQ / PLL2_REF_2X_EN."
+    fields:
+      - name: PLL2_P
+        bits: "7:5"
+        description: "PLL2 N prescaler değerini seçer; VCO output'u PLL2 N divider'a gitmeden önce bu prescaler üzerinden bölünür. 0: divide 8; 1: divide 2; 2: divide 2; 3: divide 3; 4: divide 4; 5: divide 5; 6: divide 6; 7: divide 7"
+      - name: OSCIN_FREQ
+        bits: "4:2"
+        description: "PLL2 frequency calibration rutininin doğru çalışması için OSCin/OSCin* üzerinden PLL2 phase detector'a gelen referans frekans aralığını bildirir. 0: 0..63 MHz; 1: >63..127 MHz; 2: >127..255 MHz; 3: reserved; 4: >255..500 MHz; 5..7: reserved"
+      - name: PLL2_REF_2X_EN
+        bits: "0"
+        description: "PLL2 REF 2X EN alanı ilgili LMK04832 fonksiyonunu etkinleştirir veya devre dışı bırakır. 0: disabled/not enabled; 1: enabled"
+  - name: REG_169
+    offset: 0x169
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2 window / charge-pump / DLD control."
+    fields:
+      - name: PLL2_WND_SIZE
+        bits: "6:5"
+        description: "PLL2 digital lock detect için phase-error pencere boyutunu ve izin verilen maksimum phase detector frekansını seçer. 0: reserved; 1: 320 MHz / 1 ns; 2: 240 MHz / 1.8 ns; 3: 160 MHz / 2.6 ns"
+      - name: PLL2_CP_GAIN
+        bits: "4:3"
+        description: "PLL2 charge pump output current seviyesini seçer; PLL2_CP_TRI ile birlikte charge pump davranışını belirler. 0: reserved; 1: reserved; 2: 1600 uA; 3: 3200 uA"
+      - name: PLL2_CP_POL
+        bits: "2"
+        description: "PLL2 CP POL alanı ilgili sinyalin polarity davranışını seçer. 0: normal polarity; 1: inverted polarity"
+      - name: PLL2_CP_TRI
+        bits: "1"
+        description: "PLL2 charge pump output'unu tri-state durumuna alır. 0: disabled; 1: tri-state"
+      - name: PLL2_DLD_EN
+        bits: "0"
+        description: "PLL2 DLD EN alanı ilgili PLL digital lock detect sinyalini, lock-lost latch'ini veya bu sinyalin SYNC/status yoluna bağlanmasını kontrol eder. 0: disabled/not enabled; 1: enabled"
+  - name: REG_16A
+    offset: 0x16a
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_DLD_CNT[13:8]."
+    fields:
+      - name: PLL2_DLD_CNT_13_8
+        bits: "5:0"
+        description: "PLL2 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL2_WND_SIZE içinde kalması gereken cycle sayısının üst bitleridir."
+  - name: REG_16B
+    offset: 0x16b
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL2_DLD_CNT[7:0]."
+    fields:
+      - name: PLL2_DLD_CNT_7_0
+        bits: "7:0"
+        description: "PLL2 digital lock detect assert olmadan önce reference/feedback faz hatasının PLL2_WND_SIZE içinde kalması gereken cycle sayısının alt bitleridir."
+  - name: REG_16C
+    offset: 0x16c
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: Reserved."
+  - name: REG_177
+    offset: 0x177
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: PLL1R_RST."
+    fields:
+      - name: PLL1R_RST
+        bits: "5"
+        description: "PLL1 R divider senkronizasyonu için divider'ı reset/arm eder; PLL1R_SYNC_EN ve seçilen sync kaynağıyla birlikte 1 sonra 0 yazılır."
+  - name: REG_184
+    offset: 0x184
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: CLKin select/LOS readback + DAC[9:8]."
+    fields:
+      - name: RB_DAC_VALUE_9_8
+        bits: "7:6"
+        description: "Holdover DAC readback değerinin üst iki bitidir; 0x185 ile birlikte 10-bit RB_DAC_VALUE oluşturur."
+      - name: RB_CLKIN2_SEL
+        bits: "5"
+        description: "CLKin2'nin PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir. 0: CLKin2 PLL1 input'u olarak seçili değil; 1: CLKin2 PLL1 input'u olarak seçili"
+      - name: RB_CLKIN1_SEL
+        bits: "4"
+        description: "CLKin1'in PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir. 0: CLKin1 PLL1 input'u olarak seçili değil; 1: CLKin1 PLL1 input'u olarak seçili"
+      - name: RB_CLKIN0_SEL
+        bits: "3"
+        description: "CLKin0'ın PLL1 input'u olarak seçili olup olmadığını gösteren readback bitidir. 0: CLKin0 PLL1 input'u olarak seçili değil; 1: CLKin0 PLL1 input'u olarak seçili"
+      - name: RB_CLKIN2_LOS
+        bits: "2"
+        description: "CLKin2 loss-of-signal durumunu gösteren readback bitidir. 0: CLKin2 LOS active değil; 1: CLKin2 LOS active"
+      - name: RB_CLKIN1_LOS
+        bits: "1"
+        description: "CLKin1 loss-of-signal durumunu gösteren readback bitidir. 0: CLKin1 LOS active değil; 1: CLKin1 LOS active"
+      - name: RB_CLKIN0_LOS
+        bits: "0"
+        description: "CLKin0 loss-of-signal durumunu gösteren readback bitidir. 0: CLKin0 LOS active değil; 1: CLKin0 LOS active"
+  - name: REG_185
+    offset: 0x185
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: RB_DAC_VALUE[7:0]."
+    fields:
+      - name: RB_DAC_VALUE_7_0
+        bits: "7:0"
+        description: "Holdover DAC readback değerinin alt sekiz bitidir; 0x184[7:6] ile birlikte 10-bit DAC value okunur."
+  - name: REG_188
+    offset: 0x188
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: Holdover/DAC rail readback."
+    fields:
+      - name: RB_HOLDOVER
+        bits: "4"
+        description: "Cihazın holdover modunda olup olmadığını gösteren readback status bitidir. 0: holdover active değil; 1: holdover active"
+  - name: REG_555
+    offset: 0x555
+    width: 8
+    access: rw
+    description: "LMK04832 Table 5 register map girdisi: SPI_LOCK."
+    fields:
+      - name: SPI_LOCK
+        bits: "7:0"
+        description: "SPI register yazımlarını kilitleyen alandır; 0 unlock, 1..255 lock davranışı verir. 0: registers unlocked; 1..255: registers locked"
 operations:
   - name: device_init
     description: "Apply the ordered TICS Pro 24-bit register array over SPI."

@@ -42,6 +42,439 @@ registers:
         { name: MUXOUT_SEL, bits: "6", description: "0=Lock Detect, 1=SDO (SPI readback)" } ] }
   - { name: R14, offset: 0x0E, width: 16, access: rw }
   - { name: R15, offset: 0x0F, width: 16, access: rw }
+  # --- Katalogdan birlestirilen register haritasi (Registers ekrani
+  # katalogla birebir olsun; kaynak: knowledge.ts, datasheet-dogrulanmis). ---
+  - name: R3
+    offset: 3
+    width: 16
+    access: rw
+    reset: 0xff86
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode state-machine clock, output enables."
+    fields:
+      - name: CH3_EN
+        bits: "15"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CH3 (CLKOUT3, SYSREFOUT3). Setting this bit to 0x0 completely disables all CH3 circuitry, overriding the state of other powerdown/enable bits. 0: disabled; 1: enabled"
+      - name: CH2_EN
+        bits: "14"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CH2 (CLKOUT2, SYSREFOUT2). Setting this bit to 0x0 completely disables all CH2 circuitry, overriding the state of other powerdown/enable bits. 0: disabled; 1: enabled"
+      - name: CH1_EN
+        bits: "13"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CH1 (CLKOUT1, SYSREFOUT1). Setting this bit to 0x0 completely disables all CH1 circuitry, overriding the state of other powerdown/enable bits. 0: disabled; 1: enabled"
+      - name: CH0_EN
+        bits: "12"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CH0 (CLKOUT0, SYSREFOUT0). Setting this bit to 0x0 completely disables all CH0 circuitry, overriding the state of other powerdown/enable bits. 0: disabled; 1: enabled"
+      - name: LOGIC_MUTE_CAL
+        bits: "11"
+        description: "R/W alan; reset 0x1. TI açıklaması: Mutes LOGIC outputs (LOGICLKOUT, LOGISYSREFOUT) during multiplier calibration."
+      - name: CH3_MUTE_CAL
+        bits: "10"
+        description: "R/W alan; reset 0x1. TI açıklaması: Mutes CH3 (CLKOUT3, SYSREFOUT3) during multiplier calibration."
+      - name: CH2_MUTE_CAL
+        bits: "9"
+        description: "R/W alan; reset 0x1. TI açıklaması: Mutes CH2 (CLKOUT2, SYSREFOUT2) during multiplier calibration."
+      - name: CH1_MUTE_CAL
+        bits: "8"
+        description: "R/W alan; reset 0x1. TI açıklaması: Mutes CH1 (CLKOUT1, SYSREFOUT1) during multiplier calibration."
+      - name: CH0_MUTE_CAL
+        bits: "7"
+        description: "R/W alan; reset 0x1. TI açıklaması: Mutes CH0 (CLKOUT0, SYSREFOUT0) during multiplier calibration."
+      - name: SMCLK_DIV
+        bits: "2:0"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets state machine clock divider. Further divides the output of the state machine clock pre-divider. Input frequency from SMCLK_DIV_PRE must be ≤ 1600 MHz. Output frequency must be ≤ 30 MHz. Divide value is 2SMCLK_DIV. 0x0: ÷1; 0x1: ÷2; 0x2: ÷4; 0x3: ÷8; 0x4: ÷16; 0x5: ÷32; 0x6: ÷64; 0x7: ÷128"
+  - name: R4
+    offset: 4
+    width: 16
+    access: rw
+    reset: 0x360f
+    description: "LMX1204 Table 1-1 register map girdisi: Output enables, CLKOUT power."
+    fields:
+      - name: CLKOUT1_PWR
+        bits: "13:11"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT1. Larger values correspond to higher output power."
+      - name: CLKOUT0_PWR
+        bits: "10:8"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT0. Larger values correspond to higher output power."
+      - name: SYSREFOUT3_EN
+        bits: "7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT3 output buffer. 0: disabled; 1: enabled"
+      - name: SYSREFOUT2_EN
+        bits: "6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT2 output buffer. 0: disabled; 1: enabled"
+      - name: SYSREFOUT1_EN
+        bits: "5"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT1 output buffer. 0: disabled; 1: enabled"
+      - name: SYSREFOUT0_EN
+        bits: "4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT0 output buffer. 0: disabled; 1: enabled"
+      - name: CLKOUT3_EN
+        bits: "3"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT3 output buffer. 0: disabled; 1: enabled"
+      - name: CLKOUT2_EN
+        bits: "2"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT2 output buffer. 0: disabled; 1: enabled"
+      - name: CLKOUT1_EN
+        bits: "1"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT1 output buffer. 0: disabled; 1: enabled"
+      - name: CLKOUT0_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT0 output buffer. 0: disabled; 1: enabled"
+  - name: R5
+    offset: 5
+    width: 16
+    access: rw
+    reset: 0x4936
+    description: "LMX1204 Table 1-1 register map girdisi: CLKOUT power, SYSREFOUT power."
+    fields:
+      - name: SYSREFOUT2_PWR
+        bits: "14:12"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT2. Larger values correspond to higher output power. SYSREFOUT2_VCM must be set properly to bring the output common-mode voltage within permissible limits. See also R6 Register."
+      - name: SYSREFOUT1_PWR
+        bits: "11:9"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT1. Larger values correspond to higher output power. SYSREFOUT1_VCM must be set properly to bring the output common-mode voltage within permissible limits. See also R6 Register."
+      - name: SYSREFOUT0_PWR
+        bits: "8:6"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT0. Larger values correspond to higher output power. SYSREFOUT0_VCM must be set properly to bring the output common-mode voltage within permissible limits. See also R6 Register."
+      - name: CLKOUT3_PWR
+        bits: "5:3"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT3. Larger values correspond to higher output power."
+      - name: CLKOUT2_PWR
+        bits: "2:0"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT2. Larger values correspond to higher output power."
+  - name: R7
+    offset: 7
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1204 Table 1-1 register map girdisi: LOGICLK and LOGISYSREF."
+    fields:
+      - name: LOGISYSREFOUT_VCM
+        bits: "14:13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output common mode of LOGISYSREFOUT in LVDS format. Other output formats (CML, LVPECL) ignore this field. 0x0: 1.2 V; 0x1: 1.1 V; 0x2: 1.0 V; 0x3: 0.9 V"
+      - name: LOGICLKOUT_VCM
+        bits: "12:11"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output common mode of LOGICLKOUT in LVDS format. Other output formats (CML, LVPECL) ignore this field. 0x0: 1.2 V; 0x1: 1.1 V; 0x2: 1.0 V; 0x3: 0.9 V"
+      - name: LOGISYSREFOUT_PRED
+        bits: "10:9"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output power of the LOGISYSREFOUT pre-driver. Larger RV_PWR values correspond to higher output power. Default value is sufficient for typical use."
+      - name: LOGICLKOUT_PREDRV
+        bits: "8:7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output power of the LOGICLKOUT pre-driver. Larger values PWR correspond to higher output power. Default value is sufficient for typical use."
+      - name: LOGISYSREFOUT_PWR
+        bits: "6:4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output power of LOGISYSREFOUT in CML format. Larger values correspond to higher output power. Other output formats (LVDS, LVPECL) ignore this field. Valid range is 0x0 to 0x3."
+      - name: LOGICLKOUT_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the output power of LOGICLKOUT in CML format. Larger values correspond to higher output power. Other output formats (LVDS, LVPECL) ignore this field. Valid range is 0x0 to 0x3."
+      - name: LOGISYSREFOUT_EN
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables LOGISYSREFOUT output buffer. 0: disabled; 1: enabled"
+  - name: R8
+    offset: 8
+    width: 16
+    access: rw
+    reset: 0x120
+    description: "LMX1204 Table 1-1 register map girdisi: LOGICLK and LOGISYSREF."
+    fields:
+      - name: LOGICLK_DIV_PRE
+        bits: "8:6"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets pre-divider value for logic clock divider. Output of the pre-divider must be ≤ 3.2 GHz. Values other than those listed below are reserved. 0x1: ÷1; 0x2: ÷2; 0x4: ÷4"
+      - name: LOGIC_EN
+        bits: "4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables LOGICLK subsystem (LOGICLKOUT, LOGISYSREFOUT). Setting this bit to 0x0 completely disables all LOGICLKOUT and LOGISYSREFOUT circuitry, overriding the state of other powerdown/ enable bits. 0: disabled; 1: enabled"
+      - name: LOGISYSREFOUT_FMT
+        bits: "3:2"
+        description: "R/W alan; reset 0x0. TI açıklaması: Selects the output driver format of the LOGISYSREFOUT output. LVDS allows for common mode control with LOGISYSREFOUT_VCM field. CML allows for output power control with LOGISYSREFOUT_PWR field. CML format requires external 50-Ω pull-up resistors. LVPECL requires external 220-Ω emitter resistors to GND when AC-coupled, or 50-Ω to VCC - 2 V (0.5 V) when DC-coupled. See also R7 Register. 0x0: LVDS; 0x1: LVPECL; 0x2: CML; 0x3: Reserved"
+      - name: LOGICLKOUT_FMT
+        bits: "1:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Selects the output driver format of the LOGICLKOUT output. LVDS allows for common mode control with LOGICLKOUT_VCM field. CML allows for output power control with LOGICLKOUT_PWR field. CML format requires external 50-Ω pull-up resistors. LVPECL requires external 220-Ω emitter resistors to GND when AC-coupled, or 50-Ω to VCC - 2 V (0.5 V) when DC-coupled. See also R7 Register. 0x0: LVDS; 0x1: LVPECL; 0x2: CML; 0x3: Reserved"
+  - name: R9
+    offset: 9
+    width: 16
+    access: rw
+    reset: 0x1e
+    description: "LMX1204 Table 1-1 register map girdisi: LOGICLK divider, SYNC, SYSREFREQ."
+    fields:
+      - name: SYSREFREQ_VCM
+        bits: "15:14"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the internal DC Bias for the SYSREFREQ pins. Bias must be enabled for AC-coupled inputs; but can be enabled and overdriven, or disabled, for DC-coupled inputs. SYSREFREQ DC pin voltage must be in the range of 0.7 V to VCC, including minimum and maximum signal swing. 0x0: 1.3 V; 0x1: 1.1 V; 0x2: 1.5 V; 0x3: Disabled (DC-coupled only)"
+      - name: SYNC_EN
+        bits: "13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables synchronization path for the dividers and allows the clock position capture circuitry to be enabled. Used for multi-device synchronization. Redundant if SYSREF_EN = 0x1. 0: disabled; 1: enabled"
+      - name: LOGICLK_DIV_PD
+        bits: "12"
+        description: "R/W alan; reset 0x0. TI açıklaması: Disables the LOGICLK divider. LOGICLK pre-divider remains enabled. Used to reduce current consumption when bypassing the LOGICLK divider. When LOGICLK_DIV_PRE = 0x2 or 0x4, this bit must be set to 0x0. 0: normal/enabled; 1: power-down"
+      - name: LOGICLK_DIV_BYPASS
+        bits: "11"
+        description: "R/W alan; reset 0x0. TI açıklaması: Bypasses the LOGICLK divider, deriving LOGICLK output directly from the pre-divider. Used to achieve divide-by-1 when LOGICLK_DIV_PRE = 0x1. When LOGICLK_DIV_PRE = 0x2 or 0x4, this bit must be set to 0x0. When LOGICLK_DIV_BYPASS = 0x1, set R90[6:5] = 0x3 and R79[9:8] = 0x0. When LOGICLK_DIV_BYPASS = 0x0, if R90[6:5] = 0x3 due to previous user setting, set R90[6:5] = 0x0. When LOGICLK_DIV_BYPASS = 0x1, the LOGICLKOUT frequency must be ≤ 800 MHz to avoid amplitude degradation. See also R79 Register and R90 Register."
+      - name: LOGICLK_DIV
+        bits: "9:0"
+        description: "R/W alan; reset 0x1E. TI açıklaması: Sets LOGICLK divider value. Maximum input frequency from LOGICLK_DIV_PRE must be ≤ 3200 MHz. The maximum LOGICLKOUT frequency must be ≤ 800 MHz to avoid amplitude degradation. ... 0x0: Reserved; 0x1: Reserved; 0x2: ÷2; 0x3: ÷3; 0x1FF: ÷1023"
+  - name: R11
+    offset: 0xb
+    width: 16
+    access: rw
+    reset: 0xffff
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFREQ windowing readback."
+    fields:
+      - name: RB_CLKPOS_15_0
+        bits: "15:0"
+        description: "R alan; reset 0xFFFF. TI açıklaması: Stores a snapshot of the CLKIN signal rising edge positions relative to a SYSREFREQ rising edge, with the snapshot starting from the LSB and ending at the MSB. Each bit represents a sample of the CLKIN signal, separated by a delay determined by the SYSREFREQ_DELAY_STEPSIZE field. The first and last bits of rb_CLKPOS are always set, indicating uncertainty at the capture window boundary conditions. CLKIN rising edges are represented by every sequence of two set bits from LSB to MSB, including bits at the boundary conditions. The position of the CLKIN rising edges in the snapshot, along with the CLKIN signal period and the delay step size, can be used to compute the value of SYSREFREQ_DELAY_STEP which maximizes setup and hold times for SYNC signals on the SYSREFREQ pins. See also R12 Register, R13 Register, R14 Register, and R15 Register."
+  - name: R12
+    offset: 0xc
+    width: 16
+    access: rw
+    reset: 0xffff
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFREQ windowing readback."
+    fields:
+      - name: RB_CLKPOS_31_16
+        bits: "15:0"
+        description: "R alan; reset 0xFFFF. TI açıklaması: MSBs of rb_CLKPOS field. See also R11 Register, R13 Register, R14 Register, and R15 Register."
+  - name: R13
+    offset: 0xd
+    width: 16
+    access: rw
+    reset: 3
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFREQ windowing."
+    fields:
+      - name: SYSREFREQ_DELAY_STEPSIZE
+        bits: "1:0"
+        description: "R/W alan; reset 0x3. TI açıklaması: Sets the step size of the delay element used in the SYSREFREQ path, both for SYSREFREQ input delay and for clock position captures. The recommended frequency range for each step size creates the maximum number of usable steps for a given CLKIN frequency. The ranges include some overlap to account for process and temperature variations. If the CLKIN frequency is covered by an overlapping span, larger delay step sizes improve the likelihood of detecting a CLKIN rising edge during a clock position capture. However, since larger values include more delay steps, larger step sizes have greater total delay variation across PVT relative to smaller step sizes. See also R11 Register, R12 Register, R14 Register, and R15 Register. 0x0: 28 ps (1.4 GHz to 2.7 GHz); 0x1: 15 ps (2.4 GHz to 4.7 GHz); 0x2: 11 ps (3.1 GHz to 5.7 GHz); 0x3: 8 ps (4.5 GHz to 12.8 GHz)"
+  - name: R16
+    offset: 0x10
+    width: 16
+    access: rw
+    reset: 0x1003
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREF."
+    fields:
+      - name: SYSREF_PULSE_COUN
+        bits: "15:12"
+        description: "R/W alan; reset 0x1. TI açıklaması: Programs the number of pulses generated in pulser mode. The T pulser is a counter gating the SYSREF divider; consequently, the pulse duration and frequency are equal to the duty cycle and frequency of the SYSREF divider output, respectively. ... 0x0: Reserved; 0x1: 1 pulse; 0x2: 2 pulses; 0xF: 15 pulses"
+      - name: SYSREF_DIV
+        bits: "11:0"
+        description: "R/W alan; reset 0x3. TI açıklaması: Sets the SYSREF divider. Maximum input frequency from SYSREF_DIV_PRE must be ≤ 3200 MHz. Maximum output frequency must be ≤ 100 MHz. Odd divides (with duty cycle != 50%) are only allowed when the delay generators are bypassed. See also R72 Register. ... 0x0: Reserved; 0x1: Reserved; 0x2: ÷2; 0x3: ÷3; 0xFFF: ÷4095"
+  - name: R17
+    offset: 0x11
+    width: 16
+    access: rw
+    reset: 0x7f0
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREF, SYSREFOUT0 delay."
+    fields:
+      - name: SYSREFOUT0_DELAY_I
+        bits: "10:4"
+        description: "R/W alan; reset 0x7F. TI açıklaması: Sets the delay step for the SYSREFOUT0 delay generator. Must satisfy SYSREFOUT0_DELAY_I + SYSREFOUT0_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R18 Register and R22 Register."
+      - name: SYSREFOUT0_DELAY_P
+        bits: "3:2"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the quadrature phase of the interpolator clock used for the HASE SYSREFOUT0 delay generator retimer. Consult the data sheet for configuration instructions. See also R18 Register and R22 Register. 0x0: ICLK; 0x1: QCLK; 0x2: QCLK; 0x3: ICLK"
+      - name: SYSREF_MODE
+        bits: "1:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Controls how the SYSREF signal is generated or repeated. See also SYSREF_DELAY_BYPASS in R79 Register for additional configuration options. 0x0: Continuous (Generator Mode); 0x1: Pulser (Generator Mode); 0x2: Repeater (Repeater Mode); 0x3: Reserved"
+  - name: R18
+    offset: 0x12
+    width: 16
+    access: rw
+    reset: 0xfe00
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFOUT delay."
+    fields:
+      - name: SYSREFOUT1_DELAY_I
+        bits: "15:9"
+        description: "R/W alan; reset 0x7F. TI açıklaması: Sets the delay step for the SYSREFOUT1 delay generator. Must satisfy SYSREFOUT1_DELAY_I + SYSREFOUT1_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R19 Register and R22 Register."
+      - name: SYSREFOUT1_DELAY_P
+        bits: "8:7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the quadrature phase of the interpolator clock used for the HASE SYSREFOUT1 delay generator retimer. Consult the data sheet for configuration instructions. See also R19 Register and R22 Register. 0x0: ICLK; 0x1: QCLK; 0x2: QCLK; 0x3: ICLK"
+      - name: SYSREFOUT0_DELAY_Q
+        bits: "6:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay step for the SYSREFOUT0 delay generator. Must satisfy SYSREFOUT0_DELAY_I + SYSREFOUT0_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R17 Register and R22 Register."
+  - name: R19
+    offset: 0x13
+    width: 16
+    access: rw
+    reset: 0xfe00
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFOUT delay."
+    fields:
+      - name: SYSREFOUT2_DELAY_I
+        bits: "15:9"
+        description: "R/W alan; reset 0x7F. TI açıklaması: Sets the delay step for the SYSREFOUT2 delay generator. Must satisfy SYSREFOUT2_DELAY_I + SYSREFOUT2_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R20 Register and R23 Register."
+      - name: SYSREFOUT2_DELAY_P
+        bits: "8:7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the quadrature phase of the interpolator clock used for the HASE SYSREFOUT2 delay generator retimer. Consult the data sheet for configuration instructions. See also R20 Register and R23 Register. 0x0: ICLK; 0x1: QCLK; 0x2: QCLK; 0x3: ICLK"
+      - name: SYSREFOUT1_DELAY_Q
+        bits: "6:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay step for the SYSREFOUT1 delay generator. Must satisfy SYSREFOUT1_DELAY_I + SYSREFOUT1_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R18 Register and R22 Register."
+  - name: R20
+    offset: 0x14
+    width: 16
+    access: rw
+    reset: 0xfe00
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFOUT delay."
+    fields:
+      - name: SYSREFOUT3_DELAY_I
+        bits: "15:9"
+        description: "R/W alan; reset 0x7F. TI açıklaması: Sets the delay step for the SYSREFOUT3 delay generator. Must satisfy SYSREFOUT3_DELAY_I + SYSREFOUT3_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R21 Register and R23 Register."
+      - name: SYSREFOUT3_DELAY_P
+        bits: "8:7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the quadrature phase of the interpolator clock used for the HASE SYSREFOUT3 delay generator retimer. Consult the data sheet for configuration instructions. See also R21 Register and R23 Register. 0x0: ICLK; 0x1: QCLK; 0x2: QCLK; 0x3: ICLK"
+      - name: SYSREFOUT2_DELAY_Q
+        bits: "6:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay step for the SYSREFOUT2 delay generator. Must satisfy SYSREFOUT2_DELAY_I + SYSREFOUT2_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R19 Register and R23 Register."
+  - name: R21
+    offset: 0x15
+    width: 16
+    access: rw
+    reset: 0xfe00
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFOUT delay."
+    fields:
+      - name: LOGISYSREFOUT_DELA
+        bits: "15:9"
+        description: "R/W alan; reset 0x7F. TI açıklaması: Sets the delay step for the LOGISYSREFOUT delay Y_I generator. Must satisfy LOGISYSREFOUT_DELAY_I + LOGISYSREFOUT_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R22 Register and R23 Register."
+      - name: LOGISYSREFOUT_DELA_2
+        bits: "8:7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the quadrature phase of the interpolator clock used for the Y_PHASE LOGISYSREFOUT delay generator retimer. Consult the data sheet for configuration instructions. See also R22 Register and R23 Register. 0x0: ICLK; 0x1: QCLK; 0x2: QCLK; 0x3: ICLK"
+      - name: SYSREFOUT3_DELAY_Q
+        bits: "6:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay step for the SYSREFOUT3 delay generator. Must satisfy SYSREFOUT3_DELAY_I + SYSREFOUT3_DELAY_Q = 0x7F. Consult the data sheet for configuration instructions. See also R20 Register and R23 Register."
+  - name: R22
+    offset: 0x16
+    width: 16
+    access: rw
+    reset: 0x800
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREFOUT delay."
+    fields:
+      - name: SYSREFOUT1_DELAY_S
+        bits: "15:14"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the frequency range of the SYSREFOUT1 delay generator. Set CALE according to fINTERPOLATOR frequency. Consult the data sheet for configuration instructions. See also R18 Register and R19 Register. 0x0: 400 MHz to 800 MHz; 0x1: 200 MHz to 400 MHz; 0x2: 150 MHz to 200 MHz; 0x3: Reserved"
+      - name: SYSREFOUT0_DELAY_S
+        bits: "13:12"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the frequency range of the SYSREFOUT0 delay generator. Set CALE according to fINTERPOLATOR frequency. Consult the data sheet for configuration instructions. See also R17 Register and R18 Register. 0x0: 400 MHz to 800 MHz; 0x1: 200 MHz to 400 MHz; 0x2: 150 MHz to 200 MHz; 0x3: Reserved"
+      - name: SYSREF_DELAY_DIV
+        bits: "11:9"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the delay generator clock division, determining fINTERPOLATOR and the delay generator resolution. Values other than those listed below are reserved. See also R23 Register. 0x0: ÷2 (≤ 1.6 GHz); 0x1: ÷4 (1.6 GHz to 3.2 GHz); 0x2: ÷8 (3.2 GHz to 6.4 GHz); 0x4: ÷16 (6.4 GHz to 12.8 GHz)"
+      - name: LOGISYSREFOUT_DELA
+        bits: "6:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay step for the LOGISYSREFOUT delay Y_Q generator. Must satisfy LOGISYSREFOUT_DELAY_I + LOGISYSREFOUT_DELAY_Q = 0x7F. See also R21 Register and R23 Register."
+  - name: R24
+    offset: 0x18
+    width: 16
+    access: rw
+    reset: 0xffe
+    description: "LMX1204 Table 1-1 register map girdisi: Temperature sensor."
+    fields:
+      - name: RB_TEMPSENSE
+        bits: "11:1"
+        description: "R alan; reset 0x7FF. TI açıklaması: Output of on-die temperature sensor. Readback code can be converted to junction temperature (in °C) according to the following equation: TJ = 0.65 * rb_TEMPSENSE - 351"
+      - name: EN_TS_COUNT
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables temperature sensor counter. Temperature sensor (EN_TEMPSENSE) must be enabled for accurate data. See also R23 Register."
+  - name: R25
+    offset: 0x19
+    width: 16
+    access: rw
+    reset: 0x211
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode, Divider Mode."
+    fields:
+      - name: CLK_DIV_RST
+        bits: "6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Resets the main clock divider. If the clock divider value is changed during operation, set this bit high then low after setting the new divider value. Synchronizing the device with the SYSREFREQ pins in SYSREFREQ_MODE = 0x0 and SYNC_EN = 0x1 also resets the main clock divider. This bit has no effect when outside of Divider Mode."
+      - name: CLK_DIV
+        bits: "5:3"
+        description: "R/W alan; reset 0x2. TI açıklaması: CLK_DIV and CLK_MULT are aliases for the same field. CLK_MULT When CLK_MUX = 0x2 (Divider Mode), sets the clock divider equal to CLK_DIV + 1. Valid range is 0x1 to 0x7. Setting CLK_DIV = 0x0 disables the main clock divider and reverts to buffer mode. When CLK_MUX = 0x3 (Multiplier Mode), sets the multiplier equal to CLK_MULT. Valid range is 0x1 to 0x4. Setting CLK_MULT to an invalid value disables the multiplier and reverts to buffer mode. When CLK_MUX = 0x1 (buffer mode), this field is ignored."
+      - name: CLK_MUX
+        bits: "2:0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Selects the function of the device. Multiplier Mode requires writing several other registers (R33, R34, and R67) to values differing from POR defaults, as well as configuring the state machine clock (R2 and R3), before multiplier calibration. Writing any value to R0 (as long as POWERDOWN = 0x0 and RESET = 0x0) triggers a multiplier calibration. Values other than those listed below are reserved. 0x1: Buffer Mode; 0x2: Divider Mode; 0x3: Multiplier Mode"
+  - name: R28
+    offset: 0x1c
+    width: 16
+    access: rw
+    reset: 0xa08
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode optional partial-assist calibration."
+    fields:
+      - name: FORCE_VCO
+        bits: "12"
+        description: "R/W alan; reset 0x0. TI açıklaması: Forces the multiplier PLL's VCO to the value selected by VCO_SEL. Not required for Multiplier Mode programming, but can optionally be used to reduce calibration time."
+      - name: VCO_SEL
+        bits: "11:9"
+        description: "R/W alan; reset 0x5. TI açıklaması: User specified start VCO for multiplier PLL. When FORCE_VCO = 0x0, multiplier calibration starts from the VCO set by this field. When FORCE_VCO = 0x1, this field sets the VCO core used by the multiplier. Not required for Multiplier Mode programming, but can optionally be used to reduce calibration time."
+  - name: R29
+    offset: 0x1d
+    width: 16
+    access: rw
+    reset: 0x5ff
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode optional partial-assist calibration."
+    fields:
+      - name: CAPCTRL
+        bits: "7:0"
+        description: "R/W alan; reset 0xFF. TI açıklaması: Sets the starting value for the VCO tuning capacitance during multiplier calibration. Not required for Multiplier Mode programming, but can optionally be used to reduce calibration time."
+  - name: R33
+    offset: 0x21
+    width: 16
+    access: rw
+    reset: 0x7777
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode reserved, must write in multiplier mode."
+  - name: R34
+    offset: 0x22
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode reserved, must write in multiplier mode."
+  - name: R65
+    offset: 0x41
+    width: 16
+    access: rw
+    reset: 0x45f0
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode read-only, optional partial-assist calibration."
+    fields:
+      - name: RB_VCO_SEL
+        bits: "8:4"
+        description: "R alan; reset 0x1F. TI açıklaması: Readback multiplier PLL's VCO core selection. Can be optionally used in conjunction with VCO_SEL and FORCE_VCO fields to improve calibration time. 0xF: VCO5; 0x17: VCO4; 0x1B: VCO3; 0x1D: VCO2; 0x1E: VCO1"
+  - name: R67
+    offset: 0x43
+    width: 16
+    access: rw
+    reset: 0x50c8
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode reserved, must write in multiplier mode."
+  - name: R72
+    offset: 0x48
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1204 Table 1-1 register map girdisi: SYSREF."
+    fields:
+      - name: PULSER_LATCH
+        bits: "3"
+        description: "R/W alan; reset 0x0. TI açıklaması: Latches the pulser input when programmed to 0x1. When this bit is set, external signals on SYSREFREQ pins in pulser mode (SYSREF_MODE = 0x1) can not trigger the pulser more than once, until this bit is cleared. This bit is provided to enable changing SYSREF_MODE in repeater mode without risk of accidentally triggering the pulser."
+      - name: SYSREFREQ_SPI
+        bits: "2"
+        description: "R/W alan; reset 0x0. TI açıklaması: Trigger SYSREFREQ via SPI. Setting this bit emulates the behavior of a logic HIGH at SYSREFREQ pins. External signals on SYSREFREQ pins are ignored while this bit is set."
+      - name: SYSREF_DELAY_BYPASS
+        bits: "1:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Option to bypass delay generator retiming. Under normal circumstances (SYSREF_DELAY_BYPASS = 0) the delay generator is engaged for continuous or pulser modes (Generator Modes), and bypassed in Repeater Mode. Generally this configuration is desirable: the delay generators rely on a signal generated by the SYSREF_DELAY_DIV from the CLKIN frequency, so the Generator Mode SYSREF signal is always well-aligned to the delay generator; in repeater mode, external signal sources can typically utilize a different delay mechanism. In certain cases, bypassing the delay generator retiming in Generator Mode by setting SYSREF_DELAY_BYPASS = 0x1 can substantially reduce the device current consumption if the SYSREF delay can be compensated at the JESD receiver. In other cases, retiming the SYSREFREQ signal to the delay generators by setting SYSREF_DELAY_BYPASS = 0x2 can improve the accuracy of the SYSREF output phase with respect to the CLKIN phase, or can vary the delay of individual outputs independently, as long as coherent phase relationship exists between the interpolator divider phase and the SYSREFREQ phase. 0x0: Engage in Generator Mode, Bypass in Repeater Mode; 0x1: Bypass in All Modes; 0x2: Engage in All Modes; 0x3: Reserved"
+  - name: R75
+    offset: 0x4b
+    width: 16
+    access: rw
+    reset: 0xe716
+    description: "LMX1204 Table 1-1 register map girdisi: Multiplier Mode read-only, optional lock detect."
+    fields:
+      - name: RB_LD
+        bits: "9:8"
+        description: "R alan; reset 0x3. TI açıklaması: Multiplier PLL Lock Detect. Read-only. Field value has no meaning if device is not in Multiplier Mode. 0x0: Unlocked (VTUNE low); 0x1: Reserved; 0x2: Locked; 0x3: Unlocked (VTUNE high)"
+  - name: R79
+    offset: 0x4f
+    width: 16
+    access: rw
+    reset: 0x104
+    description: "LMX1204 Table 1-1 register map girdisi: LOGICLK divider reserved, optional divider bypass."
+  - name: R86
+    offset: 0x56
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1204 Table 1-1 register map girdisi: MUXOUT reserved, optional tri-state."
+  - name: R90
+    offset: 0x5a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1204 Table 1-1 register map girdisi: LOGICLK divider reserved, optional divider bypass."
 operations:
   - name: device_init
     description: "Apply the ordered TICS Pro 24-bit register array over SPI."

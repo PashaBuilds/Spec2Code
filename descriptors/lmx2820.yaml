@@ -55,6 +55,940 @@ registers:
   - { name: R76, offset: 0x4C, width: 16, access: ro,
       fields: [
         { name: rb_TEMP_SENS, bits: "10:0", description: "dahili sicaklik sensoru okumasi" } ] }
+  # --- Katalogdan birlestirilen register haritasi (Registers ekrani
+  # katalogla birebir olsun; kaynak: knowledge.ts, datasheet-dogrulanmis). ---
+  - name: R2
+    offset: 2
+    width: 16
+    access: rw
+    reset: 0xb3e8
+    description: "LMX2820 SNAU251A register map girdisi R2; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: CAL_CLK_DIV
+        bits: "14:12"
+        description: "R/W alan; reset 0x3. TI açıklaması: Divides down the state machine clock (fsm) during VCO calibration. Maximum fsm is 200 MHz. fsm = fOSCIN / (2CAL_CLK_DIV). All other values are reserved 0x0: fOSCIN ≤ 200 MHz; 0x1: fOSCIN ≤ 400 MHz; 0x2: fOSCIN ≤ 800 MHz; 0x3: All other fOSCIN values"
+      - name: INSTCAL_DLY
+        bits: "11:1"
+        description: "R/W alan; reset 0x1F4. TI açıklaması: Sets the wait time for instant calibration. INSTCAL_DLY = T x fOSCIN / (2CAL_CLK_DIV). T = 2.5 x CBIASVCO / 4.7 µF. CBIASVCO is the bypass capacitor at pin 3."
+      - name: QUICK_RECAL_EN
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Starts VCO calibration with the current VCO_SEL, VCO_CAPCTRL and VCO_DACISET values. 0x0: Disabled; 0x1: Enabled"
+  - name: R3
+    offset: 3
+    width: 16
+    access: rw
+    reset: 0x41
+    description: "LMX2820 SNAU251A register map girdisi R3; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R4
+    offset: 4
+    width: 16
+    access: rw
+    reset: 0x4204
+    description: "LMX2820 SNAU251A register map girdisi R4; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R5
+    offset: 5
+    width: 16
+    access: rw
+    reset: 0x3832
+    description: "LMX2820 SNAU251A register map girdisi R5; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R6
+    offset: 6
+    width: 16
+    access: rw
+    reset: 0xa43
+    description: "LMX2820 SNAU251A register map girdisi R6; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: ACAL_CMP_DLY
+        bits: "15:8"
+        description: "R/W alan; reset 0xA. TI açıklaması: VCO amplitude calibration delay. Lowering this value can speed up calibration time. If too low, phase noise may not be optimal due to insufficient time to reach final calibrated amplitude. Delay time = ACAL_CMP_DLY x 2 x state machine clock cycle."
+  - name: R7
+    offset: 7
+    width: 16
+    access: rw
+    reset: 0xc8
+    description: "LMX2820 SNAU251A register map girdisi R7; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R8
+    offset: 8
+    width: 16
+    access: rw
+    reset: 0xc802
+    description: "LMX2820 SNAU251A register map girdisi R8; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R9
+    offset: 9
+    width: 16
+    access: rw
+    reset: 5
+    description: "LMX2820 SNAU251A register map girdisi R9; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R10
+    offset: 0xa
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R10; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PFD_DLY_MANUAL
+        bits: "12"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables manual PFD_DLY adjustment. 0x0: Disabled; 0x1: Enabled"
+      - name: VCO_DACISET_FORCE
+        bits: "11"
+        description: "R/W alan; reset 0x0. TI açıklaması: Forces the VCO to use the current setting specified by VCO_DACISET. Useful for full-assisted VCO calibration and debugging purposes. 0x0: Disabled; 0x1: Enabled"
+      - name: VCO_CAPCTRL_FORCE
+        bits: "7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Forces the VCO to use the sub-band specified by VCO_CAPCTRL. Useful for full-assisted VCO calibration and debugging purposes. 0x0: Disabled; 0x1: Enabled"
+  - name: R11
+    offset: 0xb
+    width: 16
+    access: rw
+    reset: 0x603
+    description: "LMX2820 SNAU251A register map girdisi R11; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: OSC_2X
+        bits: "4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables reference input doubler. 0x0: Disabled; 0x1: Enabled"
+  - name: R12
+    offset: 0xc
+    width: 16
+    access: rw
+    reset: 0x408
+    description: "LMX2820 SNAU251A register map girdisi R12; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: MULT
+        bits: "12:10"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets reference path frequency multiplier value. All other values are reserved 0x1: Bypassed; 0x3: x3; 0x4: x4; 0x5: x5; 0x6: x6; 0x7: x7"
+  - name: R13
+    offset: 0xd
+    width: 16
+    access: rw
+    reset: 0x38
+    description: "LMX2820 SNAU251A register map girdisi R13; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_R
+        bits: "12:5"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets reference path Post-R divider value."
+  - name: R14
+    offset: 0xe
+    width: 16
+    access: rw
+    reset: 0x3001
+    description: "LMX2820 SNAU251A register map girdisi R14; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_R_PRE
+        bits: "11:0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets reference path Pre-R divider value."
+  - name: R15
+    offset: 0xf
+    width: 16
+    access: rw
+    reset: 0x2001
+    description: "LMX2820 SNAU251A register map girdisi R15; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PFD_POL
+        bits: "11"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the polarity of phase detector. Internal VCO operation requires negative Vtune with non-inverting loop filter. 0x0: Negative Vtune; 0x1: Positive Vtune"
+      - name: PFD_SINGLE
+        bits: "10:9"
+        description: "R/W alan; reset 0x0. TI açıklaması: Uses single PFD when PFDIN input is enabled. The actual charge pump current is equal to half the current setting made in CPG. Bit Field Type Reset Description 0x0: Normal operation; 0x1: Not used; 0x2: Not used; 0x3: Single PFD"
+  - name: R16
+    offset: 0x10
+    width: 16
+    access: rw
+    reset: 0x271c
+    description: "LMX2820 SNAU251A register map girdisi R16; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: CPG
+        bits: "4:1"
+        description: "R/W alan; reset 0xE. TI açıklaması: Sets charge pump gain value. All other values are reserved 0x0: Tri-state; 0x1: 1.4 mA; 0x4: 5.6 mA; 0x5: 7 mA; 0x6: 11.2 mA; 0x7: 12.6 mA; 0x8: 2.8 mA; 0x9: 4.2 mA; 0x12: 8.4 mA; 0x13: 9.8 mA; 0x14: 14 mA; 0x15: 15.4 mA"
+  - name: R17
+    offset: 0x11
+    width: 16
+    access: rw
+    reset: 0x1440
+    description: "LMX2820 SNAU251A register map girdisi R17; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: LD_TYPE
+        bits: "6"
+        description: "R/W alan; reset 0x1. TI açıklaması: Defines lock detect monitor type. One-Shot detects lock only after the VCO calibrates and the LD_DLY timeout counter is finished. Continuous lock detect checks for lock all the time, including when the input reference is removed. 0x0: One-Shot; 0x1: Continuous"
+  - name: R18
+    offset: 0x12
+    width: 16
+    access: rw
+    reset: 0x3e8
+    description: "LMX2820 SNAU251A register map girdisi R18; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: LD_DLY
+        bits: "15:0"
+        description: "R/W alan; reset 0x3E8. TI açıklaması: Lock detect assertion delay. This is the delay that is added after the VCO calibration is completed before indicating lock. This delay is only applied if LD_VTUNE_EN = 1. Delay time = LD_DLY / fPD."
+  - name: R19
+    offset: 0x13
+    width: 16
+    access: rw
+    reset: 0x2120
+    description: "LMX2820 SNAU251A register map girdisi R19; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: TEMPSENSE_EN
+        bits: "4:3"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables temperature sensor. 0x0: Disabled; 0x1: Reserved; 0x2: Reserved; 0x3: Enabled"
+  - name: R20
+    offset: 0x14
+    width: 16
+    access: rw
+    reset: 0x272c
+    description: "LMX2820 SNAU251A register map girdisi R20; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: VCO_DACISET
+        bits: "8:0"
+        description: "R/W alan; reset 0x12C. TI açıklaması: User specified start VCO current setting for calibration. Unless QUICK_RECAL_EN = 1, VCO calibration will always start with the VCO current setting that is specified in this field."
+  - name: R21
+    offset: 0x15
+    width: 16
+    access: rw
+    reset: 0x1c64
+    description: "LMX2820 SNAU251A register map girdisi R21; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R22
+    offset: 0x16
+    width: 16
+    access: rw
+    reset: 0xe2bf
+    description: "LMX2820 SNAU251A register map girdisi R22; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: VCO_SEL
+        bits: "15:13"
+        description: "R/W alan; reset 0x7. TI açıklaması: User specified start VCO core for calibration. Unless QUICK_RECAL_EN = 1, VCO calibration will always start with the VCO core that is specified in this field. ... 0x0: Reserved; 0x1: VCO1; 0x2: VCO2; 0x6: VCO6; 0x7: VCO7"
+      - name: VCO_CAPCTRL
+        bits: "7:0"
+        description: "R/W alan; reset 0xBF. TI açıklaması: User specified start VCO sub-band for calibration. Valid values are 191 to 0, where the higher number represents a lower frequency band. Unless QUICK_RECAL_EN = 1, VCO calibration will always start with the VCO sub-band that is specified in this field."
+  - name: R23
+    offset: 0x17
+    width: 16
+    access: rw
+    reset: 0x1102
+    description: "LMX2820 SNAU251A register map girdisi R23; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: VCO_SEL_FORCE
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Forces the VCO to use the core specified by VCO_SEL. Useful for full-assisted VCO calibration and debugging purposes. 0x0: Disabled; 0x1: Enabled"
+  - name: R24
+    offset: 0x18
+    width: 16
+    access: rw
+    reset: 0xe34
+    description: "LMX2820 SNAU251A register map girdisi R24; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R25
+    offset: 0x19
+    width: 16
+    access: rw
+    reset: 0x624
+    description: "LMX2820 SNAU251A register map girdisi R25; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R26
+    offset: 0x1a
+    width: 16
+    access: rw
+    reset: 0xdb0
+    description: "LMX2820 SNAU251A register map girdisi R26; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R27
+    offset: 0x1b
+    width: 16
+    access: rw
+    reset: 0x8001
+    description: "LMX2820 SNAU251A register map girdisi R27; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R28
+    offset: 0x1c
+    width: 16
+    access: rw
+    reset: 0x639
+    description: "LMX2820 SNAU251A register map girdisi R28; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R29
+    offset: 0x1d
+    width: 16
+    access: rw
+    reset: 0x318c
+    description: "LMX2820 SNAU251A register map girdisi R29; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R30
+    offset: 0x1e
+    width: 16
+    access: rw
+    reset: 0xb18c
+    description: "LMX2820 SNAU251A register map girdisi R30; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R31
+    offset: 0x1f
+    width: 16
+    access: rw
+    reset: 0x401
+    description: "LMX2820 SNAU251A register map girdisi R31; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R32
+    offset: 0x20
+    width: 16
+    access: rw
+    reset: 0x1001
+    description: "LMX2820 SNAU251A register map girdisi R32; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: CHDIVB
+        bits: "11:9"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets divider value for RFOUTB. 0x0: Divide by 2; 0x1: Divide by 4; 0x2: Divide by 8; 0x3: Divide by 16; 0x4: Divide by 32; 0x5: Divide by 64; 0x6: Divide by 128; 0x7: Reserved"
+      - name: CHDIVA
+        bits: "8:6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets divider value for RFOUTA. 0x0: Divide by 2; 0x1: Divide by 4; 0x2: Divide by 8; 0x3: Divide by 16; 0x4: Divide by 32; 0x5: Divide by 64; 0x6: Divide by 128; 0x7: Reserved"
+  - name: R33
+    offset: 0x21
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R33; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R34
+    offset: 0x22
+    width: 16
+    access: rw
+    reset: 0x10
+    description: "LMX2820 SNAU251A register map girdisi R34; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: LOOPBACK_EN
+        bits: "11"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables loop back mode. In this mode, both RFIN input path and internal VCO are active, the synthesizer will try to lock to the internal VCO. EXTVCO_EN must be set to 0 in this mode. 0x0: Disabled; 0x1: Enabled"
+      - name: EXTVCO_DIV
+        bits: "4"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets external VCO input divider value. 0x0: Divide by 2; 0x1: Bypassed"
+      - name: EXTVCO_EN
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables external VCO mode. Set this bit to 1 will enables RFIN input path but disables internal VCO, the synthesizer will try to lock to an external source appear at RFIN pin. In loop back mode, this bit has to be set to 0, RFIN input path will be enabled by the LOOPBACK_EN bit. 0x0: Disabled; 0x1: Enabled"
+  - name: R37
+    offset: 0x25
+    width: 16
+    access: rw
+    reset: 0x500
+    description: "LMX2820 SNAU251A register map girdisi R37; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PFD_DLY
+        bits: "14:9"
+        description: "R/W alan; reset 0x2. TI açıklaması: Sets N divider delay time in phase detector. Effective only when PFD_DLY_MANUAL = 1. All other values must be set in accordance to the N divider value 0x0: Reserved"
+  - name: R38
+    offset: 0x26
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R38; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_DEN_31_16
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the upper 16 bits of fractional denominator (DEN)."
+  - name: R39
+    offset: 0x27
+    width: 16
+    access: rw
+    reset: 0x3e8
+    description: "LMX2820 SNAU251A register map girdisi R39; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_DEN_15_0
+        bits: "15:0"
+        description: "R/W alan; reset 0x3E8. TI açıklaması: Sets the lower 16 bits of fractional denominator (DEN)."
+  - name: R40
+    offset: 0x28
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R40; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: MASH_SEED_31_16
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the upper 16 bits of MASH_SEED."
+  - name: R41
+    offset: 0x29
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R41; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: MASH_SEED_15_0
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the lower 16 bits of MASH SEED."
+  - name: R42
+    offset: 0x2a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R42; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_NUM_31_16
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the upper 16 bits of fractional numerator (NUM)."
+  - name: R43
+    offset: 0x2b
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R43; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PLL_NUM_15_0
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the lower 16 bits of fractional numerator (NUM)."
+  - name: R44
+    offset: 0x2c
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R44; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: INSTCAL_PLL_NUM_31_16
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the upper 16 bits of INSTCAL_PLL_NUM. INSTCAL_PLL_NUM = 232 x (PLL_NUM / PLL_DEN)."
+  - name: R45
+    offset: 0x2d
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R45; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: INSTCAL_PLL_NUM_15_0
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the lower 16 bits of INSTCAL_PLL_NUM. INSTCAL_PLL_NUM = 232 x (PLL_NUM / PLL_DEN)."
+  - name: R46
+    offset: 0x2e
+    width: 16
+    access: rw
+    reset: 0x300
+    description: "LMX2820 SNAU251A register map girdisi R46; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R47
+    offset: 0x2f
+    width: 16
+    access: rw
+    reset: 0x300
+    description: "LMX2820 SNAU251A register map girdisi R47; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R48
+    offset: 0x30
+    width: 16
+    access: rw
+    reset: 0x4180
+    description: "LMX2820 SNAU251A register map girdisi R48; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R49
+    offset: 0x31
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R49; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R50
+    offset: 0x32
+    width: 16
+    access: rw
+    reset: 0x80
+    description: "LMX2820 SNAU251A register map girdisi R50; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R51
+    offset: 0x33
+    width: 16
+    access: rw
+    reset: 0x203f
+    description: "LMX2820 SNAU251A register map girdisi R51; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R52
+    offset: 0x34
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R52; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R53
+    offset: 0x35
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R53; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R54
+    offset: 0x36
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R54; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R55
+    offset: 0x37
+    width: 16
+    access: rw
+    reset: 2
+    description: "LMX2820 SNAU251A register map girdisi R55; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R56
+    offset: 0x38
+    width: 16
+    access: rw
+    reset: 1
+    description: "LMX2820 SNAU251A register map girdisi R56; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: EXTPFD_DIV
+        bits: "5:0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets external PFD input divider value. Set this field to 0 is not allowed. A value of 1 means bypassed."
+  - name: R57
+    offset: 0x39
+    width: 16
+    access: rw
+    reset: 1
+    description: "LMX2820 SNAU251A register map girdisi R57; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PFD_SEL
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables PFDIN input. When using PFDIN input, the charge pump has to be set to single PFD by setting PFD_SINGLE = 0x3. 0x0: Enabled; 0x1: Disabled"
+  - name: R58
+    offset: 0x3a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R58; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R59
+    offset: 0x3b
+    width: 16
+    access: rw
+    reset: 0x1388
+    description: "LMX2820 SNAU251A register map girdisi R59; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R60
+    offset: 0x3c
+    width: 16
+    access: rw
+    reset: 0x1f4
+    description: "LMX2820 SNAU251A register map girdisi R60; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R61
+    offset: 0x3d
+    width: 16
+    access: rw
+    reset: 0x3e8
+    description: "LMX2820 SNAU251A register map girdisi R61; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R62
+    offset: 0x3e
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R62; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: MASH_RST_COUNT_31_16
+        bits: "15:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the upper 16 bits of MASH reset delay. This is the delay that is necessary after the MASH engine is reset during phase synchronization when PLL_NUM is not equal to zero. The delay time must be set to greater than the lock time of the PLL. Delay time = MASH_RST_COUNT x (2CAL_CLK_DIV) / fOSCIN. This field can be set to 0 when PLL_NUM = 0."
+  - name: R63
+    offset: 0x3f
+    width: 16
+    access: rw
+    reset: 0xc350
+    description: "LMX2820 SNAU251A register map girdisi R63; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: MASH_RST_COUNT_15_0
+        bits: "15:0"
+        description: "R/W alan; reset 0xC350. TI açıklaması: Sets the lower 16 bits of MASH reset delay."
+  - name: R64
+    offset: 0x40
+    width: 16
+    access: rw
+    reset: 0x4080
+    description: "LMX2820 SNAU251A register map girdisi R64; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: SYSREF_INP_FMT
+        bits: "9:8"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets SRREQ pin input format. differential termination differential termination 0x0: CMOS input at SRREQ_P pin, 1.8-V to 3.3-V logic; 0x1: AC-couple CMOS input at SRREQ_P pin; 0x2: AC-coupled differential LVDS input, requires external 100-Ω; 0x3: DC-coupled differential LVDS input, requires external 100-Ω"
+      - name: SYSREF_DIV_PRE
+        bits: "7:5"
+        description: "R/W alan; reset 0x4. TI açıklaması: This divider is used to get the frequency input to SYSREF_DIV within acceptable limits. All other values are reserved Bit Field Type Reset Description 0x1: Divide by 2; 0x2: Divide by 4; 0x4: Divide by 8"
+      - name: SYSREF_REPEAT_NS
+        bits: "4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables asynchronous SYSREF repeater mode. In this mode, the SYSREF signal coming from the SRREQ pin will be passed through to the SROUT pin without reclocking. 0x0: If SYSREF_REPEAT = 1; 0x1: Enabled"
+      - name: SYSREF_PULSE
+        bits: "3"
+        description: "R/W alan; reset 0x0. TI açıklaması: Defines SYSREF master mode. In continuous mode, SYSREF pulses are generated continuously. Pulsed mode allows multiple pulses (as determined by SYSREF_PULSE_CNT) to be sent out whenever the SRREQ pins go HIGH. 0x0: Continuous mode; 0x1: Pulsed mode"
+      - name: SYSREF_EN
+        bits: "2"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREF mode. 0x0: Disabled; 0x1: Enabled"
+      - name: SYSREF_REPEAT
+        bits: "1"
+        description: "R/W alan; reset 0x0. TI açıklaması: Defines SYSREF mode. In master mode, SYSREF pulses are generated internally. In repeater mode, SYSREF pulses are generated in response to the SRREQ pins. 0x0: Master mode; 0x1: Repeater mode"
+  - name: R65
+    offset: 0x41
+    width: 16
+    access: rw
+    reset: 1
+    description: "LMX2820 SNAU251A register map girdisi R65; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: SYSREF_DIV
+        bits: "10:0"
+        description: "R/W alan; reset 0x1. TI açıklaması: This divider further divides the output frequency for the SYSREF."
+  - name: R66
+    offset: 0x42
+    width: 16
+    access: rw
+    reset: 0x3f
+    description: "LMX2820 SNAU251A register map girdisi R66; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: JESD_DAC2_CTRL
+        bits: "11:6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Programmable delay adjustment for SYSREF mode."
+      - name: JESD_DAC1_CTRL
+        bits: "5:0"
+        description: "R/W alan; reset 0x3F. TI açıklaması: Programmable delay adjustment for SYSREF mode."
+  - name: R67
+    offset: 0x43
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R67; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: SYSREF_PULSE_CNT
+        bits: "15:12"
+        description: "R/W alan; reset 0x0. TI açıklaması: Defines how many pulses are sent in SYSREF pulsed mode. Bit Field Type Reset Description"
+      - name: JESD_DAC4_CTRL
+        bits: "11:6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Programmable delay adjustment for SYSREF mode."
+      - name: JESD_DAC3_CTRL
+        bits: "5:0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Programmable delay adjustment for SYSREF mode."
+  - name: R68
+    offset: 0x44
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R68; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: INPIN_IGNORE
+        bits: "5"
+        description: "R/W alan; reset 0x0. TI açıklaması: Disables PSYNC pin. Keep this bit equals 1 unless phase sync is required. 0x0: Enables pin; 0x1: Disables pin"
+      - name: PSYNC_INP_FMT
+        bits: "0"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets PSYNC pin input format. differential termination 0x0: CMOS input, 1.8-V to 3.3-V logic; 0x1: AC-coupled differential LVDS input, requires external 100-Ω"
+  - name: R69
+    offset: 0x45
+    width: 16
+    access: rw
+    reset: 0x11
+    description: "LMX2820 SNAU251A register map girdisi R69; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: SROUT_PD
+        bits: "4"
+        description: "R/W alan; reset 0x1. TI açıklaması: Powerdowns SYSREF output buffer. 0x0: Normal operation; 0x1: Power down"
+  - name: R70
+    offset: 0x46
+    width: 16
+    access: rw
+    reset: 0x1e
+    description: "LMX2820 SNAU251A register map girdisi R70; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: DBLBUF_OUTMUX_EN
+        bits: "7"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables double buffering for OUTA_MUX and OUTB_MUX. Changes of these registers will only be effective after R0 is programmed. Bit Field Type Reset Description 0x0: Disabled; 0x1: Enabled"
+      - name: DBLBUF_OUTBUF_EN
+        bits: "6"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables double buffering for OUTA_PD and OUTB_PD. Changes of these registers will only be effective after R0 is programmed. 0x0: Disabled; 0x1: Enabled"
+      - name: DBLBUF_CHDIV_EN
+        bits: "5"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables double buffering for CHDIVA and CHDIVB. Changes of these registers will only be effective after R0 is programmed. 0x0: Disabled; 0x1: Enabled"
+      - name: DBLBUF_PLL_EN
+        bits: "4"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables double buffering for PLL_N, PLL_NUM, PLL_DEN, MULT, PLL_R, PLL_R_PRE, MASH_ORDER and PFD_DLY. Changes of these registers will only be effective after R0 is programmed. 0x0: Disabled; 0x1: Enabled"
+  - name: R71
+    offset: 0x47
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R71; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R72
+    offset: 0x48
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R72; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R73
+    offset: 0x49
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R73; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R77
+    offset: 0x4d
+    width: 16
+    access: rw
+    reset: 0x56cc
+    description: "LMX2820 SNAU251A register map girdisi R77; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: PINMUTE_POL
+        bits: "8"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the polarity of mute control for MUTE pin. Bit Field Type Reset Description 0x0: Active HIGH; 0x1: Active LOW"
+  - name: R78
+    offset: 0x4e
+    width: 16
+    access: rw
+    reset: 1
+    description: "LMX2820 SNAU251A register map girdisi R78; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: OUTA_PD
+        bits: "4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Power downs RFOUTA. 0x0: Normal operation; 0x1: Power down"
+      - name: OUTA_MUX
+        bits: "1:0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Selects the input source to RFOUTA. 0x0: Channel divider; 0x1: VCO; 0x2: VCO doubler; 0x3: Reserved"
+  - name: R79
+    offset: 0x4f
+    width: 16
+    access: rw
+    reset: 0x11e
+    description: "LMX2820 SNAU251A register map girdisi R79; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: OUTB_PD
+        bits: "8"
+        description: "R/W alan; reset 0x1. TI açıklaması: Power downs RFOUTB. 0x0: Normal operation; 0x1: Power down"
+      - name: OUTB_MUX
+        bits: "5:4"
+        description: "R/W alan; reset 0x1. TI açıklaması: Selects the input source to RFOUTB. 0x0: Channel divider; 0x1: VCO; 0x2: VCO doubler; 0x3: Reserved"
+      - name: OUTA_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x7. TI açıklaması: Adjusts RFOUTA output power. Higher numbers give more output power."
+  - name: R80
+    offset: 0x50
+    width: 16
+    access: rw
+    reset: 0x1c0
+    description: "LMX2820 SNAU251A register map girdisi R80; TICS Pro export bu 16-bit register image değerini üretir."
+    fields:
+      - name: OUTB_PWR
+        bits: "8:6"
+        description: "R/W alan; reset 0x7. TI açıklaması: Adjusts RFOUTB output power. Higher numbers give more output power."
+  - name: R81
+    offset: 0x51
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R81; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R82
+    offset: 0x52
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R82; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R83
+    offset: 0x53
+    width: 16
+    access: rw
+    reset: 0xf00
+    description: "LMX2820 SNAU251A register map girdisi R83; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R84
+    offset: 0x54
+    width: 16
+    access: rw
+    reset: 0x40
+    description: "LMX2820 SNAU251A register map girdisi R84; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R85
+    offset: 0x55
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R85; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R86
+    offset: 0x56
+    width: 16
+    access: rw
+    reset: 0x40
+    description: "LMX2820 SNAU251A register map girdisi R86; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R87
+    offset: 0x57
+    width: 16
+    access: rw
+    reset: 0xff00
+    description: "LMX2820 SNAU251A register map girdisi R87; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R88
+    offset: 0x58
+    width: 16
+    access: rw
+    reset: 0x3ff
+    description: "LMX2820 SNAU251A register map girdisi R88; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R89
+    offset: 0x59
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R89; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R90
+    offset: 0x5a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R90; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R91
+    offset: 0x5b
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R91; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R92
+    offset: 0x5c
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R92; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R93
+    offset: 0x5d
+    width: 16
+    access: rw
+    reset: 0x1000
+    description: "LMX2820 SNAU251A register map girdisi R93; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R94
+    offset: 0x5e
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R94; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R95
+    offset: 0x5f
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R95; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R96
+    offset: 0x60
+    width: 16
+    access: rw
+    reset: 0x17f8
+    description: "LMX2820 SNAU251A register map girdisi R96; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R97
+    offset: 0x61
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R97; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R98
+    offset: 0x62
+    width: 16
+    access: rw
+    reset: 0x1c80
+    description: "LMX2820 SNAU251A register map girdisi R98; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R99
+    offset: 0x63
+    width: 16
+    access: rw
+    reset: 0x19b9
+    description: "LMX2820 SNAU251A register map girdisi R99; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R100
+    offset: 0x64
+    width: 16
+    access: rw
+    reset: 0x533
+    description: "LMX2820 SNAU251A register map girdisi R100; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R101
+    offset: 0x65
+    width: 16
+    access: rw
+    reset: 0x3e8
+    description: "LMX2820 SNAU251A register map girdisi R101; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R102
+    offset: 0x66
+    width: 16
+    access: rw
+    reset: 0x28
+    description: "LMX2820 SNAU251A register map girdisi R102; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R103
+    offset: 0x67
+    width: 16
+    access: rw
+    reset: 0x14
+    description: "LMX2820 SNAU251A register map girdisi R103; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R104
+    offset: 0x68
+    width: 16
+    access: rw
+    reset: 0x14
+    description: "LMX2820 SNAU251A register map girdisi R104; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R105
+    offset: 0x69
+    width: 16
+    access: rw
+    reset: 0xa
+    description: "LMX2820 SNAU251A register map girdisi R105; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R106
+    offset: 0x6a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R106; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R107
+    offset: 0x6b
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R107; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R108
+    offset: 0x6c
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R108; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R109
+    offset: 0x6d
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R109; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R110
+    offset: 0x6e
+    width: 16
+    access: rw
+    reset: 0x1f
+    description: "LMX2820 SNAU251A register map girdisi R110; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R111
+    offset: 0x6f
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R111; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R112
+    offset: 0x70
+    width: 16
+    access: rw
+    reset: 0xffff
+    description: "LMX2820 SNAU251A register map girdisi R112; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R113
+    offset: 0x71
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R113; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R114
+    offset: 0x72
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R114; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R115
+    offset: 0x73
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R115; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R116
+    offset: 0x74
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R116; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R117
+    offset: 0x75
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R117; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R118
+    offset: 0x76
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R118; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R119
+    offset: 0x77
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R119; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R120
+    offset: 0x78
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R120; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R121
+    offset: 0x79
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R121; TICS Pro export bu 16-bit register image değerini üretir."
+  - name: R122
+    offset: 0x7a
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX2820 SNAU251A register map girdisi R122; TICS Pro export bu 16-bit register image değerini üretir."
 operations:
   - name: device_init
     description: "Apply the ordered TICS Pro 24-bit register array, then re-write R0 after the LDO settle delay."

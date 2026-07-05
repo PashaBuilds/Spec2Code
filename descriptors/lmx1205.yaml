@@ -75,6 +75,340 @@ registers:
   - { name: R55, offset: 0x37, width: 16, access: rw, reset: 0x0000,
       fields: [
         { name: DEV_IOPT_CTRL, bits: "5:0", description: "Tum modlarda (powerdown dahil) 0x6 yazilmasi zorunlu son adim (SNAS850 Table 7-45, 6.3.7)" } ] }
+  # --- Katalogdan birlestirilen register haritasi (Registers ekrani
+  # katalogla birebir olsun; kaynak: knowledge.ts, datasheet-dogrulanmis). ---
+  - name: R3
+    offset: 3
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: CLKIN Delay."
+  - name: R5
+    offset: 5
+    width: 16
+    access: rw
+    reset: 0xd
+    description: "LMX1205 Table 7-1 register map girdisi: CLKOUT1 Enables, Power and Delay."
+    fields:
+      - name: CLK1_DLY
+        bits: "10:4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT1 output clock. Delay range 55ps, step size 0.9ps."
+      - name: CLK1_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT1. Larger values correspond to higher output power."
+      - name: CLK1_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT1 output buffer. 0: disabled; 1: enabled"
+  - name: R6
+    offset: 6
+    width: 16
+    access: rw
+    reset: 0xd
+    description: "LMX1205 Table 7-1 register map girdisi: CLKOUT2 Enables, Power and Delay."
+    fields:
+      - name: CLK2_DLY
+        bits: "10:4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT2 output clock. Delay range 55ps, step size 0.9ps."
+      - name: CLK2_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT2. Larger values correspond to higher output power."
+      - name: CLK2_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT2 output buffer. 0: disabled; 1: enabled"
+  - name: R7
+    offset: 7
+    width: 16
+    access: rw
+    reset: 0xd
+    description: "LMX1205 Table 7-1 register map girdisi: CLKOUT3 Enables, Power and Delay."
+    fields:
+      - name: CLK3_DLY
+        bits: "10:4"
+        description: "R/W alan; reset 0x0. TI açıklaması: Sets the delay at CLKOUT3 output clock. Delay range 55ps, step size 0.9ps."
+      - name: CLK3_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x6. TI açıklaması: Sets the output power of CLKOUT3. Larger values correspond to higher output power."
+      - name: CLK3_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables CLKOUT3 output buffer. 0: disabled; 1: enabled"
+  - name: R8
+    offset: 8
+    width: 16
+    access: rw
+    reset: 0x5ca9
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT0 Enables, Power, VCM."
+    fields:
+      - name: SYSREF0_PWR_LOW
+        bits: "14"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT0 output driver at low power. Set to 0 for single ended higher swing."
+      - name: SYSREF0_AC
+        bits: "13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT0 AC coupled mode."
+      - name: SYSREF0_VCM
+        bits: "9:4"
+        description: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT0 with 25mV step size. SYSREF0_PWR must be set properly."
+      - name: SYSREF0_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT0."
+      - name: SYSREF0_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT0 output buffer. 0: disabled; 1: enabled"
+  - name: R9
+    offset: 9
+    width: 16
+    access: rw
+    reset: 0x5ca9
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT1 Enables, Power, VCM."
+    fields:
+      - name: SYSREF1_PWR_LOW
+        bits: "14"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT1 output driver at low power. Set to 0 for single ended higher swing."
+      - name: SYSREF1_AC
+        bits: "13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT1 AC coupled mode."
+      - name: SYSREF1_VCM
+        bits: "9:4"
+        description: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT1 with 25mV step size. SYSREF1_PWR must be set properly."
+      - name: SYSREF1_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT1."
+      - name: SYSREF1_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT1 output buffer. 0: disabled; 1: enabled"
+  - name: R10
+    offset: 0xa
+    width: 16
+    access: rw
+    reset: 0x5ca9
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT2 Enables, Power, VCM."
+    fields:
+      - name: SYSREF2_PWR_LOW
+        bits: "14"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT2 output driver at low power. Set to 0 for single ended higher swing."
+      - name: SYSREF2_AC
+        bits: "13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT2 AC coupled mode."
+      - name: SYSREF2_VCM
+        bits: "9:4"
+        description: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT2 with 25mV step size. SYSREF2_PWR must be set properly."
+      - name: SYSREF2_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT2."
+      - name: SYSREF2_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT2 output buffer. 0: disabled; 1: enabled"
+  - name: R11
+    offset: 0xb
+    width: 16
+    access: rw
+    reset: 0x5ca9
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT3 Enables, Power, VCM."
+    fields:
+      - name: SYSREF3_PWR_LOW
+        bits: "14"
+        description: "R/W alan; reset 0x1. TI açıklaması: Sets the SYSREFOUT3 output driver at low power. Set to 0 for single ended higher swing."
+      - name: SYSREF3_AC
+        bits: "13"
+        description: "R/W alan; reset 0x0. TI açıklaması: Enables SYSREFOUT3 AC coupled mode."
+      - name: SYSREF3_VCM
+        bits: "9:4"
+        description: "R/W alan; reset 0xA. TI açıklaması: Sets the output common mode of SYSREFOUT3 with 25mV step size. SYSREF3_PWR must be set properly."
+      - name: SYSREF3_PWR
+        bits: "3:1"
+        description: "R/W alan; reset 0x4. TI açıklaması: Sets the output power of SYSREFOUT3."
+      - name: SYSREF3_EN
+        bits: "0"
+        description: "R/W alan; reset 0x1. TI açıklaması: Enables SYSREFOUT3 output buffer. 0: disabled; 1: enabled"
+  - name: R12
+    offset: 0xc
+    width: 16
+    access: rw
+    reset: 0x2b
+    description: "LMX1205 Table 7-1 register map girdisi: LOGICLK Enables, Power, VCM and Output Formats."
+  - name: R13
+    offset: 0xd
+    width: 16
+    access: rw
+    reset: 0x2b
+    description: "LMX1205 Table 7-1 register map girdisi: LOGISYSREF Enables, Power, VCM and Output Formats."
+  - name: R14
+    offset: 0xe
+    width: 16
+    access: rw
+    reset: 0x84
+    description: "LMX1205 Table 7-1 register map girdisi: LOGICLK Dividers."
+    fields:
+      - name: LOGICLK_DIV_RST
+        bits: "15"
+        description: "R/W alan; reset 0x0. TI açıklaması: Manual reset for logic clock divider."
+      - name: LOGICLK_DIV
+        bits: "12:3"
+        description: "R/W alan; reset 0x10. TI açıklaması: Sets LOGICLK divider value. Max input from LOGICLK_DIV_PRE 3200MHz; max LOGICLKOUT 800MHz. 0x0-0x1: Reserved; 0x2: ÷2; 0x3: ÷3; ...; 0x3FF: ÷1023"
+      - name: LOGICLK_DIV_PRE
+        bits: "2:0"
+        description: "R/W alan; reset 0x4. TI açıklaması: Pre-divider; output 3.2GHz max; other values reserved. 0x1: ÷1; 0x2: ÷2; 0x4: ÷4"
+  - name: R15
+    offset: 0xf
+    width: 16
+    access: rw
+    reset: 2
+    description: "LMX1205 Table 7-1 register map girdisi: LOGICLK2 Enables, Dividers."
+  - name: R16
+    offset: 0x10
+    width: 16
+    access: rw
+    reset: 0x30
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFREQ Input."
+  - name: R17
+    offset: 0x11
+    width: 16
+    access: rw
+    reset: 5
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFREQ Input."
+  - name: R18
+    offset: 0x12
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFREQ Input (SYSREFREQ_DLY)."
+  - name: R19
+    offset: 0x13
+    width: 16
+    access: rw
+    reset: 4
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREF Output (mode, pulse count, delay bypass)."
+  - name: R20
+    offset: 0x14
+    width: 16
+    access: rw
+    reset: 0x8082
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREF Output Dividers."
+    fields:
+      - name: SYSREF_DLY_DIV
+        bits: "15:14"
+        description: "R/W alan; reset 0x2. TI açıklaması: Sets the delay generator clock division (interpolator frequency/resolution). Enum listesi datasheet'te 0x4'e kadar basilidir (Advance Information tutarsizligi). 0x0: ÷2 (≤1.6GHz); 0x1: ÷4 (1.6-3.2GHz); 0x2: ÷8 (3.2-6.4GHz); 0x4: ÷16 (6.4-12.8GHz)"
+      - name: SYSREF_DIV
+        bits: "13:2"
+        description: "R/W alan; reset 0x20. TI açıklaması: SYSREF divider. Input from SYSREF_DIV_PRE 3200MHz max; output 100MHz max. Odd divides only when delay generators bypassed. 0x0-0x1: Reserved; 0x2: ÷2; ...; 0xFFF: ÷4095"
+      - name: SYSREF_DIV_PRE
+        bits: "1:0"
+        description: "R/W alan; reset 0x2. TI açıklaması: SYSREF pre-divider. 0x0: ÷1; 0x1: ÷2; 0x2: ÷4; 0x3: Reserved"
+  - name: R21
+    offset: 0x15
+    width: 16
+    access: rw
+    reset: 0x1fc
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT0 Delay."
+  - name: R22
+    offset: 0x16
+    width: 16
+    access: rw
+    reset: 0x1fc
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT1 Delay."
+  - name: R23
+    offset: 0x17
+    width: 16
+    access: rw
+    reset: 0x1fc
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT2 Delay."
+  - name: R24
+    offset: 0x18
+    width: 16
+    access: rw
+    reset: 0x1fc
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFOUT3 Delay."
+  - name: R25
+    offset: 0x19
+    width: 16
+    access: rw
+    reset: 0x1fc
+    description: "LMX1205 Table 7-1 register map girdisi: LOGISYSREFOUT Delay."
+  - name: R26
+    offset: 0x1a
+    width: 16
+    access: rw
+    reset: 0xd1
+    description: "LMX1205 Table 7-1 register map girdisi: State Machine Clock (SMCLK_DIV/PRE/EN)."
+  - name: R29
+    offset: 0x1d
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFREQ Windowing readback - rb_CLKPOS[31:16]."
+    fields:
+      - name: RB_CLKPOS_HIGH
+        bits: "15:0"
+        description: "R alan; reset 0x0000. TI açıklaması: rb_CLKPOS[31:16] - snapshot of CLKIN rising-edge positions relative to a SYSREFREQ rising edge; each bit is a CLKIN sample separated by SYSREFREQ_DLY_STEP delay; first and last bits always set (boundary uncertainty). Used to compute SYSREFREQ_DLY_STEP maximizing setup/hold."
+  - name: R30
+    offset: 0x1e
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: SYSREFREQ Windowing readback - rb_CLKPOS[15:0]."
+    fields:
+      - name: RB_CLKPOS_LOW
+        bits: "15:0"
+        description: "R alan; reset 0x0000. TI açıklaması: rb_CLKPOS[15:0] - LSBs of rb_CLKPOS."
+  - name: R36
+    offset: 0x24
+    width: 16
+    access: rw
+    reset: 0x84a3
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R39
+    offset: 0x27
+    width: 16
+    access: rw
+    reset: 0x78e1
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R40
+    offset: 0x28
+    width: 16
+    access: rw
+    reset: 0x78e1
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R41
+    offset: 0x29
+    width: 16
+    access: rw
+    reset: 0x78f3
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R42
+    offset: 0x2a
+    width: 16
+    access: rw
+    reset: 0x76f3
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R43
+    offset: 0x2b
+    width: 16
+    access: rw
+    reset: 0x7707
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R44
+    offset: 0x2c
+    width: 16
+    access: rw
+    reset: 0x7707
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R45
+    offset: 0x2d
+    width: 16
+    access: rw
+    reset: 0x2abf
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
+  - name: R54
+    offset: 0x36
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved, bits 15:14 read-only)."
+  - name: R77
+    offset: 0x4d
+    width: 16
+    access: rw
+    reset: 0
+    description: "LMX1205 Table 7-1 register map girdisi: Multiplier Mode (Reserved)."
 operations:
   - name: device_init
     description: "Apply the ordered 24-bit register-word array over SPI. SNAS850 6.3.7 bring-up sirasi: RESET 1->0 toggle (>=1 us arayla), register programlama, son yazim DEV_IOPT_CTRL=0x6 - dizinin bu sirayi icerdigini dogrula."
