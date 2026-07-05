@@ -433,15 +433,17 @@ function SpiWaveform({ part, transfer }: { part: string; transfer: KnowledgeRegi
 export default function BusWaveform({
   part,
   transfer,
+  defaultOpen = false,
 }: {
   part: string;
   transfer: KnowledgeRegisterTransfer;
+  defaultOpen?: boolean;
 }) {
   const protocol = protocolForPart(part);
   if (!protocol) return null;
 
   return (
-    <details className="rounded-md border border-border bg-inset/50">
+    <details className="rounded-md border border-border bg-inset/50" open={defaultOpen}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-text">
         <span className="flex items-center gap-2">
           <Activity className="h-3.5 w-3.5 text-accent" aria-hidden />

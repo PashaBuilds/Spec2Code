@@ -4,6 +4,7 @@ import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
 import { api } from "@/lib/api";
 import { timeLabelMs } from "@/lib/console";
+import { formatConvertedValue } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { useBoardConnection } from "@/store/connection";
 import { useStore } from "@/store/useStore";
@@ -93,7 +94,15 @@ interface ResultMeta {
   durationMs: number;
 }
 
-function ResultPanel({ result, meta }: { result: TestbenchCommandResponse | null; meta: ResultMeta | null }) {
+function ResultPanel({
+  result,
+  meta,
+  operation,
+}: {
+  result: TestbenchCommandResponse | null;
+  meta: ResultMeta | null;
+  operation: TestbenchOperation | null;
+}) {
   if (!result) {
     return (
       <div className="rounded-md border border-border bg-inset p-3 text-xs text-muted">
@@ -105,6 +114,7 @@ function ResultPanel({ result, meta }: { result: TestbenchCommandResponse | null
   const ok = result.parsed.ok === "1";
   const data = result.parsed.data ?? "";
   const bytes = byteGroups(data);
+  const decoded = formatConvertedValue(operation, result.parsed);
 
   return (
     <div className={cn("rounded-md border p-3", ok ? "border-ok/30 bg-ok/10" : "border-danger/30 bg-danger/10")}>
@@ -113,6 +123,11 @@ function ResultPanel({ result, meta }: { result: TestbenchCommandResponse | null
         <Badge tone={ok ? "ok" : "danger"}>{ok ? "ok" : "hata"}</Badge>
         <Badge tone="neutral">status {result.parsed.status ?? "-"}</Badge>
         {result.parsed.value ? <Badge tone="accent">value {result.parsed.value}</Badge> : null}
+        {decoded ? (
+          <span className="rounded-md border border-ok/40 bg-ok/15 px-2 py-0.5 font-mono text-sm font-semibold text-ok">
+            = {decoded}
+          </span>
+        ) : null}
         {meta ? (
           <span className="ml-auto font-mono text-[11px] text-muted" title="Gönderim zamanı ve komutun toplam gidiş-dönüş süresi">
             {timeLabelMs(meta.sentAtMs, { ms: true })} · {meta.durationMs} ms
@@ -522,7 +537,7 @@ export default function TestBenchPanel() {
                 ) : null}
               </div>
 
-              <ResultPanel result={result} meta={resultMeta} />
+              <ResultPanel result={result} meta={resultMeta} operation={selectedOperation} />
             </div>
           </div>
         ) : (

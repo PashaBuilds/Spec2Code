@@ -883,6 +883,10 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 "requires_data": needs_data,
                 "requires_register": False,
                 "requires_value": False,
+                # UI, donusturulmus degeri ondalik + birimle gosterebilsin
+                # (0xF23 yerine 38.75 C): donus tipi ve convert birimi.
+                "result_returns": str(op.get("returns", "") or ""),
+                "result_unit": str((op.get("convert") or {}).get("unit", "") or ""),
             })
         if _supports_i2c_register_ops(descriptor):
             operations.extend([
@@ -898,6 +902,8 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_data": False,
                     "requires_register": True,
                     "requires_value": False,
+                    "result_returns": "uint8",
+                    "result_unit": "",
                 },
                 {
                     "name": "register_write",
@@ -934,6 +940,8 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "requires_data": False,
                     "requires_register": True,
                     "requires_value": False,
+                    "result_returns": "uint16" if data_bits == 16 else "uint8",
+                    "result_unit": "",
                 })
             operations.append({
                 "name": "register_write",

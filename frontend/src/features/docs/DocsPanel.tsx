@@ -350,21 +350,28 @@ const SECTIONS: DocSection[] = [
     ),
   },
   {
-    id: "testbench", no: "8.0", title: "Test Bench ve Akış",
-    keywords: "test bench operasyon komut akış tx rx timeline register",
+    id: "testbench", no: "8.0", title: "Test Bench, Akış ve Seri Hat",
+    keywords: "test bench operasyon komut akış tx rx timeline register seri hat waveform diyagram",
     body: (
       <>
         <P>
           Test Bench, karttaki ajana S2C satır protokolüyle komut gönderir: cihaz seç → operasyon
           seç → <B>Gönder</B>. Riskli operasyonlar (yazma/init/erase) onay ister. Yanıtın ham
-          satırı, ayrıştırılmış alanları ve veri baytları panelde görünür; alttaki{" "}
-          <B>işlem zaman çizelgesi</B> son 60 saniyeyi çizer.
+          satırı, ayrıştırılmış alanları ve veri baytları panelde görünür; dönüştürülmüş sonuçlar
+          ondalık + birimle rozetlenir (<M>0xF23</M> → <B>38.75 °C</B>) ve gönderim zamanı + süre
+          (ms) gösterilir; alttaki <B>işlem zaman çizelgesi</B> son 60 saniyeyi çizer.
         </P>
         <P>
-          <B>Akış</B> ekranı aynı bağlantının TX/RX trafiğini yönlü ve zaman damgalı listeler —
+          <B>Akış</B> ekranı aynı bağlantının TX/RX trafiğini yönlü ve zaman damgalı (ms) listeler —
           protokol hatalarını ayıklarken birebir kayıttır. Ham konsol çıktısı içinse harici bir seri
           terminal kullan (TeraTerm/PuTTY); S2C ajanı konsol UART'ını paylaşabilir, "S2C|" ile
           başlamayan satırları yok sayar.
+        </P>
+        <P>
+          <B>Seri Hat</B> ekranı her komut/yanıt çiftini id eşleşmeli kart yapar:{" "}
+          <M>register_read</M>/<M>register_write</M> gerçek baytlarla katalogdaki bus zaman
+          diyagramı olarak çizilir; çok adımlı sürücü operasyonlarında bus frame'leri cihaz içinde
+          koştuğundan kart, protokol alanlarını, yanıt baytlarını ve çözülmüş değeri gösterir.
         </P>
       </>
     ),

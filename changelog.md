@@ -35,6 +35,19 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
+- YENI EKRAN: "Seri Hat" (Akis'in yani) - her S2C komut/yanit cifti id
+  ile eslestirilip kart olarak gosterilir: zaman, cihaz, operasyon,
+  sure (ms), ok/hata ve COZULMUS deger. register_read/register_write
+  transferleri katalogdaki bus zaman diyagramiyla GERCEK baytlar
+  uzerinden cizilir (I2C start/addr/reg/data, SPI 24-bit frame); cok
+  adimli surucu operasyonlarinda bus frame'leri cihaz icinde kostugundan
+  kart durustce protokol alanlarini ve yanit baytlarini gosterir.
+- Donusturulmus sonuclar artik ondalik + birimle gosterilir: Test Bench
+  sonuc karti ve Seri Hat kartlari value alanini manifest'teki yeni
+  result_returns/result_unit metaverisiyle cozer - 0xF23 -> "= 38.75 C",
+  mV/mA/mW/uV/s ve %RH birimleri, kanal dizileri (voltages[8]) mV
+  listesi olarak. Birimsiz (bilincli raw) operasyonlarda hex gosterim
+  degismez.
 - Vitis paneli kosan ise YENIDEN BAGLANIR: workspace kurulumu surerken
   baska adima/ekrana gecip donunce panel bos buton durumuna dusuyordu
   (is backend'de suruyordu ama UI yansitmiyordu). vitis_job_id artik

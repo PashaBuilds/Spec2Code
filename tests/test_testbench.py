@@ -783,6 +783,13 @@ class TestbenchTests(unittest.TestCase):
         ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertEqual(ltc_ops["temperature_read"]["fixed_read_length"], 4)
         self.assertIn("mV", ltc_ops["voltage_read"]["label"])
+        # UI'nin ondalık + birim çözebilmesi için sonuç metaverisi (0xF23 ->
+        # 38.75 C gösterimi bu alanlardan beslenir).
+        self.assertEqual(ltc_ops["temperature_read"]["result_returns"], "int32")
+        self.assertEqual(ltc_ops["temperature_read"]["result_unit"], "0.01 C")
+        self.assertEqual(ltc_ops["voltage_read"]["result_returns"], "voltages[8]")
+        self.assertEqual(ltc_ops["voltage_read"]["result_unit"], "mV")
+        self.assertEqual(ltc_ops["register_read"]["result_returns"], "uint8")
 
         # Saha regresyonu (2026-07-05, gerçek ZynqMP): repeated-acquisition
         # modunda BUSY hiç düşmediğinden "BUSY==0 bekle" poll'u 100000

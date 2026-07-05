@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, AudioWaveform, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -23,9 +23,10 @@ import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
+import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -116,6 +117,7 @@ export default function App() {
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
     { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
     { id: "traffic", label: "Veri Akışı — TX/RX trafiği", hint: "görünüm", keywords: "trafik veri akış tx rx coresight dcc jtag", run: () => setView("traffic") },
+    { id: "serial", label: "Seri Hat — transfer diyagramları", hint: "görünüm", keywords: "seri hat bus waveform i2c spi transfer diyagram", run: () => setView("serial") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
@@ -186,6 +188,7 @@ export default function App() {
           ["catalog", Library, "Katalog"],
           ["testbench", PlugZap, "Test Bench"],
           ["traffic", Activity, "Akış"],
+          ["serial", AudioWaveform, "Seri Hat"],
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
           ["docs", BookOpenText, "Kılavuz"],
@@ -245,6 +248,14 @@ export default function App() {
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Veri Akışı — host ↔ agent TX/RX</h2>
             <div className="min-h-0 flex-1">
               <TrafficPanel />
+            </div>
+          </div>
+        ))}
+        {keepAlive("serial", (
+          <div className="flex h-full min-h-0 flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Seri Hat — id eşleşmeli transfer diyagramları</h2>
+            <div className="min-h-0 flex-1">
+              <SerialLinePanel />
             </div>
           </div>
         ))}

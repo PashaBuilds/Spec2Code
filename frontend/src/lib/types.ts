@@ -270,6 +270,10 @@ export interface TestbenchOperation {
   requires_data?: boolean;
   requires_register?: boolean;
   requires_value?: boolean;
+  /** Dönüş tipi (int32/uint16/voltages[8]...) — UI ondalık çözüm için. */
+  result_returns?: string;
+  /** convert birimi (mV, mA, 0.01 C...); boşsa raw hex gösterim kalır. */
+  result_unit?: string;
 }
 
 export interface TestbenchRegister {
