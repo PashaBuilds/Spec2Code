@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.107 - Taslak
+
+- SAHA: "build edildi ama karttaki ELF eski kalmis" tuzagina karsi uc
+  gorunurluk katmani. (1) I2C taramasi artik once ajan surumunu sorgular
+  ve sonucta "ajan vX" cipi gosterir; v0.1.105 oncesi ELF'te (okuma
+  problu, sahada hepsi-ACK artefakti ureten surumler) kirmizi uyari
+  cikar. (2) Hepsi-ACK bekcisi: 0x08-0x77'nin ~tamami cevap veriyorsa
+  harita "fiziksel olarak olagan disi" uyarisiyla doner (eski firmware
+  veya SDA'si takili hat). (3) Vitis sonucundaki Application ELF
+  satirlari uretim zamanini gosterir - karta yuklenen ELF bundan
+  eskiyse eski firmware kosuyordur.
+- Test Bench entegre sayfasina baglanti zinciri rozeti: denetleyici ->
+  switch+kanal (veya "switch yok (dogrudan hat)") -> I2C adresi / SPI
+  CS. Model/kart uyusmazliklari (or. cihaz fiziksel olarak switch
+  arkasindayken modelde dogrudan hatta gorunmesi) tek bakista yakalanir.
+- Ajan tarama dongusu log seviye 5'te ACK basina "i2c tarama ACK: 0x.."
+  satiri basar (tarama ici adim adim teshis).
+
 ## v0.1.106 - 2026-07-05
 
 - SAHA: QSPI flash data_read ajani KILITLIYORDU (address=0x0 length=4:

@@ -2063,6 +2063,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "            {",
         "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)uiScanAddr);",
         "                uiFound++;",
+        "                spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c tarama ACK: 0x%02X\", uiScanAddr);",
         "            }",
         "        }",
         "        spResponse->uiOk = 1U;",

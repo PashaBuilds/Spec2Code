@@ -23,6 +23,13 @@ const VITIS_STAGES = [
 type VitisStageId = (typeof VITIS_STAGES)[number]["id"] | "start" | "error" | "end";
 type CustomIpDriverPolicy = "auto_none" | "keep";
 
+/** ELF üretim zamanı etiketi: karta eski ELF yükleme tuzağını görünür kılar. */
+function elfTimeLabel(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString("tr-TR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
 function defaultVitisProcessor(platform: string, targetCore: string) {
   if (platform === "zynq_ultrascale") {
     const a53 = /^a53_(\d)$/.exec(targetCore);
@@ -315,7 +322,12 @@ function VitisDoctorPanel({ doctor, selfHeal }: { doctor?: VitisDoctor; selfHeal
               {elf.application_samples?.length ? (
                 <div className="mt-2 space-y-1">
                   {elf.application_samples.slice(0, 3).map((item) => (
-                    <div key={item.path_tail} className="break-all font-mono text-[10px] text-text">{item.path_tail}</div>
+                    <div key={item.path_tail} className="min-w-0">
+                      <div className="break-all font-mono text-[10px] text-text">{item.path_tail}</div>
+                      {item.modified_at ? (
+                        <div className="font-mono text-[10px] text-warn">üretim: {elfTimeLabel(item.modified_at)}</div>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               ) : elf.expected_names?.length ? (
@@ -834,7 +846,14 @@ export function VitisWorkspacePanel({
               <span className="font-semibold text-ok">Application ELF</span>
               <div className="mt-1 space-y-1">
                 {result.vitis_elf_artifacts.application_samples.slice(0, 4).map((item) => (
-                  <div key={item.path_tail} className="break-all font-mono text-text">{item.path_tail}</div>
+                  <div key={item.path_tail} className="min-w-0">
+                    <div className="break-all font-mono text-text">{item.path_tail}</div>
+                    {item.modified_at ? (
+                      <div className="font-mono text-[10px] text-warn">
+                        üretim: {elfTimeLabel(item.modified_at)} — karta yüklediğin ELF bundan eskiyse eski firmware koşuyorsun
+                      </div>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             </div>

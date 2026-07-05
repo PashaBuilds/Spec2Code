@@ -16,12 +16,32 @@ cihaz kimliği ÇIKARILMAZ, yalnız "bu adreste cevap veren var" bilgisi.
 
 from __future__ import annotations
 
+import re
 import time
 
 from backend.testbench import TestbenchCommand, testbench_sessions
 
 #: Tarama komutları UI komut sayaçlarıyla çakışmasın diye ayrı bant.
 _SCAN_COMMAND_ID_BASE = 7000
+
+#: Yazma-problu tarama bu ajan sürümüyle geldi (v0.1.105). Daha eski
+#: ELF'lerde prob 1-baytlık OKUMAdır ve sahada NACK'te de başarı
+#: döndürdüğü görüldü ("tüm adresler cevap veriyor" artefaktı) — sonuç
+#: bu bilgiyle işaretlenir ki eski firmware sessizce yanlış harita
+#: üretmesin.
+_WRITE_PROBE_MIN_VERSION = (0, 1, 105)
+
+#: 0x08..0x77 = 112 adres. Neredeyse tamamının ACK'lamasi fiziksel
+#: olarak olağan dışıdır (adres uzayı dolu olamaz): eski firmware'in
+#: okuma probu veya SDA'sı LOW'a takılı bir hat tipik nedenlerdir.
+_ALL_ACK_SUSPECT_THRESHOLD = 100
+
+
+def _parse_version(text: str) -> tuple[int, int, int] | None:
+    match = re.search(r"v(\d+)\.(\d+)\.(\d+)", text or "")
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
 class I2cScanError(RuntimeError):
@@ -78,6 +98,23 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
 
     mux_addresses = {int(m["address"]) for m in muxes}
 
+    # 0) Ajan sürümü: yazma-problu tarama v0.1.105+ ELF gerektirir. Eski
+    # firmware sessizce yanlış (hepsi-ACK) harita üretebildiğinden sonuç
+    # sürümle birlikte döner ve UI eski ELF'i açıkça işaretler.
+    agent_version: str | None = None
+    try:
+        version_parsed = _send(session_id, "spec2code_version", "", command_id=next_id(),
+                               timeout_s=timeout_s)
+        version_match = _parse_version(version_parsed.get("message", ""))
+        if version_match is not None:
+            agent_version = f"v{version_match[0]}.{version_match[1]}.{version_match[2]}"
+    except Exception:  # noqa: BLE001 - sürüm alınamazsa tarama yine koşar, UI "bilinmiyor" der
+        agent_version = None
+    probe_is_write = (
+        _parse_version(agent_version or "") is not None
+        and _parse_version(agent_version or "") >= _WRITE_PROBE_MIN_VERSION
+    )
+
     # 1) Switch arkası adresler doğrudan hatta sızmasın: hepsini kapat.
     for mux in muxes:
         mux_set(mux, 0x00, "hazırlık")
@@ -114,6 +151,12 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
         "taken_at": started_at,
         "duration_ms": int((time.time() - started_at) * 1000),
         "range": [0x08, 0x77],
+        "agent_version": agent_version,
+        "probe_is_write": probe_is_write,
+        # Hepsi-ACK bekçisi: 112 adresin ~tamamı cevap veriyorsa harita
+        # fiziksel olarak inandırıcı değildir — sonuç yine döner ama UI
+        # dürüstçe uyarır (eski firmware'in okuma probu / SDA takılı hat).
+        "suspect_all_ack": len(set(direct)) >= _ALL_ACK_SUSPECT_THRESHOLD,
         "direct_addresses": sorted(a for a in set(direct) if a not in mux_addresses),
         "switch_addresses": sorted(a for a in set(direct) if a in mux_addresses),
         "muxes": mux_results,

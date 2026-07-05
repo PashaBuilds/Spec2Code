@@ -1197,10 +1197,18 @@ def inspect_vitis_elf_artifacts(root_paths: list[Path], app_name: str) -> dict:
                 name_lower == expected_name
                 or app_name_lower in parts_lower
             )
+            # Uretim zamani: "build edildi ama ELF eski kalmis" tuzagini
+            # gorunur kilar (saha 2026-07-05: update-mode sonrasi eski ELF
+            # yuklenip yeni davranis bosuna arandi).
+            try:
+                modified_at = elf_path.stat().st_mtime
+            except OSError:
+                modified_at = None
             item = {
                 "name": elf_path.name,
                 "path_tail": _path_tail(elf_path, parts=10),
                 "application_match": is_application,
+                "modified_at": modified_at,
             }
             summary["total"] += 1
             if len(samples) < 16:

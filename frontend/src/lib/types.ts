@@ -179,6 +179,9 @@ export interface VitisElfArtifactSample {
   name: string;
   path_tail: string;
   application_match: boolean;
+  /** ELF dosyasının üretim zamanı (epoch saniye) — eski ELF yükleme
+   * tuzağını görünür kılar. */
+  modified_at?: number | null;
 }
 
 export interface VitisElfArtifacts {
@@ -318,6 +321,14 @@ export interface I2cScanResult {
   taken_at: number;
   duration_ms: number;
   range: [number, number];
+  /** Karttaki ajan sürümü (taramadan önce sorgulanır); null = alınamadı. */
+  agent_version?: string | null;
+  /** Ajan yazma-problu taramayı içeriyor mu (v0.1.105+). Eski ELF'in
+   * okuma probu sahada NACK'te de başarı raporladı (hepsi-ACK artefaktı). */
+  probe_is_write?: boolean;
+  /** 0x08–0x77'nin ~tamamı ACK: fiziksel olarak olağan dışı — eski
+   * firmware veya SDA'sı takılı hat şüphesi. */
+  suspect_all_ack?: boolean;
   direct_addresses: number[];
   switch_addresses: number[];
   muxes: Array<{

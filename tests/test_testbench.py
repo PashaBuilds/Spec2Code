@@ -964,7 +964,9 @@ class TestbenchTests(unittest.TestCase):
 
         def fake_send(session_id, command):
             calls.append((command.operation, command.address, command.value))
-            if command.operation == "i2c_mux_set":
+            if command.operation == "spec2code_version":
+                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x0|data=|message=Spec2Code v0.1.106"
+            elif command.operation == "i2c_mux_set":
                 state["mask"] = int(command.value or 0)
                 line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x{state['mask']:X}|data=|message=ok"
             else:
@@ -986,24 +988,60 @@ class TestbenchTests(unittest.TestCase):
 
         self.assertEqual(result["direct_addresses"], [0x4A])
         self.assertEqual(result["switch_addresses"], [0x70])
+        # Ajan surumu taramadan once sorgulanir ve sonuca islenir: eski
+        # ELF'in okuma probu sessizce hepsi-ACK haritasi uretebildiginden
+        # UI surumu gorup uyarabilmelidir.
+        self.assertEqual(result["agent_version"], "v0.1.106")
+        self.assertTrue(result["probe_is_write"])
+        self.assertFalse(result["suspect_all_ack"])
         channels = result["muxes"][0]["channels"]
         self.assertEqual(channels[0], {"channel": 0, "addresses": [0x48]})
         # 0x4A dogrudan hatta oldugundan kanal iceriginden arindirilir.
         self.assertEqual(channels[1], {"channel": 1, "addresses": [0x40]})
-        # Sira: once kapat, dogrudan tara, ch0 sec/tara, ch1 sec/tara, kapat.
+        # Sira: surum sorgusu, once kapat, dogrudan tara, ch0 sec/tara,
+        # ch1 sec/tara, kapat.
         ops_order = [op for op, _, _ in calls]
-        self.assertEqual(ops_order, ["i2c_mux_set", "i2c_scan", "i2c_mux_set", "i2c_scan",
+        self.assertEqual(ops_order, ["spec2code_version",
+                                     "i2c_mux_set", "i2c_scan", "i2c_mux_set", "i2c_scan",
                                      "i2c_mux_set", "i2c_scan", "i2c_mux_set"])
-        self.assertEqual(calls[0][2], 0x00)
-        self.assertEqual(calls[2][2], 0x01)
-        self.assertEqual(calls[4][2], 0x02)
-        self.assertEqual(calls[6][2], 0x00)
+        self.assertEqual(calls[1][2], 0x00)
+        self.assertEqual(calls[3][2], 0x01)
+        self.assertEqual(calls[5][2], 0x02)
+        self.assertEqual(calls[7][2], 0x00)
         # Kanal taramalarinda aktif switch adresi ajana atlatilir (yazma
         # probu 0x00'i switch'e yazsaydi secili kanal kapanirdi); dogrudan
         # taramada atlama yoktur.
-        self.assertIsNone(calls[1][1])
-        self.assertEqual(calls[3][1], 0x70)
-        self.assertEqual(calls[5][1], 0x70)
+        self.assertIsNone(calls[2][1])
+        self.assertEqual(calls[4][1], 0x70)
+        self.assertEqual(calls[6][1], 0x70)
+
+    def test_i2c_scan_flags_stale_agent_and_implausible_all_ack_map(self) -> None:
+        # SAHA BULGUSU (2026-07-05): eski ELF (okuma probu) 0x08-0x77'nin
+        # TAMAMINI "cevap veriyor" gosterdi; kullanici "build edildi"
+        # sanip eski ELF ile bosuna ugrasti. Beklenen: tarama ajan
+        # surumunu sorgular, v0.1.105 oncesini isaretler ve hepsi-ACK
+        # haritasini fiziksel olarak supheli olarak dondurur.
+        from backend import i2c_scan as scan_mod
+
+        def fake_send(session_id, command):
+            if command.operation == "spec2code_version":
+                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x0|data=|message=Spec2Code v0.1.104"
+            else:
+                data = "".join(f"{a:02X}" for a in range(0x08, 0x78))
+                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x70|data={data}|message=i2c_scan ok"
+            return type("R", (), {"parsed": parse_response(line)})()
+
+        original = scan_mod.testbench_sessions.send
+        scan_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
+        try:
+            result = scan_mod.scan_bus("s1", "ps_i2c_0", [], timeout_s=1.0)
+        finally:
+            scan_mod.testbench_sessions.send = original  # type: ignore[assignment]
+
+        self.assertEqual(result["agent_version"], "v0.1.104")
+        self.assertFalse(result["probe_is_write"])
+        self.assertTrue(result["suspect_all_ack"])
+        self.assertEqual(len(result["direct_addresses"]), 112)
 
     def test_multiple_devices_of_same_part_get_isolated_modules(self) -> None:
         # SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken

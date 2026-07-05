@@ -469,6 +469,45 @@ export default function TestBenchPanel() {
                   <h2 className="text-sm font-semibold text-text">{selectedDevice.part}</h2>
                   <Badge tone="neutral" className="font-mono">{selectedDevice.id}</Badge>
                 </div>
+                {/* Bağlantı zinciri: modelin cihaza NASIL ulaştığı (denetleyici →
+                    switch kanalı → adres). Saha arızalarının klasiği model/kart
+                    uyuşmazlığıdır — zincir burada tek bakışta doğrulanır. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                  <span className="rounded border border-border bg-inset px-1.5 py-0.5 text-muted">
+                    {selectedDevice.attach?.controller_id ?? selectedDevice.transport}
+                  </span>
+                  {selectedDevice.attach?.via_mux ? (
+                    <>
+                      <span className="text-faint">→</span>
+                      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-warn">
+                        switch {selectedDevice.attach.via_mux.mux_id} · kanal {selectedDevice.attach.via_mux.channel}
+                      </span>
+                    </>
+                  ) : selectedDevice.transport.startsWith("i2c") ? (
+                    <>
+                      <span className="text-faint">→</span>
+                      <span className="rounded border border-border bg-inset px-1.5 py-0.5 text-faint" title="Modelde switch bağlantısı yok: operasyonlar kanal SEÇMEDEN doğrudan hatta konuşur. Cihaz fiziksel olarak switch arkasındaysa bu zincir yanlıştır ve okumalar NACK ile düşer.">
+                        switch yok (doğrudan hat)
+                      </span>
+                    </>
+                  ) : null}
+                  {selectedDevice.attach?.i2c_address ? (
+                    <>
+                      <span className="text-faint">→</span>
+                      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-accent">
+                        adres {selectedDevice.attach.i2c_address}
+                      </span>
+                    </>
+                  ) : null}
+                  {typeof selectedDevice.attach?.spi_chip_select === "number" ? (
+                    <>
+                      <span className="text-faint">→</span>
+                      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-accent">
+                        CS {selectedDevice.attach.spi_chip_select}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
                 <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
                   Bu ekran generated target agent ile konuşur; gerçek kart tarafında TCP server'ın bu agent dispatch fonksiyonunu çağırması gerekir.
                 </p>

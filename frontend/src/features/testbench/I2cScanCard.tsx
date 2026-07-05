@@ -88,12 +88,33 @@ export default function I2cScanCard({
         <Radar className="h-4 w-4 text-accent" aria-hidden />
         <h3 className="text-sm font-semibold text-text">I2C hat taraması</h3>
         <Badge tone="neutral">0x08–0x77</Badge>
+        {result?.agent_version ? (
+          <Badge tone={result.probe_is_write ? "neutral" : "warn"}>ajan {result.agent_version}</Badge>
+        ) : result ? (
+          <Badge tone="warn">ajan sürümü alınamadı</Badge>
+        ) : null}
         {result ? (
           <span className="ml-auto font-mono text-[11px] text-muted">
             {timeLabel(result.taken_at)} · {result.duration_ms} ms
           </span>
         ) : null}
       </div>
+
+      {result && result.probe_is_write === false ? (
+        <p className="mb-3 rounded border border-danger/30 bg-danger/10 p-2 text-xs leading-relaxed text-danger">
+          Karttaki ajan {result.agent_version ?? "sürümü belirsiz"} — yazma-problu tarama v0.1.105+
+          firmware gerektirir. Eski ELF'in okuma probu gerçek kartta NACK'te de başarı raporladı ve
+          tüm adresleri "cevap veriyor" gösterdi. Kaynakları güncelle + build sonrası ÜRETİLEN yeni
+          ELF'i karta yükleyip "Sürüm sorgula" ile doğrula.
+        </p>
+      ) : null}
+      {result?.suspect_all_ack ? (
+        <p className="mb-3 rounded border border-warn/30 bg-warn/10 p-2 text-xs leading-relaxed text-warn">
+          0x08–0x77 aralığının neredeyse tamamı cevap verdi — bu fiziksel olarak olağan dışıdır.
+          Tipik nedenler: eski firmware'in okuma probu veya SDA'sı LOW'a takılı bir hat. Harita bu
+          haliyle güvenilir değildir.
+        </p>
+      ) : null}
       <p className="mb-3 text-xs leading-relaxed text-muted">
         Hattaki her adres 1-baytlık yazma (0x00) ile yoklanır — bu bayt çoğu cihazda yalnız register
         pointer'ını sıfırlar. Switch (I2C mux) varsa arkasındaki her kanal sırasıyla seçilip ayrıca
