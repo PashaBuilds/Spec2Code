@@ -233,6 +233,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  i2cScan: (payload: { session_id: string; controller_id: string; muxes: Array<{ id: string; part?: string; address: number; channels: number }>; timeout_s?: number }) =>
+    req<import("./types").I2cScanResult>("/api/testbench/i2c-scan", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 

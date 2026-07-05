@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Send, ShieldCheck, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
+import I2cScanCard from "./I2cScanCard";
 import { api } from "@/lib/api";
 import { timeLabelMs } from "@/lib/console";
 import { formatConvertedValue } from "@/lib/units";
@@ -538,6 +539,13 @@ export default function TestBenchPanel() {
               </div>
 
               <ResultPanel result={result} meta={resultMeta} operation={selectedOperation} />
+
+              <I2cScanCard
+                manifest={manifest}
+                sessionId={board.sessionId}
+                connected={isConnected}
+                timeoutSeconds={board.timeoutSeconds()}
+              />
             </div>
           </div>
         ) : (

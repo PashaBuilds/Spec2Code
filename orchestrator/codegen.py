@@ -1048,6 +1048,30 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
         },
         "devices": [],
     }
+    # I2C hat taraması: UI hangi denetleyicilerin taranabileceğini ve mux
+    # topolojisini (kanal kanal harita için) buradan öğrenir.
+    if "XIicPs" in _testbench_used_handle_types(spec):
+        manifest["i2c_scan"] = {
+            "op": "i2c_scan",
+            "mux_op": "i2c_mux_set",
+            "range": [0x08, 0x77],
+            "probe": "1-byte read",
+            "controllers": [
+                {"id": c.get("id", ""), "instance": c.get("instance", "")}
+                for c in spec.get("controllers", [])
+                if c.get("type") == "i2c"
+            ],
+            "muxes": [
+                {
+                    "id": m.get("id", ""),
+                    "part": m.get("part", ""),
+                    "controller_id": m.get("controller_id", ""),
+                    "address": int(str(m.get("i2c_address", "0x70")), 0),
+                    "channels": int(m.get("channels", 8)),
+                }
+                for m in spec.get("muxes", [])
+            ],
+        }
     if agent == "uart":
         uart = _testbench_uart_controller(spec) or {}
         manifest["uart"] = {
@@ -1982,6 +2006,83 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     return lines
 
 
+def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
+    """Global I2C hat taraması opları (yalnız I2C denetleyicisi kullanılıyorsa).
+
+    i2c_scan: reg=<controller_id> — o ANKİ hattı 0x08..0x77 aralığında
+    1-baytlık okuma denemesiyle yoklar; ACK veren adresler data alanında
+    döner (value = adet). Mux arkası haritalama host tarafında i2c_mux_set
+    (address=<mux adresi>, value=<kontrol baytı>; 0x00=kapat, 1<<kanal=seç)
+    ile kanal kanal orkestre edilir — TCA9548A kontrol baytı protokolü.
+    """
+    if "XIicPs" not in handle_types:
+        return []
+    getter = _testbench_getter("XIicPs")
+    return [
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_scan\") == 1)",
+        "    {",
+        "        XIicPs* spScanIic;",
+        "        unsigned char ucProbe;",
+        "        unsigned int uiScanAddr;",
+        "        unsigned int uiFound;",
+        "        int iProbeStatus;",
+        "",
+        f"        spScanIic = {getter}(spRequest->cArrRegister);",
+        "        if (spScanIic == NULL)",
+        "        {",
+        "            spResponse->iStatus = XST_FAILURE;",
+        "            spec2codeTestbenchMessageSet(spResponse, \"unknown i2c controller\");",
+        "            return XST_FAILURE;",
+        "        }",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"i2c tarama basliyor: %s\", spRequest->cArrRegister);",
+        "        uiFound = 0U;",
+        "        for (uiScanAddr = 0x08U; uiScanAddr <= 0x77U; uiScanAddr++)",
+        "        {",
+        "            iProbeStatus = XIicPs_MasterRecvPolled(spScanIic, &ucProbe, 1, (unsigned short)uiScanAddr);",
+        "            while (XIicPs_BusIsBusy(spScanIic) == TRUE)",
+        "            {",
+        "                /* wait */",
+        "            }",
+        "            if (iProbeStatus == XST_SUCCESS)",
+        "            {",
+        "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)uiScanAddr);",
+        "                uiFound++;",
+        "            }",
+        "        }",
+        "        spResponse->uiOk = 1U;",
+        "        spResponse->iStatus = XST_SUCCESS;",
+        "        spResponse->uiValue = uiFound;",
+        "        spec2codeTestbenchMessageSet(spResponse, \"i2c_scan ok\");",
+        "        return XST_SUCCESS;",
+        "    }",
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_mux_set\") == 1)",
+        "    {",
+        "        XIicPs* spScanIic;",
+        "        unsigned char ucControl;",
+        "        int iProbeStatus;",
+        "",
+        f"        spScanIic = {getter}(spRequest->cArrRegister);",
+        "        if (spScanIic == NULL)",
+        "        {",
+        "            spResponse->iStatus = XST_FAILURE;",
+        "            spec2codeTestbenchMessageSet(spResponse, \"unknown i2c controller\");",
+        "            return XST_FAILURE;",
+        "        }",
+        "        ucControl = (unsigned char)spRequest->uiValue;",
+        "        iProbeStatus = XIicPs_MasterSendPolled(spScanIic, &ucControl, 1, (unsigned short)spRequest->uiAddress);",
+        "        while (XIicPs_BusIsBusy(spScanIic) == TRUE)",
+        "        {",
+        "            /* wait */",
+        "        }",
+        "        spResponse->iStatus = iProbeStatus;",
+        "        spResponse->uiOk = (iProbeStatus == XST_SUCCESS) ? 1U : 0U;",
+        "        spResponse->uiValue = ucControl;",
+        "        spec2codeTestbenchMessageSet(spResponse, (iProbeStatus == XST_SUCCESS) ? \"i2c_mux_set ok\" : \"i2c_mux_set failed\");",
+        "        return iProbeStatus;",
+        "    }",
+    ]
+
+
 def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     project_name = spec["project"]["name"]
     app_version = _app_version()
@@ -2113,6 +2214,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        spec2codeTestbenchMessageSet(spResponse, spec2codeLogLevelName(spec2codeLogLevelGet()));",
         "        return XST_SUCCESS;",
         "    }",
+        *_testbench_i2c_scan_lines(handle_types),
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
         "                 spRequest->cArrDevice, spRequest->cArrOperation);",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,",

@@ -920,6 +920,74 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(device_ops["device_init"]["fixed_read_length"], 1)
         self.assertIn("RB_PLL_STATUS", device_ops["device_init"]["description"])
 
+    def test_i2c_scan_ops_and_manifest_topology(self) -> None:
+        # Hat taraması: ajan global i2c_scan (0x08..0x77 yoklama) ve
+        # i2c_mux_set (switch kontrol baytı) oplarını sunar; manifest UI'ye
+        # taranabilir denetleyicileri ve mux topolojisini bildirir.
+        spec = load_sample_spec("unit_i2c_scan")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            ops = (out_dir / "tests" / "unit_i2c_scan_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "i2c_scan")', ops)
+        self.assertIn("for (uiScanAddr = 0x08U; uiScanAddr <= 0x77U; uiScanAddr++)", ops)
+        self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "i2c_mux_set")', ops)
+        scan = manifest["i2c_scan"]
+        self.assertEqual(scan["range"], [8, 119])
+        controller_ids = {c["id"] for c in scan["controllers"]}
+        self.assertIn("ps_i2c_0", controller_ids)
+        self.assertTrue(all("address" in m and "channels" in m for m in scan["muxes"]))
+
+    def test_i2c_scan_orchestration_builds_channel_map(self) -> None:
+        # Orkestrasyon: switch'ler kapatılır -> doğrudan tarama -> her kanal
+        # sırayla seçilip taranır -> switch kapatılır. Kanal içeriği, doğrudan
+        # hatta görünen adreslerden ve switch'in kendisinden arındırılır.
+        from backend import i2c_scan as scan_mod
+
+        mux = {"id": "u1_tca9548a", "part": "TCA9548A", "address": 0x70, "channels": 2}
+        calls: list[tuple[str, int | None, int | None]] = []
+        state = {"mask": 0}
+
+        def fake_send(session_id, command):
+            calls.append((command.operation, command.address, command.value))
+            if command.operation == "i2c_mux_set":
+                state["mask"] = int(command.value or 0)
+                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x{state['mask']:X}|data=|message=ok"
+            else:
+                found = [0x70, 0x4A]
+                if state["mask"] & 0x01:
+                    found.append(0x48)
+                if state["mask"] & 0x02:
+                    found.extend([0x40, 0x4A])  # 0x4A dogrudan hatta da var (golge)
+                data = "".join(f"{a:02X}" for a in sorted(set(found)))
+                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x{len(found):X}|data={data}|message=ok"
+            return type("R", (), {"parsed": parse_response(line)})()
+
+        original = scan_mod.testbench_sessions.send
+        scan_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
+        try:
+            result = scan_mod.scan_bus("s1", "ps_i2c_0", [mux], timeout_s=1.0)
+        finally:
+            scan_mod.testbench_sessions.send = original  # type: ignore[assignment]
+
+        self.assertEqual(result["direct_addresses"], [0x4A])
+        self.assertEqual(result["switch_addresses"], [0x70])
+        channels = result["muxes"][0]["channels"]
+        self.assertEqual(channels[0], {"channel": 0, "addresses": [0x48]})
+        # 0x4A dogrudan hatta oldugundan kanal iceriginden arindirilir.
+        self.assertEqual(channels[1], {"channel": 1, "addresses": [0x40]})
+        # Sira: once kapat, dogrudan tara, ch0 sec/tara, ch1 sec/tara, kapat.
+        ops_order = [op for op, _, _ in calls]
+        self.assertEqual(ops_order, ["i2c_mux_set", "i2c_scan", "i2c_mux_set", "i2c_scan",
+                                     "i2c_mux_set", "i2c_scan", "i2c_mux_set"])
+        self.assertEqual(calls[0][2], 0x00)
+        self.assertEqual(calls[2][2], 0x01)
+        self.assertEqual(calls[4][2], 0x02)
+        self.assertEqual(calls[6][2], 0x00)
+
     def test_multiple_devices_of_same_part_get_isolated_modules(self) -> None:
         # SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken
         # modül adı parçadan türediği için her örnek AYNI ltc2991.c'yi ve

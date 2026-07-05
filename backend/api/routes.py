@@ -941,6 +941,27 @@ def testbench_session_disconnect(req: TestbenchSessionRequest) -> dict:
         raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
 
 
+class I2cScanRequest(BaseModel):
+    session_id: str
+    controller_id: str
+    muxes: list[dict] = []
+    timeout_s: float = 10.0
+
+
+@router.post("/testbench/i2c-scan")
+def testbench_i2c_scan(req: I2cScanRequest) -> dict:
+    from backend.i2c_scan import I2cScanError, scan_bus
+
+    try:
+        return scan_bus(req.session_id, req.controller_id, req.muxes, timeout_s=req.timeout_s)
+    except I2cScanError as exc:
+        raise HTTPException(502, {"message": "i2c taramasi basarisiz", "error": str(exc)}) from exc
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench session is not usable", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "i2c taramasi transport hatasi", "error": str(exc)}) from exc
+
+
 class RegisterSnapshotRequest(BaseModel):
     session_id: str
     device_id: str

@@ -301,7 +301,31 @@ export interface TestbenchManifest {
   transport_agent?: "lwip" | "uart" | "coresight" | null;
   uart?: { instance: string; baud: number };
   coresight?: { device: string; driver: string; processor: string; host_bridge: string };
+  /** I2C hat taraması: taranabilir denetleyiciler + switch topolojisi. */
+  i2c_scan?: {
+    op: string;
+    mux_op: string;
+    range: [number, number];
+    probe: string;
+    controllers: Array<{ id: string; instance: string }>;
+    muxes: Array<{ id: string; part: string; controller_id: string; address: number; channels: number }>;
+  };
   devices: TestbenchManifestDevice[];
+}
+
+export interface I2cScanResult {
+  controller_id: string;
+  taken_at: number;
+  duration_ms: number;
+  range: [number, number];
+  direct_addresses: number[];
+  switch_addresses: number[];
+  muxes: Array<{
+    id: string;
+    part: string;
+    address: number;
+    channels: Array<{ channel: number; addresses: number[] }>;
+  }>;
 }
 
 export interface TestbenchCommandRequest {

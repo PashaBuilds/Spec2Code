@@ -35,6 +35,19 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
+- I2C HAT TARAMASI (Test Bench): yeni "Hatti tara" karti hattaki tum
+  adresleri 1-baytlik okumayla yoklar (0x08-0x77) ve I2C switch
+  (TCA9548A) varsa arkasindaki HER KANALI sirasiyla secip ayrica
+  tarayarak tam haritayi cikarir. Once tum switch'ler kapatilip
+  dogrudan hat taranir (switch arkasi adresler sizmaz); kanal icerigi
+  dogrudan-hat adreslerinden ve switch'in kendisinden arindirilir.
+  Sonuc pozisyon pozisyon tablo: "Dogrudan hat" satiri (switch'ler
+  "0x70 - switch u1_tca9548a" rozetiyle isaretli) + her switch icin
+  kanal kanal adres cipleri ve adetler. Cihaz kimligi CIKARILMAZ -
+  yalniz adres/pozisyon. Ajan iki global op kazandi: i2c_scan (mevcut
+  hatti yoklar, ACK adresleri data'da) ve i2c_mux_set (switch kontrol
+  bayti); orkestrasyon backend'te (/api/testbench/i2c-scan), topoloji
+  manifest'in yeni i2c_scan bolumunden gelir.
 - SERI HAT CANLI BIT IZLEME: surucu en alt seviye bus fonksiyonlarina
   zayif iz kancalari eklendi (drivers/spec2code_bus_trace.h - standalone
   kullanimda no-op, sifir maliyet); test ajaninin guclu implementasyonu

@@ -368,6 +368,12 @@ const SECTIONS: DocSection[] = [
           başlamayan satırları yok sayar.
         </P>
         <P>
+          <B>I2C hat taraması</B> (Test Bench altında): hattaki her adres 1-baytlık okumayla
+          yoklanır (0x08–0x77); switch (TCA9548A gibi) varsa arkasındaki her kanal sırasıyla seçilip
+          ayrıca taranır ve tam harita pozisyon pozisyon tablo olarak döner. Cihaz kimliği
+          çıkarılmaz — yalnız "bu pozisyonda bu adres cevap veriyor" bilgisi.
+        </P>
+        <P>
           <B>Seri Hat</B> ekranı her komut/yanıt çiftini id eşleşmeli kart yapar:{" "}
           <M>register_read</M>/<M>register_write</M> gerçek baytlarla katalogdaki bus zaman
           diyagramı olarak çizilir; çok adımlı sürücü operasyonlarında bus frame'leri cihaz içinde
