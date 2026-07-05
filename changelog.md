@@ -3,6 +3,55 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.104 - 2026-07-05
+
+Saha oturumunun ikinci dalgasi: I2C hat taramasi, canli bit izleme,
+kanal kanal Seri Hat ve kritik coklu-cihaz duzeltmesi.
+
+- I2C HAT TARAMASI (Test Bench): yeni "Hatti tara" karti hattaki tum
+  adresleri 1-baytlik okumayla yoklar (0x08-0x77) ve I2C switch
+  (TCA9548A) varsa arkasindaki HER KANALI sirasiyla secip ayrica
+  tarayarak tam haritayi cikarir. Once tum switch'ler kapatilip
+  dogrudan hat taranir (switch arkasi adresler sizmaz); kanal icerigi
+  dogrudan-hat adreslerinden ve switch'in kendisinden arindirilir.
+  Sonuc pozisyon pozisyon tablo: "Dogrudan hat" satiri (switch'ler
+  "0x70 - switch u1_tca9548a" rozetiyle isaretli) + her switch icin
+  kanal kanal adres cipleri ve adetler. Cihaz kimligi CIKARILMAZ -
+  yalniz adres/pozisyon. Ajan iki global op kazandi: i2c_scan (mevcut
+  hatti yoklar, ACK adresleri data'da) ve i2c_mux_set (switch kontrol
+  bayti); orkestrasyon backend'te (/api/testbench/i2c-scan), topoloji
+  manifest'in yeni i2c_scan bolumunden gelir.
+- SERI HAT CANLI BIT IZLEME: surucu en alt seviye bus fonksiyonlarina
+  zayif iz kancalari eklendi (drivers/spec2code_bus_trace.h - standalone
+  kullanimda no-op, sifir maliyet); test ajaninin guclu implementasyonu
+  (tests/spec2code_testbench_trace.c) her GERCEK transferi komut id'siyle
+  "S2C-LOG|D|TRACE|..." satiri olarak yayinlar (yalniz log seviyesi 5 /
+  debug iken). Kapsam: I2C register oku/yaz/blok-oku, SPI TICS 24-bit
+  frame, flash komutlari (send/read/write) ve testbench generic register
+  yollari. Seri Hat bu izleri id'ye baglar ve diyagramlari GERCEK
+  runtime TX/RX baytlariyla cizer: LTC2991 voltage_read'de V1_MSB'den
+  V8_LSB'ye HER KANAL SIRASIYLA ayri diyagram olur, poll iterasyonlari
+  "xk" olarak katlanir (gercekten yasanan tekrarlar; uydurma yok). Iz
+  yokken (seviye<5 veya eski firmware) operasyonun kablo plani "kablo
+  plani" rozetiyle gosterilmeye devam eder. TCP oturumu artik yanit
+  eslestirmede S2C-LOG/TRACE satirlarini yanit sanmaz.
+- Seri Hat kablo plani diyagramlari: manifest operasyonlarina bus
+  seviyesindeki "wire" plani islenir (poll/register adimlari, kanal
+  taramasi, flash komut frame'leri, TICS init dizisi) ve iz yokken HER
+  kart katalogdaki bus zaman diyagramiyla cizilir - gercek register
+  adlari/adresleri, init'te gercek yazilan degerler; donusturulmus
+  sonuclarda RX hucreleri MSB/LSB etiketiyle kalir (uydurma bayt yok).
+- KRITIK DUZELTME (saha, 2026-07-05): ayni parcadan birden cok cihaz
+  (or. 3 x LTC2991) tek surucu modulunu ve tek I2C adres sabitini
+  paylasiyordu - hangi cihaz secilirse secilsin hep ayni fiziksel cip
+  okunuyordu. Artik her ornek kendi modulunu alir (ltc2991, ltc2991b,
+  ltc2991c...): ayri .c/.h, ayri adres/mux sabitleri, dispatch her
+  cihazi kendi fonksiyonlarina baglar. Ilk ornek geriye donuk uyumlu
+  adlari korur. (Regresyon testi + cift-modul gercek BSP derlemesi.)
+- Ajan dispatch'ine op baslangic DEBUG logu eklendi ("op basla: cihaz
+  op") - log seviyesi 5'te asili kalan/uzun suren surucu cagrilari
+  Akis'tan tespit edilebilir.
+
 ## v0.1.103 - 2026-07-05
 
 Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
@@ -35,56 +84,11 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
-- I2C HAT TARAMASI (Test Bench): yeni "Hatti tara" karti hattaki tum
-  adresleri 1-baytlik okumayla yoklar (0x08-0x77) ve I2C switch
-  (TCA9548A) varsa arkasindaki HER KANALI sirasiyla secip ayrica
-  tarayarak tam haritayi cikarir. Once tum switch'ler kapatilip
-  dogrudan hat taranir (switch arkasi adresler sizmaz); kanal icerigi
-  dogrudan-hat adreslerinden ve switch'in kendisinden arindirilir.
-  Sonuc pozisyon pozisyon tablo: "Dogrudan hat" satiri (switch'ler
-  "0x70 - switch u1_tca9548a" rozetiyle isaretli) + her switch icin
-  kanal kanal adres cipleri ve adetler. Cihaz kimligi CIKARILMAZ -
-  yalniz adres/pozisyon. Ajan iki global op kazandi: i2c_scan (mevcut
-  hatti yoklar, ACK adresleri data'da) ve i2c_mux_set (switch kontrol
-  bayti); orkestrasyon backend'te (/api/testbench/i2c-scan), topoloji
-  manifest'in yeni i2c_scan bolumunden gelir.
-- SERI HAT CANLI BIT IZLEME: surucu en alt seviye bus fonksiyonlarina
-  zayif iz kancalari eklendi (drivers/spec2code_bus_trace.h - standalone
-  kullanimda no-op, sifir maliyet); test ajaninin guclu implementasyonu
-  (tests/spec2code_testbench_trace.c) her GERCEK transferi komut id'siyle
-  "S2C-LOG|D|TRACE|..." satiri olarak yayinlar (yalniz log seviyesi 5 /
-  debug iken). Kapsam: I2C register oku/yaz/blok-oku, SPI TICS 24-bit
-  frame, flash komutlari (send/read/write) ve testbench generic register
-  yollari. Seri Hat bu izleri id'ye baglar ve diyagramlari GERCEK
-  runtime TX/RX baytlariyla cizer: LTC2991 voltage_read'de V1_MSB'den
-  V8_LSB'ye HER KANAL SIRASIYLA ayri diyagram olur, poll iterasyonlari
-  "xk" olarak katlanir (gercekten yasanan tekrarlar; uydurma yok). Iz
-  yokken (seviye<5 veya eski firmware) operasyonun kablo plani "kablo
-  plani" rozetiyle gosterilmeye devam eder. TCP oturumu artik yanit
-  eslestirmede S2C-LOG/TRACE satirlarini yanit sanmaz.
-- KRITIK DUZELTME (saha, 2026-07-05): ayni parcadan birden cok cihaz
-  (or. 3 x LTC2991) tek surucu modulunu ve tek I2C adres sabitini
-  paylasiyordu - hangi cihaz secilirse secilsin hep ayni fiziksel cip
-  okunuyordu. Artik her ornek kendi modulunu alir (ltc2991, ltc2991b,
-  ltc2991c...): ayri .c/.h, ayri adres/mux sabitleri, dispatch her
-  cihazi kendi fonksiyonlarina baglar. Ilk ornek geriye donuk uyumlu
-  adlari korur. (Regresyon testi + cift-modul gercek BSP derlemesi.)
-- Ajan dispatch'ine op baslangic DEBUG logu eklendi ("op basla: cihaz
-  op") - log seviyesi 5'te asili kalan/uzun suren surucu cagrilari
-  Akis'tan tespit edilebilir.
 - YENI EKRAN: "Seri Hat" (Akis'in yani) - her S2C komut/yanit cifti id
   ile eslestirilip kart olarak gosterilir: zaman, cihaz, operasyon,
-  sure (ms), ok/hata ve COZULMUS deger. Manifest'e her operasyonun BUS
-  seviyesindeki kablo plani islenir (codegen "wire": poll/register
-  okuma-yazma adimlari, kanal taramasi, flash komut frame'leri, TICS
-  init dizisi) ve HER kart katalogdaki bus zaman diyagramiyla cizilir:
-  gercek register adlari/adresleri, init'te gercek yazilan degerler,
-  ham okumalarda gercek yanit baytlari (I2C start/addr/reg/data, SPI
-  24-bit frame). Poll adimlari "hazir olana dek x N" notuyla, cok
-  adimli operasyonlarin donusturulmus sonuclarinda RX hucreleri MSB/LSB
-  etiketiyle kalir (kablo baytlari ajanda kalir - uydurma bayt yok),
-  deger "=" rozetinde gosterilir. Ham S2C satirlari kart altinda
-  katlanabilir durur.
+  sure (ms), ok/hata ve COZULMUS deger; register_read/register_write
+  transferleri katalogdaki bus zaman diyagramiyla gercek baytlar
+  uzerinden cizilir, ham S2C satirlari kart altinda katlanabilir durur.
 - Donusturulmus sonuclar artik ondalik + birimle gosterilir: Test Bench
   sonuc karti ve Seri Hat kartlari value alanini manifest'teki yeni
   result_returns/result_unit metaverisiyle cozer - 0xF23 -> "= 38.75 C",
