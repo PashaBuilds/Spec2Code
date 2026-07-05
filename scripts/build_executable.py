@@ -100,10 +100,15 @@ def _data_arg(source: str) -> str:
     return f"{path}{os.pathsep}{source}"
 
 
-def _data_file_arg(source: Path, target_name: str) -> str:
+def _data_file_arg(source: Path) -> str:
     if not source.is_file():
         raise FileNotFoundError(f"required release data file is missing: {source}")
-    return f"{source}{os.pathsep}{target_name}"
+    # PyInstaller --add-data'nin HEDEFI dizindir, dosya adi degil: hedefe
+    # dosya adi yazmak _MEI icinde spec2code_version.txt\spec2code_version.txt
+    # diye ic ice gomuyordu; okuyucu o yolda dizin bulup "dev"e dusuyordu
+    # (SAHA 2026-07-05, dogrulanmis kok neden - tum paketli surumler
+    # etkilenmisti). "." = _MEI koku, dosya kendi adiyla oraya cikar.
+    return f"{source}{os.pathsep}."
 
 
 def _copy_release_docs(bundle_dir: Path, metadata_path: Path) -> None:
@@ -154,7 +159,7 @@ def main() -> int:
     ]
     for source in DATA_DIRS:
         command.extend(["--add-data", _data_arg(source)])
-    command.extend(["--add-data", _data_file_arg(metadata_path, "spec2code_version.txt")])
+    command.extend(["--add-data", _data_file_arg(metadata_path)])
     for hidden in HIDDEN_IMPORTS:
         command.extend(["--hidden-import", hidden])
     command.append(str(ROOT / "run_spec2code.py"))

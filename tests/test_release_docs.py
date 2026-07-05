@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import unittest
@@ -33,6 +34,20 @@ class ReleaseDocsTests(unittest.TestCase):
         )
         for tag in completed.stdout.splitlines():
             self.assertIn(f"## {tag} ", changelog, f"missing changelog entry for {tag}")
+
+    def test_version_metadata_is_added_to_bundle_root_not_a_nested_directory(self) -> None:
+        # KANITLANMIS KOK NEDEN (2026-07-05): PyInstaller --add-data'nin
+        # hedefi DIZINDIR. Hedefe dosya adi yazilinca surum dosyasi _MEI
+        # icine spec2code_version.txt\spec2code_version.txt diye ic ice
+        # gomuldu; _app_version o yolda dizin bulup "dev"e dustu ve TUM
+        # paketli surumler ajani "dev" damgaladi (sahada "Surum sorgula"
+        # = dev; yerelde v0.1.108 exe'si paketlenip API'den generate
+        # edilerek birebir yeniden uretildi). Hedef "." olmali.
+        with TemporaryDirectory() as tmp:
+            metadata = Path(tmp) / "spec2code_version.txt"
+            metadata.write_text("v9.9.9\n", encoding="utf-8")
+            arg = build_executable._data_file_arg(metadata)
+            self.assertTrue(arg.endswith(os.pathsep + "."), arg)
 
     def test_release_docs_are_packaged_for_executable_release(self) -> None:
         with TemporaryDirectory() as tmp:

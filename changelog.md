@@ -5,17 +5,23 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.109 - Taslak
 
-- SAHA: paketli uygulama ajani "dev" surumuyle damgaliyordu ("Surum
-  sorgula" cevabinda v0.1.x yerine dev). Surum cozumleme zinciri tek
-  noktadan cok noktaya cikarildi: (1) spec2code_version.txt artik
-  exe'nin YANINDA da paketlenir (gorunur + dogrulanabilir), (2) BOM'lu
-  metadata tolere edilir (utf-8-sig), (3) changelog yedegi yalniz
-  kaynak agacinda degil exe dizini dahil tum koklerde aranir (release
-  bundle'inda changelog.md exe'nin yanindadir - eski kod paketli
-  uygulamada bu yedegi hic kullanamiyordu), (4) uygulama aciliste
-  cozdugu surumu basar: "Spec2Code backend version: vX" - sahada tek
-  bakista teshis. NOT: karttaki "dev" ancak yeni uygulamayla yeniden
-  Generate + build + ELF yukleyince degisir.
+- SAHA (kok neden KANITLANDI): paketli uygulama ajani "dev" suruguyle
+  damgaliyordu - taze generate + guncel ELF'te bile. Neden: PyInstaller
+  --add-data'nin hedefi DIZINDIR; hedefe dosya adi yazildigi icin surum
+  dosyasi exe icine spec2code_version.txt\spec2code_version.txt diye
+  IC ICE gomuluyordu ve okuyucu o yolda dizin bulup "dev" yedegine
+  dusuyordu. TUM onceki paketli surumler etkilendi. Yerelde v0.1.108
+  exe'si ayni betikle paketlenip API'den generate edilerek birebir
+  yeniden uretildi (AGENT_VERSION: dev + _MEI icinde ic ice dizin),
+  duzeltme sonrasi ayni sondaj AGENT_VERSION: v0.1.109 verdi.
+  Duzeltme: --add-data hedefi "." (paket koku).
+- Ayrica surum cozumleme zinciri katmanlandi (tek nokta kalmasin):
+  spec2code_version.txt exe'nin YANINDA da paketlenir; BOM'lu metadata
+  tolere edilir (utf-8-sig); changelog yedegi exe dizini dahil tum
+  koklerde aranir; uygulama aciliste cozdugu surumu basar ("Spec2Code
+  backend version: vX"). NOT: karttaki "dev" ancak yeni uygulamayla
+  yeniden Generate + kaynaklari guncelle + build + ELF yukleyince
+  degisir.
 
 ## v0.1.108 - 2026-07-05
 
