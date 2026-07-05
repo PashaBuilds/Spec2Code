@@ -14,53 +14,14 @@ from fastapi import HTTPException
 
 from orchestrator import codegen
 from orchestrator.descriptor_check import validate_descriptor
+from orchestrator.descriptor_example import EXAMPLE_FILE_NAME, EXAMPLE_USER_DESCRIPTOR
 from tests.test_testbench import add_zynqmp_ps_ethernet, load_sample_spec
 
-VALID_DESCRIPTOR = """\
-descriptor_version: "1.0"
-part: "MYMON16"
-manufacturer: "Acme"
-summary: "Kurgusal 2 kanalli monitor (user descriptor testi)."
-transport:
-  type: i2c
-  address_width: 8
-  default_address: 0x4C
-  byte_order: big
-access_primitives:
-  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
-  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
-registers:
-  - name: STATUS
-    offset: 0x00
-    width: 8
-    access: ro
-    reset: 0x00
-    fields:
-      - { name: T_READY, bits: "1" }
-  - name: CONTROL
-    offset: 0x01
-    width: 8
-    access: rw
-    reset: 0x00
-  - { name: T_MSB, offset: 0x06, width: 8, access: ro, reset: 0x00 }
-  - { name: T_LSB, offset: 0x07, width: 8, access: ro, reset: 0x00 }
-operations:
-  - name: device_init
-    description: "Etkinlestir."
-    steps:
-      - { op: write_register, reg: CONTROL, value: 0x10 }
-  - name: temperature_read
-    returns: "int32"
-    description: "0.01 C."
-    convert: { mask: 0x1FFF, signed_bits: 13, scale_num: 625, scale_den: 100, unit: "0.01 C" }
-    steps:
-      - { op: poll, reg: STATUS, field: T_READY, until: 1 }
-      - { op: read_register, reg: T_MSB }
-      - { op: read_register, reg: T_LSB }
-test_hints:
-  post_init_status: { reg: STATUS }
-  self_test: { description: "Sicaklik okunur." }
-"""
+# Kullanicinin Import ekranindan indirdigi ORNEK sablon ile testlerin
+# kullandigi descriptor AYNI iceriktir (orchestrator.descriptor_example):
+# ornegin dogrulayicidan ve tam uretimden gectigi burada kanitlanir.
+VALID_DESCRIPTOR = EXAMPLE_USER_DESCRIPTOR
+
 
 
 class _UserDirMixin(unittest.TestCase):
@@ -205,6 +166,19 @@ class UserDescriptorRoutesTests(_UserDirMixin):
 
         with self.assertRaises(HTTPException):
             routes.delete_user_descriptor("..\\descriptors\\ltc2991.yaml")
+
+    def test_example_endpoint_serves_known_good_template(self) -> None:
+        # Import ekranindaki "ornek sablonu indir" her zaman bilinen-iyi
+        # icerik vermeli: ayni sabit bu dosyadaki dogrulayici + tam uretim
+        # testlerinden gecen VALID_DESCRIPTOR'in kendisidir.
+        from backend.api import routes
+
+        example = routes.user_descriptor_example()
+        self.assertEqual(example["file"], EXAMPLE_FILE_NAME)
+        self.assertEqual(example["content"], VALID_DESCRIPTOR)
+        import yaml
+
+        self.assertEqual(validate_descriptor(yaml.safe_load(example["content"])), [])
 
 
 if __name__ == "__main__":

@@ -20,6 +20,13 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
   adim adim kimlik/transport -> registers -> operasyonlar (adim tablosu)
   -> convert formulu -> test_hints, TICS/flash/EEPROM arketipleri ve
   dogrulama duzeni.
+- Import ekraninda "Ornek sablonu indir / goruntule": aciklamali MYMON16
+  ornegi tek dogruluk kaynagindan servis edilir ve testler AYNI icerigi
+  dogrulayicidan + tam uretimden gecirir - indirilen sablon her zaman
+  bilinen-iyi bir baslangictir. Surucu kaynak (.c/.h) ice aktarma
+  ikincillestirildi: kapali "gelismis" basligi altinda ve durust
+  etiketle ("uretimin yerine gecmez; cikti paketine referans olarak
+  eklenir") - birincil yol descriptor akisidir.
 
 ## v0.1.109 - 2026-07-05
 

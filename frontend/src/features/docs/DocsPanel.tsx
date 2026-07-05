@@ -516,7 +516,9 @@ python spec2code_cli.py build --spec my.spec.json \\
           koyarsın); şema doğrulanır, parça şematik seçicide görünür ve Generate, Test Bench,
           Registers, Seri Hat yerleşik entegrelerle birebir aynı şekilde bu dosyadan üretilir. Aynı
           adlı yerleşik parça varsa <B>kullanıcı dosyası önceliklidir</B> — yerleşik bir haritayı
-          düzeltmek için de kullanabilirsin.
+          düzeltmek için de kullanabilirsin. Boş sayfayla başlama: Import ekranındaki
+          <B>"Örnek şablonu indir"</B> düğmesi, bu rehberdeki tüm mekanizmaları kullanan ve
+          testlerle bilinen-iyi tutulan MYMON16 şablonunu verir — kopyala, kendi entegrene uyarla.
         </P>
         <Callout tone="warn" title="ADIM 0 — Datasheet önde">
           Register offsetlerini, bit alanlarını ve dönüşüm formüllerini datasheet'ten birebir al;

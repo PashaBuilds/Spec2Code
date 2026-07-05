@@ -284,10 +284,20 @@ export default function App() {
         {keepAlive("import", (
           <div className="mx-auto h-full max-w-3xl space-y-6 overflow-auto p-6">
             <UserDescriptorImport />
-            <div>
-              <h2 className="mb-4 text-sm font-semibold">Import driver sources</h2>
-              <DriverImport />
-            </div>
+            {/* Kaynak import'u ikincil: bu dosyalar üretimin YERİNE GEÇMEZ,
+                çıktı paketine reference_sources/ altında referans olarak
+                eklenir. Birincil yol yukarıdaki descriptor akışıdır. */}
+            <details className="rounded-lg border border-border bg-elev p-4">
+              <summary className="cursor-pointer list-none text-sm font-semibold text-text">
+                Sürücü kaynak referansları (.c/.h) — gelişmiş
+                <span className="ml-2 text-xs font-normal text-faint">
+                  üretimin yerine geçmez; çıktı paketine referans olarak eklenir
+                </span>
+              </summary>
+              <div className="mt-4">
+                <DriverImport />
+              </div>
+            </details>
           </div>
         ))}
         <div className={cn("h-full", view !== "flow" && "hidden")}>

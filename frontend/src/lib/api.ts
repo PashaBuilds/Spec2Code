@@ -95,6 +95,9 @@ export const api = {
   userDescriptors: () =>
     req<{ dir: string; descriptors: UserDescriptorEntry[] }>("/api/user-descriptors"),
 
+  userDescriptorExample: () =>
+    req<{ file: string; content: string }>("/api/user-descriptors/example"),
+
   uploadUserDescriptor: (content: string) =>
     req<{ saved: string; part: string; dir: string; overrides_builtin: boolean }>("/api/user-descriptors", {
       method: "POST",

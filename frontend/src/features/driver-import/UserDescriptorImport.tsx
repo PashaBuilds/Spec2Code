@@ -14,7 +14,42 @@ export default function UserDescriptorImport() {
   const [busy, setBusy] = React.useState(false);
   const [errors, setErrors] = React.useState<string[]>([]);
   const [notice, setNotice] = React.useState("");
+  // Örnek şablon backend'den gelir (tek doğruluk kaynağı): testler aynı
+  // içeriği doğrulayıcıdan ve TAM üretimden geçirir — indirilen örnek her
+  // zaman bilinen-iyi bir başlangıçtır.
+  const [example, setExample] = React.useState<{ file: string; content: string } | null>(null);
+  const [exampleOpen, setExampleOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const loadExample = React.useCallback(async () => {
+    if (example) return example;
+    const result = await api.userDescriptorExample();
+    setExample(result);
+    return result;
+  }, [example]);
+
+  async function downloadExample() {
+    try {
+      const ex = await loadExample();
+      const url = URL.createObjectURL(new Blob([ex.content], { type: "text/yaml" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = ex.file;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : String(err)]);
+    }
+  }
+
+  async function toggleExample() {
+    try {
+      await loadExample();
+      setExampleOpen((prev) => !prev);
+    } catch (err) {
+      setErrors([err instanceof Error ? err.message : String(err)]);
+    }
+  }
 
   const refresh = React.useCallback(async () => {
     try {
@@ -123,7 +158,22 @@ export default function UserDescriptorImport() {
           className="block text-xs text-muted file:mr-2 file:rounded-md file:border file:border-border file:bg-inset file:px-2 file:py-1.5 file:text-xs file:text-text"
         />
         {busy ? <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden /> : <FileUp className="h-4 w-4 text-faint" aria-hidden />}
+        <Button size="sm" variant="outline" onClick={() => void downloadExample()} data-testid="descriptor-example-download">
+          Örnek şablonu indir
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => void toggleExample()}>
+          {exampleOpen ? "Örneği gizle" : "Örneği görüntüle"}
+        </Button>
       </div>
+
+      {exampleOpen && example ? (
+        <pre
+          className="mb-3 max-h-80 overflow-auto rounded-md border border-border border-l-2 border-l-accent bg-bg px-3 py-2.5 font-mono text-[11px] leading-relaxed text-text"
+          data-testid="descriptor-example-content"
+        >
+          {example.content}
+        </pre>
+      ) : null}
 
       {errors.length > 0 ? (
         <div className="mb-3 rounded border border-danger/30 bg-danger/10 p-2">

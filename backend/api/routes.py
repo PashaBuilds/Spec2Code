@@ -38,6 +38,7 @@ from hostplat import io as hio
 from hostplat import tools
 from orchestrator.codegen import resolve_descriptor_path, user_descriptors_dir
 from orchestrator.descriptor_check import validate_descriptor
+from orchestrator.descriptor_example import EXAMPLE_FILE_NAME, EXAMPLE_USER_DESCRIPTOR
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -594,6 +595,13 @@ class UserDescriptorUpload(BaseModel):
 @router.get("/user-descriptors")
 def list_user_descriptors() -> dict:
     return {"dir": str(user_descriptors_dir()), "descriptors": _user_descriptor_entries()}
+
+
+@router.get("/user-descriptors/example")
+def user_descriptor_example() -> dict:
+    """Bilinen-iyi örnek şablon: testler aynı içeriği doğrulayıcıdan ve
+    tam üretimden geçirir — indirilen şablon her zaman çalışır durumdadır."""
+    return {"file": EXAMPLE_FILE_NAME, "content": EXAMPLE_USER_DESCRIPTOR}
 
 
 @router.post("/user-descriptors")
