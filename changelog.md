@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.109 - Taslak
+## v0.1.109 - 2026-07-05
 
 - SAHA (kok neden KANITLANDI): paketli uygulama ajani "dev" suruguyle
   damgaliyordu - taze generate + guncel ELF'te bile. Neden: PyInstaller
