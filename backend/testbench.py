@@ -297,6 +297,10 @@ class _TestbenchTcpSession(_TrafficRing):
                         if not line:
                             continue
                         self._traffic_push("rx", line)
+                        # Yalnız gerçek yanıt satırları aday olur: S2C-LOG /
+                        # TRACE satırları da "id=" taşır ama yanıt değildir.
+                        if not line.startswith("S2C|") or "ok=" not in line:
+                            continue
                         candidate_id = parse_response(line).get("id")
                         if candidate_id == expected_id:
                             response_line = line

@@ -50,6 +50,33 @@ export function parseS2CLine(line: string): Record<string, string> | null {
   return parsed;
 }
 
+/** Ajanın canlı bus izi: "S2C-LOG|D|TRACE|id=..|bus=..|..." satırı.
+ * Sürücülerin en alt seviye gönder/al fonksiyonları her GERÇEK transferden
+ * sonra yayınlar (log seviyesi debug iken). */
+export function parseTraceLine(line: string): Record<string, string> | null {
+  const text = stripAnsi(line).trim();
+  const marker = text.indexOf("TRACE|");
+  if (!text.startsWith("S2C-LOG|") || marker < 0) return null;
+  const parsed: Record<string, string> = {};
+  for (const token of text.slice(marker + "TRACE|".length).split("|")) {
+    const eq = token.indexOf("=");
+    if (eq > 0) parsed[token.slice(0, eq).trim()] = token.slice(eq + 1).trim();
+  }
+  return parsed.id ? parsed : null;
+}
+
+interface TraceRec {
+  bus?: string;
+  addr?: string;
+  reg?: string;
+  dir?: string;
+  cs?: string;
+  len?: string;
+  data?: string;
+  tx?: string;
+  rx?: string;
+}
+
 interface TransferCard {
   key: string;
   id: string;
@@ -59,6 +86,7 @@ interface TransferCard {
   txLine: string;
   rx?: Record<string, string>;
   rxLine?: string;
+  traces: TraceRec[];
 }
 
 function hexByte(value: number): string {
@@ -213,6 +241,81 @@ function wireTransfers(
   return out;
 }
 
+function hexPairs(hex: string | undefined): string[] {
+  return dataBytes(hex ?? "");
+}
+
+/** Canlı izlerden diyagram listesi: her GERÇEK bus transferi sırasıyla bir
+ * diyagram olur (kanal kanal). Ardışık aynı register/aynı yön okumaları
+ * (poll) ×k olarak katlanır — iterasyonlar gerçekten yaşanmıştır, yalnız
+ * gösterim sıkıştırılır. */
+function traceTransfers(
+  card: TransferCard,
+  device: TestbenchManifestDevice | null,
+): Array<{ transfer: KnowledgeRegisterTransfer; title: string }> {
+  if (card.traces.length === 0) return [];
+  const regNameByAddr = new Map<number, string>();
+  for (const reg of device?.registers ?? []) regNameByAddr.set(reg.offset, reg.name);
+
+  interface Group { trace: TraceRec; count: number }
+  const groups: Group[] = [];
+  for (const trace of card.traces) {
+    const previous = groups[groups.length - 1];
+    const sameAsPrevious =
+      previous &&
+      previous.trace.bus === trace.bus &&
+      previous.trace.reg === trace.reg &&
+      previous.trace.dir === trace.dir &&
+      previous.trace.tx === trace.tx;
+    if (sameAsPrevious) {
+      previous.count += 1;
+      previous.trace = trace; // son iterasyonun gerçek verisi gösterilir
+    } else {
+      groups.push({ trace, count: 1 });
+    }
+  }
+
+  return groups.map(({ trace, count }) => {
+    const suffix = count > 1 ? ` ×${count}` : "";
+    if (trace.bus === "i2c") {
+      const regAddr = parseNumberish(trace.reg) ?? 0;
+      const regName = regNameByAddr.get(regAddr) ?? trace.reg ?? "REG";
+      const regLabel = `${regName} (${trace.reg ?? "?"})`;
+      const bytes = hexPairs(trace.data);
+      if ((trace.dir ?? "r") === "w") {
+        return {
+          title: `${regName} yaz${suffix}`,
+          transfer: {
+            title: regLabel, access: "WRITE", txBytes: `${1 + bytes.length} byte`, rxBytes: "0 byte",
+            tx: [regLabel, ...bytes], rx: ["-"], code: [],
+            note: count > 1 ? `${count} kez tekrarlandı` : undefined,
+          },
+        };
+      }
+      return {
+        title: `${regName} oku${suffix}`,
+        transfer: {
+          title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${bytes.length || 1} byte`,
+          tx: [regLabel], rx: bytes.length ? bytes : ["DATA"], code: [],
+          note: count > 1 ? `hazır olana dek ${count} kez okundu` : undefined,
+        },
+      };
+    }
+    const txBytesList = hexPairs(trace.tx === "-" ? "" : trace.tx);
+    const rxBytesList = trace.rx && trace.rx !== "-" ? hexPairs(trace.rx) : [];
+    const isRead = rxBytesList.length > 0;
+    return {
+      title: `SPI frame${suffix}`,
+      transfer: {
+        title: `SPI (CS${trace.cs ?? "?"})`, access: isRead ? "READ" : "WRITE",
+        txBytes: `${txBytesList.length} byte`, rxBytes: isRead ? `${rxBytesList.length} byte` : "0 byte",
+        tx: txBytesList.length ? txBytesList : ["TX"], rx: isRead ? rxBytesList : ["-"], code: [],
+        note: count > 1 ? `${count} kez tekrarlandı` : undefined,
+      },
+    };
+  });
+}
+
 function transportLabel(status: TestbenchSessionStatus): string {
   if (status.transport === "serial") return `seri ${status.serial_port ?? ""}`.trim();
   if (status.transport === "coresight") return `CoreSight DCC (${status.processor ?? ""})`;
@@ -290,6 +393,17 @@ export default function SerialLinePanel() {
         setCards((current) => {
           let next = current;
           for (const entry of entries) {
+            const trace = parseTraceLine(entry.line);
+            if (trace) {
+              // Canlı bus izi: ilgili komut kartına sırayla eklenir.
+              const key = pendingRef.current.get(trace.id);
+              if (key) {
+                next = next.map((card) =>
+                  card.key === key ? { ...card, traces: [...card.traces, trace as TraceRec] } : card,
+                );
+              }
+              continue;
+            }
             const parsed = parseS2CLine(entry.line);
             if (!parsed || !parsed.id) continue;
             const isResponse = "ok" in parsed;
@@ -297,7 +411,7 @@ export default function SerialLinePanel() {
               const key = `${entry.seq}`;
               pendingRef.current.set(parsed.id, key);
               next = [
-                { key, id: parsed.id, txAt: entry.at, tx: parsed, txLine: stripAnsi(entry.line) },
+                { key, id: parsed.id, txAt: entry.at, tx: parsed, txLine: stripAnsi(entry.line), traces: [] },
                 ...next,
               ].slice(0, MAX_CARDS);
             } else if (isResponse) {
@@ -375,10 +489,13 @@ export default function SerialLinePanel() {
           </Button>
         </div>
         <p className="w-full text-[11px] leading-relaxed text-faint">
-          Her kart bir S2C komut/yanıt çiftidir (id eşleşmeli) ve operasyonun bus üzerindeki
-          transferleri katalogdaki zaman diyagramıyla çizilir. Ham okumalarda yanıt baytları
-          diyagrama işlenir; dönüştürülmüş sonuçlarda kablo baytları ajanda kaldığından hücreler
-          MSB/LSB olarak kalır, sonuç "=" rozetinde gösterilir.
+          Her kart bir S2C komut/yanıt çiftidir (id eşleşmeli).{" "}
+          <span className="font-semibold text-text">
+            Canlı bit izleme için bağlantı kartından log seviyesini 5 (debug) yap
+          </span>
+          : ajan her gerçek bus transferini raporlar ve diyagramlar GERÇEK TX/RX baytlarıyla, kanal
+          kanal sırayla çizilir (poll tekrarları ×k olarak katlanır). İz yokken operasyonun kablo
+          planı gösterilir.
         </p>
       </div>
 
@@ -401,7 +518,12 @@ export default function SerialLinePanel() {
             const operation = operationFor(card, device);
             const ok = card.rx?.ok === "1";
             const decoded = card.rx ? formatConvertedValue(operation, card.rx) : null;
-            const waves = wireTransfers(card, device, operation);
+            const liveWaves = traceTransfers(card, device);
+            const waves = liveWaves.length > 0 ? liveWaves : wireTransfers(card, device, operation);
+            const live = liveWaves.length > 0;
+            // Canlı izde her kanal/adım sırasıyla görünsün (kart içi kaydırma
+            // var); statik planda ilk birkaç adım yeterli.
+            const maxWaves = live ? 32 : MAX_WAVES_PER_CARD;
             const durationMs = card.rxAt !== undefined ? Math.max(0, Math.round((card.rxAt - card.txAt) * 1000)) : null;
             return (
               <div
@@ -428,11 +550,14 @@ export default function SerialLinePanel() {
                       = {decoded}
                     </span>
                   ) : null}
+                  {waves.length > 0 ? (
+                    <Badge tone={live ? "ok" : "neutral"}>{live ? "canlı iz" : "kablo planı"}</Badge>
+                  ) : null}
                 </div>
 
                 {waves.length > 0 && device ? (
-                  <div className="space-y-2">
-                    {waves.slice(0, MAX_WAVES_PER_CARD).map((wave, index) => (
+                  <div className={cn("space-y-2", live && "max-h-[460px] overflow-y-auto pr-1")}>
+                    {waves.slice(0, maxWaves).map((wave, index) => (
                       <div key={`${card.key}-w${index}`}>
                         <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-faint">
                           {index + 1}/{waves.length} — {wave.title}
@@ -440,9 +565,9 @@ export default function SerialLinePanel() {
                         <BusWaveform part={device.part} transfer={wave.transfer} defaultOpen />
                       </div>
                     ))}
-                    {waves.length > MAX_WAVES_PER_CARD ? (
+                    {waves.length > maxWaves ? (
                       <p className="text-[11px] text-faint">
-                        + {waves.length - MAX_WAVES_PER_CARD} transfer daha (aynı desen devam eder)
+                        + {waves.length - maxWaves} transfer daha (aynı desen devam eder)
                       </p>
                     ) : null}
                   </div>

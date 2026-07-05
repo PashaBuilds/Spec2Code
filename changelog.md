@@ -35,6 +35,20 @@ Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
   Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
   "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
   (uV/mV/mA).
+- SERI HAT CANLI BIT IZLEME: surucu en alt seviye bus fonksiyonlarina
+  zayif iz kancalari eklendi (drivers/spec2code_bus_trace.h - standalone
+  kullanimda no-op, sifir maliyet); test ajaninin guclu implementasyonu
+  (tests/spec2code_testbench_trace.c) her GERCEK transferi komut id'siyle
+  "S2C-LOG|D|TRACE|..." satiri olarak yayinlar (yalniz log seviyesi 5 /
+  debug iken). Kapsam: I2C register oku/yaz/blok-oku, SPI TICS 24-bit
+  frame, flash komutlari (send/read/write) ve testbench generic register
+  yollari. Seri Hat bu izleri id'ye baglar ve diyagramlari GERCEK
+  runtime TX/RX baytlariyla cizer: LTC2991 voltage_read'de V1_MSB'den
+  V8_LSB'ye HER KANAL SIRASIYLA ayri diyagram olur, poll iterasyonlari
+  "xk" olarak katlanir (gercekten yasanan tekrarlar; uydurma yok). Iz
+  yokken (seviye<5 veya eski firmware) operasyonun kablo plani "kablo
+  plani" rozetiyle gosterilmeye devam eder. TCP oturumu artik yanit
+  eslestirmede S2C-LOG/TRACE satirlarini yanit sanmaz.
 - KRITIK DUZELTME (saha, 2026-07-05): ayni parcadan birden cok cihaz
   (or. 3 x LTC2991) tek surucu modulunu ve tek I2C adres sabitini
   paylasiyordu - hangi cihaz secilirse secilsin hep ayni fiziksel cip

@@ -815,6 +815,12 @@ class TestbenchTests(unittest.TestCase):
         # yeniden CfgInitialize etmemeli (mt25qu02g'de XST_DEVICE_IS_STARTED
         # olarak görüldü; I2C'de canlı SCLK ayarını bozuyordu).
         self.assertIn("if (spIic->IsReady != XIL_COMPONENT_IS_READY)", driver)
+        # Canlı bus izi: sürücünün en alt seviye okuma/yazması her gerçek
+        # transferi raporlar (zayıf kanca; test bench güçlü impl TRACE satırı
+        # yayınlar, Seri Hat gerçek baytlarla diyagram çizer).
+        self.assertIn("spec2codeBusTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
+        self.assertIn("spec2codeBusTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
+        self.assertIn("spec2codeTestbenchTraceSetId(spRequest->uiId);", ops)
 
     def test_ltc2945_current_read_uses_board_shunt_config(self) -> None:
         # Akım = Vsense / Rsense; şönt kart verisidir. config.sense_resistor_mohms
@@ -845,7 +851,7 @@ class TestbenchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             spec = build_spec({"sense_resistor_mohms": 5}, ["device_init", "current_read"])
             out_dir = Path(tmp) / "with_shunt"
-            codegen.generate(spec, out_dir)
+            written = {Path(path).relative_to(out_dir).as_posix() for path in codegen.generate(spec, out_dir)}
             driver = (out_dir / "drivers" / "ltc2945.c").read_text(encoding="utf-8")
             ops = (out_dir / "tests" / "unit_ltc2945_current_testbench_ops.c").read_text(encoding="utf-8")
             manifest = json.loads(
@@ -853,6 +859,9 @@ class TestbenchTests(unittest.TestCase):
 
         # I_mA = kod * 25 uV / R_mohm (5 mohm sönt).
         self.assertIn("(iCode * 25) / 5", driver)
+        # Trace altyapısı dosyaları üretilir (zayıf kanca + güçlü impl).
+        self.assertIn("drivers/spec2code_bus_trace.h", written)
+        self.assertIn("tests/spec2code_testbench_trace.c", written)
         ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertIn("current_read", ltc_ops)
         self.assertIn("mA", ltc_ops["current_read"]["label"])

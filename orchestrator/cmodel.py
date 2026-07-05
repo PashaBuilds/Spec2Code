@@ -499,6 +499,7 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     w.ln("ucArrBuffer[0] = ucReg;").ln("ucArrBuffer[1] = ucValue;")
     w.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 2, {addr_def});").check_status()
     w.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    w.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'w', &ucValue, 1U);")
     w.ln("return XST_SUCCESS;")
     write = CFunc(_func_name(module, "register_write"), "int",
                   [f"{htype}* {hvar}", "unsigned char ucReg", "unsigned char ucValue"], w.out(), static=True)
@@ -509,6 +510,7 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     r.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpValue, 1, {addr_def});").check_status()
     r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    r.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpValue, 1U);")
     r.ln("return XST_SUCCESS;")
     read = CFunc(_func_name(module, "register_read"), "int",
                  [f"{htype}* {hvar}", "unsigned char ucReg", "unsigned char* ucpValue"], r.out(), static=True)
@@ -522,6 +524,7 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
     rb.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});").check_status()
     rb.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    rb.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
     rb.ln("return XST_SUCCESS;")
     read_block = CFunc(_func_name(module, "registers_read"), "int",
                        [f"{htype}* {hvar}", "unsigned char ucReg",
@@ -757,7 +760,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             doxy_params=doxy_params, doxy_return="XST_SUCCESS on success, else an XST_* error code."))
         public.append(_func_name(module, op_name))
 
-    includes_c = [f"{module}.h", "xparameters.h", "xstatus.h"]
+    includes_c = [f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"]
     if mux_module:
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
@@ -940,8 +943,7 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     send.ln("unsigned char ucArrTx[1];")
     if _is_qspipsu(htype):
         send.ln("XQspiPsu_Msg sArrMessage[1];")
-    else:
-        send.ln("int iStatus;")
+    send.ln("int iStatus;")
     send.blank()
     send.ln("ucArrTx[0] = ucOpcode;")
     if _is_qspipsu(htype):
@@ -950,10 +952,12 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         send.ln("sArrMessage[0].ByteCount = 1U;")
         send.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
         send.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
-        send.ln(f"return XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);")
+        send.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
         send.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        send.ln(f"return XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, 1);")
+        send.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, 1);").check_status()
+    send.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, 1U);")
+    send.ln("return XST_SUCCESS;")
     f_send = CFunc(_func_name(module, "command_send"), "int",
                    [f"{htype}* {hvar}", "unsigned char ucOpcode"], send.out(), static=True)
 
@@ -980,6 +984,7 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
         rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, uiHeader + uiLength);").check_status()
     rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiHeader + uiIndex];").close()
+    rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
     rd.ln("return XST_SUCCESS;")
     f_read = CFunc(_func_name(module, "command_read"), "int",
                    [f"{htype}* {hvar}", "unsigned char ucOpcode", "unsigned int uiAddress",
@@ -991,8 +996,7 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     if _is_qspipsu(htype):
         wr.ln("XQspiPsu_Msg sArrMessage[1];")
     wr.ln("unsigned int uiIndex;").ln("unsigned int uiHeader;")
-    if not _is_qspipsu(htype):
-        wr.ln("int iStatus;")
+    wr.ln("int iStatus;")
     wr.blank()
     wr.ln("uiHeader = 1U + (unsigned int)ucAddrBytes;")
     wr.open(f"if ((uiHeader + uiLength) > (unsigned int){max_def})").ln("return XST_FAILURE;").close()
@@ -1007,10 +1011,12 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         wr.ln("sArrMessage[0].ByteCount = uiHeader + uiLength;")
         wr.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
         wr.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
-        wr.ln(f"return XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);")
+        wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
         wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        wr.ln(f"return XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, uiHeader + uiLength);")
+        wr.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, uiHeader + uiLength);").check_status()
+    wr.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader + uiLength);")
+    wr.ln("return XST_SUCCESS;")
     f_write = CFunc(_func_name(module, "command_write"), "int",
                     [f"{htype}* {hvar}", "unsigned char ucOpcode", "unsigned int uiAddress",
                      "unsigned char ucAddrBytes", "const unsigned char* ucpData", "unsigned int uiLength"],
@@ -1023,8 +1029,7 @@ def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, f
     wr.ln(f"unsigned char ucArrTx[{frame_def}];")
     if _is_qspipsu(htype):
         wr.ln("XQspiPsu_Msg sArrMessage[1];")
-    else:
-        wr.ln("int iStatus;")
+    wr.ln("int iStatus;")
     wr.blank()
     wr.ln("ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);")
     wr.ln("ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);")
@@ -1035,10 +1040,12 @@ def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, f
         wr.ln(f"sArrMessage[0].ByteCount = {frame_def};")
         wr.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
         wr.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
-        wr.ln(f"return XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);")
+        wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
         wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        wr.ln(f"return XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, {frame_def});")
+        wr.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, {frame_def});").check_status()
+    wr.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, NULL, {frame_def});")
+    wr.ln("return XST_SUCCESS;")
     return CFunc(
         _func_name(module, "register_write"),
         "int",
@@ -1087,6 +1094,7 @@ def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
     else:
         rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
         rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, {frame_def});").check_status()
+    rd.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, ucArrRx, {frame_def});")
     rd.ln("*ucpValue = ucArrRx[2];")
     rd.ln("return XST_SUCCESS;")
     return CFunc(
@@ -1277,7 +1285,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
         summary=descriptor.get("summary", ""),
         transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
-        driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=defines,
         funcs=_prune_unused_static_funcs(funcs),
         public_names=public,
@@ -1410,7 +1418,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
-        driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 

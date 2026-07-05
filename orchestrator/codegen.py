@@ -893,6 +893,143 @@ def _testbench_log_source() -> str:
     )
 
 
+def _bus_trace_header() -> str:
+    """drivers/spec2code_bus_trace.h — sürücülerin zayıf iz kancaları.
+
+    Sürücüler her GERÇEK bus transferinden sonra bu kancaları çağırır.
+    Standalone (dropin) kullanımda buradaki zayıf boş tanımlar geçerlidir
+    ve hiçbir maliyet/yan etki yoktur; test bench güçlü implementasyonu
+    (tests/spec2code_testbench_trace.c) transferleri komut id'siyle
+    S2C-LOG TRACE satırları olarak yayınlar — Seri Hat ekranı bunlardan
+    canlı, bit seviyesinde diyagram çizer.
+    """
+    return (
+        "/**\n"
+        " * @file spec2code_bus_trace.h\n"
+        " * @brief Weak bus-transfer trace hooks (test bench overrides them).\n"
+        " *\n"
+        " * Standalone kullanimda zayif bos tanimlar gecerlidir (yan etkisiz);\n"
+        " * test bench guclu implementasyonu transferleri S2C-LOG TRACE\n"
+        " * satirlari olarak yayinlar (log seviyesi debug iken).\n"
+        " */\n"
+        "#ifndef SPEC2CODE_BUS_TRACE_H\n"
+        "#define SPEC2CODE_BUS_TRACE_H\n\n"
+        "void spec2codeBusTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
+        "                          const unsigned char* ucpData, unsigned int uiLength);\n"
+        "void spec2codeBusTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
+        "                          const unsigned char* ucpRx, unsigned int uiLength);\n\n"
+        "/* Guclu implementasyon (test bench) zayif varsayilanlari kapatmak icin\n"
+        " * include etmeden once SPEC2CODE_BUS_TRACE_NO_WEAK tanimlar. */\n"
+        "#if defined(__GNUC__) && !defined(SPEC2CODE_BUS_TRACE_NO_WEAK)\n"
+        "__attribute__((weak)) void spec2codeBusTraceI2c(unsigned char ucAddress, unsigned char ucReg,\n"
+        "                                                char cDir, const unsigned char* ucpData,\n"
+        "                                                unsigned int uiLength)\n"
+        "{\n"
+        "    (void)ucAddress;\n"
+        "    (void)ucReg;\n"
+        "    (void)cDir;\n"
+        "    (void)ucpData;\n"
+        "    (void)uiLength;\n"
+        "}\n\n"
+        "__attribute__((weak)) void spec2codeBusTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
+        "                                                const unsigned char* ucpRx, unsigned int uiLength)\n"
+        "{\n"
+        "    (void)uiSelect;\n"
+        "    (void)ucpTx;\n"
+        "    (void)ucpRx;\n"
+        "    (void)uiLength;\n"
+        "}\n"
+        "#endif /* __GNUC__ */\n\n"
+        "#endif /* SPEC2CODE_BUS_TRACE_H */\n"
+    )
+
+
+def _testbench_trace_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_trace.h\n"
+        " * @brief Bus trace guclu implementasyonu icin komut baglami.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_TRACE_H\n"
+        "#define SPEC2CODE_TESTBENCH_TRACE_H\n\n"
+        "void spec2codeTestbenchTraceSetId(unsigned int uiId);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_TRACE_H */\n"
+    )
+
+
+def _testbench_trace_source() -> str:
+    """Güçlü iz implementasyonu: gerçek transfer baytlarını komut id'siyle
+    debug seviyesinde yayınlar. Sürücülerdeki zayıf kancaları linkte ezer."""
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_trace.c\n"
+        " * @brief Bus transfer izleme: gercek TX/RX baytlari TRACE satiri olur.\n"
+        " *\n"
+        " * Suruculerdeki zayif kancalari ezer. Cikti yalniz log seviyesi\n"
+        ' * debug (5) iken uretilir: "S2C-LOG|D|TRACE|id=..|bus=..|..." —\n'
+        " * Seri Hat ekrani bu satirlardan canli bus diyagrami cizer.\n"
+        " */\n"
+        '#include "spec2code_testbench_trace.h"\n'
+        "#define SPEC2CODE_BUS_TRACE_NO_WEAK 1\n"
+        '#include "spec2code_bus_trace.h"\n'
+        '#include "spec2code_testbench_log.h"\n\n'
+        "#include <stddef.h>\n\n"
+        "#define SPEC2CODE_TRACE_DATA_MAX 16U\n\n"
+        "static unsigned int S_uiTraceCommandId = 0U;\n\n"
+        "void spec2codeTestbenchTraceSetId(unsigned int uiId)\n"
+        "{\n"
+        "    S_uiTraceCommandId = uiId;\n"
+        "}\n\n"
+        "static void spec2codeTraceHex(char* cpOut, const unsigned char* ucpData, unsigned int uiLength)\n"
+        "{\n"
+        "    static const char C_cArrDigits[] = \"0123456789ABCDEF\";\n"
+        "    unsigned int uiIndex;\n"
+        "    unsigned int uiCount;\n\n"
+        "    if (ucpData == NULL)\n"
+        "    {\n"
+        "        cpOut[0] = '-';\n"
+        "        cpOut[1] = '\\0';\n"
+        "        return;\n"
+        "    }\n"
+        "    uiCount = (uiLength > SPEC2CODE_TRACE_DATA_MAX) ? SPEC2CODE_TRACE_DATA_MAX : uiLength;\n"
+        "    for (uiIndex = 0U; uiIndex < uiCount; uiIndex++)\n"
+        "    {\n"
+        "        cpOut[uiIndex * 2U] = C_cArrDigits[(ucpData[uiIndex] >> 4U) & 0x0FU];\n"
+        "        cpOut[(uiIndex * 2U) + 1U] = C_cArrDigits[ucpData[uiIndex] & 0x0FU];\n"
+        "    }\n"
+        "    cpOut[uiCount * 2U] = '\\0';\n"
+        "}\n\n"
+        "void spec2codeBusTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
+        "                          const unsigned char* ucpData, unsigned int uiLength)\n"
+        "{\n"
+        "    char cArrData[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n\n"
+        "    if (spec2codeLogLevelGet() < SPEC2CODE_LOG_LEVEL_DEBUG)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    spec2codeTraceHex(cArrData, ucpData, uiLength);\n"
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,\n"
+        "                 \"TRACE|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|dir=%c|len=%u|data=%s\",\n"
+        "                 S_uiTraceCommandId, ucAddress, ucReg, cDir, uiLength, cArrData);\n"
+        "}\n\n"
+        "void spec2codeBusTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
+        "                          const unsigned char* ucpRx, unsigned int uiLength)\n"
+        "{\n"
+        "    char cArrTx[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n"
+        "    char cArrRx[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n\n"
+        "    if (spec2codeLogLevelGet() < SPEC2CODE_LOG_LEVEL_DEBUG)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    spec2codeTraceHex(cArrTx, ucpTx, uiLength);\n"
+        "    spec2codeTraceHex(cArrRx, ucpRx, uiLength);\n"
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,\n"
+        "                 \"TRACE|id=%u|bus=spi|cs=%u|len=%u|tx=%s|rx=%s\",\n"
+        "                 S_uiTraceCommandId, uiSelect, uiLength, cArrTx, cArrRx);\n"
+        "}\n"
+    )
+
+
 def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     agent = _testbench_transport_agent(spec)
     manifest = {
@@ -1309,6 +1446,7 @@ def _testbench_i2c_helpers() -> list[str]:
         "        /* wait */",
         "    }",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -1335,6 +1473,7 @@ def _testbench_i2c_helpers() -> list[str]:
         "    {",
         "        /* wait */",
         "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -1366,8 +1505,10 @@ def _testbench_spi_helpers() -> list[str]:
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        return iStatus;",
         "    }",
-        "    return iStatus;",
+        "    spec2codeBusTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
+        "    return XST_SUCCESS;",
         "}",
         "",
         "static int spec2codeTestbenchSpiRegisterRead(XSpiPs* spSpi, unsigned char ucSelect,",
@@ -1409,6 +1550,7 @@ def _testbench_spi_helpers() -> list[str]:
         "        *uipValue = (unsigned int)ucArrRx[2];",
         "    }",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
+        "    spec2codeBusTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -1849,6 +1991,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
     includes = [
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
+        '#include "spec2code_testbench_trace.h"',
+        '#include "spec2code_bus_trace.h"',
         '#include "xstatus.h"',
         '#include <stddef.h>',
         "",
@@ -1941,6 +2085,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    {",
         "        return XST_FAILURE;",
         "    }",
+        "    /* Bus trace satirlari bu komutun id'siyle etiketlenir (Seri Hat). */",
+        "    spec2codeTestbenchTraceSetId(spRequest->uiId);",
         "    spec2codeTestbenchResponseClear(spResponse);",
         "    spResponse->uiId = spRequest->uiId;",
         "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"spec2code_version\") == 1) ||",
@@ -3571,6 +3717,8 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
         tests_dir / "spec2code_testbench_protocol.c",
         tests_dir / "spec2code_testbench_log.h",
         tests_dir / "spec2code_testbench_log.c",
+        tests_dir / "spec2code_testbench_trace.h",
+        tests_dir / "spec2code_testbench_trace.c",
         tests_dir / f"{project_name}_testbench_ops.h",
         tests_dir / f"{project_name}_testbench_ops.c",
         tests_dir / "spec2code_testbench_manifest.json",
@@ -3607,6 +3755,8 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_testbench_protocol_source()),
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source()),
+        _apply_default_identifier_style(_testbench_trace_header()),
+        _apply_default_identifier_style(_testbench_trace_source()),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
@@ -3703,12 +3853,15 @@ def generate(
     drivers_dir = out_dir / "drivers"
     tests_dir = out_dir / "tests"
     header_t = env.get_template("header.h.j2")
+    # Zayıf bus-trace kancaları: sürücüler her gerçek transferi raporlar;
+    # standalone kullanımda no-op, test bench güçlü impl ile canlı iz olur.
+    written_trace = hio.write_output(drivers_dir / "spec2code_bus_trace.h", _bus_trace_header())
     driver_t = env.get_template("driver.c.j2")
     test_header_t = env.get_template("test.h.j2")
     test_t = env.get_template("test.c.j2")
     readme_t = env.get_template("readme.md.j2")
 
-    written: list[str] = []
+    written: list[str] = [str(written_trace)]
     for unit in units:
         emit({"event": "codegen.unit", "module": unit.module, "part": unit.part,
               "transport": unit.transport})
