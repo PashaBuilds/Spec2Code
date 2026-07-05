@@ -13,6 +13,7 @@ import GenerateConsole from "@/features/generate-console/GenerateConsole";
 import CodeViewer from "@/features/code-view/CodeViewer";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DriverImport from "@/features/driver-import/DriverImport";
+import UserDescriptorImport from "@/features/driver-import/UserDescriptorImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
@@ -281,9 +282,12 @@ export default function App() {
           </div>
         ))}
         {keepAlive("import", (
-          <div className="mx-auto h-full max-w-3xl overflow-auto p-6">
-            <h2 className="mb-4 text-sm font-semibold">Import driver sources</h2>
-            <DriverImport />
+          <div className="mx-auto h-full max-w-3xl space-y-6 overflow-auto p-6">
+            <UserDescriptorImport />
+            <div>
+              <h2 className="mb-4 text-sm font-semibold">Import driver sources</h2>
+              <DriverImport />
+            </div>
           </div>
         ))}
         <div className={cn("h-full", view !== "flow" && "hidden")}>

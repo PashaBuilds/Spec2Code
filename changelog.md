@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.110 - Taslak
+
+- KULLANICI DESCRIPTOR'LARI: katalogda olmayan (veya sirket ici) bir
+  entegre artik uygulamaya YAML descriptor olarak eklenebilir. Import
+  ekranindaki "Descriptor ice aktar" bolumu dosyayi sema dogrulamasindan
+  gecirir (alan alan Turkce hatalar; hatali dosya kaydedilmez) ve
+  exe'nin yanindaki user_descriptors/ klasorune koyar - dosya dogrudan
+  klasore de birakilabilir. Kaydedilen parca sematik parca secicide
+  "user" statusuyle gorunur; Generate, Test Bench, Registers, Seri Hat
+  ve uretilen surucu yerlesik entegrelerle birebir ayni zincirden
+  uretilir. Ayni adli yerlesik parca varsa KULLANICI dosyasi onceliklidir
+  (yerlesik bir haritayi duzeltmek icin de kullanilabilir). Bilinmeyen
+  parcalarda Seri Hat dalga formu manifest'teki transport tipine duser.
+- Kilavuz'a 15.0 "Ozel entegre - descriptor yazim rehberi" bolumu:
+  adim adim kimlik/transport -> registers -> operasyonlar (adim tablosu)
+  -> convert formulu -> test_hints, TICS/flash/EEPROM arketipleri ve
+  dogrulama duzeni.
+
 ## v0.1.109 - 2026-07-05
 
 - SAHA (kok neden KANITLANDI): paketli uygulama ajani "dev" suruguyle

@@ -468,12 +468,16 @@ export default function BusWaveform({
   part,
   transfer,
   defaultOpen = false,
+  transport,
 }: {
   part: string;
   transfer: KnowledgeRegisterTransfer;
   defaultOpen?: boolean;
+  /** Bilinmeyen parçalar (kullanıcı descriptor'ları) için protokol yedeği:
+   * manifest'teki transport tipi. Katalog parça listesi öncelikli kalır. */
+  transport?: "i2c" | "spi";
 }) {
-  const protocol = protocolForPart(part);
+  const protocol = protocolForPart(part) ?? transport ?? null;
   if (!protocol) return null;
 
   return (

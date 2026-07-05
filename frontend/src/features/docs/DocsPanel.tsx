@@ -504,6 +504,126 @@ python spec2code_cli.py build --spec my.spec.json \\
       </>
     ),
   },
+  {
+    id: "descriptor-rehberi", no: "15.0", title: "Özel entegre — descriptor yazım rehberi",
+    keywords: "descriptor yaml özel entegre user_descriptors import register operasyon convert poll",
+    body: (
+      <>
+        <P>
+          Kataloğa girmemiş (ya da şirket içi) bir entegreyi <B>tam yetenekle</B> eklemenin yolu bir
+          descriptor YAML'ı yazmaktır. Import ekranındaki <B>"Descriptor içe aktar"</B> bölümünden
+          yüklersin (ya da dosyayı doğrudan exe'nin yanındaki <M>user_descriptors/</M> klasörüne
+          koyarsın); şema doğrulanır, parça şematik seçicide görünür ve Generate, Test Bench,
+          Registers, Seri Hat yerleşik entegrelerle birebir aynı şekilde bu dosyadan üretilir. Aynı
+          adlı yerleşik parça varsa <B>kullanıcı dosyası önceliklidir</B> — yerleşik bir haritayı
+          düzeltmek için de kullanabilirsin.
+        </P>
+        <Callout tone="warn" title="ADIM 0 — Datasheet önde">
+          Register offsetlerini, bit alanlarını ve dönüşüm formüllerini datasheet'ten birebir al;
+          uygulama yazdığını sorgusuz üretir. Emin olmadığın alanı hiç yazmamak, yanlış yazmaktan
+          iyidir.
+        </Callout>
+        <P>
+          <B>Adım 1 — Kimlik ve transport.</B> Dosya adı parçadan türetilir (MYCHIP-123 →
+          <M>mychip123.yaml</M>); <M>part</M> şematikte kullanacağın adla birebir olmalı.
+        </P>
+        <Code>{`descriptor_version: "1.0"
+part: "MYCHIP123"
+manufacturer: "..."
+summary: "Tek cümle özet."
+transport:
+  type: i2c            # i2c | spi
+  address_width: 8
+  default_address: 0x48
+  byte_order: big      # çok baytlı değerin birleşme sırası: big | little
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }`}</Code>
+        <P>
+          <B>Adım 2 — Registers.</B> Registers ekranı, snapshot/diff ve generic register R/W buradan
+          beslenir. Adlar C makrosuna dönüşür: BÜYÜK_HARF_ALT_ÇİZGİ, ad ve offset benzersiz.
+          <M>width: 16</M> yazarsan o register tek işlemde 2 bayt okunur/yazılır (AD7414
+          TEMPERATURE gibi tek geniş register); 8-bit ardışık registerlar ise tek tek okunur.
+          <M>reset</M> değeri diff ekranının "beklenen" sütunudur; <M>poll</M> adımı kullanacaksan
+          ilgili bit <M>fields</M> altında adlandırılmış olmalı.
+        </P>
+        <Code>{`registers:
+  - name: STATUS
+    offset: 0x00
+    width: 8
+    access: ro           # ro | rw | wo | reserved
+    reset: 0x00
+    fields:
+      - { name: READY, bits: "0" }
+      - { name: MODE,  bits: "3:1", description: "..." }`}</Code>
+        <P>
+          <B>Adım 3 — Operasyonlar.</B> Her operasyon bir C fonksiyonu + Test Bench butonu olur.
+          <M>returns</M> yoksa fonksiyon yalnız iş yapar (init); <M>uint8/uint16/uint32/int32</M> →
+          skaler (okunan toplam bayt ≤ 4, <M>byte_order</M>'a göre birleşir);
+          <M>"uint16[8]"</M> → dizi (yalnız <M>read_channels</M> ile).
+        </P>
+        <DocTable head={["Adım", "Alanlar", "Ürettiği"]} rows={[
+          [<M key="a">comment</M>, "note", "Koda yorum satırı"],
+          [<M key="b">write_register</M>, "reg, value", "Pointer + değer yazımı"],
+          [<M key="c">read_register</M>, "reg, mask?, shift?", "1 bayt okur; mask/shift ile skalere yerleşir"],
+          [<M key="d">read_registers</M>, "reg, length", "width 8 → ardışık adresler tek tek; width 16+ → tek işlemde blok"],
+          [<M key="e">read_channels</M>, "reg, count", "count × (MSB, LSB) çifti; dizi doldurur"],
+          [<M key="f">poll</M>, "reg, field, until", "Bit istenen değere gelene dek okur (bütçe otomatik ~0.5 sn — sonsuz döngü üretilmez)"],
+        ]} />
+        <P>
+          <B>Adım 4 — convert (mühendislik birimi).</B> Formül tam sayı aritmetiğidir ve yeşil
+          çözülmüş rozeti üretir: <M>değer = işaret_genişlet((ham &gt;&gt; rshift) &amp; mask,
+          signed_bits) × scale_num / scale_den + offset</M>, ardından varsa <M>clamp_min</M>.
+          Tanınan birimler: <M>"0.01 C"</M>, <M>"0.01 %RH"</M>, <M>mV</M>, <M>mA</M>, <M>mW</M>,
+          <M>uV</M>, <M>s</M>. Kart verisi gereken payda için <M>scale_den_config: anahtar</M> yaz —
+          değer şematikteki cihazın <M>config</M> alanından gelir (LTC2945'in şönt direnci gibi);
+          PMBus Linear11 için <M>format: pmbus_l11</M> kullan.
+        </P>
+        <P>
+          <B>Adım 5 — test_hints.</B> <M>post_init_status: {"{ reg: STATUS }"}</M> ile device_init
+          başarısında o register geri okunur ve cevap data alanı dolu döner (dürüst init
+          doğrulaması).
+        </P>
+        <Code>{`operations:
+  - name: device_init
+    description: "Kanalları etkinleştirir."
+    steps:
+      - { op: write_register, reg: CONTROL, value: 0x10 }
+  - name: temperature_read
+    returns: "int32"
+    description: "0.01 C, 13-bit two's complement."
+    convert: { mask: 0x1FFF, signed_bits: 13, scale_num: 625, scale_den: 100, unit: "0.01 C" }
+    steps:
+      - { op: poll, reg: STATUS, field: READY, until: 1 }
+      - { op: read_register, reg: T_MSB }
+      - { op: read_register, reg: T_LSB }
+test_hints:
+  post_init_status: { reg: STATUS }
+  self_test: { description: "Sıcaklık okunur; yazma yok." }`}</Code>
+        <P>
+          <B>Diğer arketipler:</B> TICS tarzı SPI parçalarda (LMK/LMX benzeri)
+          <M>transport.register_model</M> bloğu (frame_bits, address_bits, address_shift, rw_bit) ve
+          okuma için datasheet dayanaklı <M>readback: {"{ verified: true, requires: ... }"}</M>
+          gerekir — readback bloğu yoksa register okuma dürüstçe üretilmez; init dizisi cihazın
+          <M>config.ticspro_registers</M> listesinden gelir. SPI flash'ta <M>commands</M> listesi +
+          <M>send_command / read_command_address / write_command_address</M> adımları, EEPROM'da
+          <M>memory: {"{ size_bytes, page_size }"}</M> bloğu kullanılır (örnek:
+          <M>mt25qu02g.yaml</M>, <M>24lc32a.yaml</M>).
+        </P>
+        <Callout tone="ok" title="Doğrulama düzeni">
+          Yükle → şematiğe parçayı koy → Generate → Test Bench'te device_init + okuma → Registers
+          snapshot'ı reset değerleriyle karşılaştır → log seviye 5 ile Seri Hat izlerinde gerçek
+          baytları gör. Şüpheli her sonuçta TRACEERR satırı hangi adres/register/aşamanın düştüğünü
+          söyler.
+        </Callout>
+        <Callout tone="warn" title="Descriptor'dan gelmeyenler">
+          Katalog/Bilgi ekranındaki ansiklopedik bilgi paketi uygulama koduna gömülüdür; kullanıcı
+          descriptor'ı Test Bench/Registers/üretilen sürücü/Seri Hat'ı birebir sağlar ama Bilgi
+          sayfası oluşturmaz.
+        </Callout>
+      </>
+    ),
+  },
 ];
 
 /* ---------- ana bileşen ---------- */

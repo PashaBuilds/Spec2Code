@@ -575,7 +575,12 @@ export default function SerialLinePanel() {
                         <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-faint">
                           {index + 1}/{waves.length} — {wave.title}
                         </div>
-                        <BusWaveform part={device.part} transfer={wave.transfer} defaultOpen />
+                        <BusWaveform
+                          part={device.part}
+                          transfer={wave.transfer}
+                          transport={device.transport === "spi" ? "spi" : "i2c"}
+                          defaultOpen
+                        />
                       </div>
                     ))}
                     {waves.length > maxWaves ? (

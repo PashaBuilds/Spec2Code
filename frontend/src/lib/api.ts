@@ -17,6 +17,7 @@ import type {
   TestbenchSessionStatus,
   DriverMatch,
   SpecValidation,
+  UserDescriptorEntry,
   VitisCompileIssue,
   VitisWorkspaceRequest,
   VitisWorkspaceResult,
@@ -90,6 +91,18 @@ export const api = {
 
   descriptor: (part: string) =>
     req<DeviceDescriptor>(`/api/descriptors/${part}`),
+
+  userDescriptors: () =>
+    req<{ dir: string; descriptors: UserDescriptorEntry[] }>("/api/user-descriptors"),
+
+  uploadUserDescriptor: (content: string) =>
+    req<{ saved: string; part: string; dir: string; overrides_builtin: boolean }>("/api/user-descriptors", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  deleteUserDescriptor: (fileName: string) =>
+    req<{ deleted: string }>(`/api/user-descriptors/${encodeURIComponent(fileName)}`, { method: "DELETE" }),
 
   knowledgeAsk: (payload: KnowledgeAskRequest) =>
     req<KnowledgeAskResponse>("/api/knowledge/ask", {

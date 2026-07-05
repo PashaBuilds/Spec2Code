@@ -4126,18 +4126,51 @@ def _remove_retired_boardless_artifacts(out_dir: Path, project_name: str) -> Non
         path.unlink(missing_ok=True)
 
 
+def user_descriptors_dir() -> Path:
+    """Kullanıcı descriptor klasörü: paketli uygulamada exe'nin YANINDA durur.
+
+    Paket içindeki descriptors/ klasörü salt okunurdur (PyInstaller _MEIPASS);
+    kullanıcı kendi entegresini bu klasöre YAML atarak ya da Import ekranından
+    yükleyerek ekler. Öncelik sırası: SPEC2CODE_USER_DESCRIPTORS ortam
+    değişkeni (testler/otomasyon) -> frozen'da exe dizini -> repo kökü.
+    """
+    env = os.environ.get("SPEC2CODE_USER_DESCRIPTORS", "").strip()
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "user_descriptors"
+    return _ROOT / "user_descriptors"
+
+
+def resolve_descriptor_path(ref_or_part: str, root: Path = _ROOT) -> Path:
+    """Descriptor dosya yolunu çözer; kullanıcı klasörü HER ZAMAN önceliklidir.
+
+    Aynı adlı dosya hem user_descriptors/ hem descriptors/ içinde varsa
+    kullanıcınınki kazanır — kullanıcı yerleşik bir haritayı düzeltebilsin.
+    """
+    user_dir = user_descriptors_dir()
+    if ref_or_part.endswith((".yaml", ".yml")) or "/" in ref_or_part:
+        candidate = user_dir / Path(ref_or_part).name
+        if candidate.is_file():
+            return candidate
+        return root / ref_or_part
+    descriptor_name = "".join(ch.lower() for ch in ref_or_part if ch.isalnum())
+    for stem in (descriptor_name, cmodel._module_of(ref_or_part)):
+        candidate = user_dir / f"{stem}.yaml"
+        if candidate.is_file():
+            return candidate
+    path = root / "descriptors" / f"{descriptor_name}.yaml"
+    if not path.is_file():
+        path = root / "descriptors" / f"{cmodel._module_of(ref_or_part)}.yaml"
+    return path
+
+
 def make_descriptor_loader(root: Path = _ROOT) -> Callable[[str], dict]:
     """Resolve a descriptor by ref path (descriptors/x.yaml) or by part name (TCA9548A)."""
     cache: dict[str, dict] = {}
 
     def get(ref_or_part: str) -> dict:
-        if ref_or_part.endswith((".yaml", ".yml")) or "/" in ref_or_part:
-            path = root / ref_or_part
-        else:
-            descriptor_name = "".join(ch.lower() for ch in ref_or_part if ch.isalnum())
-            path = root / "descriptors" / f"{descriptor_name}.yaml"
-            if not path.is_file():
-                path = root / "descriptors" / f"{cmodel._module_of(ref_or_part)}.yaml"
+        path = resolve_descriptor_path(ref_or_part, root)
         key = str(path)
         if key not in cache:
             if not path.is_file():

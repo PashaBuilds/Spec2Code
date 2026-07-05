@@ -525,6 +525,20 @@ export interface DescriptorMeta {
   transport: string;
   summary: string;
   operations: string[];
+  /** "user" = user_descriptors/ dosyası (yerleşiği gölgeler), "builtin" = paket içi. */
+  source?: "user" | "builtin";
+}
+
+/** user_descriptors/ klasöründeki bir dosyanın listesi; bozuk YAML'lar
+ * error alanıyla döner ki kullanıcı düzeltebilsin. */
+export interface UserDescriptorEntry {
+  file: string;
+  part: string | null;
+  transport?: string | null;
+  summary?: string;
+  registers?: number;
+  operations?: Array<string | null>;
+  error?: string;
 }
 export interface DescriptorField {
   name: string;

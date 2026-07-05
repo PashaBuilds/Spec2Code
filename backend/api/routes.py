@@ -36,6 +36,8 @@ from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processo
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
+from orchestrator.codegen import resolve_descriptor_path, user_descriptors_dir
+from orchestrator.descriptor_check import validate_descriptor
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
@@ -499,32 +501,131 @@ async def xsa_upload(file: UploadFile) -> dict:
     return _xsa_parse_response(target)
 
 
+def _user_descriptor_entries() -> list[dict]:
+    """user_descriptors/ içeriği; bozuk YAML'lar hata alanıyla listelenir."""
+    entries: list[dict] = []
+    user_dir = user_descriptors_dir()
+    if not user_dir.is_dir():
+        return entries
+    for path in sorted([*user_dir.glob("*.yaml"), *user_dir.glob("*.yml")]):
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            entries.append({"file": path.name, "part": None, "error": f"YAML parse hatası: {exc}"})
+            continue
+        if not isinstance(doc, dict):
+            entries.append({"file": path.name, "part": None, "error": "YAML kökü nesne olmalı"})
+            continue
+        entries.append({
+            "file": path.name,
+            "part": doc.get("part"),
+            "transport": (doc.get("transport") or {}).get("type"),
+            "summary": doc.get("summary", ""),
+            "registers": len(doc.get("registers") or []),
+            "operations": [op.get("name") for op in doc.get("operations") or [] if isinstance(op, dict)],
+        })
+    return entries
+
+
 @router.get("/catalog")
 def get_catalog() -> dict:
     catalog = json.loads(_CATALOG.read_text(encoding="utf-8"))
     if _IMPORTED.is_file():
         catalog["imported"] = json.loads(_IMPORTED.read_text(encoding="utf-8"))
+    # Kullanıcı descriptor'ları parça seçicide yerleşiklerle yan yana görünür;
+    # aynı part hem yerleşik hem kullanıcıda varsa kullanıcı girdisi kazanır
+    # (çözümleme önceliğiyle tutarlı).
+    users = [e for e in _user_descriptor_entries() if e.get("part") and not e.get("error")]
+    if users:
+        catalog.setdefault("statuses", {})["user"] = "User descriptor (user_descriptors/); resolved before the built-in library."
+        by_part = {d.get("part"): i for i, d in enumerate(catalog.get("devices", []))}
+        for entry in users:
+            device = {
+                "part": entry["part"],
+                "transport": entry.get("transport") or "i2c",
+                "status": "user",
+                "descriptor": f"user_descriptors/{entry['file']}",
+                "summary": entry.get("summary", ""),
+                "match_tokens": [entry["part"]],
+            }
+            index = by_part.get(entry["part"])
+            if index is None:
+                catalog.setdefault("devices", []).append(device)
+            else:
+                catalog["devices"][index] = device
     return catalog
 
 
 @router.get("/descriptors")
 def list_descriptors() -> dict:
     items = []
+    user_parts = set()
+    for entry in _user_descriptor_entries():
+        if entry.get("error") or not entry.get("part"):
+            continue
+        user_parts.add(entry["part"])
+        items.append({"part": entry["part"], "ref": f"user_descriptors/{entry['file']}",
+                      "transport": entry.get("transport"), "summary": entry.get("summary", ""),
+                      "operations": entry.get("operations", []), "source": "user"})
     for path in sorted(_DESCRIPTORS.glob("*.yaml")):
         d = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if d.get("part") in user_parts:
+            continue  # kullanıcı dosyası yerleşiği gölgeler
         items.append({"part": d.get("part"), "ref": f"descriptors/{path.name}",
                       "transport": d.get("transport", {}).get("type"),
                       "summary": d.get("summary", ""),
-                      "operations": [op["name"] for op in d.get("operations", [])]})
+                      "operations": [op["name"] for op in d.get("operations", [])],
+                      "source": "builtin"})
     return {"descriptors": items}
 
 
 @router.get("/descriptors/{part}")
 def get_descriptor(part: str) -> dict:
-    path = _DESCRIPTORS / f"{part.lower()}.yaml"
+    path = resolve_descriptor_path(part, _ROOT)
     if not path.is_file():
         raise HTTPException(404, f"no descriptor for '{part}'")
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+class UserDescriptorUpload(BaseModel):
+    content: str
+
+
+@router.get("/user-descriptors")
+def list_user_descriptors() -> dict:
+    return {"dir": str(user_descriptors_dir()), "descriptors": _user_descriptor_entries()}
+
+
+@router.post("/user-descriptors")
+def upload_user_descriptor(req: UserDescriptorUpload) -> dict:
+    try:
+        doc = yaml.safe_load(req.content)
+    except yaml.YAMLError as exc:
+        raise HTTPException(400, {"message": "YAML parse hatası", "errors": [str(exc)]})
+    errors = validate_descriptor(doc)
+    if errors:
+        raise HTTPException(400, {"message": "descriptor doğrulaması başarısız", "errors": errors})
+    part = str(doc["part"]).strip()
+    stem = "".join(ch.lower() for ch in part if ch.isalnum()) or "part"
+    user_dir = user_descriptors_dir()
+    user_dir.mkdir(parents=True, exist_ok=True)
+    target = user_dir / f"{stem}.yaml"
+    target.write_text(req.content, encoding="utf-8")
+    return {"saved": target.name, "part": part, "dir": str(user_dir),
+            "overrides_builtin": (_DESCRIPTORS / f"{stem}.yaml").is_file()}
+
+
+@router.delete("/user-descriptors/{file_name}")
+def delete_user_descriptor(file_name: str) -> dict:
+    user_dir = user_descriptors_dir()
+    target = (user_dir / Path(file_name).name).resolve()
+    # Yol kacisi olmasin: yalniz user_descriptors icindeki .yaml/.yml silinir.
+    if target.parent != user_dir.resolve() or target.suffix not in {".yaml", ".yml"}:
+        raise HTTPException(400, "geçersiz dosya adı")
+    if not target.is_file():
+        raise HTTPException(404, f"dosya yok: {target.name}")
+    target.unlink()
+    return {"deleted": target.name}
 
 
 @router.get("/rulesets/default")

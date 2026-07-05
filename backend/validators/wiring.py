@@ -28,9 +28,11 @@ def _module_of(part: str) -> str:
 
 
 def _descriptor_path(ref_or_part: str) -> Path:
-    if ref_or_part.endswith((".yaml", ".yml")) or "/" in ref_or_part or "\\" in ref_or_part:
-        return _ROOT / ref_or_part
-    return _DESCRIPTORS / f"{_module_of(ref_or_part)}.yaml"
+    # Kullanıcı descriptor'ları (user_descriptors/) yerleşiklerden önceliklidir
+    # — codegen çözümlemesiyle aynı kural (tek doğruluk kaynağı codegen'de).
+    from orchestrator.codegen import resolve_descriptor_path
+
+    return resolve_descriptor_path(ref_or_part, _ROOT)
 
 
 def _load_descriptor(ref_or_part: str) -> dict[str, Any] | None:
