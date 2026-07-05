@@ -5,6 +5,26 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.107 - Taslak
 
+- SAHA: flash'tan 256 bayt okumak timeout'a dusuyordu (128 calisirken).
+  Kok neden: ajan cevap satiri tamponu 512 karakterdi; 256 baytlik data
+  (512 hex) + prefix + mesaj ~750 karakterdir. Satir kirpilip \n'siz
+  gonderiliyor, host satiri tamamlayamayip timeout'a dusuyor ve kirpik
+  govde bir SONRAKI cevapla yapisiyordu (sahada id=47+id=48 tek satir).
+  Duzeltme: LINE_MAX 1024 (tum ajanlar; istek tarafi 256B page_program
+  payload'i icin de gerekliydi) + tasma bekcisi: satira sigmayan cevap
+  kirpik gonderilmek yerine data'siz "response line overflow" hatasina
+  cevrilir. NOT: yeni firmware gerektirir.
+- Test Bench flash sayfasina "Binary dosya aktarimi" karti: adres +
+  uzunluk ver, chunk chunk okunur ve .bin olarak iner (ozet: sure, hiz,
+  ilk 16 bayt); .bin dosyasi + hedef adres ver, sayfa hizali
+  page_program komutlariyla yazilir (NOR uyarisi: alan onceden silinmis
+  olmali - onay istenir) ve istenirse geri okunup bayt bayt dogrulanir
+  (ilk uyusmayan adres raporlanir). Ilerleme cubugu + kalan sure +
+  iptal. Sinirlar: komut basina 256 bayt (protokol data alani), tek
+  aktarim <= 1 MiB (zaman pratikligi - DCC uzerinde buyuk aktarim
+  yavastir, TCP/UART onerilir); teoride flash'in tamami chunk'larla
+  okunabilir.
+
 - SAHA: "build edildi ama karttaki ELF eski kalmis" tuzagina karsi uc
   gorunurluk katmani. (1) I2C taramasi artik once ajan surumunu sorgular
   ve sonucta "ajan vX" cipi gosterir; v0.1.105 oncesi ELF'te (okuma

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Radar, Send, ShieldCheck, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
+import FlashTransferCard from "./FlashTransferCard";
 import I2cScanCard from "./I2cScanCard";
 import { api } from "@/lib/api";
 import { timeLabelMs } from "@/lib/console";
@@ -635,6 +636,12 @@ export default function TestBenchPanel() {
 
               <ResultPanel result={result} meta={resultMeta} operation={resultOperation} />
             </div>
+
+            {selectedDevice.operations.some((op) => op.name === "data_read" || op.name === "page_program") ? (
+              <div className="mt-4">
+                <FlashTransferCard device={selectedDevice} />
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="p-4 text-sm text-muted">Bu manifest içinde test bench operasyonu bulunamadı.</div>

@@ -2286,6 +2286,17 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "                     sRequest.cArrDevice, sRequest.cArrOperation, sResponse.iStatus, sResponse.cArrMessage);",
         "    }",
         "    iFormatStatus = spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
+        "    if (iFormatStatus != XST_SUCCESS)",
+        "    {",
+        "        /* Cevap satira sigmadi: kirpik satir (\\n'siz) gondermek hostu",
+        "         * timeout'a surukler ve bir sonraki cevapla yapisir (SAHA",
+        "         * 2026-07-05, 256B flash okumasi). Data atilir ve durustce",
+        "         * kisa bir hata cevabi donulur. */",
+        "        sResponse.uiDataLength = 0U;",
+        "        sResponse.uiOk = 0U;",
+        "        spec2codeTestbenchMessageSet(&sResponse, \"response line overflow\");",
+        "        iFormatStatus = spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
+        "    }",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"TX %s\", cpResponseLine);",
         "    return iFormatStatus;",
         "}",
@@ -2672,7 +2683,11 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         " */",
         *headers,
         "",
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
+        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
+        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
+        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
         "#define SPEC2CODE_TESTBENCH_RECV_CHUNK 64",
         "",
         "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
@@ -2931,7 +2946,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         " */",
         *headers,
         "",
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
+        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
+        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
+        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
         "",
         "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
@@ -3350,7 +3369,11 @@ def _testbench_uart_source(spec: dict) -> str:
         " */",
         *headers,
         "",
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
+        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
+        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
+        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
         "",
         f"static {uart_prefix} S_sTestbenchUart;",
         "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
@@ -3635,7 +3658,11 @@ def _testbench_coresight_source(spec: dict) -> str:
         " */",
         *headers,
         "",
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 512U",
+        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
+        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
+        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
+        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
+        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
         "",
         "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
         "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",

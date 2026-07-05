@@ -1323,6 +1323,31 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XQspiPsu* spec2codeTestbenchQspiPsuHandleGet", lwip_source)
 
+    def test_agent_line_buffer_fits_full_data_payload_and_guards_overflow(self) -> None:
+        # SAHA BULGUSU (2026-07-05): 256 baytlik flash okumasi timeout'a
+        # dustu. Cevap satiri ~750 karakterdir (prefix ~64 + 512 hex data +
+        # message 160) ama LINE_MAX 512 idi: ResponseFormat kirpip FAILURE
+        # dondu, UART/CoreSight ajani kirpik satiri \n'siz gonderdi -> host
+        # satiri tamamlayamayip timeout; kirpik govde bir SONRAKI cevapla
+        # yapisti (id=47+id=48 tek satir olarak gorunduler). Beklenen:
+        # 1024'luk tampon (istek tarafi da 256B page_program payload'i
+        # icin gerekli) + tasma bekcisi (kirpik satir yerine data'siz
+        # "response line overflow" cevabi).
+        spec = load_sample_spec("unit_no_spi_testbench")
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+            agent_sources = "\n".join(
+                p.read_text(encoding="utf-8")
+                for p in tests_dir.glob("spec2code_testbench_*.c"))
+            ops_source = (tests_dir / "unit_no_spi_testbench_testbench_ops.c").read_text(encoding="utf-8")
+
+        self.assertIn("#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U", agent_sources)
+        self.assertNotIn("SPEC2CODE_TESTBENCH_LINE_MAX 512U", agent_sources)
+        self.assertIn('spec2codeTestbenchMessageSet(&sResponse, "response line overflow");', ops_source)
+
     def test_qspi_flash_command_read_splits_tx_and_rx_messages(self) -> None:
         # SAHA BULGUSU (2026-07-05): mt25qu02g data_read (address=0x0
         # length=4) ajani KILITLEDI - "op basla" son log, TRACE/cevap yok,
