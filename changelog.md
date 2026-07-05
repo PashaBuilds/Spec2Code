@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.105 - Taslak
+## v0.1.105 - 2026-07-05
 
 - SAHA: I2C hat taramasi probu okumadan YAZMAYA cevrildi (1 bayt 0x00).
   Gercek kartta XIicPs_MasterRecvPolled adres NACK'inde de basari
