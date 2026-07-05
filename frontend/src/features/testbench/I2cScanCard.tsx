@@ -10,16 +10,83 @@ function hexAddr(value: number): string {
   return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
-function AddressChips({ addresses, empty = "—" }: { addresses: number[]; empty?: string }) {
-  if (addresses.length === 0) return <span className="text-xs text-faint">{empty}</span>;
+interface ExpectedDevice {
+  id: string;
+  part: string;
+  address: number;
+}
+
+/** Pozisyon anahtarı: doğrudan hat "direct", switch arkası "muxId:kanal". */
+function positionKey(muxId: string | null, channel: number | null): string {
+  return muxId == null ? "direct" : `${muxId}:${channel}`;
+}
+
+/** Şematik modeli: seçili denetleyicideki I2C cihazları pozisyon pozisyon.
+ * Tarama sonucu bu beklentiyle karşılaştırılır — eşleşen adresin yanına
+ * cihaz yazılır, modelde olmayan adres ve cevap vermeyen modelli cihaz
+ * ayrıca işaretlenir. */
+function expectedDevicesByPosition(
+  manifest: TestbenchManifest | null,
+  controllerId: string,
+): Map<string, ExpectedDevice[]> {
+  const out = new Map<string, ExpectedDevice[]>();
+  for (const device of manifest?.devices ?? []) {
+    const attach = device.attach;
+    if (!attach || attach.controller_id !== controllerId || !attach.i2c_address) continue;
+    const address = Number.parseInt(String(attach.i2c_address), 16);
+    if (!Number.isFinite(address)) continue;
+    const key = positionKey(attach.via_mux?.mux_id ?? null, attach.via_mux?.channel ?? null);
+    const list = out.get(key) ?? [];
+    list.push({ id: device.id, part: device.part, address });
+    out.set(key, list);
+  }
+  return out;
+}
+
+/** Bir pozisyonun adres çipleri: bulunanlar (şematik eşleşmesiyle) +
+ * şematikte beklenip cevap vermeyenler. */
+function PositionChips({
+  addresses,
+  expected,
+  empty = "—",
+}: {
+  addresses: number[];
+  expected: ExpectedDevice[];
+  empty?: string;
+}) {
+  const missing = expected.filter((device) => !addresses.includes(device.address));
+  if (addresses.length === 0 && missing.length === 0) {
+    return <span className="text-xs text-faint">{empty}</span>;
+  }
   return (
     <div className="flex flex-wrap gap-1">
-      {addresses.map((address) => (
+      {addresses.map((address) => {
+        const match = expected.find((device) => device.address === address);
+        return match ? (
+          <span
+            key={address}
+            className="rounded border border-ok/40 bg-ok/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-ok"
+            title={`Şematikle eşleşti: ${match.part} (${match.id})`}
+          >
+            {hexAddr(address)} · {match.id}
+          </span>
+        ) : (
+          <span
+            key={address}
+            className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-accent"
+            title="Bu pozisyonda bu adreste şematikte modellenmiş cihaz yok."
+          >
+            {hexAddr(address)} · şematikte yok
+          </span>
+        );
+      })}
+      {missing.map((device) => (
         <span
-          key={address}
-          className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-accent"
+          key={`missing-${device.address}-${device.id}`}
+          className="rounded border border-dashed border-danger/50 bg-danger/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-danger"
+          title={`Şematikte bu pozisyonda ${device.part} (${device.id}) ${hexAddr(device.address)} adresinde modellenmiş ama taramada cevap vermedi.`}
         >
-          {hexAddr(address)}
+          {hexAddr(device.address)} · {device.id} · cevap yok
         </span>
       ))}
     </div>
@@ -81,6 +148,9 @@ export default function I2cScanCard({
   }
 
   const muxById = new Map((scanInfo.muxes ?? []).map((mux) => [mux.address, mux]));
+  // Şematik beklentisi: sonuç hangi denetleyiciyle alındıysa ona göre
+  // (denetleyici seçimi sonradan değişmiş olabilir).
+  const expectedByPosition = expectedDevicesByPosition(manifest, result?.controller_id ?? activeController);
 
   return (
     <section className="rounded-lg border border-border bg-elev p-4">
@@ -168,7 +238,11 @@ export default function I2cScanCard({
                 <td className="px-3 py-2 font-mono text-text">Doğrudan hat</td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <AddressChips addresses={result.direct_addresses} empty="cihaz yok" />
+                    <PositionChips
+                      addresses={result.direct_addresses}
+                      expected={expectedByPosition.get("direct") ?? []}
+                      empty="cihaz yok"
+                    />
                     {result.switch_addresses.map((address) => (
                       <span
                         key={address}
@@ -195,7 +269,11 @@ export default function I2cScanCard({
                     <tr key={`${mux.id}-ch${channel.channel}`} className={cn(channel.addresses.length === 0 && "opacity-70")}>
                       <td className="px-3 py-1.5 pl-6 font-mono text-muted">kanal {channel.channel}</td>
                       <td className="px-3 py-1.5">
-                        <AddressChips addresses={channel.addresses} empty="boş" />
+                        <PositionChips
+                          addresses={channel.addresses}
+                          expected={expectedByPosition.get(positionKey(mux.id, channel.channel)) ?? []}
+                          empty="boş"
+                        />
                       </td>
                       <td className="px-3 py-1.5 text-right font-mono text-muted">{channel.addresses.length}</td>
                     </tr>

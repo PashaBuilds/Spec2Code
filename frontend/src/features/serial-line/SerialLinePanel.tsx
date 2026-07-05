@@ -147,6 +147,10 @@ function wireTransfers(
   // Kablo planında SLA baytları kartın gerçek 7-bit adresiyle çizilir.
   const deviceI2cAddress = isI2c ? parseNumberish(device.attach?.i2c_address ?? "") ?? undefined : undefined;
   const rawFill = Boolean(card.rx) && (operation?.result_unit ?? "") === "";
+  // Uzunluğu plan değil İSTEK belirleyen okumalar (data_read gibi): gerçek
+  // bayt sayısı istekteki length alanından gelir — yoksa hücreler yanıt
+  // verisi dolu olduğu halde sembolik (D7..D0) kalıyordu.
+  const requestLength = parseNumberish(card.tx.length);
   const rxAll = dataBytes(card.rx?.data ?? "");
   let rxCursor = 0;
   const takeRx = (count: number): string[] | null => {
@@ -168,7 +172,7 @@ function wireTransfers(
     const pollNote = step.repeat === "poll" ? `${step.note ?? "hazır olana dek tekrarlanır"} (×N)` : step.note;
 
     if (step.kind === "reg_read") {
-      const length = step.length ?? 1;
+      const length = step.length ?? requestLength ?? 1;
       const real = takeRx(length);
       out.push({
         title: `${regName} oku${step.repeat === "poll" ? " (poll)" : ""}`,
@@ -226,8 +230,8 @@ function wireTransfers(
     } else if (step.kind === "cmd" || step.kind === "cmd_read" || step.kind === "cmd_write") {
       const opcode = step.opcode ?? 0;
       const addrBytes = step.addr_bytes ?? 0;
-      const length = step.length ?? null;
       const isRead = step.kind === "cmd_read";
+      const length = step.length ?? (isRead ? requestLength : null);
       const real = isRead && length ? takeRx(length) : null;
       out.push({
         title: `${step.cmd ?? "CMD"} (${hexByte(opcode)})`,
