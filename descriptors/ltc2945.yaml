@@ -92,6 +92,16 @@ operations:
     convert: { rshift: 4, mask: 0xFFF, signed_bits: 0, scale_num: 25, scale_den: 1, unit: "uV" }
     steps:
       - { op: read_registers, reg: SENSE_MSB, length: 2 }
+  # Akim = Vsense / Rsense. Sont direnci KART verisidir: device.config.
+  # sense_resistor_mohms (miliohm, pozitif tamsayi) zorunlu. Verilmezse bu
+  # op uretimden dusurulur (acikca istenirse anlasilir hata). Birim analizi:
+  # I_mA = (kod x 25 uV) / R_mohm  -> uV / mohm = mA.
+  - name: current_read
+    returns: "int32"
+    description: "Read the sense current converted to milliamps using the board's shunt (device.config.sense_resistor_mohms; I_mA = code * 25 uV / R_mohm)."
+    convert: { rshift: 4, mask: 0xFFF, signed_bits: 0, scale_num: 25, scale_den_config: sense_resistor_mohms, unit: "mA" }
+    steps:
+      - { op: read_registers, reg: SENSE_MSB, length: 2 }
   - name: voltage_read
     returns: "int32"
     description: "Read VIN converted to millivolts (12-bit in D15..D4, LSB 25 mV)."
@@ -106,3 +116,4 @@ operations:
       - { op: read_registers, reg: ADIN_MSB, length: 2 }
 test_hints:
   self_test: { description: "Read status, power, sense, VIN, and ADIN raw codes." }
+  post_init_status: { reg: CONTROL }

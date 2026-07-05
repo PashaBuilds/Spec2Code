@@ -516,6 +516,16 @@ def _testbench_label(part: str, op_name: str) -> str:
         },
         "TMP101": {"temperature_read": "Sıcaklık oku"},
         "SHT21": {"temperature_read": "Sıcaklık oku"},
+        "DS1682": {
+            "elapsed_read": "Geçen süre oku (saniye)",
+            "alarm_read": "Alarm eşiği oku (saniye)",
+        },
+        "LTC2945": {
+            "sense_read": "Şönt (sense) voltajı oku (µV)",
+            "voltage_read": "VIN oku (mV)",
+            "adin_read": "ADIN oku (µV)",
+            "current_read": "Akım oku (mA, config şönt ile)",
+        },
         "LMK04832": {
             "device_init": "TICS Pro init sequence uygula",
             "pll1_lock_detect": "PLL1 lock detect oku",
@@ -567,10 +577,13 @@ def _testbench_label(part: str, op_name: str) -> str:
 def _requested_operations(device: dict, descriptor: dict) -> list[dict]:
     operations = descriptor.get("operations", [])
     requested = device.get("operations_requested")
-    if not requested:
-        return operations
-    requested_set = {str(name) for name in requested}
-    return [op for op in operations if op.get("name") in requested_set]
+    if requested:
+        requested_set = {str(name) for name in requested}
+        operations = [op for op in operations if op.get("name") in requested_set]
+    # Kart-verisi config'i eksik olan dönüşümlü oplar üretimden düşer
+    # (cmodel aynı durumda ya atlar ya açık istekte hata verir); manifest
+    # ile üretilen kod aynı listeyi görmeli.
+    return [op for op in operations if not cmodel.convert_config_issue(device, op)]
 
 
 def _supports_i2c_register_ops(descriptor: dict) -> bool:
@@ -612,6 +625,31 @@ def _spi_readback(descriptor: dict) -> dict | None:
     readback = tics.register_model(descriptor).get("readback")
     if isinstance(readback, dict) and readback.get("verified") is True:
         return readback
+    return None
+
+
+def _post_init_status(descriptor: dict) -> dict | None:
+    """device_init sonrası doğrulama okuması: test_hints.post_init_status.
+
+    Kullanıcı isteği (2026-07-05): device_init yanıtının data alanı boş
+    kalmasın, cihazdan bir durum dönsün. Descriptor'da işaretlenen register
+    init başarısından sonra generic yol ile geri okunur ve yanıtın
+    value/data alanlarına konur. Generic okuma yolu olmayan cihazlarda
+    (flash komut seti, mux, EEPROM) dürüstçe atlanır.
+    """
+    hint = (descriptor.get("test_hints") or {}).get("post_init_status")
+    if not isinstance(hint, dict):
+        return None
+    reg_name = hint.get("reg")
+    if not any(reg.get("name") == reg_name and "offset" in reg
+               for reg in descriptor.get("registers", [])):
+        return None
+    transport = descriptor.get("transport", {}).get("type", "")
+    if transport == "i2c" and not descriptor.get("memory"):
+        return {"reg": str(reg_name), "bytes": 1, "transport": "i2c"}
+    if transport == "spi" and _supports_spi_register_ops(descriptor):
+        data_bits = int(tics.register_model(descriptor).get("data_bits", 8) or 8)
+        return {"reg": str(reg_name), "bytes": data_bits // 8, "transport": "spi"}
     return None
 
 
@@ -825,13 +863,21 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 needs_address = True
                 needs_length = op_name == "data_read"
                 needs_data = op_name == "page_write"
+            description = op.get("description", "")
+            fixed_read_length = _operation_fixed_read_length(op)
+            if op_name == "device_init":
+                post_init = _post_init_status(descriptor)
+                if post_init is not None:
+                    fixed_read_length = post_init["bytes"]
+                    description = (description + " " if description else "") + (
+                        f"Başarıda {post_init['reg']} geri okunur (value + data).")
             operations.append({
                 "name": op_name,
                 "label": _testbench_label(device.get("part", ""), op_name),
-                "description": op.get("description", ""),
+                "description": description,
                 "risk": _testbench_risk(op_name),
                 "implemented": True,
-                "fixed_read_length": _operation_fixed_read_length(op),
+                "fixed_read_length": fixed_read_length,
                 "requires_address": needs_address or any(step.get("op") == "write_command_address" for step in op.get("steps", [])),
                 "requires_length": needs_length,
                 "requires_data": needs_data,
@@ -1300,6 +1346,49 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
 
     if op_name == "device_init":
         lines.append(f"iStatus = {func}({hvar});")
+        status = _post_init_status(descriptor)
+        if status is not None:
+            MOD = module.upper()
+            lines.append("if (iStatus == XST_SUCCESS)")
+            lines.append("{")
+            lines.append(f"    /* init dogrulamasi: {status['reg']} geri okunur (value + data). */")
+            if status["transport"] == "i2c":
+                lines.extend([
+                    f"    iStatus = spec2codeTestbenchI2cRegisterRead({hvar}, {MOD}_I2C_ADDR, {MOD}_REG_{status['reg']}, &ucValue);",
+                    "    if (iStatus == XST_SUCCESS)",
+                    "    {",
+                    "        spResponse->uiValue = (unsigned int)ucValue;",
+                    "        iStatus = spec2codeTestbenchDataPush(spResponse, ucValue);",
+                    "    }",
+                ])
+            else:
+                model = tics.register_model(descriptor)
+                frame_bits = int(model.get("frame_bits", 24) or 24)
+                rw_bit = int(model.get("rw_bit", frame_bits - 1) or (frame_bits - 1))
+                read_value = 0 if int(model.get("write_value", 0) or 0) else 1
+                address_bits = int(model.get("address_bits", 15) or 15)
+                address_shift = int(model.get("address_shift", 8) or 8)
+                mask = _c_hex((1 << address_bits) - 1)
+                word = (f"((unsigned int){read_value}U << {rw_bit}U) | "
+                        f"(((unsigned int){MOD}_REG_{status['reg']} & {mask}) << {address_shift}U)")
+                lines.extend([
+                    f"    iStatus = spec2codeTestbenchSpiRegisterRead({hvar}, {MOD}_SPI_SELECT, {word}, {status['bytes']}U, &uiRegValue);",
+                    "    if (iStatus == XST_SUCCESS)",
+                    "    {",
+                    "        spResponse->uiValue = uiRegValue;",
+                ])
+                if status["bytes"] == 2:
+                    lines.extend([
+                        "        iStatus = spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiRegValue >> 8U) & 0xFFU));",
+                        "        if (iStatus == XST_SUCCESS)",
+                        "        {",
+                        "            iStatus = spec2codeTestbenchDataPush(spResponse, (unsigned char)(uiRegValue & 0xFFU));",
+                        "        }",
+                    ])
+                else:
+                    lines.append("        iStatus = spec2codeTestbenchDataPush(spResponse, (unsigned char)(uiRegValue & 0xFFU));")
+                lines.append("    }")
+            lines.append("}")
     elif descriptor.get("memory") and op_name == "data_read":
         lines.extend([
             "uiLength = spRequest->uiLength;",
@@ -1437,6 +1526,8 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     register_ops = _supports_i2c_register_ops(descriptor)
     spi_register_ops = _supports_spi_register_ops(descriptor)
     spi_readback = _spi_readback(descriptor) if spi_register_ops else None
+    post_init = _post_init_status(descriptor) if any(
+        op.get("name") == "device_init" for op in operations) else None
     needs_array = any(_array_return_count(str(op.get("returns", "")).lower()) for op in operations)
     needs_us_value = any("uint16" in str(op.get("returns", "")).lower() for op in operations)
     needs_i_value = any(
@@ -1444,7 +1535,11 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         and "uint32" not in str(op.get("returns", "")).lower()
         for op in operations
     )
-    needs_uc_value = register_ops or any("uint8" in str(op.get("returns", "")).lower() for op in operations)
+    needs_uc_value = (
+        register_ops
+        or (post_init is not None and post_init["transport"] == "i2c")
+        or any("uint8" in str(op.get("returns", "")).lower() for op in operations)
+    )
     needs_uc_reg = register_ops
     needs_data = any(
         descriptor.get("memory") and op.get("name") == "data_read" or
@@ -1479,7 +1574,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     if spi_register_ops:
         lines.append("        unsigned int uiReg;")
         lines.append("        unsigned int uiWord;")
-    if spi_readback is not None:
+    if spi_readback is not None or (post_init is not None and post_init["transport"] == "spi"):
         lines.append("        unsigned int uiRegValue;")
     if needs_data:
         lines.append("        unsigned char ucArrData[SPEC2CODE_TESTBENCH_DATA_MAX];")

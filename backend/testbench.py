@@ -181,6 +181,10 @@ class _TestbenchTcpSession(_TrafficRing):
         self.last_error = ""
         self._sock: socket.socket | None = None
         self._lock = threading.RLock()
+        # Kismi/gec gelen yanit baytlari (satir tamponu): timeout sonrasi
+        # gelen bayat yanitlar burada birikir ve bir sonraki gonderimde
+        # ayiklanir.
+        self._rxbuf = b""
 
     def status(self) -> TestbenchSessionStatus:
         with self._lock:
@@ -217,16 +221,44 @@ class _TestbenchTcpSession(_TrafficRing):
         sock = self._sock
         self._sock = None
         self.connected_at = None
+        self._rxbuf = b""
         if sock is not None:
             try:
                 sock.close()
             except OSError:
                 pass
 
+    def _pop_line(self) -> str | None:
+        if b"\n" not in self._rxbuf:
+            return None
+        raw, self._rxbuf = self._rxbuf.split(b"\n", 1)
+        return raw.decode("ascii", errors="replace").strip()
+
+    def _drain_stale(self, sock: socket.socket) -> None:
+        """Önceki timeout'lardan arta kalan geç yanıtları gönderim öncesi ayıkla."""
+        try:
+            sock.settimeout(0.0)
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                self._rxbuf += chunk
+        except (BlockingIOError, InterruptedError, socket.timeout):
+            pass
+        finally:
+            sock.settimeout(self.timeout_s)
+        while True:
+            line = self._pop_line()
+            if line is None:
+                break
+            if line:
+                self._traffic_push("rx", line)
+
     def send(self, command: TestbenchCommand) -> TestbenchResult:
         with self._lock:
             if self._sock is None:
                 raise TestbenchSessionError("testbench tcp session is not connected")
+            sock = self._sock
             session_command = TestbenchCommand(
                 host=self.host,
                 port=self.port,
@@ -241,17 +273,72 @@ class _TestbenchTcpSession(_TrafficRing):
                 data_hex=command.data_hex,
                 timeout_s=self.timeout_s,
             )
-            self._traffic_push("tx", format_command(session_command))
+            request_line = format_command(session_command)
+            expected_id = str(int(session_command.command_id))
+            self._drain_stale(sock)
+            self._traffic_push("tx", request_line)
             try:
-                result = _send_over_socket(self._sock, session_command)
+                sock.sendall(request_line.encode("ascii"))
             except OSError as exc:
                 self.last_error = str(exc)
                 self.close()
                 raise
-            self._traffic_push("rx", result.response_line)
+            # Yaniti id ile eslestir: onceki, timeout'a ugramis bir komutun
+            # GEC gelen yaniti bu komutun sonucu sanilmamali. Sure dolunca
+            # oturumu KAPATMADAN hata ver — ajan mesgulken baglanti kaybi
+            # yasanmasin, gec yanit bir sonraki gonderimde ayiklanir.
+            deadline = time.time() + self.timeout_s
+            fallback_line: str | None = None
+            response_line: str | None = None
+            try:
+                while response_line is None:
+                    line = self._pop_line()
+                    if line is not None:
+                        if not line:
+                            continue
+                        self._traffic_push("rx", line)
+                        candidate_id = parse_response(line).get("id")
+                        if candidate_id == expected_id:
+                            response_line = line
+                        elif candidate_id == "0":
+                            fallback_line = line
+                        continue
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        break
+                    sock.settimeout(max(0.05, remaining))
+                    try:
+                        chunk = sock.recv(4096)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        raise OSError("testbench tcp connection closed before response")
+                    self._rxbuf += chunk
+            except socket.timeout:
+                pass
+            except OSError as exc:
+                self.last_error = str(exc)
+                self.close()
+                raise
+            finally:
+                try:
+                    sock.settimeout(self.timeout_s)
+                except OSError:
+                    pass
+            if response_line is None:
+                response_line = fallback_line
+            if response_line is None:
+                self.last_error = f"no matching response within {self.timeout_s}s"
+                raise TestbenchSessionError(
+                    f"testbench tcp response timeout after {self.timeout_s}s "
+                    "(oturum acik kaldi; ajan mesgul olabilir)")
             self.last_used_at = time.time()
             self.last_error = ""
-            return result
+            return TestbenchResult(
+                request_line=request_line.strip(),
+                response_line=response_line,
+                parsed=parse_response(response_line),
+            )
 
 
 class _TestbenchSerialSession(_TrafficRing):
@@ -434,10 +521,17 @@ class _TestbenchSerialSession(_TrafficRing):
                     candidate = self._responses.get(timeout=remaining)
                 except queue.Empty:
                     break
-                if parse_response(candidate).get("id") == expected_id:
+                candidate_id = parse_response(candidate).get("id")
+                if candidate_id == expected_id:
                     response_line = candidate
-                else:
+                elif candidate_id == "0":
+                    # id=0 is the agent's parse-error convention; surface it
+                    # instead of a bare timeout.
                     fallback_line = candidate
+                # Any other id is the LATE answer of an earlier, timed-out
+                # command. Returning it as this command's result was wrong
+                # (the UI showed command A's data under command B); drop it —
+                # the traffic ring already recorded the line.
             if response_line is None:
                 response_line = fallback_line
             if response_line is None:

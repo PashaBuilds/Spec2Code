@@ -12,6 +12,7 @@ from pathlib import Path
 
 from backend.testbench import (
     TestbenchCommand as BenchCommand,
+    TestbenchSessionError as SessionError,
     TestbenchSessionManager as SessionManager,
     format_command,
     parse_response,
@@ -136,6 +137,31 @@ class FakeSerial:
     def close(self) -> None:
         with self._lock:
             self._closed = True
+
+
+class StaleThenAnswerHandler(socketserver.BaseRequestHandler):
+    """Saha senaryosu: ilk komuta cevap gelmez (ajan meşgul), ikinci komut
+    gönderilince önce GEÇ kalan ilk cevap, sonra doğru cevap gelir."""
+
+    def handle(self) -> None:
+        reader = self.request.makefile("rb")
+        if not reader.readline():
+            return
+        if not reader.readline():
+            return
+        self.request.sendall(b"S2C|id=1|ok=1|status=0|value=0x11|message=late\n")
+        self.request.sendall(b"S2C|id=2|ok=1|status=0|value=0x22|message=fresh\n")
+
+
+class StaleOnlyFakeSerial(FakeSerial):
+    """Komut id=4 gönderilince yalnız BAYAT (id=9) bir yanıt kuyruklar."""
+
+    def write(self, data: bytes) -> int:
+        with self._lock:
+            self.written.append(bytes(data))
+            if b"id=4" in data:
+                self.rx += b"S2C|id=9|ok=1|status=0|value=0x99|message=stale\r\n"
+        return len(data)
 
 
 class CoresightEchoHandler(socketserver.StreamRequestHandler):
@@ -276,6 +302,50 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(len(PersistentHandler.requests), 2)
         self.assertIn("op=status_read", PersistentHandler.requests[0])
         self.assertIn("op=voltage_read", PersistentHandler.requests[1])
+
+    def test_tcp_timeout_keeps_session_and_stale_response_is_skipped(self) -> None:
+        # Saha bulgusu (2026-07-05): ajan bir komutu uzun sürede işlerken
+        # timeout'a uğrayan TCP oturumu KAPANIYOR ve sonraki komut geç kalan
+        # yanıtı kendi cevabı sanabiliyordu. Beklenen: timeout oturumu açık
+        # bırakır; id eşleşmeyen geç yanıt sonraki gönderimde atlanır.
+        manager = SessionManager()
+        with socketserver.TCPServer(("127.0.0.1", 0), StaleThenAnswerHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager.connect("unit_stale", "127.0.0.1", server.server_address[1], 0.5)
+            try:
+                with self.assertRaises(SessionError):
+                    manager.send("unit_stale", BenchCommand(
+                        host="127.0.0.1", port=server.server_address[1],
+                        device="u1_ltc2991", operation="temperature_read", command_id=1))
+                # Timeout oturumu düşürmemeli.
+                self.assertTrue(manager.status("unit_stale").connected)
+                second = manager.send("unit_stale", BenchCommand(
+                    host="127.0.0.1", port=server.server_address[1],
+                    device="u1_ltc2991", operation="vcc_read", command_id=2))
+            finally:
+                manager.disconnect("unit_stale")
+                thread.join(timeout=2)
+
+        # Geç kalan id=1 yanıtı atlanır; komut kendi (id=2) yanıtını alır.
+        self.assertEqual(second.parsed["id"], "2")
+        self.assertEqual(second.parsed["value"], "0x22")
+
+    def test_serial_stale_response_is_not_returned_as_result(self) -> None:
+        # Önceki davranış: id eşleşmeyen satır "fallback" olarak komutun
+        # cevabıymış gibi dönüyordu. Beklenen: yalnız id=0 (parse hatası)
+        # fallback olur; bayat id'ler düşer ve komut timeout ile biter.
+        fake = StaleOnlyFakeSerial()
+        manager = SessionManager()
+        manager.connect_serial(
+            "ser_stale", "COM8", 115200, 0.4, serial_factory=lambda _p, _b, _t: fake)
+        try:
+            with self.assertRaises(SessionError):
+                manager.send("ser_stale", BenchCommand(
+                    host="", port=0, device="u1_ltc2991",
+                    operation="temperature_read", command_id=4))
+        finally:
+            manager.disconnect("ser_stale")
 
     def test_tcp_session_records_tx_rx_traffic(self) -> None:
         manager = SessionManager()
@@ -726,6 +796,101 @@ class TestbenchTests(unittest.TestCase):
         # yeniden CfgInitialize etmemeli (mt25qu02g'de XST_DEVICE_IS_STARTED
         # olarak görüldü; I2C'de canlı SCLK ayarını bozuyordu).
         self.assertIn("if (spIic->IsReady != XIL_COMPONENT_IS_READY)", driver)
+
+    def test_ltc2945_current_read_uses_board_shunt_config(self) -> None:
+        # Akım = Vsense / Rsense; şönt kart verisidir. config.sense_resistor_mohms
+        # verilince mA dönüşümü üretilmeli, açıkça istenip config yoksa
+        # anlaşılır hata, varsayılan listede config yoksa sessizce düşmeli.
+        def build_spec(config: dict | None, requested: list[str] | None) -> dict:
+            spec = load_sample_spec("unit_ltc2945_current")
+            spec["controllers"] = [
+                {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+                 "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+                 "source": "xparameters", "zone": "ps"},
+            ]
+            spec["muxes"] = []
+            device = {
+                "id": "u1_ltc2945", "part": "LTC2945",
+                "descriptor_ref": "descriptors/ltc2945.yaml",
+                "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x67",
+                           "via_mux": None, "reset_gpio": None, "irq_line": None},
+                "tests_requested": ["self_test"],
+            }
+            if config is not None:
+                device["config"] = config
+            if requested is not None:
+                device["operations_requested"] = requested
+            spec["devices"] = [device]
+            return spec
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = build_spec({"sense_resistor_mohms": 5}, ["device_init", "current_read"])
+            out_dir = Path(tmp) / "with_shunt"
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "ltc2945.c").read_text(encoding="utf-8")
+            ops = (out_dir / "tests" / "unit_ltc2945_current_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        # I_mA = kod * 25 uV / R_mohm (5 mohm sönt).
+        self.assertIn("(iCode * 25) / 5", driver)
+        ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
+        self.assertIn("current_read", ltc_ops)
+        self.assertIn("mA", ltc_ops["current_read"]["label"])
+        # device_init doğrulaması: CONTROL geri okunur, data 1 bayt taşır.
+        self.assertIn("spec2codeTestbenchI2cRegisterRead(spIic, LTC2945_I2C_ADDR, LTC2945_REG_CONTROL, &ucValue)", ops)
+        self.assertEqual(ltc_ops["device_init"]["fixed_read_length"], 1)
+
+        # Config yokken varsayılan (tümü) listesinden sessizce düşer.
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = build_spec(None, None)
+            out_dir = Path(tmp) / "no_shunt_default"
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        default_ops = {op["name"] for op in manifest["devices"][0]["operations"]}
+        self.assertNotIn("current_read", default_ops)
+        self.assertIn("sense_read", default_ops)
+
+        # Config yokken açık istek anlaşılır hata vermeli.
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = build_spec(None, ["current_read"])
+            out_dir = Path(tmp) / "no_shunt_explicit"
+            with self.assertRaises(Exception) as ctx:
+                codegen.generate(spec, out_dir)
+        self.assertIn("sense_resistor_mohms", str(ctx.exception))
+
+    def test_spi_device_init_returns_post_init_status_readback(self) -> None:
+        # device_init yanıtının data alanı boş kalmamalı: SPI parçalarında
+        # descriptor'daki post_init_status registeri geri okunur.
+        spec = load_sample_spec("unit_spi_post_init")
+        spec["controllers"] = [
+            {"id": "ps_spi_0", "type": "spi", "instance": "XPAR_XSPIPS_0",
+             "base_address": "0xFF040000", "device_id": 0, "driver": "XSpiPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [{
+            "id": "u1_lmk04832", "part": "LMK04832",
+            "descriptor_ref": "descriptors/lmk04832.yaml",
+            "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 0,
+                       "reset_gpio": None, "irq_line": None},
+            "operations_requested": ["device_init"],
+            "tests_requested": ["self_test"],
+            "config": {"ticspro_registers": ["0x000010"]},
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            ops = (out_dir / "tests" / "unit_spi_post_init_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn("LMK04832_REG_RB_PLL_STATUS", ops)
+        self.assertIn("spec2codeTestbenchSpiRegisterRead(spSpi, LMK04832_SPI_SELECT", ops)
+        device_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
+        self.assertEqual(device_ops["device_init"]["fixed_read_length"], 1)
+        self.assertIn("RB_PLL_STATUS", device_ops["device_init"]["description"])
 
     def test_self_test_skips_device_init_when_not_requested(self) -> None:
         # Regression (found on zc702): requesting only read ops + self_test

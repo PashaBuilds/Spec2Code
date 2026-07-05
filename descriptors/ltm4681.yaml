@@ -112,4 +112,5 @@ operations:
     steps:
       - { op: read_registers, reg: READ_POUT_W, length: 2 }
 test_hints:
+  post_init_status: { reg: STATUS_BYTE }
   self_test: { description: "Read PMBUS_REVISION (expect 0x22), STATUS_WORD, and VIN/VOUT telemetry." }

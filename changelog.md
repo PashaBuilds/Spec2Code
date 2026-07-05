@@ -7,6 +7,35 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 Gercek ZynqMP karti saha bulgulari (2026-07-05 seri logu) duzeltmeleri:
 
+- TIMEOUT ARTIK OTURUMU GERCEKTEN KESER: onceden bir komut timeout'a
+  ugradiginda ajanin GEC gelen yaniti (a) seri/CoreSight yolunda bir
+  sonraki komutun cevabi sanilabiliyor, (b) TCP yolunda hic id kontrolu
+  olmadan aynen donuyordu; TCP'de timeout ustune oturum da kapaniyordu.
+  Simdi her transportta yanit komut id'siyle eslestirilir (yalniz id=0 =
+  ajan parse hatasi fallback kalir), id eslesmeyen gec yanitlar dusurulur
+  (Akis'ta gorunmeye devam eder), TCP'de timeout oturumu acik birakir ve
+  bekleyen bayat satirlar bir sonraki gonderim oncesi ayiklanir.
+  Regresyon testleri: TCP bayat+timeout senaryosu, seri bayat-yanit.
+- device_init yanitlarinin data alani artik bos degil: descriptor'daki
+  post_init_status registeri init basarisindan sonra generic yoldan geri
+  okunur; value + data alanlarina konur ve manifest aciklamasina islenir
+  ("Basarida X geri okunur"). Kapsam: LTC2991 STATUS_HIGH, LTC2945
+  CONTROL, AD7414/TMP101/DS1682 CONFIGURATION, SHT21 USER_REGISTER,
+  LTM4681 STATUS_BYTE, LMK04832 RB_PLL_STATUS, LMX2820 R74, LMX1204 R0,
+  LMX1205 R32 (rb_VER_ID), ADAR1000 CHIP_TYPE. Generic okuma yolu
+  olmayan flash/EEPROM/mux durust sekilde kapsam disi (flash icin JEDEC
+  id_read zaten var).
+- LTC2945'e milliamper okuma: yeni current_read operasyonu I_mA =
+  kod x 25 uV / R_mohm donusumunu yapar; sont direnci KART verisi
+  oldugundan device.config.sense_resistor_mohms (miliohm) zorunludur -
+  config yokken op listeden durust sekilde duser, acikca istenirse
+  anlasilir hata verir. VIN zaten mV (voltage_read). Altyapi: convert
+  bloguna scale_den_config (device.config'ten payda) destegi.
+- DS1682 gecen sure okumasi zaten saniye cinsindendir (0.25 s tik / 4);
+  Test Bench etiketleri netlestirildi: "Gecen sure oku (saniye)" /
+  "Alarm esigi oku (saniye)". LTC2945 etiketleri de birimli yazildi
+  (uV/mV/mA).
+
 - LTC2991 okumalari kartta ~46.4 s surup status=1 ile dusuyordu. Kok
   neden iki katmanli: (1) init profili repeated-acquisition actigi icin
   (PWM_T_INTERNAL_CONTROL=0x10) cip surekli donusumde ve STATUS_HIGH.BUSY

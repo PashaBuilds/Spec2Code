@@ -61,4 +61,5 @@ operations:
     steps:
       - { op: read_register, reg: USER_REGISTER_READ }
 test_hints:
+  post_init_status: { reg: USER_REGISTER_READ }
   self_test: { description: "Read user register and one raw measurement frame." }

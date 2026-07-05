@@ -78,4 +78,5 @@ operations:
     steps:
       - { op: read_register, reg: RB_PLL_STATUS, mask: 0x02, right_shift: 1 }
 test_hints:
+  post_init_status: { reg: RB_PLL_STATUS }
   self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

@@ -504,6 +504,52 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     return [write, read, read_block]
 
 
+def convert_config_issue(device: dict, op: dict) -> str | None:
+    """`convert.scale_den_config` isteyen op için eksik/geçersiz config anahtarı.
+
+    Kart verisi gerektiren dönüşümler (ör. LTC2945 akımı için şönt direnci)
+    payda değerini device.config'ten alır. Anahtar yoksa/pozitif tamsayı
+    değilse anahtar adı döner; op açıkça istenmişse çağıran hata verir,
+    varsayılan tüm-op listesinde ise sessizce atlanır (dürüst kapı).
+    """
+    convert = op.get("convert") or {}
+    key = convert.get("scale_den_config")
+    if not key:
+        return None
+    raw = (device.get("config") or {}).get(key)
+    try:
+        value = int(str(raw), 0) if raw is not None else 0
+    except (TypeError, ValueError):
+        value = 0
+    return str(key) if value <= 0 else None
+
+
+def resolve_convert(device: dict, op: dict) -> dict | None:
+    """convert bloğunu device.config referansları çözülmüş kopya olarak döndür."""
+    convert = op.get("convert")
+    if not convert:
+        return None
+    key = convert.get("scale_den_config")
+    if not key:
+        return convert
+    resolved = dict(convert)
+    resolved["scale_den"] = int(str((device.get("config") or {}).get(key)), 0)
+    resolved.pop("scale_den_config", None)
+    return resolved
+
+
+def _check_convert_config(device: dict, op_name: str, op: dict) -> bool:
+    """True = op üretilebilir; eksik config'te açık istekse hata, değilse atla."""
+    issue = convert_config_issue(device, op)
+    if not issue:
+        return True
+    if device.get("operations_requested"):
+        raise CodegenError(
+            f"{device.get('id', '?')} {op_name}: device.config.{issue} gerekli "
+            f"(örn. LTC2945 akımı için sense_resistor_mohms = şönt direnci, miliohm)")
+    return False
+
+
 def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int]) -> CUnit:
     module = _module_of(device["part"])
@@ -543,6 +589,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         op = ops_by_name.get(op_name)
         if op is None:
             continue
+        if not _check_convert_config(device, op_name, op):
+            continue
         returns = op.get("returns", "")
         is_init = op_name == "device_init"
         params = [f"{htype}* {hvar}"]
@@ -553,7 +601,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             params.append(f"{out_c_type}* {out_param}")
 
         has_channels = any(s["op"] == "read_channels" for s in op["steps"])
-        convert = op.get("convert")
+        convert = resolve_convert(device, op)
         scalar_combine = bool(returns) and "[" not in returns
         scalar_read_bytes = 0
         if scalar_combine:

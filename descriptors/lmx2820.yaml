@@ -61,4 +61,5 @@ operations:
     steps:
       - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes." }
 test_hints:
+  post_init_status: { reg: R74 }
   self_test: { description: "Initialize SPI, emit the configured TICS Pro register array, and repeat R0 after 10 ms." }

@@ -44,4 +44,5 @@ operations:
     steps:
       - { op: read_register, reg: CONFIGURATION }
 test_hints:
+  post_init_status: { reg: CONFIGURATION }
   self_test: { description: "Read the temperature register and print the raw code." }

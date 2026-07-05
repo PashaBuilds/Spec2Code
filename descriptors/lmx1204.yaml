@@ -48,4 +48,5 @@ operations:
     steps:
       - { op: comment, note: "config.ticspro_registers is emitted verbatim as MSB-first SPI writes." }
 test_hints:
+  post_init_status: { reg: R0 }
   self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

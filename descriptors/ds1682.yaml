@@ -77,4 +77,5 @@ operations:
       - { op: read_register, reg: EVENT_LOW, shift: 0 }
       - { op: read_register, reg: EVENT_HIGH, shift: 8 }
 test_hints:
+  post_init_status: { reg: CONFIGURATION }
   self_test: { description: "Read elapsed time and event count without modifying EEPROM-backed state." }

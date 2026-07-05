@@ -86,4 +86,5 @@ operations:
     steps:
       - { op: read_register, reg: R37, mask: 0x01, right_shift: 0 }
 test_hints:
+  post_init_status: { reg: R32 }
   self_test: { description: "Initialize SPI and emit the configured TICS Pro register array." }

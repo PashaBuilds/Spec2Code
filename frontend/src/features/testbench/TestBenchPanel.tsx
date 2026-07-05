@@ -74,6 +74,10 @@ function operationNote(device: TestbenchManifestDevice, op: TestbenchOperation):
   if (op.name.includes("program") || op.name.endsWith("_write")) {
     return "Write/program işlemi hedef cihaz state'ini değiştirir; gönderilen data hex çift byte olarak yorumlanır.";
   }
+  if (op.name === "device_init" && op.description) {
+    // Post-init doğrulama okuması ("Başarıda X geri okunur") burada anlatılır.
+    return op.description;
+  }
   if (op.fixed_read_length && op.fixed_read_length > 0) {
     return `Cevap ${op.fixed_read_length} byte data alanı döndürür.`;
   }

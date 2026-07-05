@@ -113,4 +113,5 @@ operations:
     steps:
       - { op: comment, note: "config.register_words is emitted verbatim as MSB-first SPI writes." }
 test_hints:
+  post_init_status: { reg: CHIP_TYPE }
   self_test: { description: "Initialize SPI and emit the configured ADAR1000 register-word array." }

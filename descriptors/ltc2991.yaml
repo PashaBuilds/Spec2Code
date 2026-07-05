@@ -125,5 +125,6 @@ operations:
       - { op: read_register, reg: VCC_MSB }
       - { op: read_register, reg: VCC_LSB }
 test_hints:
+  post_init_status: { reg: STATUS_HIGH }
   self_test:     { description: "Read STATUS_LOW, verify reset value 0x00." }
   read_loopback: { description: "Read all voltages, verify codes are within plausible range." }
