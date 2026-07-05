@@ -5,6 +5,19 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.108 - Taslak
 
+- Genis (16-bit) registerlar Registers ekraninda: manifest'teki genislik
+  filtresi AD7414 TEMPERATURE, TMP101 TEMPERATURE/TLOW/THIGH ve LTM4681
+  word komutlarini ekrandan dusuruyordu - kaldirildi. Generic
+  register_read/write ajan tarafinda genislik-farkindali oldu: 16-bit
+  register tek islemde 2 bayt okunur/yazilir (SMBus read/write-word ile
+  ayni tel bicimi), value birlesimi descriptor byte_order'a gore
+  (AD7414/TMP101 big, PMBus little). Yeni firmware gerektirir.
+- REGRESYON KORUMASI: read_registers'in iki anlami genislige gore
+  ayristirildi - 8-bit ardisik registerlar (DS1682 ETC, LTC2945) tek
+  bayt okumalarla toplanir; TEK genis register (AD7414/TMP101
+  TEMPERATURE) pointer + 2 bayt TEK islemde okunur (tek-bayt yontemi
+  orada ikinci bayti yanlis registerdan okurdu).
+
 - SAHA (DS1682 cozuldu): elapsed/alarm okumasi fail olurken register
   snapshot'in 21/21 basarili olmasi kok nedeni gosterdi - snapshot
   register basina TEK baytlik okuma yapar (kanitli calisan yol),

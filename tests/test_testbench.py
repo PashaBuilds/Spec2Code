@@ -661,11 +661,15 @@ class TestbenchTests(unittest.TestCase):
         # Linear16 VOUT with fixed -12 exponent.
         self.assertIn("* 1000U) / 4096U", driver)
         device_entry = manifest["devices"][0]
-        reg_names = {reg["name"] for reg in device_entry["registers"]}
-        # Word commands stay out of the generic 1-byte register path.
-        self.assertIn("PAGE", reg_names)
-        self.assertIn("STATUS_BYTE", reg_names)
-        self.assertNotIn("READ_VOUT_W", reg_names)
+        regs_by_name = {reg["name"]: reg for reg in device_entry["registers"]}
+        # Word (16-bit) PMBus komutlari da artik listede: generic R/W
+        # genislik-farkindali ve SMBus read/write-word ile ayni tel bicimini
+        # kullanir (komut + 2 bayt, little-endian). Byte komutlar 8 kalir.
+        self.assertIn("PAGE", regs_by_name)
+        self.assertIn("STATUS_BYTE", regs_by_name)
+        self.assertEqual(regs_by_name["STATUS_BYTE"]["width"], 8)
+        self.assertIn("READ_VOUT_W", regs_by_name)
+        self.assertEqual(regs_by_name["READ_VOUT_W"]["width"], 16)
         ops = {op["name"] for op in device_entry["operations"]}
         self.assertIn("register_write", ops)  # PAGE ile kanal seçimi
         self.assertIn("vout_read", ops)
@@ -1377,6 +1381,55 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("spec2codeBusTraceI2cError(TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
         self.assertIn("void spec2codeBusTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
         self.assertIn("TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", trace_source)
+
+    def test_wide_registers_use_single_transaction_and_reach_manifest(self) -> None:
+        # REGRESYON KORUMASI: read_registers iki farkli anlam tasir.
+        # (a) DS1682/LTC2945: ardisik AYRI adresler -> tek-bayt okumalarla
+        #     toplanir (blok recv sahada dusuyor).
+        # (b) AD7414/TMP101 TEMPERATURE: TEK genis (16-bit) register ->
+        #     baytlar ayni adresin ICINDE; pointer + 2 bayt TEK islemde
+        #     (sahada kanitli). Tek-bayt yontemi burada YANLIS olurdu:
+        #     ikinci bayt 0x01'deki CONFIGURATION'dan gelirdi.
+        # Ayrica manifest artik 16-bit registerlari da listeler (Registers
+        # ekraninda AD7414'un 0. registeri gorunur) ve generic R/W ajan
+        # tarafinda genislik-farkindalidir.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {"id": "u9_ad7414", "part": "AD7414",
+             "descriptor_ref": "descriptors/ad7414.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x4A",
+                        "via_mux": None, "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "temperature_read", "config_read"],
+             "tests_requested": ["self_test"]},
+        ]
+        add_zynqmp_ps_ethernet(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "ad7414.c").read_text(encoding="utf-8")
+            ops = (out_dir / "tests" / "unit_no_spi_testbench_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        # (b) genis register: tek islemde 2 bayt; ardisik-adres yolu YOK.
+        self.assertIn("ad7414RegisterReadWide(spIic, AD7414_REG_TEMPERATURE, &ucArrBytes[0U], 2U);", driver)
+        self.assertNotIn("ad7414RegistersRead(spIic, AD7414_REG_TEMPERATURE", driver)
+        # Manifest 16-bit registeri genisligiyle listeler.
+        ad7414 = next(d for d in manifest["devices"] if d["part"] == "AD7414")
+        temp = next(r for r in ad7414["registers"] if r["name"] == "TEMPERATURE")
+        self.assertEqual(temp["width"], 16)
+        self.assertEqual(temp["offset"], 0)
+        # Generic R/W genislik-farkindali: cozucu + tek-islem yardimcilar.
+        self.assertIn("ad7414TestbenchRegisterWidthBytes", ops)
+        self.assertIn("spec2codeTestbenchI2cRegisterReadWide(", ops)
+        self.assertIn("spec2codeTestbenchI2cRegisterWriteWide(", ops)
 
     def test_agent_line_buffer_fits_full_data_payload_and_guards_overflow(self) -> None:
         # SAHA BULGUSU (2026-07-05): 256 baytlik flash okumasi timeout'a

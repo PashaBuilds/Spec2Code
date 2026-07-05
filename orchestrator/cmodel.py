@@ -554,6 +554,28 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
                        "unsigned char* ucpBuffer", "unsigned int uiLength"],
                       once.out(), static=True)
 
+    # GENIS (16-bit+) TEK register: baytlar AYNI adresin icindedir (AD7414/
+    # TMP101 TEMPERATURE) - pointer bir kez yazilir, N bayt TEK islemde
+    # okunur (sahada kanitli calisan yol). Ardisik-adres tek-bayt yontemi
+    # burada YANLIS olur: ikinci bayt bir SONRAKI register'dan gelirdi.
+    wide = Emit()
+    wide.ln("int iStatus;").blank()
+    wide.open("if ((ucpBuffer == NULL) || (uiLength == 0U))")
+    wide.ln("return XST_FAILURE;")
+    wide.close()
+    wide.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});")
+    check_traced(wide, "ucReg", "p")
+    wide.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    wide.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});")
+    check_traced(wide, "ucReg", "r")
+    wide.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    wide.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
+    wide.ln("return XST_SUCCESS;")
+    read_wide = CFunc(_func_name(module, "register_read_wide"), "int",
+                      [f"{htype}* {hvar}", "unsigned char ucReg",
+                       "unsigned char* ucpBuffer", "unsigned int uiLength"],
+                      wide.out(), static=True)
+
     rb = Emit()
     rb.ln("unsigned char ucArrCheck[8];")
     rb.ln("unsigned int uiIndex;")
@@ -578,7 +600,7 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
                        [f"{htype}* {hvar}", "unsigned char ucReg",
                         "unsigned char* ucpBuffer", "unsigned int uiLength"],
                        rb.out(), static=True)
-    return [write, read, read_once, read_block]
+    return [write, read, read_wide, read_once, read_block]
 
 
 def convert_config_issue(device: dict, op: dict) -> str | None:
@@ -771,7 +793,14 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                     length = int(step.get("length", 1))
                     if not scalar_combine:
                         raise CodegenError(f"{device['id']} {op_name}: read_registers needs a scalar return")
-                    e.ln(f"iStatus = {_func_name(module, 'registers_read')}({hvar}, {MOD}_REG_{step['reg']}, "
+                    # Yol ayrimi hedef registerin GENISLIGIYLE yapilir:
+                    # width==8 -> ardisik ayri adresler (DS1682 ETC, LTC2945),
+                    #   tek-bayt okumalarla toplanir (blok recv bu kartta dusuyor);
+                    # width>8 -> TEK genis register (AD7414/TMP101 TEMPERATURE),
+                    #   baytlar ayni adresin icinde: pointer + N bayt TEK islem.
+                    step_reg_width = int(regs.get(step["reg"], {}).get("width", 8))
+                    read_func = "register_read_wide" if step_reg_width > 8 else "registers_read"
+                    e.ln(f"iStatus = {_func_name(module, read_func)}({hvar}, {MOD}_REG_{step['reg']}, "
                          f"&ucArrBytes[{read_seen}U], {length}U);").check_status()
                     read_seen += length
                 elif sop == "read_channels":

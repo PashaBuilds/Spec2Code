@@ -1232,12 +1232,6 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 "wire": [{"kind": "reg_write", "runtime": True}],
             })
         transport_type = descriptor.get("transport", {}).get("type", "")
-        # Generic register access moves one native frame: 1 byte on I2C
-        # (PMBus word commands have dedicated operations), data_bits wide on
-        # TICS-style SPI parts.
-        native_width = 8
-        if transport_type == "spi" and _supports_spi_register_ops(descriptor):
-            native_width = int(tics.register_model(descriptor).get("data_bits", 8) or 8)
         manifest["devices"].append({
             "id": device.get("id", ""),
             "part": device.get("part", ""),
@@ -1250,9 +1244,12 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                     "access": reg.get("access", ""),
                     "width": reg.get("width", 8),
                 }
+                # SAHA (2026-07-05): width == native_width filtresi 16-bit
+                # registerlari (AD7414/TMP101 TEMPERATURE, TLOW/THIGH)
+                # Registers ekranindan dusuruyordu. Genislik artik listede
+                # tasinir; generic R/W ajan tarafinda genislik-farkindali.
                 for reg in descriptor.get("registers", [])
                 if "name" in reg and str(reg.get("access", "")).lower() not in {"reserved"}
-                and int(reg.get("width", 8)) == native_width
             ],
             "operations": operations,
         })
@@ -1457,6 +1454,42 @@ def _testbench_register_resolver(entry: dict, *, wide: bool = False) -> list[str
         "}",
         "",
     ])
+    if not wide:
+        # I2C: register genisligi (bayt) - 16-bit registerlar (AD7414/TMP101
+        # TEMPERATURE gibi) generic R/W'de tek islemde 2 bayt tasinir.
+        wide_regs = [reg for reg in regs if int(reg.get("width", 8)) > 8]
+        width_func = f"{module}TestbenchRegisterWidthBytes"
+        lines.extend([
+            f"static unsigned char {width_func}(const char* cpRegister, unsigned int uiRegister)",
+            "{",
+        ])
+        if wide_regs:
+            # Once ISIM eslesmesi (dar registerlar 1U ile erken doner ki
+            # reg_addr'siz isimli istekte varsayilan uiRegister=0, offset'i
+            # 0 olan genis registera yanlis eslesmesin), sonra offset.
+            for reg in regs:
+                is_wide = int(reg.get("width", 8)) > 8
+                lines.extend([
+                    f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == 1)",
+                    "    {",
+                    f"        return {'2U' if is_wide else '1U'};",
+                    "    }",
+                ])
+            for reg in wide_regs:
+                lines.extend([
+                    f"    if (uiRegister == {_c_hex(int(reg['offset']))})",
+                    "    {",
+                    "        return 2U;",
+                    "    }",
+                ])
+        if not wide_regs:
+            lines.append("    (void)uiRegister;")
+            lines.append("    (void)cpRegister;")
+        lines.extend([
+            "    return 1U;",
+            "}",
+            "",
+        ])
     return lines
 
 
@@ -1525,6 +1558,70 @@ def _testbench_i2c_helpers() -> list[str]:
         "        /* wait */",
         "    }",
         "    spec2codeBusTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "/* GENIS (16-bit) tek register: baytlar ayni adresin icindedir",
+        " * (AD7414/TMP101 TEMPERATURE gibi) - pointer bir kez yazilir,",
+        " * iki bayt TEK islemde okunur/yazilir. */",
+        "static int spec2codeTestbenchI2cRegisterReadWide(XIicPs* spIic, unsigned char ucAddress,",
+        "                                                 unsigned char ucReg, unsigned char* ucpBuffer)",
+        "{",
+        "    int iStatus;",
+        "",
+        "    if ((spIic == NULL) || (ucpBuffer == NULL))",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    iStatus = XIicPs_MasterSendPolled(spIic, &ucReg, 1, ucAddress);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
+        "    {",
+        "        /* wait */",
+        "    }",
+        "    iStatus = XIicPs_MasterRecvPolled(spIic, ucpBuffer, 2, ucAddress);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
+        "    {",
+        "        /* wait */",
+        "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchI2cRegisterWriteWide(XIicPs* spIic, unsigned char ucAddress,",
+        "                                                  unsigned char ucReg, unsigned char ucHigh,",
+        "                                                  unsigned char ucLow)",
+        "{",
+        "    unsigned char ucArrBuffer[3];",
+        "    int iStatus;",
+        "",
+        "    if (spIic == NULL)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrBuffer[0] = ucReg;",
+        "    ucArrBuffer[1] = ucHigh;",
+        "    ucArrBuffer[2] = ucLow;",
+        "    iStatus = XIicPs_MasterSendPolled(spIic, ucArrBuffer, 3, ucAddress);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
+        "    {",
+        "        /* wait */",
+        "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -1862,6 +1959,10 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         lines.append("        unsigned char ucValue;")
     if needs_uc_reg:
         lines.append("        unsigned char ucReg;")
+    if register_ops:
+        # Genis (16-bit) register R/W: tek pointer + iki bayt tek islemde.
+        lines.append("        unsigned char ucArrWide[2];")
+        lines.append("        unsigned char ucWidthBytes;")
     if spi_register_ops:
         lines.append("        unsigned int uiReg;")
         lines.append("        unsigned int uiWord;")
@@ -1917,6 +2018,25 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                spec2codeTestbenchMessageSet(spResponse, \"register not found\");",
             "                return iStatus;",
             "            }",
+            # Genis registerlar (AD7414/TMP101 TEMPERATURE...) tek islemde
+            # 2 bayt okunur; value birlesimi descriptor byte_order'a gore.
+            f"            ucWidthBytes = {module}TestbenchRegisterWidthBytes(spRequest->cArrRegister, spRequest->uiRegister);",
+            "            if (ucWidthBytes == 2U)",
+            "            {",
+            f"                iStatus = spec2codeTestbenchI2cRegisterReadWide({hvar}, {MOD}_I2C_ADDR, ucReg, ucArrWide);",
+            "                spResponse->iStatus = iStatus;",
+            "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
+            ("                spResponse->uiValue = ((unsigned int)ucArrWide[0] << 8U) | (unsigned int)ucArrWide[1];"
+             if entry["descriptor"].get("transport", {}).get("byte_order", "big") != "little"
+             else "                spResponse->uiValue = ((unsigned int)ucArrWide[1] << 8U) | (unsigned int)ucArrWide[0];"),
+            "                if (iStatus == XST_SUCCESS)",
+            "                {",
+            "                    (void)spec2codeTestbenchDataPush(spResponse, ucArrWide[0]);",
+            "                    (void)spec2codeTestbenchDataPush(spResponse, ucArrWide[1]);",
+            "                    spec2codeTestbenchMessageSet(spResponse, \"register_read ok\");",
+            "                }",
+            "                return iStatus;",
+            "            }",
             f"            iStatus = spec2codeTestbenchI2cRegisterRead({hvar}, {MOD}_I2C_ADDR, ucReg, &ucValue);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
@@ -1935,6 +2055,20 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "            {",
             "                spResponse->iStatus = iStatus;",
             "                spec2codeTestbenchMessageSet(spResponse, \"register not found\");",
+            "                return iStatus;",
+            "            }",
+            f"            ucWidthBytes = {module}TestbenchRegisterWidthBytes(spRequest->cArrRegister, spRequest->uiRegister);",
+            "            if (ucWidthBytes == 2U)",
+            "            {",
+            # Hatta ilk giden bayt: big-endian cihazda MSB, little'da LSB.
+            (f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide({hvar}, {MOD}_I2C_ADDR, ucReg, "
+             "(unsigned char)((spRequest->uiValue >> 8U) & 0xFFU), (unsigned char)(spRequest->uiValue & 0xFFU));"
+             if entry["descriptor"].get("transport", {}).get("byte_order", "big") != "little"
+             else f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide({hvar}, {MOD}_I2C_ADDR, ucReg, "
+             "(unsigned char)(spRequest->uiValue & 0xFFU), (unsigned char)((spRequest->uiValue >> 8U) & 0xFFU));"),
+            "                spResponse->iStatus = iStatus;",
+            "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
+            "                spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
             "                return iStatus;",
             "            }",
             f"            iStatus = spec2codeTestbenchI2cRegisterWrite({hvar}, {MOD}_I2C_ADDR, ucReg, (unsigned char)spRequest->uiValue);",
