@@ -252,9 +252,13 @@ const SECTIONS: DocSection[] = [
         <P>
           MIO değerleri (<M>MIO 14 .. 15</M> biçiminde) kartın şemasından okunur; yasal aralık
           doğrulaması Vivado'ya aittir — geçersiz atama 1. aşamada net hatayla döner, el yapımı pinmux
-          tablosu yoktur. DDR için iki yol: <B>DDR yok (OCM)</B> — ilk bring-up önerisi, ajan OCM'den
-          koşar; <B>Custom</B> — DDR yongasının datasheet parametreleri girilir (alan adları resmi
-          zcu102 tasarımından doğrulanmıştır).
+          tablosu yoktur. <B>Önemli (silikon gerçeği):</B> ZynqMP'de tüm PS çevre birimlerinin varsayılan
+          MIO'su düşük pinlerde kümelenir ve Vivado çakışanı otomatik taşımaz; bu yüzden birden fazla
+          birim açtığında her biri için MIO'yu <B>elle gir</B> (tek birimde boş bırakıp otomatik ataması
+          kullanılabilir). Boş bırakılan birimler çakışırsa üretim, hangi birime MIO vermen gerektiğini
+          söyleyen net bir hatayla durur. DDR için iki yol: <B>DDR yok (OCM)</B> — ilk bring-up önerisi,
+          ajan OCM'den koşar; <B>Custom</B> — DDR yongasının datasheet parametreleri girilir (alan adları
+          resmi zcu102 tasarımından doğrulanmıştır).
         </P>
         <Callout tone="warn" title="SINIRLAR (dürüst)">
           Zynq-7000 bu akışta kapsam dışı. Versal Faz A'da UART/I2C + DDR'sız (NoC/DDRMC sonraki faz).

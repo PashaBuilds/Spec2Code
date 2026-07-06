@@ -145,18 +145,50 @@ def _marker(text: str) -> str:
     return f'puts "S2C-VIVADO|{text}"\n'
 
 
+#: MIO atama Tcl yardımcısı. SAHA KÖK NEDENİ (2026-07-06, Vivado 2023.2 ile
+#: satır satır doğrulandı):
+#:  - MIO boş bırakılınca birimler TOPLU (-dict) enable edilirse Vivado
+#:    varsayılan MIO'ları BAĞIMSIZ hesaplayıp çakışıyor. Çözüm: TEK TEK
+#:    enable — Vivado her yeni birimi boş MIO'ya yerleştirir (QSPI→0..5,
+#:    SPI0→12..17, SPI1→6..11 çakışmasız).
+#:  - AMA Vivado bir birime SABİT varsayılan verir ve çakışsa bile TAŞIMAZ:
+#:    UART0 varsayılanı 'MIO 6 .. 7' zaten SPI1'in aldığı 6..11 ile çakışınca
+#:    enable geri alındı. list_property_value bu IO parametreleri için boş
+#:    döner, IO indeksle set edilemez — yani yasal seçenekleri Vivado'dan
+#:    programatik alamıyoruz. Gerçek kartta bu birimin MIO'sunu zaten şema
+#:    belirler. Bu yüzden: çakışmayan kombinasyonlar otomatik çalışır;
+#:    çakışan birimde net, eyleme dönük hata verilir (uydurma pinmux yok).
+#: Kullanıcı MIO verdiyse enable+IO birlikte, vermediyse yalnız enable.
+_ZYNQMP_IO_HELPERS_TCL = """proc spec2codeAssignPeripheral {ps enable_param io_param requested label} {
+    if {$requested ne ""} {
+        if {[catch {set_property -dict [list CONFIG.$enable_param {1} CONFIG.$io_param $requested] $ps} spec2code_err]} {
+            error "Spec2Code: $label icin verilen MIO '$requested' Vivado tarafindan reddedildi (baska bir cevre biriminin MIO'suyla cakisiyor ya da bu birim icin gecerli degil). MIO'lari gozden gecirin. Vivado: $spec2code_err"
+        }
+    } else {
+        if {[catch {set_property CONFIG.$enable_param {1} $ps} spec2code_err]} {
+            error "Spec2Code: $label otomatik yerlestirilemedi - varsayilan MIO'su onceden yerlestirilmis bir cevre biriminin MIO'suyla cakisiyor ve Vivado bu birimi otomatik tasimaz. COZUM: $label icin (ya da cakisan digeri icin) MIO'yu formda ELLE belirtin - gercek kartta bu deger zaten semadan okunur. Vivado: $spec2code_err"
+        }
+    }
+    puts "S2C-VIVADO|io_assigned=$label|[get_property CONFIG.$io_param $ps]"
+}
+"""
+
+#: Otomatik yerleşimde işlem sırası: geniş/sabit bloklar önce (QSPI, GEM, SD),
+#: küçük ve alternatifli olanlar sonra — Vivado'nun açgözlü yerleşiminde
+#: kıtlığı önler.
+_ZYNQMP_AUTO_PRIORITY = {"qspi": 0, "gem": 1, "sd": 2, "spi": 3, "uart": 4, "i2c": 5}
+
+
+def _zynqmp_auto_rank(kind: str) -> int:
+    for prefix, rank in _ZYNQMP_AUTO_PRIORITY.items():
+        if kind.startswith(prefix):
+            return rank
+    return 9
+
+
 def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
+    # Önce IO içermeyen genel ayarlar tek dict'te (saat, DDR, AXI/PL kapama).
     pairs: list[str] = []
-    for per in cfg.peripherals:
-        root = _ZYNQMP_PERIPHERALS[per.kind]
-        pairs.append(f"CONFIG.{root}__PERIPHERAL__ENABLE {_tcl_brace('1')}")
-        if per.mio:
-            pairs.append(f"CONFIG.{root}__PERIPHERAL__IO {_tcl_brace(per.mio.strip())}")
-        if per.kind.startswith("gem"):
-            # RGMII MDIO hattı: kartta MDIO ayrı MIO çiftindedir; zcu102
-            # düzeninde peripheral IO'nun hemen ardından gelir. Elle MIO
-            # verilmediyse Vivado'nun varsayılan eşleşmesine bırakılır.
-            pairs.append(f"CONFIG.{root}__GRP_MDIO__ENABLE {_tcl_brace('1')}")
     if cfg.ref_clk_mhz:
         pairs.append(f"CONFIG.PSU__PSS_REF_CLK__FREQMHZ {_tcl_brace(cfg.ref_clk_mhz)}")
     if cfg.ddr_mode == "none":
@@ -174,8 +206,31 @@ def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
         "CONFIG.PSU__USE__M_AXI_GP2 {0}",
         "CONFIG.PSU__FPGA_PL0_ENABLE {0}",
     ])
-    joined = " ".join(pairs)
-    return f"set_property -dict [list {joined}] $spec2code_ps\n"
+    lines = [f"set_property -dict [list {' '.join(pairs)}] $spec2code_ps\n"]
+
+    # Kullanıcının MIO verdiği birimler ÖNCE enable edilir (kendi pinlerini
+    # sabitler); kalanlar geniş-blok önceliğiyle TEK TEK enable edilip
+    # yerleşimi Vivado'ya bırakılır (çakışmasız).
+    manual = [per for per in cfg.peripherals if per.mio.strip()]
+    auto = sorted(
+        (per for per in cfg.peripherals if not per.mio.strip()),
+        key=lambda per: (_zynqmp_auto_rank(per.kind), per.kind),
+    )
+    for per in manual + auto:
+        root = _ZYNQMP_PERIPHERALS[per.kind]
+        requested = _tcl_brace(per.mio.strip()) if per.mio.strip() else "{}"
+        lines.append(
+            f"spec2codeAssignPeripheral $spec2code_ps {root}__PERIPHERAL__ENABLE "
+            f"{root}__PERIPHERAL__IO {requested} {per.kind}\n"
+        )
+        if per.kind.startswith("gem"):
+            # RGMII MDIO ayrı MIO çiftidir; ana IO'dan sonra aynı düzenekle
+            # çakışmasız atanır (zcu102 düzeninde 76..77).
+            lines.append(
+                f"spec2codeAssignPeripheral $spec2code_ps {root}__GRP_MDIO__ENABLE "
+                f"{root}__GRP_MDIO__IO {{}} {per.kind}_mdio\n"
+            )
+    return "".join(lines)
 
 
 def _versal_cips_config_tcl(cfg: VivadoDesignConfig) -> str:
@@ -212,6 +267,7 @@ def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
 
     lines = [
         "# Spec2Code tarafindan uretildi - Vivado batch tasarim akisi.\n",
+        "" if is_versal else _ZYNQMP_IO_HELPERS_TCL,
         _marker("stage=create_project"),
         f"create_project spec2code_design {_tcl_path(proj_dir)} -part {cfg.part.strip()} -force\n",
         _marker("stage=block_design"),
@@ -473,6 +529,11 @@ class VivadoDesignJobManager:
                 "progress": _STAGE_PROGRESS.get(stage, 50),
                 "message": _STAGE_LABELS.get(stage, stage),
             })
+        elif payload.startswith("io_assigned="):
+            rest = payload[len("io_assigned="):]
+            label, _, value = rest.partition("|")
+            result.setdefault("io_assignments", {})[label] = value
+            job.emit({"event": "vivado.log", "line": f"MIO atandı: {label} -> {value}"})
         elif payload.startswith("xsa_ready="):
             path = payload[len("xsa_ready="):]
             result["xsa_path"] = path

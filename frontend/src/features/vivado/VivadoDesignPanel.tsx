@@ -268,6 +268,15 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     }
   }
 
+  // MIO gerçeği (Vivado 2023.2 ile doğrulandı): tüm PS çevre birimlerinin
+  // varsayılan MIO'su düşük pinlerde kümelenir ve Vivado çakışsa bile
+  // otomatik TAŞIMAZ. Yani birden fazla birim boş MIO ile açıksa üretim
+  // büyük olasılıkla çakışma hatasıyla düşer — gerçek kartta MIO zaten
+  // şemadan gelir. Kullanıcıyı üretimden ÖNCE uyar.
+  const enabledRows = rows.filter((r) => r.enabled);
+  const blankMioCount = enabledRows.filter((r) => !r.mio.trim()).length;
+  const multiBlankMioWarning = enabledRows.length >= 2 && blankMioCount >= 2;
+
   const xsaReady = result?.xsa_path || events.find((e) => e.event === "vivado.xsa_ready")?.xsa_path;
   const imageReady = result?.image_path || events.find((e) => e.event === "vivado.bit_ready")?.image_path;
   const lastStage = [...events].reverse().find((e) => e.event === "vivado.stage");
@@ -397,10 +406,21 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
       <Card className="p-4">
         <h4 className="mb-2 text-sm font-semibold text-text">PS çevre birimleri + MIO</h4>
         <p className="mb-3 text-[11px] text-faint">
-          MIO boş bırakılırsa Vivado&apos;nun varsayılan ataması kullanılır. Gerçek kartta değerler şemadan okunur
-          (örn. I2C0 → {platform === "versal" ? "PMC_MIO 46 .. 47" : "MIO 14 .. 15"}).
+          Gerçek kartta MIO değerleri şemadan okunur (örn. I2C0 →{" "}
+          {platform === "versal" ? "PMC_MIO 46 .. 47" : "MIO 14 .. 15"}). Tek birimde MIO boş
+          bırakılabilir (Vivado varsayılanı); birden fazla birimde MIO&apos;ları gir — aksi halde
+          varsayılanlar düşük pinlerde çakışır (aşağıya bak).
           {platform === "versal" ? " Versal Faz A: UART ve I2C (diğerleri sonraki fazda)." : ""}
         </p>
+        {multiBlankMioWarning ? (
+          <p className="mb-3 rounded-md border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
+            {enabledRows.length} çevre birimi seçili ama {blankMioCount} tanesinin MIO&apos;su boş.
+            ZynqMP&apos;de tüm birimlerin varsayılan MIO&apos;su düşük pinlerde kümelenir ve Vivado
+            çakışanı otomatik taşımaz — bu haliyle üretim büyük olasılıkla &quot;Conflict&quot; hatası
+            verir. Her birimin MIO&apos;sunu kartın şemasından gir (tek birim bırakırsan otomatik
+            atanabilir).
+          </p>
+        ) : null}
         <div className="grid gap-2 md:grid-cols-2">
           {rows.map((row, index) => (
             <div key={row.kind} className={cn("flex items-center gap-2 rounded-md border px-2 py-1.5", row.enabled ? "border-accent/40 bg-accent/5" : "border-border bg-inset")}>

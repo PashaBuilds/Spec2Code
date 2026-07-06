@@ -3,6 +3,28 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.120 - 2026-07-07
+
+- Vivado MIO cakismasi (SAHA KOK NEDENI, Vivado 2023.2 ile satir satir
+  dogrulandi): Coklu cevre birimi TOPLU (-dict) enable edilince Vivado
+  varsayilan MIO'lari bagimsiz hesaplayip cakisiyordu (UART0 varsayilani
+  'MIO 6..7' SPI1 ile cakisti, set_property topluca geri alindi -
+  kullanicinin gordugu hata). Birimler artik TEK TEK enable edilir.
+  Ayrica kesfedilen kisit: Vivado bir birime SABIT dusuk-MIO varsayilani
+  verir ve cakissa bile OTOMATIK TASIMAZ (i2c1 varsayilani 'MIO 0..1'
+  bile QSPI 0..5 ile cakisiyor); list_property_value bu IO'lar icin bos
+  doner, indeksle set edilemez - yani yasal secenekler Vivado'dan
+  programatik alinamaz (el yapimi pinmux tablosu tasimayiz).
+- Dogru davranis: TEK birim bos MIO ile otomatik atanabilir; BIRDEN
+  FAZLA birimde MIO'lar kartin semasindan girilmelidir (silikon
+  gercegi). Bos birakilan birim cakisirsa uretim, HANGI birime MIO
+  vermen gerektigini soyleyen net Turkce hatayla durur. UI: 2+ birim
+  bos MIO ile secilince uretimden ONCE uyari; Kilavuz 2.5 guncellendi.
+- E2E kanit (gercek Vivado 2023.2): 6 cevre birimli tam tasarim
+  (QSPI + I2C0 + I2C1 + UART0 + GEM3 + SD1) hepsi acik MIO ile
+  URETILDI, GEM3 MDIO 76..77'ye otomatik yerlesti, uretilen XSA parser
+  tarafindan eth/i2c/i2c/qspi/sdio/uart olarak geri okundu.
+
 ## v0.1.119 - 2026-07-06
 
 - Vivado sayfasi: DDR "Custom" secilip hicbir alan doldurulmadan

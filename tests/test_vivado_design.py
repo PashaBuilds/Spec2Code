@@ -36,9 +36,16 @@ class VivadoDesignTclTests(unittest.TestCase):
     def test_zynqmp_ps_only_two_stage_tcl(self) -> None:
         tcl = design_tcl(_zynqmp_cfg(), Path(r"D:\tmp\s2c"))
         self.assertIn("create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e", tcl)
-        self.assertIn("CONFIG.PSU__UART0__PERIPHERAL__ENABLE {1}", tcl)
-        self.assertIn("CONFIG.PSU__UART0__PERIPHERAL__IO {MIO 18 .. 19}", tcl)
-        self.assertIn("CONFIG.PSU__I2C0__PERIPHERAL__IO {MIO 14 .. 15}", tcl)
+        # MIO atamasi birimleri TEK TEK enable eden yardimciyla yapilir
+        # (toplu -dict cakismasini onler); kullanicinin verdigi MIO aynen gecer.
+        self.assertIn("proc spec2codeAssignPeripheral", tcl)
+        self.assertNotIn("list_property_value", tcl)
+        self.assertIn(
+            "spec2codeAssignPeripheral $spec2code_ps PSU__UART0__PERIPHERAL__ENABLE "
+            "PSU__UART0__PERIPHERAL__IO {MIO 18 .. 19} uart0", tcl)
+        self.assertIn(
+            "spec2codeAssignPeripheral $spec2code_ps PSU__I2C0__PERIPHERAL__ENABLE "
+            "PSU__I2C0__PERIPHERAL__IO {MIO 14 .. 15} i2c0", tcl)
         self.assertIn("CONFIG.PSU__PSS_REF_CLK__FREQMHZ {33.333}", tcl)
         # OCM-only: DDR denetleyicisi kapali.
         self.assertIn("CONFIG.PSU__DDRC__ENABLE {0}", tcl)
@@ -119,6 +126,38 @@ class VivadoDesignTclTests(unittest.TestCase):
         cfg = _zynqmp_cfg(ddr_mode="custom", ddr_params={"HATALI__KEY": "1"})
         errors = validate_design(cfg)
         self.assertTrue(any("PSU__DDRC__" in e for e in errors))
+
+    def test_zynqmp_auto_mio_conflict_free_assignment(self) -> None:
+        # SAHA KOK NEDENI (2026-07-06): MIO bos birakilinca Vivado "uygun
+        # bos yeri" SECMEZ - IP'nin sabit varsayilanlari cakisti (UART0
+        # 'MIO 6 .. 7' SPI1 araligina dustu) ve set_property topluca geri
+        # alindi. Beklenen: bos MIO'lar Vivado'nun yasal secenek listesinden
+        # (list_property_value) cakismadan otomatik atanir; kullanici MIO'su
+        # verilenler ONCE hak iddia eder; otomatikler genis-blok onceligiyle
+        # (qspi -> gem/sd -> spi -> uart -> i2c) islenir.
+        cfg = _zynqmp_cfg(peripherals=[
+            VivadoPeripheral(kind="uart0"),
+            VivadoPeripheral(kind="i2c1"),
+            VivadoPeripheral(kind="spi0"),
+            VivadoPeripheral(kind="spi1"),
+            VivadoPeripheral(kind="qspi"),
+            VivadoPeripheral(kind="i2c0", mio="MIO 14 .. 15"),
+        ])
+        tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+        # Elle verilen i2c0 en once; otomatiklerde qspi, spi'lerden ve
+        # uart/i2c'den once gelir.
+        order = [line for line in tcl.splitlines() if line.startswith("spec2codeAssignPeripheral")]
+        labels = [line.rsplit(" ", 1)[-1] for line in order]
+        self.assertEqual(labels[0], "i2c0")
+        self.assertLess(labels.index("qspi"), labels.index("spi0"))
+        self.assertLess(labels.index("spi1"), labels.index("uart0"))
+        self.assertLess(labels.index("uart0"), labels.index("i2c1"))
+        # Bos MIO'lar {} olarak gecer (tek tek enable), toplu ENABLE dict'i yok.
+        self.assertIn("PSU__SPI1__PERIPHERAL__IO {} spi1", tcl)
+        self.assertNotIn("CONFIG.PSU__SPI1__PERIPHERAL__ENABLE {1} CONFIG", tcl)
+        # Cakisma durumunda eyleme donuk hata: hangi birim, ne yapmali.
+        self.assertIn("otomatik yerlestirilemedi", tcl)
+        self.assertIn("MIO'yu formda ELLE belirtin", tcl)
 
     def test_group_parts_uses_vivado_family_not_prefix_guess(self) -> None:
         # Siniflama Vivado'nun FAMILY alanindan yapilir: xcvu (Virtex
