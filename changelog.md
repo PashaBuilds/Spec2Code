@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.111 - Taslak
+
+- DESCRIPTOR SIHIRBAZI (Import ekrani): formdan descriptor YAML'i uretir
+  - v1 kapsami I2C register cihazlari. Ilke: hata siniflarini imkansiz
+  kilmak - register/alan referanslari elle yazilmaz, tablodan SECILIR
+  (poll alani secili registerin bit alanlarindan beslenir). Icerik:
+  kimlik/transport formu, register tablo editoru + bit alanlari,
+  operasyon kurucu (adim turu secimli), convert formu + CANLI formul
+  onizlemesi (ornek ham deger gir -> donusmus degeri aninda gor,
+  uretilen C ile ayni tam sayi matematigi), test_hints. Sagda canli
+  YAML onizleme + uretilecek C imzalari (yaklasik) + Dogrula (kaydetsiz
+  yapisal kontrol - yeni POST /api/user-descriptors/validate ucu) +
+  Kaydet (user_descriptors) + YAML indir + "Ornekle doldur". Bos
+  zorunlu alanlar yer tutucuyla maskelenmez - dogrulayici yakalar.
+- Release workflow artefaktlarina retention-days: 1 - varsayilan 90 gun
+  saklama artefakt depolama kotasini doldurup release'leri kirmisti
+  (312 artefakt / ~1.2 GB temizlendi).
+
 ## v0.1.110 - 2026-07-06
 
 - KULLANICI DESCRIPTOR'LARI: katalogda olmayan (veya sirket ici) bir

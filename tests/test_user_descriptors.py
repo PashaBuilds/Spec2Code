@@ -167,6 +167,18 @@ class UserDescriptorRoutesTests(_UserDirMixin):
         with self.assertRaises(HTTPException):
             routes.delete_user_descriptor("..\\descriptors\\ltc2991.yaml")
 
+    def test_validate_endpoint_is_dry_run(self) -> None:
+        # Sihirbazin "Dogrula" dugmesi: kaydetmeden yapisal kontrol.
+        from backend.api import routes
+
+        good = routes.validate_user_descriptor(routes.UserDescriptorUpload(content=VALID_DESCRIPTOR))
+        self.assertTrue(good["valid"])
+        self.assertEqual(good["part"], "MYMON16")
+        self.assertFalse((self.user_dir / "mymon16.yaml").exists())  # kayit YOK
+        bad = routes.validate_user_descriptor(routes.UserDescriptorUpload(content="part: 'X'\ntransport: {type: xyz}\n"))
+        self.assertFalse(bad["valid"])
+        self.assertTrue(any("transport.type" in e for e in bad["errors"]))
+
     def test_example_endpoint_serves_known_good_template(self) -> None:
         # Import ekranindaki "ornek sablonu indir" her zaman bilinen-iyi
         # icerik vermeli: ayni sabit bu dosyadaki dogrulayici + tam uretim

@@ -63,6 +63,10 @@ export default function UserDescriptorImport() {
 
   React.useEffect(() => {
     void refresh();
+    // Descriptor Sihirbazı kaydettiğinde listeyi tazele.
+    const handler = () => void refresh();
+    window.addEventListener("user-descriptors-changed", handler);
+    return () => window.removeEventListener("user-descriptors-changed", handler);
   }, [refresh]);
 
   function parseUploadError(message: string): string[] {

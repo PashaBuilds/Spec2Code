@@ -597,6 +597,18 @@ def list_user_descriptors() -> dict:
     return {"dir": str(user_descriptors_dir()), "descriptors": _user_descriptor_entries()}
 
 
+@router.post("/user-descriptors/validate")
+def validate_user_descriptor(req: UserDescriptorUpload) -> dict:
+    """Kaydetmeden doğrula (Descriptor Sihirbazı canlı kontrolü)."""
+    try:
+        doc = yaml.safe_load(req.content)
+    except yaml.YAMLError as exc:
+        return {"valid": False, "errors": [f"YAML parse hatası: {exc}"]}
+    errors = validate_descriptor(doc)
+    return {"valid": not errors, "errors": errors,
+            "part": doc.get("part") if isinstance(doc, dict) else None}
+
+
 @router.get("/user-descriptors/example")
 def user_descriptor_example() -> dict:
     """Bilinen-iyi örnek şablon: testler aynı içeriği doğrulayıcıdan ve

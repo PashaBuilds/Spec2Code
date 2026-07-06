@@ -12,6 +12,7 @@ import SidePanel from "@/features/schematic/SidePanel";
 import GenerateConsole from "@/features/generate-console/GenerateConsole";
 import CodeViewer from "@/features/code-view/CodeViewer";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
+import DescriptorWizard from "@/features/driver-import/DescriptorWizard";
 import DriverImport from "@/features/driver-import/DriverImport";
 import UserDescriptorImport from "@/features/driver-import/UserDescriptorImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
@@ -282,7 +283,8 @@ export default function App() {
           </div>
         ))}
         {keepAlive("import", (
-          <div className="mx-auto h-full max-w-3xl space-y-6 overflow-auto p-6">
+          <div className="mx-auto h-full max-w-6xl space-y-6 overflow-auto p-6">
+            <DescriptorWizard />
             <UserDescriptorImport />
             {/* Kaynak import'u ikincil: bu dosyalar üretimin YERİNE GEÇMEZ,
                 çıktı paketine reference_sources/ altında referans olarak

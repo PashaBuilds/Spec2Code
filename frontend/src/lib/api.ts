@@ -98,6 +98,12 @@ export const api = {
   userDescriptorExample: () =>
     req<{ file: string; content: string }>("/api/user-descriptors/example"),
 
+  validateUserDescriptor: (content: string) =>
+    req<{ valid: boolean; errors: string[]; part: string | null }>("/api/user-descriptors/validate", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
   uploadUserDescriptor: (content: string) =>
     req<{ saved: string; part: string; dir: string; overrides_builtin: boolean }>("/api/user-descriptors", {
       method: "POST",
