@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn, zoneColor } from "@/lib/utils";
 import { busBadgeStyle, busColor, busLabel } from "@/lib/busColors";
+import { channelColor } from "./channelColors";
 import type { Ltc2991ModeTone } from "@/features/device-config/ltc2991Model";
 
 const CTRL_ICON: Record<string, typeof Cpu> = {
@@ -187,18 +188,38 @@ export function MuxNode({ data, selected }: NodeProps) {
       )}
       <Handle type="target" position={Position.Left} style={{ background: busColor("i2c") }} />
       {usedChannels.length > 0 ? (
-        usedChannels.map((channel, index) => (
-          <Handle
-            key={channel}
-            id={`ch-${channel}`}
-            type="source"
-            position={Position.Right}
-            style={{
-              background: busColor("i2c"),
-              top: `${((index + 1) / (usedChannels.length + 1)) * 100}%`,
-            }}
-          />
-        ))
+        usedChannels.map((channel, index) => {
+          const top = `${((index + 1) / (usedChannels.length + 1)) * 100}%`;
+          const color = channelColor(channel);
+          return (
+            // Kanal etiketi TEK yerde, switch çıkışının hemen dibinde durur ve
+            // kablosuyla AYNI renktedir (saha isteği: kablolar üzerindeki
+            // tekrarlı "ch N" etiketleri kaldırıldı, takip renkle yapılır).
+            <div key={channel}>
+              <Handle
+                id={`ch-${channel}`}
+                type="source"
+                position={Position.Right}
+                style={{ background: color, borderColor: color, top }}
+              />
+              {detailed && (
+                <span
+                  className="pointer-events-none absolute z-10 rounded border px-1 font-mono text-[9px] font-bold leading-[11px]"
+                  style={{
+                    right: "-13px",
+                    top,
+                    transform: "translate(100%, -50%)",
+                    color,
+                    borderColor: `color-mix(in srgb, ${color} 55%, transparent)`,
+                    background: "color-mix(in srgb, var(--bg) 88%, transparent)",
+                  }}
+                >
+                  ch {channel}
+                </span>
+              )}
+            </div>
+          );
+        })
       ) : (
         <Handle type="source" position={Position.Right} style={{ background: busColor("i2c") }} />
       )}

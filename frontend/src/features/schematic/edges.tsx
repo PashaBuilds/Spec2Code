@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeText, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, type EdgeProps } from "@xyflow/react";
 
 // Kanal kablosu: mux çıkışından kanal başına AYRI dikey şeritte (lane) yürüyen
 // ortogonal hat. React Flow smoothstep tüm kenarları kaynak-hedef orta
@@ -15,7 +15,7 @@ const LANE_STEP = 14; // ardışık şeritler arası mesafe (px)
 const CORNER = 12; // köşe yuvarlatma yarıçapı (px)
 
 export function ChannelWireEdge(props: EdgeProps) {
-  const { id, sourceX, sourceY, targetX, targetY, style, label, labelStyle, data, markerEnd } = props;
+  const { id, sourceX, sourceY, targetX, targetY, style, data, markerEnd } = props;
   const d = data as { lane?: unknown; laneCount?: unknown } | undefined;
   const lane = typeof d?.lane === "number" && d.lane >= 0 ? d.lane : 0;
   const laneCount = typeof d?.laneCount === "number" && d.laneCount > lane ? d.laneCount : lane + 1;
@@ -42,15 +42,9 @@ export function ChannelWireEdge(props: EdgeProps) {
           `Q ${laneX},${targetY} ${laneX + radius},${targetY}`,
           `L ${targetX},${targetY}`,
         ].join(" ");
-  // Etiket kendi şeridinin dikey segmenti ortasında durur; böylece "ch N"
-  // yazıları da kanal kanal ayrışır.
-  const labelY = dirY === 0 ? sourceY - 12 : sourceY + dy / 2;
-  return (
-    <>
-      <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />
-      {label ? <EdgeText x={laneX} y={labelY} label={label} labelStyle={labelStyle} /> : null}
-    </>
-  );
+  // Etiket kablo üzerinde tekrarlanmaz: "ch N" tek yerde, mux çıkışında
+  // (MuxNode) kablosuyla aynı renkte durur; kablo rengi kanalı söyler.
+  return <BaseEdge id={id} path={path} style={style} markerEnd={markerEnd} />;
 }
 
 export const edgeTypes = { channel: ChannelWireEdge };

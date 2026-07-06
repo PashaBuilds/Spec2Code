@@ -3,6 +3,18 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.115 - 2026-07-06
+
+- Sematik kanal kablolari RENK KODLU: her kanalin kablosu ve "ch N"
+  etiketi ayni renktedir, farkli kanallar farkli renk alir (8 kanallik
+  sabit palet: ch0 kehribar, ch1 gok mavisi, ch2 zumrut, ch3 pembe,
+  ch4 eflatun, ch5 mercan, ch6 limon, ch7 turkuaz). Kanal cikis
+  noktalari (handle) da ayni renge boyanir.
+- "ch N" etiketi tek yerde: I2C switch cikisinin hemen dibinde kucuk
+  renkli cip olarak durur; kablolar uzerindeki tekrarli etiketler
+  kaldirildi (saha istegi). Kanal takibi renkle yapilir - ayni kanali
+  paylasan entegrelerin kablolari ayni renkte ortak baradan dallanir.
+
 ## v0.1.114 - 2026-07-06
 
 - DS1682 SAHA KOK NEDENI COZULDU: elapsed_read / alarm_read / event_read

@@ -26,6 +26,7 @@ import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges";
 import { zoneColor } from "@/lib/utils";
 import { busColor } from "@/lib/busColors";
+import { channelColor } from "./channelColors";
 import { VisualBackdrop } from "@/components/visuals";
 import { ltc2991NodeSummary } from "@/features/device-config/ltc2991Model";
 
@@ -162,7 +163,9 @@ export default function SchematicCanvas() {
       const via = d.attach.via_mux;
       const ctrl = ctrlById[d.attach.controller_id];
       if (via) {
-        const stroke = busColor(ctrl?.type ?? "i2c");
+        // Kanal kablosu kanalın KENDİ rengini taşır; "ch N" etiketi kablo
+        // üzerinde tekrarlanmaz, yalnız mux çıkışında (MuxNode) durur.
+        const stroke = channelColor(via.channel);
         const used = muxUsedChannels.get(via.mux_id) ?? [];
         edges.push({
           id: `e-${via.mux_id}-${d.id}`,
@@ -173,9 +176,7 @@ export default function SchematicCanvas() {
           target: d.id,
           type: "channel",
           data: { lane: Math.max(used.indexOf(via.channel), 0), laneCount: used.length },
-          label: `ch ${via.channel}`,
           style: { stroke, color: stroke },
-          labelStyle: { fill: stroke },
         });
       } else if (ctrl) {
         const lbl =
