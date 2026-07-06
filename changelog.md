@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.113 - Taslak
+## v0.1.113 - 2026-07-06
 
 - Registers ekrani: register listesi TUM entegrelerde adrese gore
   kucukten buyuge siralanir. Katalog birlestirmesi yeni registerlari
