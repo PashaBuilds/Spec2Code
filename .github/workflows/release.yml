@@ -34,6 +34,10 @@ jobs:
         with:
           name: spec2code-source
           path: release-assets/*
+          # Artefaktlar yalniz publish job'ina tasima icindir; kalici kopya
+          # GitHub Release'tedir. Varsayilan 90 gun saklama, depolama
+          # kotasini doldurup release'leri kirmisti (2026-07-06).
+          retention-days: 1
 
   macos:
     name: macOS executable
@@ -63,6 +67,7 @@ jobs:
         with:
           name: spec2code-macos
           path: release-assets/*.zip
+          retention-days: 1
 
   windows:
     name: Windows executable
@@ -92,6 +97,7 @@ jobs:
         with:
           name: spec2code-windows
           path: release-assets/*.zip
+          retention-days: 1
 
   publish:
     name: Publish GitHub Release
