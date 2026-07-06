@@ -1278,3 +1278,18 @@ def drivers_confirm(req: ConfirmRequest) -> dict:
     imported[req.part] = {"stem": req.stem, "role": req.role, "files": req.files}
     _IMPORTED.write_text(json.dumps(imported, indent=2), encoding="utf-8")
     return {"ok": True, "imported": imported[req.part]}
+
+
+# BU ROTA DOSYANIN SONUNDA KALMALI (Starlette kayıt sırasına göre eşler;
+# üstteki gerçek uçlar önce yakalar). Bilinmeyen /api yolları eskiden SPA
+# statik sunucusuna düşüp POST'ta şaşırtıcı bir "405 Method Not Allowed"
+# üretiyordu (saha bulgusu: eski backend süreci yeni ucu tanımayınca) —
+# şimdi her metotta dürüst 404 + yönlendirme döner.
+@router.api_route("/{unknown_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"], include_in_schema=False)
+def unknown_api_path(unknown_path: str) -> dict:
+    raise HTTPException(
+        404,
+        f"Bilinmeyen API ucu: /api/{unknown_path}. Çalışan backend bu ucu "
+        "tanımıyor — uygulama sürümünüz eski olabilir: uygulamayı kapatıp "
+        "yeniden başlatın ya da güncel release'i kullanın.",
+    )

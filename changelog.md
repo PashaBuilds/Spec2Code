@@ -14,6 +14,10 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
   ornegin xcvu Virtex UltraScale+ oldugu icin listeye girmez). Bu
   kurulumda: 61 ZynqMP cihazi / 1000 parca, 39 Versal cihazi / 1342
   parca. "elle gir" kacis yolu duruyor.
+- Bilinmeyen /api yollari artik durust 404 doner ("backend bu ucu
+  tanimiyor - uygulamayi yeniden baslatin/guncelleyin"). Eskiden SPA
+  statik sunucusuna dusup POST'ta sasirtici "405 Method Not Allowed"
+  uretiyordu (saha bulgusu: eski backend sureci + yeni frontend ucu).
 
 ## v0.1.117 - 2026-07-06
 
