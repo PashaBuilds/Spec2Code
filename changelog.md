@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.112 - 2026-07-06
+
+- Sematik: I2C switch'in kanal kablolari artik ust uste binmez. Mux
+  dugumu KULLANILAN her kanal icin ayri bir cikis noktasi cizer (sag
+  kenarda dikey dagitilmis); farkli kanallarin kablolari dugumden
+  farkli yuksekliklerden cikar, yalniz AYNI kanali paylasan entegrelerin
+  kablolari ayni noktadan cikip ortak hat olusturur (saha UX bulgusu).
+
 ## v0.1.111 - 2026-07-06
 
 - DESCRIPTOR SIHIRBAZI (Import ekrani): formdan descriptor YAML'i uretir

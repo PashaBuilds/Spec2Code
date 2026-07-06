@@ -86,6 +86,20 @@ export default function SchematicCanvas() {
         zIndex: 1,
       });
     }
+    // Switch kanal hatlarının ayrışması için: her mux'ta GERÇEKTEN kullanılan
+    // kanallar. MuxNode kanal başına ayrı çıkış noktası (handle) çizer; aynı
+    // kanalı paylaşan entegrelerin kabloları aynı noktadan çıkar (ortak hat),
+    // farklı kanallar üst üste binmez.
+    const muxUsedChannels = new Map<string, number[]>();
+    for (const d of devices) {
+      const via = d.attach.via_mux;
+      if (!via) continue;
+      const list = muxUsedChannels.get(via.mux_id) ?? [];
+      if (!list.includes(via.channel)) list.push(via.channel);
+      muxUsedChannels.set(via.mux_id, list);
+    }
+    muxUsedChannels.forEach((list) => list.sort((a, b) => a - b));
+
     for (const m of muxes) {
       const p = pos.get(m.id);
       if (!p) continue;
@@ -93,7 +107,12 @@ export default function SchematicCanvas() {
         id: m.id,
         type: "mux",
         position: { x: p.x, y: p.y },
-        data: { part: m.part, i2c_address: m.i2c_address, channels: m.channels },
+        data: {
+          part: m.part,
+          i2c_address: m.i2c_address,
+          channels: m.channels,
+          usedChannels: muxUsedChannels.get(m.id) ?? [],
+        },
         selected: m.id === selectedId,
         draggable: false,
         zIndex: 1,
@@ -145,6 +164,8 @@ export default function SchematicCanvas() {
         edges.push({
           id: `e-${via.mux_id}-${d.id}`,
           source: via.mux_id,
+          // Kanal başına ayrı çıkış: yalnız aynı kanalın kabloları çakışır.
+          sourceHandle: `ch-${via.channel}`,
           target: d.id,
           label: `ch ${via.channel}`,
           ...wireProps(ctrl?.type ?? "i2c"),

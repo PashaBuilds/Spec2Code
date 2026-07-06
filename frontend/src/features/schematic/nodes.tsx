@@ -144,8 +144,17 @@ export function ControllerNode({ data, selected }: NodeProps) {
 }
 
 export function MuxNode({ data, selected }: NodeProps) {
-  const d = data as unknown as { part: string; i2c_address: string; channels: number };
+  const d = data as unknown as {
+    part: string;
+    i2c_address: string;
+    channels: number;
+    usedChannels?: number[];
+  };
   const detailed = useDetailed();
+  // Kanal başına AYRI çıkış noktası: farklı kanalların kabloları düğümden
+  // farklı yüksekliklerden çıkar ve üst üste binmez; aynı kanalı paylaşan
+  // entegreler aynı noktadan çıkıp ortak hat oluşturur (saha UX bulgusu).
+  const usedChannels = d.usedChannels ?? [];
   return (
     <div
       className={cn(
@@ -177,7 +186,22 @@ export function MuxNode({ data, selected }: NodeProps) {
         </>
       )}
       <Handle type="target" position={Position.Left} style={{ background: busColor("i2c") }} />
-      <Handle type="source" position={Position.Right} style={{ background: busColor("i2c") }} />
+      {usedChannels.length > 0 ? (
+        usedChannels.map((channel, index) => (
+          <Handle
+            key={channel}
+            id={`ch-${channel}`}
+            type="source"
+            position={Position.Right}
+            style={{
+              background: busColor("i2c"),
+              top: `${((index + 1) / (usedChannels.length + 1)) * 100}%`,
+            }}
+          />
+        ))
+      ) : (
+        <Handle type="source" position={Position.Right} style={{ background: busColor("i2c") }} />
+      )}
     </div>
   );
 }
