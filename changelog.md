@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.113 - Taslak
+
+- Registers ekrani: register listesi TUM entegrelerde adrese gore
+  kucukten buyuge siralanir. Katalog birlestirmesi yeni registerlari
+  descriptor dosyasinin sonuna ekledigi icin LMK04832'de liste karisik
+  gorunuyordu (RESET'ten sonra PLL2_N_CAL_0..RB_PLL_STATUS, ardindan
+  0x002'ye donus) - siralama manifest uretiminde tek noktadan yapilir,
+  snapshot/diff ayni duzeni izler. Yeniden Generate gerektirir
+  (firmware degil, yalniz manifest).
+
 ## v0.1.112 - 2026-07-06
 
 - Sematik: I2C switch'in kanal kablolari artik ust uste binmez. Mux

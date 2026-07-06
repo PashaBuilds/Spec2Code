@@ -1419,6 +1419,12 @@ class TestbenchTests(unittest.TestCase):
             manifest = json.loads(
                 (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
 
+        # Manifest register listesi TUM entegrelerde offset'e gore artan
+        # siralidir (SAHA istegi: katalog birlestirmesi sona eklendigi icin
+        # LMK04832'de liste karisik gorunuyordu).
+        for device in manifest["devices"]:
+            offsets = [int(r["offset"]) for r in device["registers"]]
+            self.assertEqual(offsets, sorted(offsets), device["part"])
         # (b) genis register: tek islemde 2 bayt; ardisik-adres yolu YOK.
         self.assertIn("ad7414RegisterReadWide(spIic, AD7414_REG_TEMPERATURE, &ucArrBytes[0U], 2U);", driver)
         self.assertNotIn("ad7414RegistersRead(spIic, AD7414_REG_TEMPERATURE", driver)
@@ -1431,6 +1437,42 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("ad7414TestbenchRegisterWidthBytes", ops)
         self.assertIn("spec2codeTestbenchI2cRegisterReadWide(", ops)
         self.assertIn("spec2codeTestbenchI2cRegisterWriteWide(", ops)
+
+    def test_lmk04832_manifest_registers_are_offset_sorted(self) -> None:
+        # SAHA istegi: LMK04832 descriptor'inda katalog birlestirmesi yeni
+        # registerlari dosyanin SONUNA ekledi (RESET, PLL2_N_CAL_0..
+        # RB_PLL_STATUS ondeydi); Registers ekrani dosya sirasini gosterip
+        # karisik gorunuyordu. Manifest artik offset'e gore artan siralar.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {"id": "ps_spi_0", "type": "spi", "instance": "XPAR_XSPIPS_0",
+             "base_address": "0xFF040000", "device_id": 0, "driver": "XSpiPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {"id": "u6_lmk04832", "part": "LMK04832",
+             "descriptor_ref": "descriptors/lmk04832.yaml",
+             "attach": {"controller_id": "ps_spi_0", "spi_chip_select": 0,
+                        "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init"],
+             "tests_requested": ["self_test"],
+             "config": {"ticspro_registers": ["0x000010"]}},
+        ]
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        lmk = next(d for d in manifest["devices"] if d["part"] == "LMK04832")
+        offsets = [int(r["offset"]) for r in lmk["registers"]]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertGreater(len(offsets), 100)  # tam harita (125) tasiniyor
+        # Dosyada sona eklenmis 0x002, siralamada RESET(0x000)'in hemen
+        # arkasina gelir; PLL2_N_CAL_0 (0x163) artik basta degildir.
+        self.assertEqual(offsets[0], 0x000)
+        self.assertEqual(offsets[1], 0x002)
 
     def test_agent_line_buffer_fits_full_data_payload_and_guards_overflow(self) -> None:
         # SAHA BULGUSU (2026-07-05): 256 baytlik flash okumasi timeout'a

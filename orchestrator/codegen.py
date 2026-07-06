@@ -1244,20 +1244,27 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "part": device.get("part", ""),
             "transport": transport_type,
             "attach": device.get("attach", {}),
-            "registers": [
-                {
-                    "name": reg.get("name", ""),
-                    "offset": reg.get("offset", 0),
-                    "access": reg.get("access", ""),
-                    "width": reg.get("width", 8),
-                }
-                # SAHA (2026-07-05): width == native_width filtresi 16-bit
-                # registerlari (AD7414/TMP101 TEMPERATURE, TLOW/THIGH)
-                # Registers ekranindan dusuruyordu. Genislik artik listede
-                # tasinir; generic R/W ajan tarafinda genislik-farkindali.
-                for reg in descriptor.get("registers", [])
-                if "name" in reg and str(reg.get("access", "")).lower() not in {"reserved"}
-            ],
+            # Liste offset'e gore SIRALI gider: descriptor dosya sirasi
+            # (katalog birlestirmesi sona ekledigi icin) karisik olabilir;
+            # Registers ekrani ve snapshot okunabilirlik icin kucukten
+            # buyuge adres sirasi bekler (saha istegi, LMK04832 ornegi).
+            "registers": sorted(
+                (
+                    {
+                        "name": reg.get("name", ""),
+                        "offset": reg.get("offset", 0),
+                        "access": reg.get("access", ""),
+                        "width": reg.get("width", 8),
+                    }
+                    # SAHA (2026-07-05): width == native_width filtresi 16-bit
+                    # registerlari (AD7414/TMP101 TEMPERATURE, TLOW/THIGH)
+                    # Registers ekranindan dusuruyordu. Genislik artik listede
+                    # tasinir; generic R/W ajan tarafinda genislik-farkindali.
+                    for reg in descriptor.get("registers", [])
+                    if "name" in reg and str(reg.get("access", "")).lower() not in {"reserved"}
+                ),
+                key=lambda item: int(item["offset"]),
+            ),
             "operations": operations,
         })
     return json_dumps_crlf(manifest)
