@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.111 - Taslak
+## v0.1.111 - 2026-07-06
 
 - DESCRIPTOR SIHIRBAZI (Import ekrani): formdan descriptor YAML'i uretir
   - v1 kapsami I2C register cihazlari. Ilke: hata siniflarini imkansiz
