@@ -6,7 +6,7 @@ import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { Badge, Button } from "@/components/ui";
 import ProjectSetup from "@/features/setup/ProjectSetup";
-import XparametersUpload from "@/features/setup/XparametersUpload";
+import DesignUpload from "@/features/setup/DesignUpload";
 import SchematicCanvas from "@/features/schematic/SchematicCanvas";
 import SidePanel from "@/features/schematic/SidePanel";
 import GenerateConsole from "@/features/generate-console/GenerateConsole";
@@ -306,7 +306,7 @@ export default function App() {
           {step === "setup" ? (
             <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
               <ProjectSetup />
-              <XparametersUpload />
+              <DesignUpload />
             </div>
           ) : step === "schematic" ? (
             <div className="flex h-full min-h-0">

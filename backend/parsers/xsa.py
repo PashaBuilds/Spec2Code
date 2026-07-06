@@ -6,6 +6,12 @@ memory ranges, and the processors tell us the platform. Instance names map
 1:1 onto the canonical `XPAR_<NAME>` macro prefixes that classic BSPs emit,
 so the generated code keeps using `{instance}_DEVICE_ID` exactly as in the
 xparameters flow.
+
+The legacy SDK handoff (.hdf, Vivado <= 2019.1 "Export Hardware") is the
+same container format: a zip whose hardware description lives in .hwh
+members. It parses through the identical path here; only the Vitis
+workspace step is gated to .xsa, because XSCT `platform create -hw` is
+documented for XSA input.
 """
 
 from __future__ import annotations
@@ -109,7 +115,7 @@ def _hwh_documents(xsa_path: Path) -> list[tuple[str, bytes]]:
                 if name.lower().endswith(".hwh")
             ]
     except (OSError, zipfile.BadZipFile) as exc:
-        raise XsaParseError(f"XSA okunamadı (zip değil ya da erişilemiyor): {xsa_path}") from exc
+        raise XsaParseError(f"XSA/HDF okunamadı (zip değil ya da erişilemiyor): {xsa_path}") from exc
 
 
 def _module_kind(element: ET.Element) -> str:
@@ -167,7 +173,7 @@ def _module_parameters(element: ET.Element) -> dict[str, str]:
 def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseResult:
     documents = _hwh_documents(xsa_path)
     if not documents:
-        raise XsaParseError(f"XSA içinde .hwh hardware handoff dosyası yok: {xsa_path}")
+        raise XsaParseError(f"Dosya içinde .hwh hardware handoff yok (.xsa/.hdf bekleniyor): {xsa_path}")
 
     result = XsaParseResult()
     seen_instances: set[str] = set()
@@ -276,4 +282,8 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 def safe_xsa_filename(name: str) -> str:
     cleaned = _SAFE_NAME_RE.sub("_", Path(name).name).strip("._") or "design.xsa"
-    return cleaned if cleaned.lower().endswith(".xsa") else f"{cleaned}.xsa"
+    # .hdf yuklemesi uzantisini korur (eski SDK handoff'u da ayni zip+hwh
+    # bicimidir); diger her sey .xsa'ya normalize edilir.
+    if cleaned.lower().endswith((".xsa", ".hdf")):
+        return cleaned
+    return f"{cleaned}.xsa"

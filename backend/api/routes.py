@@ -865,6 +865,16 @@ def download_vitis_job(job_id: str) -> Response:
 
 @router.post("/jobs/{job_id}/vitis/workspace")
 async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dict:
+    # .hdf yalniz sematik/kod uretimi icin kabul edilir: XSCT `platform
+    # create -hw` XSA icin belgelidir, eski SDK handoff'u bu akista
+    # calistirilmaz - sessiz XSCT hatasi yerine burada net Turkce hata.
+    if req.mode != "update" and req.xsa_path.strip().lower().endswith(".hdf"):
+        raise HTTPException(
+            422,
+            "Vitis workspace kurulumu .xsa gerektirir (XSCT platform create). "
+            ".hdf yalnız şematik ve kod üretimi için desteklenir; Vivado 2019.2+ "
+            "'File > Export > Export Hardware' ile .xsa üretin.",
+        )
     job = _job_with_result(job_id)
     project = job.spec.get("project", {})
     runtime = req.runtime.strip() or project.get("runtime", "bare_metal")

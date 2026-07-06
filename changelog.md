@@ -3,6 +3,21 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.116 - 2026-07-06
+
+- Setup: donanim girisi TEK dosya - Vivado .xsa (2019.2+) veya eski SDK
+  akisinin .hdf'i (ikisi de zip icinde .hwh tasir, ayni parser okur).
+  xparameters.h yukleme/yapistirma destegi arayuzden kaldirildi.
+- Vitis sekmesi: ayri "XSA dosyasi" girisi kaldirildi - Setup'ta verilen
+  dosya otomatik kullanilir (salt okunur gosterilir; degistirmek icin
+  Setup'ta yeni .xsa yuklenir). Setup'ta dosya yoksa net uyari.
+- Durust kapi: Vitis workspace kurulumu .xsa gerektirir (XSCT platform
+  create XSA icin belgelidir); .hdf ile kuruluma hem arayuz hem API
+  (422) acik Turkce hatayla izin vermez - .hdf yalniz sematik ve kod
+  uretimi icindir.
+- Dogrulama: sentetik .hdf ve gercek vck190.xsa canli API uzerinden
+  parse edildi; .hdf yukleme adi uzantisini korur; 168 test yesil.
+
 ## v0.1.115 - 2026-07-06
 
 - Sematik kanal kablolari RENK KODLU: her kanalin kablosu ve "ch N"

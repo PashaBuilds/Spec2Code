@@ -59,6 +59,18 @@ class SyntheticXsaTests(unittest.TestCase):
         self.assertIn("mem_pcie_intr", result.unmatched[0]["reason"])
         self.assertEqual(result.unmatched[0]["base_address"], "0xA0000000")
 
+    def test_hdf_parses_like_xsa(self) -> None:
+        # Eski SDK handoff'u (.hdf) ayni kap bicimidir: zip icinde .hwh.
+        # Setup artik .xsa yaninda .hdf de kabul eder; parser ayni yoldan
+        # okur (Vitis workspace adimi ise .xsa'ya kapilidir).
+        with tempfile.TemporaryDirectory() as tmp:
+            hdf = Path(tmp) / "legacy_export.hdf"
+            _write_synthetic_xsa(hdf)
+            result = parse_xsa(hdf, PLATFORM)
+
+        self.assertEqual(result.platform, "zynq_ultrascale")
+        self.assertEqual({item["type"] for item in result.controllers}, {"i2c", "uart", "qspi"})
+
     def test_rejects_non_zip_and_hwhless_archives(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             not_zip = Path(tmp) / "bad.xsa"
@@ -76,6 +88,8 @@ class SyntheticXsaTests(unittest.TestCase):
         self.assertEqual(safe_xsa_filename("my board (rev2).xsa"), "my_board_rev2_.xsa")
         self.assertEqual(safe_xsa_filename("../../etc/passwd"), "passwd.xsa")
         self.assertEqual(safe_xsa_filename(""), "design.xsa")
+        # .hdf yuklemesi uzantisini korur (design.hdf.xsa'ya donusmez).
+        self.assertEqual(safe_xsa_filename("board export.hdf"), "board_export.hdf")
 
 
 @unittest.skipUnless(VITIS_FIXED.is_dir(), "Vitis fixed platforms not installed")

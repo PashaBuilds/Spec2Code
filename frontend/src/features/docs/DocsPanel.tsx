@@ -212,24 +212,24 @@ const SECTIONS: DocSection[] = [
   },
   {
     id: "tasarim-girisi", no: "2.0", title: "Donanım tasarımı girişi",
-    keywords: "xsa xparameters upload platform algılama custom ip",
+    keywords: "xsa hdf upload platform algılama custom ip",
     body: (
       <>
         <P>
-          <B>Önerilen yol tek dosyadır:</B> <M>.xsa</M>. İçindeki hardware handoff okunur; platform
-          (ZynqMP / Versal / Zynq-7000 / MicroBlaze) işlemciden algılanır, PS çevre birimleri ve PL
-          IP'leri adres haritasıyla şematiğe dökülür, dosyanın yolu Vitis adımına otomatik taşınır.
+          <B>Giriş tek dosyadır:</B> Vivado <M>.xsa</M> (2019.2+) veya eski SDK akışının{" "}
+          <M>.hdf</M>&apos;i (ikisi de aynı kap: zip içinde .hwh). İçindeki hardware handoff okunur;
+          platform (ZynqMP / Versal / Zynq-7000 / MicroBlaze) işlemciden algılanır, PS çevre birimleri
+          ve PL IP'leri adres haritasıyla şematiğe dökülür, dosyanın yolu Vitis adımına otomatik
+          taşınır — Vitis sekmesinde ayrıca dosya istenmez.
         </P>
         <P>
           Tanınmayan bellek-eşli IP'ler (şirket custom IP'lerin) ayrıca listelenir — bunlar sürücü
           üretimine girmez ama Vitis akışında BSP koruması otomatik uygulanır.
         </P>
-        <P>
-          Klasik <M>xparameters.h</M> sekmesi de durur: BSP başlığını yapıştır, aynı sonuç.
-        </P>
         <Callout tone="warn" title="UYARI">
-          XSA'yı yol olarak veriyorsan backend'in çalıştığı makinede erişilebilir olmalı (uygulama
-          lokalde koştuğu için genelde sorun değil).
+          Vitis workspace kurulumu <M>.xsa</M> gerektirir (XSCT platform create); <M>.hdf</M> yalnız
+          şematik ve kod üretimi içindir. Dosyayı yol olarak veriyorsan backend'in çalıştığı makinede
+          erişilebilir olmalı (uygulama lokalde koştuğu için genelde sorun değil).
         </Callout>
       </>
     ),

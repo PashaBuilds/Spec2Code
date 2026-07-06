@@ -400,7 +400,6 @@ export function VitisWorkspacePanel({
     [project.platform, project.target_core],
   );
   const [vitisPath, setVitisPath] = useState(() => localStorage.getItem("spec2code.vitisPath") ?? "");
-  const [xsaPath, setXsaPath] = useState(() => localStorage.getItem("spec2code.xsaPath") ?? "");
   const [workspacePath, setWorkspacePath] = useState(() => localStorage.getItem("spec2code.workspacePath") ?? "");
   const [tempPath, setTempPath] = useState(() => localStorage.getItem("spec2code.tempPath") ?? "");
   const [processor, setProcessor] = useState(defaultProcessor);
@@ -499,14 +498,22 @@ export function VitisWorkspacePanel({
 
   async function start() {
     const vitisInput = cleanPathInput(vitisPath);
-    const xsaInput = cleanPathInput(xsaPath);
+    // Donanım dosyası Setup adımında verilen .xsa'dır; ayrı bir girdi yok.
+    const xsaInput = cleanPathInput(localStorage.getItem("spec2code.xsaPath") ?? "");
     const workspaceInput = cleanPathInput(workspacePath);
     const tempInput = cleanPathInput(tempPath);
     const updateMode = buildMode === "update";
     if (!vitisInput || !workspaceInput || !tempInput || running) return;
-    if (!updateMode && !xsaInput) return;
+    if (!updateMode && !xsaInput) {
+      setError("Setup adımında bir .xsa verilmedi — önce Setup'ta donanım tasarımını yükle.");
+      return;
+    }
+    if (!updateMode && xsaInput.toLowerCase().endsWith(".hdf")) {
+      setError("Vitis workspace kurulumu .xsa gerektirir; Setup'taki .hdf yalnız şematik/kod üretimi için. Vivado 2019.2+ 'Export Hardware' ile .xsa üretip Setup'ta onu yükle.");
+      return;
+    }
     if (!updateMode && !xsaInput.toLowerCase().endsWith(".xsa")) {
-      setError("XSA alanına klasör değil, doğrudan .xsa dosyasının tam yolu verilmelidir.");
+      setError("Setup'taki donanım dosyası .xsa değil — Setup'ta doğrudan .xsa dosyasını yükle.");
       return;
     }
     closeSocketRef.current?.();
@@ -516,7 +523,6 @@ export function VitisWorkspacePanel({
     setError("");
     setRunning(true);
     localStorage.setItem("spec2code.vitisPath", vitisInput);
-    localStorage.setItem("spec2code.xsaPath", xsaInput);
     localStorage.setItem("spec2code.workspacePath", workspaceInput);
     localStorage.setItem("spec2code.tempPath", tempInput);
     localStorage.setItem("spec2code.platformName", platformName.trim());
@@ -549,10 +555,13 @@ export function VitisWorkspacePanel({
     }
   }
 
-  const xsaLooksLikeFile = cleanPathInput(xsaPath).toLowerCase().endsWith(".xsa");
+  // Donanım dosyası Setup adımından okunur (paylaşılan anahtar). Sekmeye her
+  // geçişte panel yeniden render olduğundan taze değer görünür.
+  const designPath = cleanPathInput(localStorage.getItem("spec2code.xsaPath") ?? "");
+  const designIsXsa = designPath.toLowerCase().endsWith(".xsa");
   const canStart = Boolean(
     cleanPathInput(vitisPath) &&
-    (buildMode === "update" || (cleanPathInput(xsaPath) && xsaLooksLikeFile)) &&
+    (buildMode === "update" || (designPath && designIsXsa)) &&
     cleanPathInput(workspacePath) &&
     cleanPathInput(tempPath) &&
     platformName.trim() &&
@@ -601,7 +610,7 @@ export function VitisWorkspacePanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="full">Sıfırdan kur — platform + BSP + application (XSA gerekir)</SelectItem>
+              <SelectItem value="full">Sıfırdan kur — platform + BSP + application (Setup&apos;taki .xsa kullanılır)</SelectItem>
               <SelectItem value="update">Kaynakları güncelle + build — mevcut workspace, yalnızca yazılım değişikliği</SelectItem>
             </SelectContent>
           </Select>
@@ -624,17 +633,29 @@ export function VitisWorkspacePanel({
         </div>
         {buildMode === "full" ? (
           <div>
-            <Label htmlFor="xsa-path">XSA dosyası</Label>
-            <Input
-              id="xsa-path"
-              value={xsaPath}
-              onChange={(event) => setXsaPath(event.target.value)}
-              placeholder="D:\\Projects\\board\\export\\board.xsa"
-            />
-            {xsaPath.trim() && !xsaLooksLikeFile ? (
-              <p className="mt-1 text-[11px] text-danger">Klasör değil, doğrudan `.xsa` dosyasının tam yolunu gir.</p>
+            <Label>Donanım dosyası (Setup&apos;tan)</Label>
+            {designPath ? (
+              <>
+                <p className="break-all rounded-md border border-border bg-inset px-3 py-2 font-mono text-xs text-text">
+                  {designPath}
+                </p>
+                {designIsXsa ? (
+                  <p className="mt-1 text-[11px] text-faint">
+                    Setup adımında yüklenen dosya otomatik kullanılır; değiştirmek için Setup&apos;ta yeni bir
+                    .xsa yükle. Kopyası Temp/Staging dizinine alınır; XSCT o kopyayı kullanır.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-danger">
+                    Bu dosya .xsa değil — Vitis workspace kurulumu .xsa gerektirir (.hdf yalnız şematik ve
+                    kod üretimi için). Setup&apos;ta Vivado 2019.2+ ile üretilmiş .xsa yükle.
+                  </p>
+                )}
+              </>
             ) : (
-              <p className="mt-1 text-[11px] text-faint">Dosya kullanıcının verdiği Temp/Staging dizinine kopyalanır; XSCT bu geçici kopyayı kullanır.</p>
+              <p className="mt-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+                Setup adımında henüz bir donanım dosyası verilmedi — önce Setup&apos;ta .xsa yükle; bu adım
+                aynı dosyayı otomatik kullanır.
+              </p>
             )}
           </div>
         ) : null}

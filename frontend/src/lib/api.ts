@@ -8,7 +8,6 @@ import type {
   GeneratedFile,
   KnowledgeAskRequest,
   KnowledgeAskResponse,
-  ParseResult,
   PlatformInfo,
   ProjectSpec,
   TestbenchCommandRequest,
@@ -54,12 +53,6 @@ export const api = {
       ...p,
       id: p.id ?? (p.platform as PlatformInfo["id"]),
     })),
-
-  parseXparameters: (text: string, platform: string) =>
-    req<ParseResult>("/api/xparameters/parse", {
-      method: "POST",
-      body: JSON.stringify({ text, platform }),
-    }),
 
   parseXsaPath: (path: string) =>
     req<import("./types").XsaParseResult>("/api/xsa/parse", {
