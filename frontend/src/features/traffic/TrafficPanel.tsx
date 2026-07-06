@@ -16,6 +16,24 @@ function transportLabel(status: TestbenchSessionStatus): string {
   return `TCP ${status.host}:${status.port}`;
 }
 
+// RX satır rengi log seviyesine göre: S2C-LOG|E hata kırmızı, W sarı, I
+// parlak, D soluk, M (TX/RX aynası) en soluk — akış kalabalıkken hata/uyarı
+// göz atarken bile seçilsin (saha isteği). S2C| yanıt satırları bus renginde.
+const LOG_LEVEL_TONE: Record<string, string> = {
+  E: "text-danger",
+  W: "text-warn",
+  I: "text-text",
+  D: "text-muted",
+  M: "text-faint",
+};
+
+function rxLineTone(line: string): string {
+  if (line.startsWith("S2C|")) return "text-bus-uart";
+  const match = /^S2C-LOG\|([A-Z])\|/.exec(line);
+  if (match) return LOG_LEVEL_TONE[match[1]] ?? "text-muted";
+  return "text-muted";
+}
+
 /** Canlı TX/RX veri akışı: hangi transport olursa olsun (TCP, seri,
  * CoreSight) host ile agent arasındaki her satırı yönü ve zaman damgasıyla
  * gösterir. Session'lar Test Bench / UART konsolu / telemetri taraflarında
@@ -197,7 +215,7 @@ export default function TrafficPanel() {
               <span className={cn("select-none font-semibold", entry.dir === "tx" ? "text-accent" : "text-ok")}>
                 {entry.dir === "tx" ? "→ TX" : "← RX"}
               </span>
-              <span className={cn("break-all", entry.dir === "tx" ? "text-text" : entry.line.startsWith("S2C|") ? "text-bus-uart" : "text-muted")}>
+              <span className={cn("break-all", entry.dir === "tx" ? "text-text" : rxLineTone(entry.line))}>
                 {stripAnsi(entry.line)}
               </span>
             </div>

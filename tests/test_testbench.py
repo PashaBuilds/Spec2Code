@@ -1383,6 +1383,82 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("void spec2codeBusTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
         self.assertIn("TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", trace_source)
 
+    def test_uint32_returning_ops_are_wired_into_the_testbench_dispatcher(self) -> None:
+        # SAHA KOK NEDENI (2026-07-06, karar fotografi 13:10): v0.1.113
+        # ajaninda DS1682 elapsed_read "op basla" ile AYNI milisaniyede
+        # status=1 dustu; seviye 5'te dahi tek I2C izi/TRACEERR yoktu. Sebep:
+        # testbench op eslemesinde uint32 dali yoktu - returns "uint32" olan
+        # TUM *_read op'lari (DS1682 elapsed/alarm/event, LTC2945 power)
+        # surucuyu HIC cagirmadan "operation signature not mapped"
+        # yakalayicisina dusuyordu; genel "<op> failed" mesaji da bu ipucunu
+        # eziyordu. Beklenen: uint32 op surucu fonksiyonunu cagirir, ham deger
+        # value + 4 big-endian bayt olarak doner.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {"id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+             "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = [
+            {"id": "u1_tca9548a", "part": "TCA9548A", "controller_id": "ps_i2c_0",
+             "i2c_address": "0x70", "channels": 8},
+        ]
+        spec["devices"] = [
+            {"id": "u8_ds1682", "part": "DS1682",
+             "descriptor_ref": "descriptors/ds1682.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x6B",
+                        "via_mux": {"mux_id": "u1_tca9548a", "channel": 5},
+                        "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "elapsed_read", "alarm_read", "event_read"],
+             "tests_requested": ["self_test"]},
+            {"id": "u7_ltc2945", "part": "LTC2945",
+             "descriptor_ref": "descriptors/ltc2945.yaml",
+             "attach": {"controller_id": "ps_i2c_0", "i2c_address": "0x6F",
+                        "via_mux": None, "reset_gpio": None, "irq_line": None},
+             "operations_requested": ["device_init", "power_read"],
+             "tests_requested": ["self_test"]},
+        ]
+        add_zynqmp_ps_ethernet(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            ops_source = (out_dir / "tests" / f"{spec['project']['name']}_testbench_ops.c").read_text(encoding="utf-8")
+
+        # uint32 op'lar artik gercek surucu cagrisina baglanir...
+        self.assertIn("iStatus = ds1682ElapsedRead(", ops_source)
+        self.assertIn("iStatus = ds1682AlarmRead(", ops_source)
+        self.assertIn("iStatus = ds1682EventRead(", ops_source)
+        self.assertIn("iStatus = ltc2945PowerRead(", ops_source)
+        # ...ham deger value + 4 big-endian bayt olarak doner...
+        self.assertIn("unsigned int uiValue32;", ops_source)
+        self.assertIn("(unsigned char)((uiValue32 >> 24U) & 0xFFU)", ops_source)
+        # ...ve hicbir op sessiz always-fail yakalayicisina dusmez.
+        self.assertNotIn("operation signature not mapped", ops_source)
+
+    def test_every_catalog_descriptor_read_op_maps_to_a_driver_call(self) -> None:
+        # Yapisal koruma: katalogdaki (veya yeni eklenen) bir descriptor'in
+        # returns tipi testbench eslemesinden duserse ajan o op icin bus'a hic
+        # cikmadan fail eden kod uretir - bu test sinifi hatayi uretim aninda
+        # yakalar. Kural: *_read op'lari "operation signature not mapped"
+        # yakalayicisina dusmez.
+        get_descriptor = codegen.make_descriptor_loader(codegen._ROOT)
+        descriptor_dir = codegen._ROOT / "descriptors"
+        for yaml_path in sorted(descriptor_dir.glob("*.yaml")):
+            descriptor = get_descriptor(f"descriptors/{yaml_path.name}")
+            entry = {"module": "swp", "hvar": "spHandle",
+                     "descriptor": descriptor, "device": {"id": "sweep"}}
+            for op in descriptor.get("operations", []):
+                op_name = str(op.get("name", ""))
+                if not op_name.endswith("_read"):
+                    continue
+                lines = codegen._testbench_call_lines(entry, op)
+                self.assertFalse(
+                    any("operation signature not mapped" in line for line in lines),
+                    msg=f"{yaml_path.name}: {op_name} testbench'e baglanmamis "
+                        f"(returns={op.get('returns')!r})",
+                )
+
     def test_wide_registers_use_single_transaction_and_reach_manifest(self) -> None:
         # REGRESYON KORUMASI: read_registers iki farkli anlam tasir.
         # (a) DS1682/LTC2945: ardisik AYRI adresler -> tek-bayt okumalarla

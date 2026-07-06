@@ -23,6 +23,7 @@ function FitView({ signature }: { signature: string }) {
 import { useStore } from "@/store/useStore";
 import { computeLayout, computeZoneRects } from "./layout";
 import { nodeTypes } from "./nodes";
+import { edgeTypes } from "./edges";
 import { zoneColor } from "@/lib/utils";
 import { busColor } from "@/lib/busColors";
 import { VisualBackdrop } from "@/components/visuals";
@@ -161,14 +162,20 @@ export default function SchematicCanvas() {
       const via = d.attach.via_mux;
       const ctrl = ctrlById[d.attach.controller_id];
       if (via) {
+        const stroke = busColor(ctrl?.type ?? "i2c");
+        const used = muxUsedChannels.get(via.mux_id) ?? [];
         edges.push({
           id: `e-${via.mux_id}-${d.id}`,
           source: via.mux_id,
-          // Kanal başına ayrı çıkış: yalnız aynı kanalın kabloları çakışır.
+          // Kanal başına ayrı çıkış + ayrı dikey şerit (ChannelWireEdge):
+          // yalnız aynı kanalın kabloları çakışır.
           sourceHandle: `ch-${via.channel}`,
           target: d.id,
+          type: "channel",
+          data: { lane: Math.max(used.indexOf(via.channel), 0), laneCount: used.length },
           label: `ch ${via.channel}`,
-          ...wireProps(ctrl?.type ?? "i2c"),
+          style: { stroke, color: stroke },
+          labelStyle: { fill: stroke },
         });
       } else if (ctrl) {
         const lbl =
@@ -207,6 +214,7 @@ export default function SchematicCanvas() {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={(_, n) => select(n.id.startsWith("zone-") ? null : n.id)}
         onPaneClick={() => select(null)}
         onInit={(inst) => inst.fitView({ padding: 0.18 })}

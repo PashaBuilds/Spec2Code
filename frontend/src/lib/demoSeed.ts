@@ -21,16 +21,39 @@ export function maybeSeedDemo(): void {
   const muxes: Mux[] = [
     { id: "u1_tca9548a", part: "TCA9548A", controller_id: "ps_i2c_0", i2c_address: "0x70", channels: 8 },
   ];
+  // Mux arkası dağılım saha kartını taklit eder: paylaşılan kanallar (ch3 ve
+  // ch4'te ikişer entegre) + komşu tekil kanallar — kanal kablosu ayrışmasının
+  // görsel doğrulaması bu düzenle yapılır.
   const devices: Device[] = [
     {
       id: "u2_ltc2991",
       part: "LTC2991",
-      attach: { controller_id: "ps_i2c_0", i2c_address: "0x48", via_mux: { mux_id: "u1_tca9548a", channel: 0 } },
+      attach: { controller_id: "ps_i2c_0", i2c_address: "0x48", via_mux: { mux_id: "u1_tca9548a", channel: 3 } },
     },
     {
       id: "u3_sht21",
       part: "SHT21",
       attach: { controller_id: "ps_i2c_0", i2c_address: "0x40", via_mux: { mux_id: "u1_tca9548a", channel: 2 } },
+    },
+    {
+      id: "u7_ltc2945",
+      part: "LTC2945",
+      attach: { controller_id: "ps_i2c_0", i2c_address: "0x6F", via_mux: { mux_id: "u1_tca9548a", channel: 3 } },
+    },
+    {
+      id: "u8_ltc2991",
+      part: "LTC2991",
+      attach: { controller_id: "ps_i2c_0", i2c_address: "0x49", via_mux: { mux_id: "u1_tca9548a", channel: 4 } },
+    },
+    {
+      id: "u9_ltc2991",
+      part: "LTC2991",
+      attach: { controller_id: "ps_i2c_0", i2c_address: "0x4A", via_mux: { mux_id: "u1_tca9548a", channel: 4 } },
+    },
+    {
+      id: "u10_ds1682",
+      part: "DS1682",
+      attach: { controller_id: "ps_i2c_0", i2c_address: "0x6B", via_mux: { mux_id: "u1_tca9548a", channel: 5 } },
     },
     {
       id: "u4_tmp101",

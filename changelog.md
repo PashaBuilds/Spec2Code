@@ -3,6 +3,38 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.114 - 2026-07-06
+
+- DS1682 SAHA KOK NEDENI COZULDU: elapsed_read / alarm_read / event_read
+  (ve LTC2945 power_read) ajanda BUS'A HIC CIKMADAN status=1 donuyordu.
+  Sebep: bu op'larin descriptor'daki donus tipi "uint32" ve testbench op
+  eslemesinde uint32 dali yoktu - op'lar surucu fonksiyonu hic
+  cagrilmadan "operation signature not mapped" yakalayicisina dusuyordu
+  (bu yuzden seviye 5'te bile tek I2C izi/TRACEERR gorunmuyordu; karar
+  verdiren ayni-oturum logu: 13:10, v0.1.113 dogrulanmis ajan).
+  Duzeltme: uint32 op'lar artik surucuyu cagirir, ham deger value + 4
+  big-endian bayt olarak doner. Yakalayiciya dusen op bundan boyle
+  ERROR seviyesinde adiyla loglanir (genel "failed" mesaji ipucunu
+  ezmisti). Regresyon: katalogdaki HER descriptor'in *_read op'unun
+  testbench'e baglandigini dogrulayan yapisal test eklendi. Kartta
+  calismasi icin YENI release ile generate + ELF yukleme gerekir.
+- Veri Akisi konsolu: S2C-LOG satirlari log seviyesine gore renklenir
+  (E kirmizi, W sari, I parlak, D soluk, M en soluk ayna satiri; S2C|
+  yanit satirlari bus renginde). Not: ajanin seviye olcegi 1=error..
+  5=debug'dir - ayri bir "trace" seviyesi yok; DS1682'de debug baytlari
+  gorunmemesinin sebebi yukaridaki kok nedendi (op bus'a inmiyordu).
+- Sematik kanal kablolari: her kanal kendi DIKEY SERIDINDE yurur (ozel
+  ChannelWireEdge kenari). v0.1.112 kanal cikislarini ayirmisti ama
+  smoothstep tum kablolari ayni orta noktada bukup tek dikey hatta
+  bindiriyordu (saha fotografi: ch2/3/3/4/4/5 ayni hat uzerinde).
+  Seritler cihaz kolonunun solundaki bos koridora demirlenir (orta
+  kolondaki dugumlerin icinden gecmez), ayni kanali paylasan kablolar
+  ayni seridi kullanip ortak bara gibi gorunur, "ch N" etiketleri kendi
+  seridinin ustunde durur. Gercek Chrome goruntusuyle dogrulandi.
+- Demo sema (?demo) saha kartina benzetildi: mux arkasi ch2 SHT21,
+  ch3 LTC2991+LTC2945, ch4 iki LTC2991, ch5 DS1682 - kanal ayrisma ve
+  paylasilan-kanal gorunumu demo uzerinde dogrudan gozlenebilir.
+
 ## v0.1.113 - 2026-07-06
 
 - Registers ekrani: register listesi TUM entegrelerde adrese gore

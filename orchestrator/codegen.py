@@ -1840,7 +1840,28 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
         lines.append("}")
         void = out_name
         del void
-    elif "int32" in returns and "uint32" not in returns:
+    elif "uint32" in returns:
+        # Ham 24/32-bit sayaç/akümülatör (DS1682 ETC/EVENT, LTC2945 POWER):
+        # value alanına ham değer, data'ya 4 big-endian bayt. SAHA KÖK NEDENİ
+        # (2026-07-06): bu dal yokken uint32 dönüşlü TÜM *_read op'ları alttaki
+        # "signature not mapped" yakalayıcısına düşüyor ve ajan BUS'A HİÇ
+        # ÇIKMADAN status=1 dönüyordu — TRACEERR'siz anlık fail'in sebebi buydu.
+        lines.append(f"iStatus = {func}({hvar}, &uiValue32);")
+        lines.extend([
+            "if (iStatus == XST_SUCCESS)",
+            "{",
+            "    spResponse->uiValue = uiValue32;",
+        ])
+        for shift in (24, 16, 8, 0):
+            lines.extend([
+                f"    iStatus = spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiValue32 >> {shift}U) & 0xFFU));",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+            ])
+        lines.append("}")
+    elif "int32" in returns:
         # Converted engineering-unit scalar (e.g. santi-Celsius): value goes
         # out two's complement in uiValue, data carries 4 big-endian bytes.
         lines.append(f"iStatus = {func}({hvar}, &iValue);")
@@ -1909,6 +1930,14 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
         else:
             lines.append(f"iStatus = {func}({hvar}, spRequest->uiAddress, spRequest->ucArrData, spRequest->uiDataLength);")
     elif op_name.endswith("_read"):
+        # Bu yakalayıcıya düşen op HİÇ bus'a çıkmadan fail eder; sebep log'da
+        # ERROR olarak adıyla görünmeli — genel "<op> failed" mesajı epilogda
+        # bunu ezdiği için saha teşhisi haftalarca gecikti (DS1682 vakası).
+        lines.append(
+            "spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "
+            "\"op imzasi eslenmemis (descriptor returns tipi testbench'e bagli degil): %s\", "
+            "spRequest->cArrOperation);"
+        )
         lines.append("iStatus = XST_FAILURE;")
         lines.append("spec2codeTestbenchMessageSet(spResponse, \"operation signature not mapped\");")
     else:
@@ -1937,6 +1966,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         and "uint32" not in str(op.get("returns", "")).lower()
         for op in operations
     )
+    needs_ui_value32 = any("uint32" in str(op.get("returns", "")).lower() for op in operations)
     needs_uc_value = (
         register_ops
         or (post_init is not None and post_init["transport"] == "i2c")
@@ -1967,6 +1997,8 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         lines.append("        unsigned short usValue;")
     if needs_i_value:
         lines.append("        int iValue;")
+    if needs_ui_value32:
+        lines.append("        unsigned int uiValue32;")
     if needs_array:
         lines.append("        unsigned short usArrValues[8];")
     if needs_uc_value:
