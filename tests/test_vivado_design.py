@@ -1,0 +1,132 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from backend.vivado_design import (
+    VivadoDesignConfig,
+    VivadoPeripheral,
+    design_tcl,
+    validate_design,
+)
+
+
+def _zynqmp_cfg(**overrides) -> VivadoDesignConfig:
+    base = dict(
+        vivado_path=r"C:\Xilinx_2023_2\Vivado\2023.2",
+        platform="zynq_ultrascale",
+        part="xczu9eg-ffvb1156-2-e",
+        temp_path=r"D:\tmp",
+        peripherals=[
+            VivadoPeripheral(kind="uart0", mio="MIO 18 .. 19"),
+            VivadoPeripheral(kind="i2c0", mio="MIO 14 .. 15"),
+        ],
+        ref_clk_mhz="33.333",
+        ddr_mode="none",
+    )
+    base.update(overrides)
+    return VivadoDesignConfig(**base)
+
+
+class VivadoDesignTclTests(unittest.TestCase):
+    # Parametre adlari resmi zcu102.xsa/vck190.xsa hardware handoff'larindan
+    # dogrulanmistir; bu testler uretilen Tcl'in o dogrulanmis bicimden
+    # sapmasini engeller.
+
+    def test_zynqmp_ps_only_two_stage_tcl(self) -> None:
+        tcl = design_tcl(_zynqmp_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertIn("create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e", tcl)
+        self.assertIn("CONFIG.PSU__UART0__PERIPHERAL__ENABLE {1}", tcl)
+        self.assertIn("CONFIG.PSU__UART0__PERIPHERAL__IO {MIO 18 .. 19}", tcl)
+        self.assertIn("CONFIG.PSU__I2C0__PERIPHERAL__IO {MIO 14 .. 15}", tcl)
+        self.assertIn("CONFIG.PSU__PSS_REF_CLK__FREQMHZ {33.333}", tcl)
+        # OCM-only: DDR denetleyicisi kapali.
+        self.assertIn("CONFIG.PSU__DDRC__ENABLE {0}", tcl)
+        # PS-only: baglantisiz PL-yonlu arabirimler kapali (validate temiz).
+        self.assertIn("CONFIG.PSU__USE__M_AXI_GP0 {0}", tcl)
+        self.assertIn("CONFIG.PSU__FPGA_PL0_ENABLE {0}", tcl)
+        # Asama 1 sentezsiz XSA + isaret; bit istenmedi -> synth yok.
+        # -fixed sart: fixed olmayan export PFM metadata ister (E2E bulgusu).
+        self.assertIn("write_hw_platform -fixed -force -file", tcl)
+        self.assertIn("generate_target all [get_files design_1.bd]", tcl)
+        self.assertIn("set_property platform.name", tcl)
+        self.assertIn("S2C-VIVADO|xsa_ready=", tcl)
+        self.assertNotIn("launch_runs synth_1", tcl)
+
+    def test_zynqmp_bitstream_stage_appends_synth_impl_and_fixed_xsa(self) -> None:
+        tcl = design_tcl(_zynqmp_cfg(make_bitstream=True), Path(r"D:\tmp\s2c"))
+        self.assertIn("launch_runs synth_1", tcl)
+        self.assertIn("launch_runs impl_1 -to_step write_bitstream", tcl)
+        self.assertIn("S2C-VIVADO|bit_ready=", tcl)
+        self.assertIn("write_hw_platform -fixed -include_bit -force -file", tcl)
+        # Asama 1 XSA, asama 2'den ONCE yazilir (erken teslim).
+        self.assertLess(tcl.index("S2C-VIVADO|xsa_ready="), tcl.index("launch_runs synth_1"))
+
+    def test_zynqmp_custom_ddr_params_pass_through(self) -> None:
+        cfg = _zynqmp_cfg(ddr_mode="custom", ddr_params={
+            "PSU__DDRC__MEMORY_TYPE": "DDR 4",
+            "PSU__DDRC__SPEED_BIN": "DDR4_2133P",
+            "PSU__DDRC__BUS_WIDTH": "32 Bit",
+        })
+        tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+        self.assertIn("CONFIG.PSU__DDRC__ENABLE {1}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__MEMORY_TYPE {DDR 4}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__BUS_WIDTH {32 Bit}", tcl)
+
+    def test_versal_cips_config_and_pdi_step(self) -> None:
+        cfg = VivadoDesignConfig(
+            vivado_path=r"C:\X", platform="versal", part="xcvc1902-vsva2197-2MP-e-S",
+            temp_path=r"D:\tmp",
+            peripherals=[
+                VivadoPeripheral(kind="uart0", mio="PMC_MIO 42 .. 43"),
+                VivadoPeripheral(kind="i2c1", mio="PMC_MIO 44 .. 45"),
+            ],
+            ref_clk_mhz="33.3333", make_bitstream=True,
+        )
+        tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+        self.assertIn("xilinx.com:ip:versal_cips", tcl)
+        # vck190.xsa'daki dogrulanmis ic ice dict bicimi.
+        self.assertIn("PS_UART0_PERIPHERAL {{ENABLE 1} {IO {PMC_MIO 42 .. 43}}}", tcl)
+        self.assertIn("PS_I2C1_PERIPHERAL {{ENABLE 1} {IO {PMC_MIO 44 .. 45}}}", tcl)
+        self.assertIn("PMC_REF_CLK_FREQMHZ 33.3333", tcl)
+        # Versal'da imaj .pdi'dir ve write_device_image adimiyla uretilir.
+        self.assertIn("launch_runs impl_1 -to_step write_device_image", tcl)
+        self.assertIn(".pdi", tcl)
+        self.assertNotIn("write_bitstream", tcl)
+
+    def test_validate_rejects_bad_input_with_turkish_errors(self) -> None:
+        cfg = _zynqmp_cfg(platform="zynq_7000")
+        errors = validate_design(cfg)
+        self.assertTrue(any("Zynq-7000 kapsam dışı" in e for e in errors))
+
+        cfg = _zynqmp_cfg(peripherals=[VivadoPeripheral(kind="uart0", mio="MIO18-19")])
+        errors = validate_design(cfg)
+        self.assertTrue(any("biçim 'MIO 18 .. 19'" in e for e in errors))
+
+        cfg = _zynqmp_cfg(peripherals=[VivadoPeripheral(kind="can0")])
+        errors = validate_design(cfg)
+        self.assertTrue(any("desteklenmiyor" in e for e in errors))
+
+        # Versal'da custom DDR Faz A'da yok - durust hata.
+        cfg = VivadoDesignConfig(
+            vivado_path="x", platform="versal", part="p", temp_path="t",
+            peripherals=[VivadoPeripheral(kind="uart0")],
+            ddr_mode="custom", ddr_params={"PSU__DDRC__CL": "15"},
+        )
+        errors = validate_design(cfg)
+        self.assertTrue(any("Versal DDR" in e for e in errors))
+
+        cfg = _zynqmp_cfg(ddr_mode="custom", ddr_params={"HATALI__KEY": "1"})
+        errors = validate_design(cfg)
+        self.assertTrue(any("PSU__DDRC__" in e for e in errors))
+
+    def test_validate_accepts_good_zynqmp_and_versal(self) -> None:
+        self.assertEqual(validate_design(_zynqmp_cfg()), [])
+        cfg = VivadoDesignConfig(
+            vivado_path="x", platform="versal", part="xcvc1902",
+            temp_path="t", peripherals=[VivadoPeripheral(kind="uart0", mio="PMC_MIO 42 .. 43")],
+        )
+        self.assertEqual(validate_design(cfg), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -25,10 +25,11 @@ import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
+import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "vivado";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -124,6 +125,7 @@ export default function App() {
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
+    { id: "vivado", label: "Vivado Tasarımı — PS'ten XSA/bit üret", hint: "görünüm", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => setView("vivado") },
   ];
 
   return (
@@ -195,6 +197,7 @@ export default function App() {
           ["registers", Grid3X3, "Registers"],
           ["docs", BookOpenText, "Kılavuz"],
           ["import", FileInput, "Import"],
+          ["vivado", Boxes, "Vivado"],
         ] as const).map(([id, Icon, label]) => (
           <Button
             key={id}
@@ -280,6 +283,11 @@ export default function App() {
         {keepAlive("docs", (
           <div className="h-full min-h-0 p-4">
             <DocsPanel />
+          </div>
+        ))}
+        {keepAlive("vivado", (
+          <div className="h-full min-h-0 overflow-auto p-4">
+            <VivadoDesignPanel />
           </div>
         ))}
         {keepAlive("import", (

@@ -149,6 +149,32 @@ export const api = {
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
 
+  vivadoDesignStart: (payload: {
+    vivado_path: string;
+    platform: string;
+    part: string;
+    temp_path: string;
+    design_name: string;
+    peripherals: Array<{ kind: string; mio: string }>;
+    ref_clk_mhz: string;
+    ddr_mode: string;
+    ddr_params: Record<string, string>;
+    make_bitstream: boolean;
+    timeout_s: number;
+  }) =>
+    req<{ vivado_job_id: string }>("/api/vivado/design", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  vivadoDesignResult: (vivadoJobId: string) =>
+    req<{
+      vivado_job_id: string;
+      status: string;
+      error: string | null;
+      result: { successful?: boolean; xsa_path?: string; image_path?: string; xsa_bit_path?: string } | null;
+    }>(`/api/vivado/jobs/${encodeURIComponent(vivadoJobId)}/result`),
+
   mapVitisCompileErrors: (log: string) =>
     req<{ issues: VitisCompileIssue[] }>("/api/vitis/compile-errors/map", {
       method: "POST",
@@ -318,6 +344,26 @@ export function openRunboardSocket(
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/runboard/${jobId}`);
+  ws.onmessage = (m) => {
+    const data = JSON.parse(m.data);
+    if (data.event === "__closed__") {
+      ws.close();
+      onClose?.();
+      return;
+    }
+    onEvent(data);
+  };
+  ws.onerror = () => onClose?.();
+  return () => ws.close();
+}
+
+export function openVivadoSocket(
+  vivadoJobId: string,
+  onEvent: (e: Record<string, unknown>) => void,
+  onClose?: () => void,
+): () => void {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/vivado/${vivadoJobId}`);
   ws.onmessage = (m) => {
     const data = JSON.parse(m.data);
     if (data.event === "__closed__") {

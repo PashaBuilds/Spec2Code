@@ -3,6 +3,29 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.117 - 2026-07-06
+
+- YENI: Vivado Tasarimi sekmesi (Faz A) - elde .xsa yokken Spec2Code
+  onu uretir. Gercek kartin PS arayuzleri (UART/I2C/SPI/QSPI/GEM/SD)
+  formdan secilir, MIO'lar girilir; arka planda Vivado batch kosar.
+  IKI ASAMALI teslim: (1) sentezsiz .xsa ~1-2 dk'da hazir, "Setup'a
+  bagla" ile sematik akisina tek tusla girer; (2) istege bagli sentez +
+  implementasyon ile .bit (ZynqMP) / .pdi (Versal) + bit'li sabit XSA.
+  Canli log/asama akisi (WebSocket), sekme degisiminde ise yeniden
+  baglanma, Kilavuz 2.5 bolumu.
+- Kapsam ve durustluk: ZynqMP tam (DDR dahil), Versal Faz A'da UART/I2C
+  + DDR'siz (NoC/DDRMC sonraki faz), Zynq-7000 bilincli kapsam disi.
+  PSU__*/CIPS parametre adlari resmi zcu102/vck190 tasarimlarindan
+  dogrulandi; MIO yasallik denetimi Vivado'ya birakilir (uydurma pinmux
+  tablosu yok). DDR: "DDR yok (OCM)" ilk bring-up onerisi + Custom
+  datasheet formu (19 alan). Vivado'nun 260 karakterlik Windows yol
+  siniri icin kisa Temp zorunlulugu onden denetlenir.
+- E2E kanitlari (gercek Vivado 2023.2): ZynqMP xczu9eg PS-only ->
+  sentezsiz XSA -> Spec2Code parser'i geri okudu (I2C0/I2C1/UART0 tam
+  konfigure edilen MIO'larla); Versal xcvc1902 -> XSA -> parse
+  (XIicPs + XUartPsv); ZynqMP xczu2cg -> synth+impl -> GERCEK .bit +
+  bit'li XSA. 174 unittest yesil (6 yeni Tcl/validasyon testi).
+
 ## v0.1.116 - 2026-07-06
 
 - Setup: donanim girisi TEK dosya - Vivado .xsa (2019.2+) veya eski SDK

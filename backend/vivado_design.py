@@ -1,0 +1,505 @@
+"""Vivado tasarım üretimi (Faz A): PS konfigürasyon formundan Tcl üretir,
+Vivado'yu batch modda koşturur ve İKİ AŞAMADA teslim eder:
+
+  1) pre-synthesis .xsa — PS-only tasarımda sentez GEREKMEZ; dakikalar değil
+     ~1-2 dk. Hazır olur olmaz ``vivado.xsa_ready`` olayı yayınlanır ve
+     kullanıcı Setup akışına geçebilir.
+  2) istenirse synth + impl → .bit (ZynqMP) / .pdi (Versal) + bit'li sabit
+     (fixed) XSA. Hazır olunca ``vivado.bit_ready`` yayınlanır.
+
+Kapsam (Faz A): Zynq UltraScale+ (tam PS konfigürasyonu: çevre birimleri +
+MIO + referans saat + DDR custom/none) ve Versal (UART/I2C, PMC/PS MIO; DDR
+Faz A'da yok — ajan OCM'den koşar). Zynq-7000 bilinçli olarak kapsam dışı.
+
+DÜRÜSTLÜK NOTU: Buradaki tüm PSU__*/CIPS parametre adları ve değer
+biçimleri Vitis 2023.2 kurulumundaki resmi zcu102.xsa / vck190.xsa hardware
+handoff'larından ve zynq_ultra_ps_e IP verisinden doğrulanarak alınmıştır
+(ör. ``PSU__UART0__PERIPHERAL__IO = "MIO 18 .. 19"``,
+``PS_UART0_PERIPHERAL {{ENABLE 1} {IO {PMC_MIO 42 .. 43}}}``). MIO seçimi
+serbest metin değildir ama yasal aralık doğrulaması Vivado'ya bırakılır:
+geçersiz bir MIO ataması 1. aşamada saniyeler içinde net Vivado hatasıyla
+döner — el yapımı (uydurulmuş) bir pinmux tablosu taşımıyoruz.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import re
+import subprocess
+import threading
+import traceback
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+#: ZynqMP PS çevre birimi -> PSU parametre kökü (zcu102.xsa hwh'den doğrulandı).
+_ZYNQMP_PERIPHERALS: dict[str, str] = {
+    "uart0": "PSU__UART0",
+    "uart1": "PSU__UART1",
+    "i2c0": "PSU__I2C0",
+    "i2c1": "PSU__I2C1",
+    "spi0": "PSU__SPI0",
+    "spi1": "PSU__SPI1",
+    "qspi": "PSU__QSPI",
+    "gem0": "PSU__ENET0",
+    "gem1": "PSU__ENET1",
+    "gem2": "PSU__ENET2",
+    "gem3": "PSU__ENET3",
+    "sd0": "PSU__SD0",
+    "sd1": "PSU__SD1",
+}
+
+#: Versal CIPS anahtarı (vck190.xsa PS_PMC_CONFIG'ten doğrulandı). Faz A'da
+#: yalnız UART/I2C: diğerlerinin anahtar yapısı farklı (ör. PMC_QSPI_*) ve
+#: henüz gerçek bir tasarımla doğrulanmadı — uydurmuyoruz.
+_VERSAL_PERIPHERALS: dict[str, str] = {
+    "uart0": "PS_UART0_PERIPHERAL",
+    "uart1": "PS_UART1_PERIPHERAL",
+    "i2c0": "PS_I2C0_PERIPHERAL",
+    "i2c1": "PS_I2C1_PERIPHERAL",
+}
+
+_MIO_RE = re.compile(r"^(?:MIO|PMC_MIO|PS_MIO)\s+\d+(?:\s*\.\.\s*\d+)?$")
+
+
+@dataclass
+class VivadoPeripheral:
+    kind: str          # uart0 | i2c0 | ... (yukarıdaki tablolardan)
+    mio: str = ""      # "MIO 18 .. 19" / "PMC_MIO 42 .. 43"; boş = IP varsayılanı
+
+
+@dataclass
+class VivadoDesignConfig:
+    vivado_path: str            # örn. C:\Xilinx_2023_2\Vivado\2023.2
+    platform: str               # zynq_ultrascale | versal
+    part: str                   # örn. xczu9eg-ffvb1156-2-e
+    temp_path: str              # staging/proje dizini (kullanıcı verir)
+    design_name: str = "spec2code_hw"
+    peripherals: list[VivadoPeripheral] = field(default_factory=list)
+    ref_clk_mhz: str = ""       # boş = IP varsayılanı; ZynqMP: PSU__PSS_REF_CLK__FREQMHZ
+    ddr_mode: str = "none"      # none (OCM-only) | custom (yalnız ZynqMP)
+    ddr_params: dict[str, str] = field(default_factory=dict)  # PSU__DDRC__* alt kümesi
+    make_bitstream: bool = False
+    timeout_s: int = 3600
+
+
+def validate_design(cfg: VivadoDesignConfig) -> list[str]:
+    errors: list[str] = []
+    if cfg.platform not in ("zynq_ultrascale", "versal"):
+        errors.append(
+            f"platform: yalnız zynq_ultrascale ve versal desteklenir (Faz A); Zynq-7000 kapsam dışı (şu an: {cfg.platform!r})")
+    if not cfg.part.strip():
+        errors.append("part: hedef parça numarası boş olamaz (örn. xczu9eg-ffvb1156-2-e)")
+    if not cfg.vivado_path.strip():
+        errors.append("vivado_path: Vivado kurulum dizini gerekli (örn. C:\\Xilinx_2023_2\\Vivado\\2023.2)")
+    if not cfg.temp_path.strip():
+        errors.append("temp_path: staging dizini gerekli")
+    table = _ZYNQMP_PERIPHERALS if cfg.platform == "zynq_ultrascale" else _VERSAL_PERIPHERALS
+    if not cfg.peripherals:
+        errors.append("peripherals: en az bir PS çevre birimi seçilmeli (test edilecek arayüzler)")
+    for per in cfg.peripherals:
+        if per.kind not in table:
+            supported = ", ".join(sorted(table))
+            errors.append(f"peripherals.{per.kind}: bu platformda desteklenmiyor (desteklenen: {supported})")
+        if per.mio and not _MIO_RE.match(per.mio.strip()):
+            errors.append(
+                f"peripherals.{per.kind}.mio: biçim 'MIO 18 .. 19' / 'PMC_MIO 42 .. 43' olmalı (şu an: {per.mio!r})")
+    if cfg.ref_clk_mhz:
+        try:
+            float(cfg.ref_clk_mhz)
+        except ValueError:
+            errors.append(f"ref_clk_mhz: sayı olmalı (şu an: {cfg.ref_clk_mhz!r})")
+    if cfg.ddr_mode not in ("none", "custom"):
+        errors.append(f"ddr_mode: none | custom (şu an: {cfg.ddr_mode!r})")
+    if cfg.ddr_mode == "custom":
+        if cfg.platform != "zynq_ultrascale":
+            errors.append("ddr_mode=custom: Faz A'da DDR yalnız ZynqMP'de; Versal DDR (NoC) sonraki fazda — ajan OCM'den koşar")
+        if not cfg.ddr_params:
+            errors.append("ddr_params: custom DDR için en az bir PSU__DDRC__ parametresi gerekli")
+        for key in cfg.ddr_params:
+            if not key.startswith("PSU__DDRC__"):
+                errors.append(f"ddr_params.{key}: yalnız PSU__DDRC__ parametreleri kabul edilir")
+    return errors
+
+
+def _tcl_path(path: Path) -> str:
+    return "{" + _fs(path) + "}"
+
+
+def _fs(path: Path) -> str:
+    # Tcl cift tirnak icinde "\U" gibi bilinmeyen kacislar ters boluyu YER
+    # (E2E bulgusu: marker'daki Windows yolu C:UsersQP... halinde geldi);
+    # marker ve Tcl yollarinda daima forward slash.
+    return str(path).replace("\\", "/")
+
+
+def _tcl_brace(value: str) -> str:
+    return "{" + value + "}"
+
+
+def _marker(text: str) -> str:
+    # Değişken içerebilir; pump S2C-VIVADO| öneki üzerinden ayrıştırır.
+    return f'puts "S2C-VIVADO|{text}"\n'
+
+
+def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
+    pairs: list[str] = []
+    for per in cfg.peripherals:
+        root = _ZYNQMP_PERIPHERALS[per.kind]
+        pairs.append(f"CONFIG.{root}__PERIPHERAL__ENABLE {_tcl_brace('1')}")
+        if per.mio:
+            pairs.append(f"CONFIG.{root}__PERIPHERAL__IO {_tcl_brace(per.mio.strip())}")
+        if per.kind.startswith("gem"):
+            # RGMII MDIO hattı: kartta MDIO ayrı MIO çiftindedir; zcu102
+            # düzeninde peripheral IO'nun hemen ardından gelir. Elle MIO
+            # verilmediyse Vivado'nun varsayılan eşleşmesine bırakılır.
+            pairs.append(f"CONFIG.{root}__GRP_MDIO__ENABLE {_tcl_brace('1')}")
+    if cfg.ref_clk_mhz:
+        pairs.append(f"CONFIG.PSU__PSS_REF_CLK__FREQMHZ {_tcl_brace(cfg.ref_clk_mhz)}")
+    if cfg.ddr_mode == "none":
+        pairs.append("CONFIG.PSU__DDRC__ENABLE {0}")
+    else:
+        pairs.append("CONFIG.PSU__DDRC__ENABLE {1}")
+        for key, value in cfg.ddr_params.items():
+            pairs.append(f"CONFIG.{key} {_tcl_brace(str(value))}")
+    # PS-only tasarım: kullanılmayan PL-yönlü AXI masterlar ve PL saati
+    # kapatılır; aksi halde bağlantısız arabirimler validate'te eleştirel
+    # uyarı üretir (adlar zcu102.xsa hwh'den doğrulandı).
+    pairs.extend([
+        "CONFIG.PSU__USE__M_AXI_GP0 {0}",
+        "CONFIG.PSU__USE__M_AXI_GP1 {0}",
+        "CONFIG.PSU__USE__M_AXI_GP2 {0}",
+        "CONFIG.PSU__FPGA_PL0_ENABLE {0}",
+    ])
+    joined = " ".join(pairs)
+    return f"set_property -dict [list {joined}] $spec2code_ps\n"
+
+
+def _versal_cips_config_tcl(cfg: VivadoDesignConfig) -> str:
+    entries: list[str] = []
+    for per in cfg.peripherals:
+        key = _VERSAL_PERIPHERALS[per.kind]
+        io = per.mio.strip() or ""
+        if io:
+            entries.append(f"{key} {{{{ENABLE 1}} {{IO {{{io}}}}}}}")
+        else:
+            entries.append(f"{key} {{{{ENABLE 1}}}}")
+    if cfg.ref_clk_mhz:
+        entries.append(f"PMC_REF_CLK_FREQMHZ {cfg.ref_clk_mhz}")
+    joined = " ".join(entries)
+    return (
+        "set_property -dict [list CONFIG.PS_PMC_CONFIG "
+        f"{{{joined}}}"
+        "] $spec2code_ps\n"
+    )
+
+
+def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
+    """Deterministic batch-Tcl: proje → BD → PS → validate → wrapper →
+    aşama 1 XSA → (istenirse) synth/impl → bit/pdi → bit'li XSA."""
+    proj_dir = staging / "vivado_proj"
+    xsa_out = staging / f"{cfg.design_name}.xsa"
+    xsa_bit_out = staging / f"{cfg.design_name}_bit.xsa"
+    is_versal = cfg.platform == "versal"
+    ps_vlnv = "xilinx.com:ip:versal_cips" if is_versal else "xilinx.com:ip:zynq_ultra_ps_e"
+    ps_inst = "versal_cips_0" if is_versal else "zynq_ultra_ps_e_0"
+    ps_config = _versal_cips_config_tcl(cfg) if is_versal else _zynqmp_ps_config_tcl(cfg)
+    impl_step = "write_device_image" if is_versal else "write_bitstream"
+    image_ext = "pdi" if is_versal else "bit"
+
+    lines = [
+        "# Spec2Code tarafindan uretildi - Vivado batch tasarim akisi.\n",
+        _marker("stage=create_project"),
+        f"create_project spec2code_design {_tcl_path(proj_dir)} -part {cfg.part.strip()} -force\n",
+        _marker("stage=block_design"),
+        "create_bd_design \"design_1\"\n",
+        f"set spec2code_ps [create_bd_cell -type ip -vlnv {ps_vlnv} {ps_inst}]\n",
+        _marker("stage=ps_config"),
+        ps_config,
+        _marker("stage=validate"),
+        "validate_bd_design\n",
+        "save_bd_design\n",
+        _marker("stage=wrapper"),
+        "set spec2code_wrapper [make_wrapper -files [get_files design_1.bd] -top]\n",
+        "add_files -norecurse $spec2code_wrapper\n",
+        "set_property top design_1_wrapper [current_fileset]\n",
+        "update_compile_order -fileset sources_1\n",
+        _marker("stage=generate_targets"),
+        # BD cikti urunleri (hwh dahil) uretilmeden write_hw_platform
+        # "Block Diagram is not generated" hatasi verir (E2E'de dogrulandi).
+        "generate_target all [get_files design_1.bd]\n",
+        _marker("stage=xsa"),
+        # Asama 1: sentezsiz XSA. PS-only tasarimda tam donanim tarifi icerir;
+        # Vitis platform/BSP bu dosyadan kurulur. E2E'de dogrulanan iki Vivado
+        # 2023.2 gereksinimi: (a) platform.name/board_id proje ozellikleri
+        # zorunlu, (b) -fixed olmadan write_hw_platform UZATILABILIR platform
+        # yazmaya kalkar ve PFM/hpfm metadata ister ("Unable to get hpfm
+        # file") - klasik Export Hardware karsiligi fixed'dir.
+        f"set_property platform.name {cfg.design_name} [current_project]\n",
+        f"set_property platform.board_id {cfg.design_name} [current_project]\n",
+        f"write_hw_platform -fixed -force -file {_tcl_path(xsa_out)}\n",
+        _marker(f"xsa_ready={_fs(xsa_out)}"),
+    ]
+    if cfg.make_bitstream:
+        impl_products = proj_dir / "spec2code_design.runs" / "impl_1"
+        image_src = impl_products / f"design_1_wrapper.{image_ext}"
+        image_out = staging / f"{cfg.design_name}.{image_ext}"
+        lines.extend([
+            _marker("stage=synth"),
+            "launch_runs synth_1 -jobs 4\n",
+            "wait_on_run synth_1\n",
+            "if {[get_property PROGRESS [get_runs synth_1]] ne \"100%\"} {\n",
+            "    error \"Spec2Code: synthesis tamamlanamadi - [get_property STATUS [get_runs synth_1]]\"\n",
+            "}\n",
+            _marker("stage=impl"),
+            f"launch_runs impl_1 -to_step {impl_step} -jobs 4\n",
+            "wait_on_run impl_1\n",
+            "if {[get_property PROGRESS [get_runs impl_1]] ne \"100%\"} {\n",
+            "    error \"Spec2Code: implementation tamamlanamadi - [get_property STATUS [get_runs impl_1]]\"\n",
+            "}\n",
+            f"file copy -force {_tcl_path(image_src)} {_tcl_path(image_out)}\n",
+            _marker(f"bit_ready={_fs(image_out)}"),
+            _marker("stage=xsa_bit"),
+            f"write_hw_platform -fixed -include_bit -force -file {_tcl_path(xsa_bit_out)}\n",
+            _marker(f"xsa_bit_ready={_fs(xsa_bit_out)}"),
+        ])
+    lines.extend([
+        _marker("stage=done"),
+        "exit\n",
+    ])
+    return "".join(lines)
+
+
+def vivado_bat(vivado_path: str) -> Path:
+    root = Path(vivado_path.strip().strip('"'))
+    for candidate in (root / "bin" / "vivado.bat", root / "vivado.bat"):
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"vivado.bat bulunamadı: {root} (beklenen: <Vivado dizini>\\bin\\vivado.bat)")
+
+
+@dataclass
+class VivadoDesignJob:
+    id: str
+    config: VivadoDesignConfig
+    status: str = "pending"            # pending | running | done | error
+    events: list[dict] = field(default_factory=list)
+    subscribers: set = field(default_factory=set)
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    _loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def emit(self, event: dict) -> None:
+        event = {**event, "_seq": len(self.events)}
+        self.events.append(event)
+        loop = self._loop
+        if loop is None:
+            return
+        for queue in list(self.subscribers):
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+
+
+#: Aşama işaretleri -> kullanıcıya dost ilerleme. Sentez/impl süresi tasarıma
+#: göre değiştiğinden yüzdeler kaba niyet göstergesidir.
+_STAGE_PROGRESS = {
+    "create_project": 10,
+    "block_design": 20,
+    "ps_config": 30,
+    "validate": 40,
+    "wrapper": 45,
+    "generate_targets": 50,
+    "xsa": 60,
+    "synth": 70,
+    "impl": 85,
+    "xsa_bit": 95,
+    "done": 100,
+}
+
+_STAGE_LABELS = {
+    "create_project": "Vivado projesi oluşturuluyor",
+    "block_design": "Blok tasarım kuruluyor",
+    "ps_config": "PS yapılandırılıyor",
+    "validate": "Tasarım doğrulanıyor (validate_bd_design)",
+    "wrapper": "HDL wrapper üretiliyor",
+    "generate_targets": "Blok tasarım çıktı ürünleri üretiliyor",
+    "xsa": "Aşama 1: sentezsiz XSA yazılıyor",
+    "synth": "Aşama 2: sentez koşuyor (süre tasarıma bağlı)",
+    "impl": "Aşama 2: implementasyon + bit/pdi üretimi",
+    "xsa_bit": "Bit'li sabit XSA yazılıyor",
+    "done": "Vivado akışı tamamlandı",
+}
+
+
+class VivadoDesignJobManager:
+    def __init__(self) -> None:
+        self._jobs: dict[str, VivadoDesignJob] = {}
+        self._counter = 0
+        self._lock = threading.Lock()
+
+    def get(self, job_id: str) -> Optional[VivadoDesignJob]:
+        return self._jobs.get(job_id)
+
+    async def start(self, config: VivadoDesignConfig) -> str:
+        errors = validate_design(config)
+        if errors:
+            raise ValueError("; ".join(errors))
+        vivado_bat(config.vivado_path)  # erken, net hata
+        with self._lock:
+            self._counter += 1
+            job_id = f"vivado_{self._counter:04d}"
+        job = VivadoDesignJob(id=job_id, config=config, _loop=asyncio.get_running_loop())
+        self._jobs[job_id] = job
+        asyncio.create_task(self._run(job))
+        return job_id
+
+    async def _run(self, job: VivadoDesignJob) -> None:
+        job.status = "running"
+        job.emit({
+            "event": "vivado.start", "stage": "start", "progress": 5,
+            "message": (
+                "Vivado tasarım akışı başladı: aşama 1 sentezsiz XSA"
+                + (", aşama 2 bit/pdi" if job.config.make_bitstream else " (bit istenmedi)")
+            ),
+        })
+        try:
+            await asyncio.to_thread(self._blocking, job)
+            job.status = "done"
+        except Exception as exc:  # noqa: BLE001 - Vivado/host hatası doğrudan raporlanır
+            job.status = "error"
+            job.error = str(exc)
+            job.emit({
+                "event": "vivado.error", "stage": "error", "progress": 100,
+                "message": str(exc),
+                "trace": traceback.format_exc().splitlines()[-5:],
+            })
+        finally:
+            final_stage = "done" if job.status == "done" else "error"
+            job.emit({"event": "vivado.end", "stage": final_stage, "progress": 100, "status": job.status})
+            loop = job._loop
+            if loop is not None:
+                for queue in list(job.subscribers):
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    def _blocking(self, job: VivadoDesignJob) -> None:
+        cfg = job.config
+        staging = Path(cfg.temp_path.strip().strip('"')) / f"s2c_{job.id}"
+        # Vivado, Windows'ta 260 baytlik yol sinirini KENDISI uygular ve IP
+        # dosyalarini derin klasorlere yazar (saha bulgusu: uzun staging'de
+        # save_bd_design "Path length exceeds 260-Byte maximum" ile dustu).
+        # Proje agacinin en derin dosyasi ~130 karakter ekliyor.
+        if len(str(staging)) > 100:
+            raise RuntimeError(
+                f"Staging yolu çok uzun ({len(str(staging))} karakter): {staging}\n"
+                "Vivado Windows'ta 260 karakter yol sınırı uygular ve proje "
+                "ağacı derin klasörler açar. Kısa bir Temp dizini verin "
+                "(örn. D:\\VivadoTemp).")
+        staging.mkdir(parents=True, exist_ok=True)
+        tcl_path = staging / "spec2code_design.tcl"
+        tcl_path.write_text(design_tcl(cfg, staging), encoding="utf-8")
+        bat = vivado_bat(cfg.vivado_path)
+        log_path = staging / "vivado_stdout.log"
+
+        result: dict = {
+            "successful": False,
+            "staging": str(staging),
+            "tcl": str(tcl_path),
+            "xsa_path": "",
+            "xsa_bit_path": "",
+            "image_path": "",
+            "platform": cfg.platform,
+            "part": cfg.part,
+        }
+        job.result = result
+
+        cmd = [str(bat), "-mode", "batch", "-nojournal",
+               "-log", str(staging / "vivado.log"), "-source", str(tcl_path)]
+        job.emit({"event": "vivado.log", "line": "$ " + " ".join(cmd)})
+        proc = subprocess.Popen(
+            cmd, cwd=str(staging),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        assert proc.stdout is not None
+        with open(log_path, "w", encoding="utf-8", errors="replace", newline="") as handle:
+            try:
+                for line in iter(proc.stdout.readline, ""):
+                    handle.write(line)
+                    handle.flush()
+                    text = line.rstrip("\r\n")
+                    # Yalnız satır başında başlayan işaret gerçek puts
+                    # çıktısıdır; Vivado'nun komut EKOSU (`# puts "S2C-..."`)
+                    # işaret değildir ve olay akışına da girmez.
+                    if text.startswith("S2C-VIVADO|"):
+                        self._handle_marker(job, result, text[len("S2C-VIVADO|"):])
+                        continue
+                    if "S2C-VIVADO|" in text:
+                        continue
+                    # Vivado cok konusur: tum satirlar log dosyasinda; olay
+                    # akisina hata/uyari ve onemli satirlar gider.
+                    if re.match(r"^(ERROR|CRITICAL WARNING|WARNING: \[(?:BD|Common) )", text):
+                        job.emit({"event": "vivado.log", "line": text})
+                    elif text.startswith(("#", "****", "INFO: [Common 17-206]")):
+                        pass
+                    elif re.match(r"^(source |Command: |launch_runs |wait_on_run )", text):
+                        job.emit({"event": "vivado.log", "line": text})
+                exit_code = proc.wait(timeout=cfg.timeout_s)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+
+        if exit_code != 0:
+            tail = _log_tail(log_path)
+            raise RuntimeError(
+                f"Vivado {exit_code} koduyla çıktı. Son satırlar:\n{tail}\n"
+                f"Tam log: {log_path}")
+        if not result["xsa_path"]:
+            raise RuntimeError(
+                f"Vivado bitti ama XSA üretilmedi (xsa_ready işareti görülmedi). Log: {log_path}")
+        if cfg.make_bitstream and not result["image_path"]:
+            raise RuntimeError(
+                f"Aşama 2 istendi ama bit/pdi üretilmedi. Log: {log_path}")
+        result["successful"] = True
+
+    def _handle_marker(self, job: VivadoDesignJob, result: dict, payload: str) -> None:
+        if payload.startswith("stage="):
+            stage = payload[len("stage="):]
+            job.emit({
+                "event": "vivado.stage", "stage": stage,
+                "progress": _STAGE_PROGRESS.get(stage, 50),
+                "message": _STAGE_LABELS.get(stage, stage),
+            })
+        elif payload.startswith("xsa_ready="):
+            path = payload[len("xsa_ready="):]
+            result["xsa_path"] = path
+            job.emit({
+                "event": "vivado.xsa_ready", "stage": "xsa", "progress": 60,
+                "message": "Sentezsiz XSA hazır — Setup'a bağlanabilir.",
+                "xsa_path": path,
+            })
+        elif payload.startswith("bit_ready="):
+            path = payload[len("bit_ready="):]
+            result["image_path"] = path
+            job.emit({
+                "event": "vivado.bit_ready", "stage": "impl", "progress": 90,
+                "message": "Programlama imajı hazır.", "image_path": path,
+            })
+        elif payload.startswith("xsa_bit_ready="):
+            path = payload[len("xsa_bit_ready="):]
+            result["xsa_bit_path"] = path
+            job.emit({
+                "event": "vivado.xsa_bit_ready", "stage": "xsa_bit", "progress": 95,
+                "message": "Bit'li sabit XSA hazır.", "xsa_bit_path": path,
+            })
+
+
+def _log_tail(log_path: Path, lines: int = 12) -> str:
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "(log okunamadı)"
+    return "\n".join(content[-lines:])
+
+
+vivado_manager = VivadoDesignJobManager()

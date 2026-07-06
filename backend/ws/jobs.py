@@ -10,6 +10,7 @@ from backend.bringup import bringup_manager
 from backend.jobs import manager
 from backend.run_on_board import runboard_manager
 from backend.vitis_workspace import vitis_manager
+from backend.vivado_design import vivado_manager
 
 ws_router = APIRouter()
 
@@ -60,6 +61,18 @@ async def ws_vitis(websocket: WebSocket, vitis_job_id: str) -> None:
     job = vitis_manager.get(vitis_job_id)
     if job is None:
         await websocket.send_json({"event": "error", "message": "unknown Vitis job"})
+        await websocket.close()
+        return
+
+    await _stream_buffered_job(websocket, job)
+
+
+@ws_router.websocket("/ws/vivado/{vivado_job_id}")
+async def ws_vivado(websocket: WebSocket, vivado_job_id: str) -> None:
+    await websocket.accept()
+    job = vivado_manager.get(vivado_job_id)
+    if job is None:
+        await websocket.send_json({"event": "error", "message": "unknown Vivado job"})
         await websocket.close()
         return
 

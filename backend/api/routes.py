@@ -33,6 +33,12 @@ from backend.run_on_board import RunOnBoardConfig, normalize_hw_server_url, runb
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
+from backend.vivado_design import (
+    VivadoDesignConfig,
+    VivadoPeripheral,
+    validate_design as validate_vivado_design,
+    vivado_manager,
+)
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
@@ -913,6 +919,69 @@ def vitis_workspace_result(vitis_job_id: str) -> dict:
     return {
         "vitis_job_id": vitis_job_id,
         "source_job_id": job.source_job_id,
+        "status": job.status,
+        "error": job.error,
+        "result": job.result,
+    }
+
+
+class VivadoPeripheralRequest(BaseModel):
+    kind: str
+    mio: str = ""
+
+
+class VivadoDesignRequest(BaseModel):
+    vivado_path: str
+    platform: str
+    part: str
+    temp_path: str
+    design_name: str = "spec2code_hw"
+    peripherals: list[VivadoPeripheralRequest] = []
+    ref_clk_mhz: str = ""
+    ddr_mode: str = "none"
+    ddr_params: dict[str, str] = {}
+    make_bitstream: bool = False
+    timeout_s: int = 3600
+
+
+def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
+    return VivadoDesignConfig(
+        vivado_path=req.vivado_path,
+        platform=req.platform,
+        part=req.part,
+        temp_path=req.temp_path,
+        design_name=re.sub(r"[^A-Za-z0-9_]+", "_", req.design_name).strip("_") or "spec2code_hw",
+        peripherals=[VivadoPeripheral(kind=p.kind, mio=p.mio) for p in req.peripherals],
+        ref_clk_mhz=req.ref_clk_mhz,
+        ddr_mode=req.ddr_mode,
+        ddr_params=req.ddr_params,
+        make_bitstream=req.make_bitstream,
+        timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
+    )
+
+
+@router.post("/vivado/design/validate")
+def vivado_design_validate(req: VivadoDesignRequest) -> dict:
+    errors = validate_vivado_design(_vivado_config(req))
+    return {"valid": not errors, "errors": errors}
+
+
+@router.post("/vivado/design")
+async def vivado_design_start(req: VivadoDesignRequest) -> dict:
+    try:
+        vivado_job_id = await vivado_manager.start(_vivado_config(req))
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"vivado_job_id": vivado_job_id}
+
+
+@router.get("/vivado/jobs/{vivado_job_id}/result")
+def vivado_design_result(vivado_job_id: str) -> dict:
+    job = vivado_manager.get(vivado_job_id)
+    if job is None:
+        raise HTTPException(404, "unknown Vivado job")
+    return {
+        "vivado_job_id": vivado_job_id,
         "status": job.status,
         "error": job.error,
         "result": job.result,
