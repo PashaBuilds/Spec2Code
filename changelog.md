@@ -3,7 +3,7 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.110 - Taslak
+## v0.1.110 - 2026-07-06
 
 - KULLANICI DESCRIPTOR'LARI: katalogda olmayan (veya sirket ici) bir
   entegre artik uygulamaya YAML descriptor olarak eklenebilir. Import
