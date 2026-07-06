@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.119 - 2026-07-06
+
+- Vivado sayfasi: DDR "Custom" secilip hicbir alan doldurulmadan
+  "Tasarimi uret" denince ham dogrulama hatasi yerine formda anlasilir
+  uyari cikar (API'ye gitmeden): datasheet degerlerini gir ya da ilk
+  bring-up icin "DDR yok (OCM)" moduna al.
+
 ## v0.1.118 - 2026-07-06
 
 - Vivado Tasarimi: hedef parca artik ACILIR MENUDEN secilir - platforma

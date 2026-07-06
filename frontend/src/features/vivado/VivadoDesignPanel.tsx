@@ -217,6 +217,14 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     const ddrParams = Object.fromEntries(
       Object.entries(ddrValues).filter(([, value]) => value.trim() !== "").map(([k, v]) => [k, v.trim()]),
     );
+    if (platform === "zynq_ultrascale" && ddrMode === "custom" && Object.keys(ddrParams).length === 0) {
+      setError(
+        "DDR modu 'Custom' seçili ama hiçbir DDR alanı doldurulmamış. Kartındaki DDR yongasının " +
+        "datasheet değerlerini gir (en azından bellek tipi + hız sınıfı + kapasite/genişlikler) ya da " +
+        "ilk bring-up için DDR'ı 'DDR yok — ajan OCM'den koşar' moduna al.",
+      );
+      return;
+    }
     localStorage.setItem("spec2code.vivadoDir", vivadoDir.trim());
     localStorage.setItem("spec2code.vivadoPart", part.trim());
     localStorage.setItem("spec2code.vivadoTemp", tempPath.trim());
@@ -422,7 +430,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-text">DDR</h4>
             <Select value={ddrMode} onValueChange={(v) => setDdrMode(v as "none" | "custom")}>
-              <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-72" data-testid="vivado-ddr-mode"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">DDR yok — ajan OCM&apos;den koşar (ilk bring-up önerisi)</SelectItem>
                 <SelectItem value="custom">Custom — datasheet parametreleri</SelectItem>
@@ -473,7 +481,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
             <input type="checkbox" checked={makeBit} onChange={(e) => setMakeBit(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
             Aşama 2: {platform === "versal" ? ".pdi" : ".bit"} de üret (sentez + implementasyon — tasarıma göre dakikalar/saatler)
           </label>
-          <Button onClick={() => void start()} disabled={!canStart} className="ml-auto">
+          <Button onClick={() => void start()} disabled={!canStart} className="ml-auto" data-testid="vivado-start">
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />}
             Tasarımı üret
           </Button>
