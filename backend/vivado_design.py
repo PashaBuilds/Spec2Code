@@ -24,9 +24,12 @@ döner — el yapımı (uydurulmuş) bir pinmux tablosu taşımıyoruz.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import subprocess
+import tempfile
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -500,6 +503,99 @@ def _log_tail(log_path: Path, lines: int = 12) -> str:
     except OSError:
         return "(log okunamadı)"
     return "\n".join(content[-lines:])
+
+
+def _platform_of_family(family: str) -> str | None:
+    """Vivado FAMILY -> Spec2Code platform. Aile adı Vivado'nun kendi
+    sınıflandırmasıdır (zynquplus, zynquplusRFSOC, versalaicore,
+    versalprime, ...) — önek tahmini yapılmaz."""
+    lowered = family.lower()
+    if "zynquplus" in lowered:
+        return "zynq_ultrascale"
+    if lowered.startswith("versal"):
+        return "versal"
+    return None
+
+
+def group_parts(lines: list[str]) -> dict[str, dict[str, list[str]]]:
+    """S2C-PART|<family>|<part> satırlarını platform -> cihaz -> tam parça
+    listesi olarak gruplar (cihaz = parçanın ilk '-' öncesi, ör. xczu9eg)."""
+    grouped: dict[str, dict[str, list[str]]] = {"zynq_ultrascale": {}, "versal": {}}
+    for line in lines:
+        if not line.startswith("S2C-PART|"):
+            continue
+        try:
+            _tag, family, part = line.strip().split("|", 2)
+        except ValueError:
+            continue
+        platform = _platform_of_family(family)
+        if platform is None or not part:
+            continue
+        device = part.split("-", 1)[0]
+        grouped[platform].setdefault(device, [])
+        if part not in grouped[platform][device]:
+            grouped[platform][device].append(part)
+    for devices in grouped.values():
+        for parts in devices.values():
+            parts.sort()
+    return grouped
+
+
+def list_parts(vivado_path: str, cache_dir: Path, *, refresh: bool = False,
+               cached_only: bool = False, timeout_s: int = 420) -> dict:
+    """Kurulu Vivado'nun TAM parça listesi (get_parts) — tek gerçek kaynak.
+
+    İlk çağrı Vivado'yu batch açar (~1 dk) ve sonucu önbelleğe yazar;
+    sonraki çağrılar anında döner. Parçalar el ile YAZILMAZ: liste,
+    kullanıcının kurulumunda gerçekten hedeflenebilen parçalardır.
+    """
+    bat = vivado_bat(vivado_path)
+    cache_key = re.sub(r"[^A-Za-z0-9]+", "_", str(bat.parent.parent)).strip("_")
+    cache_file = cache_dir / f"vivado_parts_{cache_key}.json"
+    if not refresh and cache_file.is_file():
+        try:
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            if cached.get("platforms"):
+                return {**cached, "cached": True}
+        except (OSError, ValueError):
+            pass
+    if cached_only:
+        # Önbellek yok: Vivado'yu ARKA PLANDA açmadan hızlı cevap — UI
+        # "listeyi getir" düğmesini gösterir.
+        return {"platforms": None, "cached": False, "total": 0}
+
+    with tempfile.TemporaryDirectory(prefix="s2c_parts_") as tmp:
+        tcl_path = Path(tmp) / "list_parts.tcl"
+        tcl_path.write_text(
+            "foreach spec2code_part [get_parts] {\n"
+            "    puts \"S2C-PART|[get_property FAMILY $spec2code_part]|$spec2code_part\"\n"
+            "}\n"
+            "exit\n",
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [str(bat), "-mode", "batch", "-nojournal", "-nolog",
+             "-source", str(tcl_path)],
+            cwd=tmp, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout_s,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stdout or "").splitlines()[-8:])
+        raise RuntimeError(f"Vivado get_parts başarısız (kod {proc.returncode}). Son satırlar:\n{tail}")
+    platforms = group_parts((proc.stdout or "").splitlines())
+    total = sum(len(parts) for devices in platforms.values() for parts in devices.values())
+    if total == 0:
+        raise RuntimeError("Vivado get_parts çıktısında ZynqMP/Versal parçası bulunamadı.")
+    payload = {
+        "platforms": platforms,
+        "total": total,
+        "generated_at": int(time.time()),
+        "vivado_path": vivado_path,
+    }
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps(payload), encoding="utf-8")
+    return {**payload, "cached": False}
 
 
 vivado_manager = VivadoDesignJobManager()

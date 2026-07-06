@@ -3,6 +3,18 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.118 - 2026-07-06
+
+- Vivado Tasarimi: hedef parca artik ACILIR MENUDEN secilir - platforma
+  gore Cihaz -> Paket/hiz iki kademeli secim (Vivado'nun kendi part
+  secicisi gibi). Liste el ile YAZILMADI: kurulu Vivado'nun get_parts
+  ciktisindan bir kez cekilir (~1 dk, "Parca listesini Vivado'dan
+  getir" dugmesi) ve onbellege yazilir - sonraki acilislar aninda.
+  Siniflama Vivado'nun FAMILY alanindan yapilir (onek tahmini yok;
+  ornegin xcvu Virtex UltraScale+ oldugu icin listeye girmez). Bu
+  kurulumda: 61 ZynqMP cihazi / 1000 parca, 39 Versal cihazi / 1342
+  parca. "elle gir" kacis yolu duruyor.
+
 ## v0.1.117 - 2026-07-06
 
 - YENI: Vivado Tasarimi sekmesi (Faz A) - elde .xsa yokken Spec2Code

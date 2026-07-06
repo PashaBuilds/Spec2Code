@@ -36,6 +36,7 @@ from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processo
 from backend.vivado_design import (
     VivadoDesignConfig,
     VivadoPeripheral,
+    list_parts as list_vivado_parts,
     validate_design as validate_vivado_design,
     vivado_manager,
 )
@@ -958,6 +959,30 @@ def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
         make_bitstream=req.make_bitstream,
         timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
     )
+
+
+class VivadoPartsRequest(BaseModel):
+    vivado_path: str
+    refresh: bool = False
+    cached_only: bool = False
+
+
+@router.post("/vivado/parts")
+def vivado_parts(req: VivadoPartsRequest) -> dict:
+    """Kurulu Vivado'nun tam parça listesi (get_parts) — platform -> cihaz ->
+    parça olarak gruplanmış. İlk üretim ~1 dk sürer ve önbelleğe yazılır;
+    cached_only=true yalnız önbelleğe bakar (Vivado açılmaz)."""
+    try:
+        return list_vivado_parts(
+            req.vivado_path,
+            _ROOT / "uploads" / "vivado_parts",
+            refresh=req.refresh,
+            cached_only=req.cached_only,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - Vivado hatası kullanıcıya aynen gider
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.post("/vivado/design/validate")

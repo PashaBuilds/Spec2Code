@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CircuitBoard, Hammer, Loader2, PackageCheck, Wand2 } from "lucide-react";
+import { CircuitBoard, Hammer, ListTree, Loader2, PackageCheck, Wand2 } from "lucide-react";
 import { api, openVivadoSocket } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
@@ -94,6 +94,13 @@ export default function VivadoDesignPanel() {
   const [events, setEvents] = useState<VivadoEvent[]>([]);
   const [result, setResult] = useState<{ xsa_path?: string; image_path?: string; xsa_bit_path?: string; successful?: boolean } | null>(null);
   const [connectMsg, setConnectMsg] = useState("");
+  // Parça kataloğu: kurulu Vivado'nun get_parts çıktısı (platform -> cihaz
+  // -> tam parça). El ile parça listesi TAŞINMAZ — tek kaynak kullanıcının
+  // kurulumudur; ilk çekim ~1 dk sürer, sonrası önbellekten anındadır.
+  const [partsCatalog, setPartsCatalog] = useState<Record<string, Record<string, string[]>> | null>(null);
+  const [partsLoading, setPartsLoading] = useState(false);
+  const [partsError, setPartsError] = useState("");
+  const [manualPart, setManualPart] = useState(false);
   const closeRef = useRef<null | (() => void)>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -107,7 +114,39 @@ export default function VivadoDesignPanel() {
     setPlatform(next);
     setRows(buildRows(next));
     if (next === "versal") setDdrMode("none");
+    // Seçili parça yeni platforma ait değilse menü tutarlılığı için sıfırla.
+    const nextDevices = partsCatalog?.[next] ?? null;
+    if (nextDevices && !(part.split("-", 1)[0] in nextDevices)) setPart("");
   }
+
+  async function fetchParts(options: { refresh?: boolean; cachedOnly?: boolean } = {}) {
+    const dir = vivadoDir.trim();
+    if (!dir) {
+      if (!options.cachedOnly) setPartsError("Önce Vivado dizinini gir.");
+      return;
+    }
+    if (!options.cachedOnly) {
+      setPartsLoading(true);
+      setPartsError("");
+    }
+    try {
+      const res = await api.vivadoParts({ vivado_path: dir, refresh: options.refresh, cached_only: options.cachedOnly });
+      if (res.platforms) {
+        setPartsCatalog(res.platforms);
+        setManualPart(false);
+      }
+    } catch (err) {
+      if (!options.cachedOnly) setPartsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPartsLoading(false);
+    }
+  }
+
+  // Önbellekte liste varsa sessizce yükle (Vivado açılmaz).
+  useEffect(() => {
+    void fetchParts({ cachedOnly: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function refreshResult(jobId: string) {
     try {
@@ -267,7 +306,63 @@ export default function VivadoDesignPanel() {
           </div>
           <div>
             <Label>Hedef parça (part)</Label>
-            <Input value={part} onChange={(e) => setPart(e.target.value)} placeholder={platform === "versal" ? "xcvc1902-vsva2197-2MP-e-S" : "xczu9eg-ffvb1156-2-e"} className="font-mono text-xs" />
+            {partsCatalog && !manualPart ? (
+              (() => {
+                const deviceMap = partsCatalog[platform] ?? {};
+                const deviceNames = Object.keys(deviceMap).sort();
+                const selectedDevice = part.split("-", 1)[0];
+                const packages = deviceMap[selectedDevice] ?? [];
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={deviceNames.includes(selectedDevice) ? selectedDevice : ""}
+                        onValueChange={(d) => setPart(deviceMap[d]?.[0] ?? d)}
+                      >
+                        <SelectTrigger className="font-mono text-xs"><SelectValue placeholder="cihaz seç" /></SelectTrigger>
+                        <SelectContent>
+                          {deviceNames.map((name) => (
+                            <SelectItem key={name} value={name} className="font-mono text-xs">{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={packages.includes(part) ? part : ""} onValueChange={setPart}>
+                        <SelectTrigger className="font-mono text-xs"><SelectValue placeholder="paket / hız" /></SelectTrigger>
+                        <SelectContent>
+                          {packages.map((full) => (
+                            <SelectItem key={full} value={full} className="font-mono text-xs">
+                              {full.slice(selectedDevice.length + 1) || full}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="mt-1 flex items-center gap-2 text-[11px] text-faint">
+                      <span className="break-all font-mono">{part || "—"}</span>
+                      <button type="button" className="shrink-0 text-accent underline-offset-2 hover:underline" onClick={() => setManualPart(true)}>
+                        elle gir
+                      </button>
+                    </p>
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                <Input value={part} onChange={(e) => setPart(e.target.value)} placeholder={platform === "versal" ? "xcvc1902-vsva2197-2MP-e-S" : "xczu9eg-ffvb1156-2-e"} className="font-mono text-xs" />
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void fetchParts({})} disabled={partsLoading || !vivadoDir.trim()}>
+                    {partsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListTree className="h-3.5 w-3.5" />}
+                    Parça listesini Vivado&apos;dan getir (~1 dk, bir kez)
+                  </Button>
+                  {partsCatalog ? (
+                    <button type="button" className="text-[11px] text-accent underline-offset-2 hover:underline" onClick={() => setManualPart(false)}>
+                      menüden seç
+                    </button>
+                  ) : null}
+                </div>
+                {partsError ? <p className="mt-1 text-[11px] text-danger">{partsError}</p> : null}
+              </>
+            )}
           </div>
           <div>
             <Label>Tasarım adı</Label>

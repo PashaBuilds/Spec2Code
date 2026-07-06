@@ -167,6 +167,13 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  vivadoParts: (payload: { vivado_path: string; refresh?: boolean; cached_only?: boolean }) =>
+    req<{
+      platforms: Record<string, Record<string, string[]>> | null;
+      total: number;
+      cached: boolean;
+    }>("/api/vivado/parts", { method: "POST", body: JSON.stringify(payload) }),
+
   vivadoDesignResult: (vivadoJobId: string) =>
     req<{
       vivado_job_id: string;

@@ -6,6 +6,7 @@ from backend.vivado_design import (
     VivadoDesignConfig,
     VivadoPeripheral,
     design_tcl,
+    group_parts,
     validate_design,
 )
 
@@ -118,6 +119,26 @@ class VivadoDesignTclTests(unittest.TestCase):
         cfg = _zynqmp_cfg(ddr_mode="custom", ddr_params={"HATALI__KEY": "1"})
         errors = validate_design(cfg)
         self.assertTrue(any("PSU__DDRC__" in e for e in errors))
+
+    def test_group_parts_uses_vivado_family_not_prefix_guess(self) -> None:
+        # Siniflama Vivado'nun FAMILY alanindan yapilir: xcvu (Virtex
+        # UltraScale+) versal DEGILDIR ve listeye girmez; zynquplusRFSOC
+        # ZynqMP sayilir. Cihaz gruplama parcanin '-' oncesidir.
+        lines = [
+            "S2C-PART|zynquplus|xczu9eg-ffvb1156-2-e",
+            "S2C-PART|zynquplus|xczu9eg-ffvb1156-1-e",
+            "S2C-PART|zynquplusRFSOC|xczu28dr-ffvg1517-2-e",
+            "S2C-PART|versalaicore|xcvc1902-vsva2197-2MP-e-S",
+            "S2C-PART|virtexuplus|xcvu9p-flga2104-2-e",
+            "S2C-PART|artix7|xc7a35t-cpg236-1",
+            "gurultu satiri",
+        ]
+        grouped = group_parts(lines)
+        self.assertEqual(sorted(grouped["zynq_ultrascale"]), ["xczu28dr", "xczu9eg"])
+        self.assertEqual(grouped["zynq_ultrascale"]["xczu9eg"],
+                         ["xczu9eg-ffvb1156-1-e", "xczu9eg-ffvb1156-2-e"])
+        self.assertEqual(list(grouped["versal"]), ["xcvc1902"])
+        self.assertNotIn("xcvu9p", str(grouped))
 
     def test_validate_accepts_good_zynqmp_and_versal(self) -> None:
         self.assertEqual(validate_design(_zynqmp_cfg()), [])
