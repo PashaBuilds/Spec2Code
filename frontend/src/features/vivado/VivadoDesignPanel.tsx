@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CircuitBoard, Hammer, ListTree, Loader2, PackageCheck, Wand2 } from "lucide-react";
+import { ArrowLeft, CircuitBoard, Hammer, ListTree, Loader2, PackageCheck, Wand2 } from "lucide-react";
 import { api, openVivadoSocket } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
@@ -73,7 +73,7 @@ function buildRows(platform: string): PeripheralRow[] {
   return source.map((row) => ({ ...row, enabled: row.kind === "uart0" || row.kind === "i2c0", mio: "" }));
 }
 
-export default function VivadoDesignPanel() {
+export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const setProject = useStore((s) => s.setProject);
   const applyParse = useStore((s) => s.applyParse);
   const setStep = useStore((s) => s.setStep);
@@ -152,6 +152,7 @@ export default function VivadoDesignPanel() {
     try {
       const res = await api.vivadoDesignResult(jobId);
       setResult(res.result);
+      if (res.result?.xsa_path) localStorage.setItem("spec2code.lastVivadoXsa", res.result.xsa_path);
       if (res.error) setError(res.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -167,6 +168,11 @@ export default function VivadoDesignPanel() {
         setEvents((current) => [...current, event as VivadoEvent].slice(-500));
         const ev = event as VivadoEvent;
         if (ev.event === "vivado.error" && ev.message) setError(ev.message);
+        if (ev.event === "vivado.xsa_ready" && ev.xsa_path) {
+          // Ana Setup sayfası "Vivado'da üretilen XSA'yı kullan" kısayolunu
+          // bu anahtardan besler (kullanıcı esnekliği: elle de seçebilir).
+          localStorage.setItem("spec2code.lastVivadoXsa", ev.xsa_path);
+        }
         if (ev.event === "vivado.end") void refreshResult(jobId);
       },
       () => {
@@ -265,8 +271,13 @@ export default function VivadoDesignPanel() {
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
+            {onBack ? (
+              <Button variant="outline" size="sm" onClick={onBack} title="Ana Setup sayfasına dön — koşan iş kesilmez">
+                <ArrowLeft className="h-4 w-4" /> Setup&apos;a dön
+              </Button>
+            ) : null}
             <CircuitBoard className="h-4 w-4 text-accent" aria-hidden />
-            <h3 className="text-sm font-semibold text-text">Vivado Tasarımı — PS konfigürasyonundan XSA/bit</h3>
+            <h3 className="text-sm font-semibold text-text">Vivado ile XSA üret — PS konfigürasyonundan XSA/bit</h3>
           </div>
           <div className="flex items-center gap-1.5">
             {lastStage ? <Badge tone="accent">{lastStage.message ?? lastStage.stage}</Badge> : null}

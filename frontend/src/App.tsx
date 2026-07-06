@@ -29,7 +29,7 @@ import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "vivado";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -52,6 +52,10 @@ export default function App() {
   const jobStatus = useStore((s) => s.job.status);
 
   const [view, setView] = useState<View>("flow");
+  // Setup adımının iki yüzü: ana sayfa (proje + donanım tasarımı) ve tam
+  // ekran "Vivado ile XSA üret" sayfası. Vivado işi backend'de koştuğundan
+  // sayfalar arası geçiş işi kesmez; panel dönüşte işe yeniden bağlanır.
+  const [setupVivado, setSetupVivado] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const boardConnected = useBoardConnection((s) => s.connected);
   // Ziyaret edilen ekranlar sökülmez, yalnızca gizlenir (keep-alive):
@@ -125,7 +129,7 @@ export default function App() {
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
-    { id: "vivado", label: "Vivado Tasarımı — PS'ten XSA/bit üret", hint: "görünüm", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => setView("vivado") },
+    { id: "vivado", label: "Vivado ile XSA üret (Setup içinde)", hint: "adım", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => { setStep("setup"); setView("flow"); setSetupVivado(true); } },
   ];
 
   return (
@@ -150,6 +154,9 @@ export default function App() {
               onClick={() => {
                 setStep(s.id);
                 setView("flow");
+                // Setup nav'ı her zaman ANA setup sayfasına götürür; Vivado
+                // sayfasına karttaki "XSA üret" bölümünden girilir.
+                setSetupVivado(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
@@ -197,7 +204,6 @@ export default function App() {
           ["registers", Grid3X3, "Registers"],
           ["docs", BookOpenText, "Kılavuz"],
           ["import", FileInput, "Import"],
-          ["vivado", Boxes, "Vivado"],
         ] as const).map(([id, Icon, label]) => (
           <Button
             key={id}
@@ -285,11 +291,6 @@ export default function App() {
             <DocsPanel />
           </div>
         ))}
-        {keepAlive("vivado", (
-          <div className="h-full min-h-0 overflow-auto p-4">
-            <VivadoDesignPanel />
-          </div>
-        ))}
         {keepAlive("import", (
           <div className="mx-auto h-full max-w-6xl space-y-6 overflow-auto p-6">
             <DescriptorWizard />
@@ -312,10 +313,16 @@ export default function App() {
         ))}
         <div className={cn("h-full", view !== "flow" && "hidden")}>
           {step === "setup" ? (
-            <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
-              <ProjectSetup />
-              <DesignUpload />
-            </div>
+            setupVivado ? (
+              <div className="h-full min-h-0 overflow-auto p-4">
+                <VivadoDesignPanel onBack={() => setSetupVivado(false)} />
+              </div>
+            ) : (
+              <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
+                <ProjectSetup />
+                <DesignUpload onOpenVivado={() => setSetupVivado(true)} />
+              </div>
+            )
           ) : step === "schematic" ? (
             <div className="flex h-full min-h-0">
               <div className="relative min-w-0 flex-1 border-r border-border">

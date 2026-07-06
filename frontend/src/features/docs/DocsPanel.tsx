@@ -240,10 +240,12 @@ const SECTIONS: DocSection[] = [
     body: (
       <>
         <P>
-          Elinde hazır bir .xsa yoksa <B>Vivado</B> sekmesi onu senin için üretir: gerçek kartın PS
-          arayüzlerini (UART/I2C/SPI/QSPI/GEM/SD) işaretleyip MIO'larını girersin; arka planda Vivado
-          batch modda koşar. <B>Aşama 1</B> sentez GEREKTİRMEZ: PS-only tasarımda ~1-2 dakikada
-          sentezsiz .xsa çıkar ve "Setup'a bağla" ile şematik akışına tek tuşla girer. <B>Aşama 2</B>{" "}
+          Elinde hazır bir .xsa yoksa Setup'taki <B>"XSA üret (opsiyonel)"</B> bölümü onu senin için
+          üretir: Setup sayfası tam ekran Vivado sayfasına dönüşür ("Setup'a dön" ile geri gelirsin),
+          gerçek kartın PS arayüzlerini (UART/I2C/SPI/QSPI/GEM/SD) işaretleyip MIO'larını girersin;
+          arka planda Vivado batch modda koşar. <B>Aşama 1</B> sentez GEREKTİRMEZ: PS-only tasarımda ~1-2 dakikada
+          sentezsiz .xsa çıkar — "Setup'a bağla" ile şematiğe tek tuşla girersin ya da ana Setup
+          sayfasına dönüp "Vivado'da üretilen XSA'yı kullan" kısayolundan devam edersin. <B>Aşama 2</B>{" "}
           (isteğe bağlı) sentez + implementasyon koşturup <M>.bit</M> (ZynqMP) / <M>.pdi</M> (Versal)
           ve bit'li sabit XSA üretir.
         </P>

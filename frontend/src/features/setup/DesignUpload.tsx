@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Upload, FileArchive, Loader2 } from "lucide-react";
+import { Upload, FileArchive, CircuitBoard, Loader2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { Badge, Button, Card, Input } from "@/components/ui";
@@ -11,7 +11,7 @@ import type { PlatformId, XsaParseResult } from "@/lib/types";
  * bilgiyi (ve fazlasını) taşır; platform, çekirdek ve denetleyiciler otomatik
  * algılanır. Dosya yolu Vitis workspace adımına otomatik taşınır (paylaşılan
  * anahtar: spec2code.xsaPath). */
-export default function DesignUpload() {
+export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => void }) {
   const project = useStore((s) => s.project);
   const applyParse = useStore((s) => s.applyParse);
   const setProject = useStore((s) => s.setProject);
@@ -21,6 +21,9 @@ export default function DesignUpload() {
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
+  // Vivado sayfasında üretilen son XSA: tek tuşla seçilebilir (esneklik —
+  // kullanıcı isterse yolu elle de yapıştırabilir).
+  const [lastVivadoXsa] = useState(() => localStorage.getItem("spec2code.lastVivadoXsa") ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
 
   function applyResult(res: XsaParseResult) {
@@ -53,12 +56,14 @@ export default function DesignUpload() {
     }
   }
 
-  async function parseFromPath() {
-    if (!designPath.trim()) return;
+  async function parseFromPath(pathOverride?: string) {
+    const target = (pathOverride ?? designPath).trim();
+    if (!target) return;
+    if (pathOverride) setDesignPath(pathOverride);
     setBusy(true);
     setError(null);
     try {
-      applyResult(await api.parseXsaPath(designPath.trim()));
+      applyResult(await api.parseXsaPath(target));
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     } finally {
@@ -106,6 +111,40 @@ export default function DesignUpload() {
           kurulumu <span className="font-mono text-muted">.xsa</span> gerektirir — .hdf yalnız şematik ve
           kod üretimi için kullanılabilir.
         </p>
+
+        {onOpenVivado ? (
+          <div className="mt-4 rounded-md border border-border bg-inset p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-text">
+                  <CircuitBoard className="h-4 w-4 text-accent" aria-hidden /> XSA üret (opsiyonel)
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+                  Elinde .xsa yoksa: PS arayüzlerini formdan seç, Vivado arka planda üretsin —
+                  sentezsiz XSA ~1-2 dk (UltraScale+ / Versal).
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={onOpenVivado}>
+                <CircuitBoard className="h-4 w-4" /> Vivado sayfasını aç
+              </Button>
+            </div>
+            {lastVivadoXsa ? (
+              <button
+                type="button"
+                onClick={() => void parseFromPath(lastVivadoXsa)}
+                disabled={busy}
+                className="mt-2 flex w-full items-center gap-1.5 rounded border border-ok/30 bg-ok/10 px-2 py-1.5 text-left text-[11px] text-ok hover:bg-ok/15"
+                title="Vivado sayfasında üretilen son XSA ile şemayı kur"
+              >
+                <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0">
+                  Vivado&apos;da üretilen XSA&apos;yı kullan:{" "}
+                  <span className="break-all font-mono">{lastVivadoXsa}</span>
+                </span>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {error && <div className="mt-2 text-xs text-danger">{error}</div>}
       </div>

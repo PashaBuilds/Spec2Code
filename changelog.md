@@ -18,6 +18,13 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
   tanimiyor - uygulamayi yeniden baslatin/guncelleyin"). Eskiden SPA
   statik sunucusuna dusup POST'ta sasirtici "405 Method Not Allowed"
   uretiyordu (saha bulgusu: eski backend sureci + yeni frontend ucu).
+- Vivado sayfasi ust sekmelerden SETUP ICINE tasindi: "Donanim
+  tasarimi" kartinin altinda "XSA uret (opsiyonel)" bolumu - "Vivado
+  sayfasini ac" ile Setup sayfasi TAM EKRAN Vivado sayfasina donusur,
+  "Setup'a don" ile geri gelinir (kosan is kesilmez, panel yeniden
+  baglanir). Esneklik: uretilen son XSA ana Setup'ta tek tusluk
+  "Vivado'da uretilen XSA'yi kullan" kisayolu olarak gorunur; yol elle
+  de secilebilir. Ctrl+K komutu da Setup icindeki sayfaya goturur.
 
 ## v0.1.117 - 2026-07-06
 
