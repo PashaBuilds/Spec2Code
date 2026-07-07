@@ -39,6 +39,7 @@ from backend.vivado_design import (
     list_parts as list_vivado_parts,
     validate_design as validate_vivado_design,
     vivado_manager,
+    zynqmp_ddr_parts,
     zynqmp_mio_options,
 )
 from catalog.matcher import scan_folder
@@ -942,6 +943,9 @@ class VivadoDesignRequest(BaseModel):
     ref_clk_mhz: str = ""
     ddr_mode: str = "none"
     ddr_params: dict[str, str] = {}
+    ddr_model: str = ""
+    ddr_bus_width: str = ""
+    ddr_speed_bin: str = ""
     make_bitstream: bool = False
     timeout_s: int = 3600
 
@@ -957,6 +961,9 @@ def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
         ref_clk_mhz=req.ref_clk_mhz,
         ddr_mode=req.ddr_mode,
         ddr_params=req.ddr_params,
+        ddr_model=req.ddr_model,
+        ddr_bus_width=req.ddr_bus_width,
+        ddr_speed_bin=req.ddr_speed_bin,
         make_bitstream=req.make_bitstream,
         timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
     )
@@ -984,6 +991,13 @@ def vivado_parts(req: VivadoPartsRequest) -> dict:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - Vivado hatası kullanıcıya aynen gider
         raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/vivado/ddr-parts")
+def vivado_ddr_parts() -> dict:
+    """DDR model havuzu (ZynqMP): geometri Xilinx memparts.csv'den,
+    zamanlamalar üretim anında PCW tarafından hesaplanır."""
+    return {"zynq_ultrascale": zynqmp_ddr_parts()}
 
 
 @router.get("/vivado/mio-options")

@@ -149,6 +149,16 @@ export const api = {
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
 
+  vivadoDdrParts: () =>
+    req<{
+      zynq_ultrascale: Array<{
+        id: string; label: string; description: string;
+        device_capacity: string; dram_width: string;
+        speed_bins: string[]; default_speed_bin: string;
+        bus_widths: string[]; chip_gb: number;
+      }>;
+    }>("/api/vivado/ddr-parts"),
+
   vivadoMioOptions: () =>
     req<{ zynq_ultrascale: Record<string, { width: number; default: string; options: string[] }> }>(
       "/api/vivado/mio-options",
@@ -164,6 +174,9 @@ export const api = {
     ref_clk_mhz: string;
     ddr_mode: string;
     ddr_params: Record<string, string>;
+    ddr_model: string;
+    ddr_bus_width: string;
+    ddr_speed_bin: string;
     make_bitstream: boolean;
     timeout_s: number;
   }) =>

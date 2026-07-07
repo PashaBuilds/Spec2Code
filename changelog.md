@@ -3,6 +3,28 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.122 - 2026-07-07
+
+- Vivado DDR: "Custom parametre" formu yerine MODEL HAVUZU (kullanici
+  istegi). DDR modu artik uc secenek: DDR yok (OCM) | Model havuzundan
+  sec (onerilen) | Gelismis (datasheet parametreleri). Havuzda:
+  Micron MT40A512M16 (8Gb x16 - kullanicinin karti: LY-062E x2 =
+  32-bit 2GB) ve MT40A256M16 (4Gb x16). Model + veri yolu (yonga
+  sayisi) secilir; ozet satiri "2 x MT40A512M16 -> 2 GB, 32 Bit".
+- Veri kaynagi durustlugu: adres geometrisi (row/col/bank/bg,
+  kapasite, genislik) Xilinx'in resmi DDR4 katalogundan
+  (mem_v1_4/memparts.csv); CL/tRCD gibi zamanlamalar HIC yazilmaz.
+  HIZA DOKUNULMAZ: PCW'nin tutarli DDR4-1600 varsayilaninda kalinir -
+  E2E bulgusu: SPEED_BIN/FREQMHZ'i script'le degistirmek PCW'de
+  bin<->frekans<->CL tavuk-yumurtasina takilip atomik geri aliniyor
+  (tam PLL dict'i bile). Tum listelenen parcalar 1600'e geriye uyumlu;
+  hiz yukseltme kart dogrulaninca ayri faz. Yeni uc: GET
+  /api/vivado/ddr-parts.
+- E2E kaniti (gercek Vivado 2023.2, kullanicinin karti birebir):
+  MT40A512M16 x2 (32-bit) + UART0/I2C0 -> DDR ACIK sentezsiz XSA
+  uretildi; XSA icinden dogrulandi: 8192 MBits / x16 / 32 Bit /
+  ROW 16 / COL 10 / BG 1 / ECC Disabled, PCW 1600 seti tutarli.
+
 ## v0.1.121 - 2026-07-07
 
 - Vivado sayfasi: MIO konumlari artik ACILIR MENUDEN secilir (parca

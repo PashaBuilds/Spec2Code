@@ -80,8 +80,11 @@ class VivadoDesignConfig:
     design_name: str = "spec2code_hw"
     peripherals: list[VivadoPeripheral] = field(default_factory=list)
     ref_clk_mhz: str = ""       # boş = IP varsayılanı; ZynqMP: PSU__PSS_REF_CLK__FREQMHZ
-    ddr_mode: str = "none"      # none (OCM-only) | custom (yalnız ZynqMP)
-    ddr_params: dict[str, str] = field(default_factory=dict)  # PSU__DDRC__* alt kümesi
+    ddr_mode: str = "none"      # none (OCM-only) | model (havuzdan) | custom (yalnız ZynqMP)
+    ddr_params: dict[str, str] = field(default_factory=dict)  # PSU__DDRC__* alt kümesi (custom)
+    ddr_model: str = ""         # model modunda: zynqmp_ddr_parts.json id'si
+    ddr_bus_width: str = ""     # model modunda: "16 Bit" | "32 Bit" | "64 Bit"
+    ddr_speed_bin: str = ""     # model modunda boş = girdinin default_speed_bin'i
     make_bitstream: bool = False
     timeout_s: int = 3600
 
@@ -112,8 +115,25 @@ def validate_design(cfg: VivadoDesignConfig) -> list[str]:
             float(cfg.ref_clk_mhz)
         except ValueError:
             errors.append(f"ref_clk_mhz: sayı olmalı (şu an: {cfg.ref_clk_mhz!r})")
-    if cfg.ddr_mode not in ("none", "custom"):
-        errors.append(f"ddr_mode: none | custom (şu an: {cfg.ddr_mode!r})")
+    if cfg.ddr_mode not in ("none", "model", "custom"):
+        errors.append(f"ddr_mode: none | model | custom (şu an: {cfg.ddr_mode!r})")
+    if cfg.ddr_mode == "model":
+        if cfg.platform != "zynq_ultrascale":
+            errors.append("ddr_mode=model: DDR model havuzu şimdilik yalnız ZynqMP'de (Versal DDR NoC sonraki fazda)")
+        else:
+            entry = _ddr_part_by_id(cfg.ddr_model)
+            if entry is None:
+                known = ", ".join(e.get("id", "?") for e in zynqmp_ddr_parts()) or "(havuz boş)"
+                errors.append(f"ddr_model: havuzda yok (şu an: {cfg.ddr_model!r}; mevcut: {known})")
+            else:
+                if cfg.ddr_bus_width and cfg.ddr_bus_width not in entry.get("bus_widths", []):
+                    errors.append(
+                        f"ddr_bus_width: {entry['label']} için {cfg.ddr_bus_width!r} desteklenmiyor "
+                        f"(seçenekler: {', '.join(entry.get('bus_widths', []))})")
+                if cfg.ddr_speed_bin and cfg.ddr_speed_bin not in entry.get("speed_bins", []):
+                    errors.append(
+                        f"ddr_speed_bin: {entry['label']} için {cfg.ddr_speed_bin!r} desteklenmiyor "
+                        f"(seçenekler: {', '.join(entry.get('speed_bins', []))})")
     if cfg.ddr_mode == "custom":
         if cfg.platform != "zynq_ultrascale":
             errors.append("ddr_mode=custom: Faz A'da DDR yalnız ZynqMP'de; Versal DDR (NoC) sonraki fazda — ajan OCM'den koşar")
@@ -193,6 +213,33 @@ def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
         pairs.append(f"CONFIG.PSU__PSS_REF_CLK__FREQMHZ {_tcl_brace(cfg.ref_clk_mhz)}")
     if cfg.ddr_mode == "none":
         pairs.append("CONFIG.PSU__DDRC__ENABLE {0}")
+    elif cfg.ddr_mode == "model":
+        # Havuz girdisi: yalnız GEOMETRİ + veri yolu verilir (Xilinx
+        # memparts.csv). HIZA BİLEREK DOKUNULMAZ: PCW'nin tutarlı varsayılanı
+        # DDR4-1600'de kalır — tüm listelenen parçalar geriye uyumludur ve
+        # ilk bring-up için yeterlidir. E2E bulgusu: SPEED_BIN/FREQMHZ'i
+        # script'le değiştirmek PCW'de bin↔frekans↔CL tavuk-yumurtasına
+        # takılıyor (2133P verildiğinde CL native 15'e çözülüyor ama işletim
+        # frekansı 800'de kaldığından validator CL {11,12} isteyip TÜM set'i
+        # geri alıyor; frekans+bin+PLL tam dict'te bile atomik reddedildi).
+        # Hız yükseltme kart üzerinde doğrulanınca ayrı faz olarak ele alınır.
+        # Zamanlamalar (CL/CWL/tRCD...) hiç yazılmaz — 1600 varsayılanında
+        # PCW'nin kendi tutarlı değerleri geçerlidir.
+        entry = _ddr_part_by_id(cfg.ddr_model) or {}
+        bus_width = cfg.ddr_bus_width or "32 Bit"
+        pairs.extend([
+            "CONFIG.PSU__DDRC__ENABLE {1}",
+            f"CONFIG.PSU__DDRC__MEMORY_TYPE {_tcl_brace(entry.get('memory_type', 'DDR 4'))}",
+            f"CONFIG.PSU__DDRC__COMPONENTS {_tcl_brace(entry.get('components', 'Components'))}",
+            f"CONFIG.PSU__DDRC__DEVICE_CAPACITY {_tcl_brace(entry.get('device_capacity', ''))}",
+            f"CONFIG.PSU__DDRC__DRAM_WIDTH {_tcl_brace(entry.get('dram_width', ''))}",
+            f"CONFIG.PSU__DDRC__ROW_ADDR_COUNT {_tcl_brace(entry.get('row_addr_count', ''))}",
+            f"CONFIG.PSU__DDRC__COL_ADDR_COUNT {_tcl_brace(entry.get('col_addr_count', ''))}",
+            f"CONFIG.PSU__DDRC__BANK_ADDR_COUNT {_tcl_brace(entry.get('bank_addr_count', ''))}",
+            f"CONFIG.PSU__DDRC__BG_ADDR_COUNT {_tcl_brace(entry.get('bg_addr_count', ''))}",
+            f"CONFIG.PSU__DDRC__BUS_WIDTH {_tcl_brace(bus_width)}",
+            "CONFIG.PSU__DDRC__ECC {Disabled}",
+        ])
     else:
         pairs.append("CONFIG.PSU__DDRC__ENABLE {1}")
         for key, value in cfg.ddr_params.items():
@@ -588,6 +635,31 @@ def zynqmp_mio_options() -> dict:
     peripherals = dict(raw.get("peripherals", {}))
     peripherals.setdefault("qspi", _QSPI_MIO_OPTIONS)
     return peripherals
+
+
+#: DDR model havuzu (backend/data/zynqmp_ddr_parts.json). UYDURMA DEĞİL:
+#: adres geometrisi Xilinx'in resmi DDR4 kataloğundan (mem_v1_4 memparts.csv),
+#: zamanlamalar ise HİÇ saklanmaz — SPEED_BIN verilince PCW kendisi hesaplar
+#: (probe ile kanıtlandı: DDR4_2400R → CL16/CWL12/tRC45.32/tFAW30, x16'ya
+#: göre doğru). Böylece CL/tRCD gibi değerler elle taşınmaz.
+_DDR_PARTS_PATH = Path(__file__).with_name("data") / "zynqmp_ddr_parts.json"
+
+
+def zynqmp_ddr_parts() -> list[dict]:
+    try:
+        raw = json.loads(_DDR_PARTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return list(raw.get("parts", []))
+
+
+
+
+def _ddr_part_by_id(part_id: str) -> dict | None:
+    for entry in zynqmp_ddr_parts():
+        if entry.get("id") == part_id:
+            return entry
+    return None
 
 
 def _platform_of_family(family: str) -> str | None:

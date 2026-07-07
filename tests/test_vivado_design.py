@@ -8,6 +8,7 @@ from backend.vivado_design import (
     design_tcl,
     group_parts,
     validate_design,
+    zynqmp_ddr_parts,
     zynqmp_mio_options,
 )
 
@@ -179,6 +180,37 @@ class VivadoDesignTclTests(unittest.TestCase):
                          ["xczu9eg-ffvb1156-1-e", "xczu9eg-ffvb1156-2-e"])
         self.assertEqual(list(grouped["versal"]), ["xcvc1902"])
         self.assertNotIn("xcvu9p", str(grouped))
+
+    def test_ddr_model_pool_sets_geometry_but_never_timings(self) -> None:
+        # DDR model havuzu ilkesi: geometri (Xilinx memparts.csv) + hiz sinifi
+        # verilir; CL/CWL/tRCD gibi zamanlamalar Tcl'e YAZILMAZ - PCW bin'e
+        # gore kendisi hesaplar (probe kaniti: 2400R -> CL16/CWL12/tFAW30).
+        # Kullanicinin karti: MT40A512M16LY-062E x2 = 32-bit.
+        parts = zynqmp_ddr_parts()
+        self.assertTrue(any(p["id"] == "mt40a512m16" for p in parts), "kullanicinin yongasi havuzda yok")
+        self.assertTrue(any(p["id"] == "mt40a256m16" for p in parts))
+
+        cfg = _zynqmp_cfg(ddr_mode="model", ddr_model="mt40a512m16", ddr_bus_width="32 Bit")
+        self.assertEqual(validate_design(cfg), [])
+        tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+        self.assertIn("CONFIG.PSU__DDRC__ENABLE {1}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__DEVICE_CAPACITY {8192 MBits}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__DRAM_WIDTH {16 Bits}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__ROW_ADDR_COUNT {16}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__BG_ADDR_COUNT {1}", tcl)
+        self.assertIn("CONFIG.PSU__DDRC__BUS_WIDTH {32 Bit}", tcl)
+        # HIZA DOKUNULMAZ (E2E bulgusu: bin/frekans degisimi PCW'de
+        # bin<->frekans<->CL tavuk-yumurtasina takilip atomik geri aliniyor;
+        # PCW'nin tutarli 1600 varsayilani kalir, parcalar geriye uyumlu).
+        for forbidden in ("PSU__DDRC__SPEED_BIN", "PSU__CRF_APB__DDR_CTRL__FREQMHZ",
+                          "PSU__DDRC__CL", "PSU__DDRC__CWL", "PSU__DDRC__T_RCD", "PSU__DDRC__T_FAW"):
+            self.assertNotIn(forbidden, tcl, f"{forbidden} yazilmamali")
+
+        # Hatali model/genislik durust hata verir.
+        bad = _zynqmp_cfg(ddr_mode="model", ddr_model="olmayan_yonga")
+        self.assertTrue(any("havuzda yok" in e for e in validate_design(bad)))
+        bad = _zynqmp_cfg(ddr_mode="model", ddr_model="mt40a512m16", ddr_bus_width="128 Bit")
+        self.assertTrue(any("desteklenmiyor" in e for e in validate_design(bad)))
 
     def test_zynqmp_mio_options_table_is_present_and_vivado_sourced(self) -> None:
         # MIO dropdown tablosu (backend/data/zynqmp_mio_options.json): Vivado

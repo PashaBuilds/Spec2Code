@@ -1,0 +1,41 @@
+{
+ "source": "Geometri: Xilinx mem_v1_4/csv/ddr4_sdram/memparts.csv (Vivado 2023.2). Zamanlamalar SAKLANMAZ: SPEED_BIN verilince PCW hesaplar (probe ile dogrulandi: 2400R -> CL16/CWL12/tRC45.32/tFAW30 otomatik).",
+ "note": "Hiz sinifi varsayilani DDR4_2133P: zcu102/zcu106 resmi tasarimlari -083E parcalari 2133P'de kosturur (Xilinx pratigi) ve tum listelenen parcalar geriye uyumludur. Kart dogrulaninca 2400R secilebilir. bin_freq_mhz: DDR_CTRL istenen frekansi - bin ile birlikte verilmezse PCW eski frekansta kalip CL dogrulamasi celisiyor (E2E bulgusu); 1067 degeri zcu102'nin 2133P konfigurasyonundan dogrulandi, 1200 = 2400 MT/s / 2.",
+ "bin_freq_mhz": {"DDR4_2133P": "1067", "DDR4_2400R": "1200"},
+ "parts": [
+  {
+   "id": "mt40a512m16",
+   "label": "Micron MT40A512M16 (8 Gb, x16) — LY/HA; -062E/-075/-083E",
+   "description": "8 Gb x16 DDR4 component. Kullanici karti: MT40A512M16LY-062E x2 = 32-bit 2 GB. Guvenli DDR4-1600'de kosulur (-062E dahil tum binler geriye uyumlu); hiz yukseltme kart dogrulaninca ayri fazda.",
+   "memory_type": "DDR 4",
+   "components": "Components",
+   "device_capacity": "8192 MBits",
+   "dram_width": "16 Bits",
+   "row_addr_count": "16",
+   "col_addr_count": "10",
+   "bank_addr_count": "2",
+   "bg_addr_count": "1",
+   "speed_bins": ["DDR4_2133P", "DDR4_2400R"],
+   "default_speed_bin": "DDR4_2133P",
+   "bus_widths": ["16 Bit", "32 Bit", "64 Bit"],
+   "chip_gb": 1.0
+  },
+  {
+   "id": "mt40a256m16",
+   "label": "Micron MT40A256M16 (4 Gb, x16) — GE/HA/LY; -062E/-075E/-083E/-093/-107",
+   "description": "4 Gb x16 DDR4 component (ZCU104 sinifi kartlarin yongasi). Kucuk/ekonomik kartlarda yaygin.",
+   "memory_type": "DDR 4",
+   "components": "Components",
+   "device_capacity": "4096 MBits",
+   "dram_width": "16 Bits",
+   "row_addr_count": "15",
+   "col_addr_count": "10",
+   "bank_addr_count": "2",
+   "bg_addr_count": "1",
+   "speed_bins": ["DDR4_2133P", "DDR4_2400R"],
+   "default_speed_bin": "DDR4_2133P",
+   "bus_widths": ["16 Bit", "32 Bit", "64 Bit"],
+   "chip_gb": 0.5
+  }
+ ]
+}

@@ -86,8 +86,14 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const [designName, setDesignName] = useState("spec2code_hw");
   const [rows, setRows] = useState<PeripheralRow[]>(() => buildRows("zynq_ultrascale"));
   const [refClk, setRefClk] = useState("33.333");
-  const [ddrMode, setDdrMode] = useState<"none" | "custom">("none");
+  const [ddrMode, setDdrMode] = useState<"none" | "model" | "custom">("none");
   const [ddrValues, setDdrValues] = useState<Record<string, string>>({});
+  // DDR model havuzu: geometri Xilinx kataloğundan, zamanlamaları üretim
+  // anında PCW hesaplar (elle CL/tRCD taşınmaz).
+  type DdrPart = { id: string; label: string; description: string; speed_bins: string[]; default_speed_bin: string; bus_widths: string[]; chip_gb: number; dram_width: string };
+  const [ddrParts, setDdrParts] = useState<DdrPart[]>([]);
+  const [ddrModel, setDdrModel] = useState("");
+  const [ddrBusWidth, setDdrBusWidth] = useState("32 Bit");
   const [makeBit, setMakeBit] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -112,6 +118,9 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     api.vivadoMioOptions()
       .then((res) => setMioOptions(res.zynq_ultrascale ?? {}))
       .catch(() => setMioOptions({}));
+    api.vivadoDdrParts()
+      .then((res) => setDdrParts(res.zynq_ultrascale ?? []))
+      .catch(() => setDdrParts([]));
   }, []);
   useEffect(() => {
     const el = logRef.current;
@@ -227,10 +236,13 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     );
     if (platform === "zynq_ultrascale" && ddrMode === "custom" && Object.keys(ddrParams).length === 0) {
       setError(
-        "DDR modu 'Custom' seçili ama hiçbir DDR alanı doldurulmamış. Kartındaki DDR yongasının " +
-        "datasheet değerlerini gir (en azından bellek tipi + hız sınıfı + kapasite/genişlikler) ya da " +
-        "ilk bring-up için DDR'ı 'DDR yok — ajan OCM'den koşar' moduna al.",
+        "DDR modu 'Gelişmiş' seçili ama hiçbir DDR alanı doldurulmamış. Model havuzundan seç ya da " +
+        "datasheet değerlerini gir; ilk bring-up için 'DDR yok — ajan OCM'den koşar' da kullanılabilir.",
       );
+      return;
+    }
+    if (platform === "zynq_ultrascale" && ddrMode === "model" && !ddrModel) {
+      setError("DDR modu 'Model havuzu' seçili ama model seçilmedi — listeden kartındaki DDR yongasını seç.");
       return;
     }
     localStorage.setItem("spec2code.vivadoDir", vivadoDir.trim());
@@ -248,6 +260,10 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         ref_clk_mhz: refClk.trim(),
         ddr_mode: platform === "versal" ? "none" : ddrMode,
         ddr_params: ddrMode === "custom" ? ddrParams : {},
+        ddr_model: ddrMode === "model" ? ddrModel : "",
+        ddr_bus_width: ddrMode === "model" ? ddrBusWidth : "",
+        // Hıza dokunulmaz (PCW 1600 varsayılanı) — bkz. backend notu.
+        ddr_speed_bin: "",
         make_bitstream: makeBit,
         timeout_s: makeBit ? 3 * 3600 : 1800,
       });
@@ -479,20 +495,82 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-sm font-semibold text-text">DDR</h4>
-            <Select value={ddrMode} onValueChange={(v) => setDdrMode(v as "none" | "custom")}>
-              <SelectTrigger className="w-72" data-testid="vivado-ddr-mode"><SelectValue /></SelectTrigger>
+            <Select value={ddrMode} onValueChange={(v) => setDdrMode(v as "none" | "model" | "custom")}>
+              <SelectTrigger className="w-80" data-testid="vivado-ddr-mode"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">DDR yok — ajan OCM&apos;den koşar (ilk bring-up önerisi)</SelectItem>
-                <SelectItem value="custom">Custom — datasheet parametreleri</SelectItem>
+                <SelectItem value="model">Model havuzundan seç (önerilen)</SelectItem>
+                <SelectItem value="custom">Gelişmiş — datasheet parametreleri</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {ddrMode === "none" ? (
             <p className="text-[11px] leading-relaxed text-faint">
               DDR denetleyicisi kapalı üretilir; test ajanı OCM&apos;e linklenerek koşabilir. DDR&apos;lı gerçek kart
-              için önce bu modla kartı ayağa kaldırıp sonra Custom moda geçmek yanlış DDR parametresini
+              için önce bu modla kartı ayağa kaldırıp sonra model havuzuna geçmek yanlış DDR parametresini
               &quot;kart sessiz&quot; yerine görünür bir hataya çevirir.
             </p>
+          ) : ddrMode === "model" ? (
+            (() => {
+              const selected = ddrParts.find((p) => p.id === ddrModel);
+              const chipBits = selected ? parseInt(selected.dram_width) || 16 : 16;
+              const busBits = parseInt(ddrBusWidth) || 32;
+              const chipCount = Math.max(1, Math.round(busBits / chipBits));
+              const totalGb = selected ? selected.chip_gb * chipCount : 0;
+              return (
+                <>
+                  <p className="mb-2 text-[11px] leading-relaxed text-faint">
+                    Geometri Xilinx&apos;in resmi DDR4 kataloğundan; CL/tRCD gibi zamanlamaları üretim
+                    anında Vivado (PCW) hız sınıfına göre kendisi hesaplar — elle değer taşınmaz.
+                    Kartındaki yonga listede yoksa söyle, ekleyeyim.
+                  </p>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <div className="md:col-span-3">
+                      <Label>DDR modeli</Label>
+                      <select
+                        value={ddrModel}
+                        onChange={(e) => setDdrModel(e.target.value)}
+                        className="h-9 w-full rounded-md border border-border bg-inset px-2 font-mono text-xs text-text"
+                        data-testid="vivado-ddr-model"
+                      >
+                        <option value="">model seç...</option>
+                        {ddrParts.map((p) => (
+                          <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Veri yolu (yonga sayısı)</Label>
+                      <select
+                        value={ddrBusWidth}
+                        onChange={(e) => setDdrBusWidth(e.target.value)}
+                        disabled={!selected}
+                        className="h-9 w-full rounded-md border border-border bg-inset px-2 font-mono text-xs text-text disabled:opacity-50"
+                      >
+                        {(selected?.bus_widths ?? ["32 Bit"]).map((bw) => {
+                          const n = Math.max(1, Math.round((parseInt(bw) || 32) / chipBits));
+                          return <option key={bw} value={bw}>{bw} — {n} yonga</option>;
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Hız</Label>
+                      <p className="flex h-9 items-center rounded-md border border-border bg-inset px-2 font-mono text-xs text-muted" title="Hıza dokunulmaz: Vivado'nun tutarlı varsayılanı; tüm listelenen parçalar geriye uyumlu. Hız yükseltme, kart doğrulandıktan sonra ayrı fazda.">
+                        DDR4-1600 (güvenli varsayılan)
+                      </p>
+                    </div>
+                    {selected ? (
+                      <div className="flex items-end">
+                        <p className="w-full rounded-md border border-ok/25 bg-ok/10 px-2 py-1.5 font-mono text-[11px] text-ok">
+                          {chipCount} × {selected.label.split(" ")[1]} → {totalGb} GB, {ddrBusWidth}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                  {selected ? <p className="mt-2 text-[11px] leading-relaxed text-faint">{selected.description}</p> : null}
+                </>
+              );
+            })()
           ) : (
             <>
               <p className="mb-2 text-[11px] text-faint">
