@@ -24,6 +24,12 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
   MT40A512M16 x2 (32-bit) + UART0/I2C0 -> DDR ACIK sentezsiz XSA
   uretildi; XSA icinden dogrulandi: 8192 MBits / x16 / 32 Bit /
   ROW 16 / COL 10 / BG 1 / ECC Disabled, PCW 1600 seti tutarli.
+- Zincirin sonu da dogrulandi (XSCT ile workspace kurularak): lscript.ld
+  psu_ddr_0 ORIGIN 0x0 LENGTH 0x7FF00000 (2GB - ayrilan 1MB; psu_ddr_1
+  YOK - 2GB ustu bolge dogru sekilde uretilmedi), xparameters.h
+  XPAR_PSU_DDR_0 0x00000000..0x7FFFFFFF, psu_init.c DDRC/DDR_PHY init
+  kodu (2148 yazma) uretildi. Model havuzu -> XSA -> Vitis BSP ->
+  linker script zinciri kartla tutarli.
 
 ## v0.1.121 - 2026-07-07
 
