@@ -30,6 +30,9 @@ DATA_DIRS = [
     "std",
     "orchestrator/templates",
     "orchestrator/qc/bsp_stubs",
+    # Vivado MIO seçenek tablosu (zynqmp_mio_options.json) buradan okunur;
+    # pakette olmazsa MIO dropdown boş kalır.
+    "backend/data",
 ]
 
 HIDDEN_IMPORTS = [

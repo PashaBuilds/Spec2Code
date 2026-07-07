@@ -3,6 +3,20 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.121 - 2026-07-07
+
+- Vivado sayfasi: MIO konumlari artik ACILIR MENUDEN secilir (parca
+  numarasi gibi). Her PS cevre birimi satirinda "otomatik (Vivado
+  varsayilani)" + o birimin GECERLI MIO konumlari listelenir. Liste
+  UYDURMA DEGIL: kurulu Vivado 2023.2'de kabul-testi taramasiyla
+  uretildi (peripheral enable -> her MIO konumunu dene -> Vivado'nun
+  kabul ettiklerini topla) ve part-bagimsiz oldugu icin (ZynqMP MIO
+  duzeni sabit silikon) pakete gomulu gelir - aninda hazir.
+  UART0 taramada 4'er blok verdi (MIO 2..3, 6..7, ...), I2C/SPI/GEM/SD
+  cok esnek oldugundan liste uzun (hepsi Vivado-gecerli). QSPI iki
+  moduyla (x1 MIO 0..5, x4 MIO 0..12). Yeni uc: GET /api/vivado/
+  mio-options. Elle deger de korunur (eski kayit "(elle)" olarak).
+
 ## v0.1.120 - 2026-07-07
 
 - Vivado MIO cakismasi (SAHA KOK NEDENI, Vivado 2023.2 ile satir satir

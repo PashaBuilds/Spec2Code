@@ -149,6 +149,11 @@ export const api = {
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
 
+  vivadoMioOptions: () =>
+    req<{ zynq_ultrascale: Record<string, { width: number; default: string; options: string[] }> }>(
+      "/api/vivado/mio-options",
+    ),
+
   vivadoDesignStart: (payload: {
     vivado_path: string;
     platform: string;

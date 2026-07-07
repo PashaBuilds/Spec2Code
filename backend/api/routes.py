@@ -39,6 +39,7 @@ from backend.vivado_design import (
     list_parts as list_vivado_parts,
     validate_design as validate_vivado_design,
     vivado_manager,
+    zynqmp_mio_options,
 )
 from catalog.matcher import scan_folder
 from hostplat import io as hio
@@ -983,6 +984,13 @@ def vivado_parts(req: VivadoPartsRequest) -> dict:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - Vivado hatası kullanıcıya aynen gider
         raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/vivado/mio-options")
+def vivado_mio_options() -> dict:
+    """ZynqMP PS çevre birimleri için geçerli MIO konumları (Vivado
+    kabul-testi taramasından; part-bağımsız). UI dropdown'u bundan beslenir."""
+    return {"zynq_ultrascale": zynqmp_mio_options()}
 
 
 @router.post("/vivado/design/validate")

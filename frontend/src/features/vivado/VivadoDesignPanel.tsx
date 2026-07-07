@@ -101,10 +101,18 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const [partsLoading, setPartsLoading] = useState(false);
   const [partsError, setPartsError] = useState("");
   const [manualPart, setManualPart] = useState(false);
+  // ZynqMP MIO seçenek tablosu (Vivado kabul-testi taramasından): peripheral
+  // -> geçerli MIO konumları. Her satırın MIO'su bu listeden seçilir.
+  const [mioOptions, setMioOptions] = useState<Record<string, { options: string[] }>>({});
   const closeRef = useRef<null | (() => void)>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => () => closeRef.current?.(), []);
+  useEffect(() => {
+    api.vivadoMioOptions()
+      .then((res) => setMioOptions(res.zynq_ultrascale ?? {}))
+      .catch(() => setMioOptions({}));
+  }, []);
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -406,11 +414,9 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
       <Card className="p-4">
         <h4 className="mb-2 text-sm font-semibold text-text">PS çevre birimleri + MIO</h4>
         <p className="mb-3 text-[11px] text-faint">
-          Gerçek kartta MIO değerleri şemadan okunur (örn. I2C0 →{" "}
-          {platform === "versal" ? "PMC_MIO 46 .. 47" : "MIO 14 .. 15"}). Tek birimde MIO boş
-          bırakılabilir (Vivado varsayılanı); birden fazla birimde MIO&apos;ları gir — aksi halde
-          varsayılanlar düşük pinlerde çakışır (aşağıya bak).
-          {platform === "versal" ? " Versal Faz A: UART ve I2C (diğerleri sonraki fazda)." : ""}
+          {platform === "zynq_ultrascale"
+            ? "MIO konumları açılır menüden seçilir — liste, kurulu Vivado'nun kabul ettiği geçerli konumlardır (kabul-testi taramasıyla üretildi). Gerçek kartta değeri şemadan seç; tek birimde \"otomatik\" bırakılabilir, birden fazla birimde seç (aksi halde varsayılanlar çakışır)."
+            : "Gerçek kartta MIO değerleri şemadan okunur (örn. I2C0 → PMC_MIO 46 .. 47). Versal Faz A: UART ve I2C (diğerleri sonraki fazda)."}
         </p>
         {multiBlankMioWarning ? (
           <p className="mb-3 rounded-md border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
@@ -422,26 +428,50 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           </p>
         ) : null}
         <div className="grid gap-2 md:grid-cols-2">
-          {rows.map((row, index) => (
-            <div key={row.kind} className={cn("flex items-center gap-2 rounded-md border px-2 py-1.5", row.enabled ? "border-accent/40 bg-accent/5" : "border-border bg-inset")}>
-              <label className="flex w-40 shrink-0 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={row.enabled}
-                  onChange={(e) => setRows((current) => current.map((r, i) => (i === index ? { ...r, enabled: e.target.checked } : r)))}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-                <span className="font-mono text-xs text-text">{row.label}</span>
-              </label>
-              <Input
-                value={row.mio}
-                onChange={(e) => setRows((current) => current.map((r, i) => (i === index ? { ...r, mio: e.target.value } : r)))}
-                placeholder={row.mioPlaceholder}
-                disabled={!row.enabled}
-                className="font-mono text-xs"
-              />
-            </div>
-          ))}
+          {rows.map((row, index) => {
+            const opts = platform === "zynq_ultrascale" ? mioOptions[row.kind]?.options ?? [] : [];
+            const setMio = (value: string) =>
+              setRows((current) => current.map((r, i) => (i === index ? { ...r, mio: value } : r)));
+            return (
+              <div key={row.kind} className={cn("flex items-center gap-2 rounded-md border px-2 py-1.5", row.enabled ? "border-accent/40 bg-accent/5" : "border-border bg-inset")}>
+                <label className="flex w-40 shrink-0 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={row.enabled}
+                    onChange={(e) => setRows((current) => current.map((r, i) => (i === index ? { ...r, enabled: e.target.checked } : r)))}
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                  <span className="font-mono text-xs text-text">{row.label}</span>
+                </label>
+                {opts.length > 0 ? (
+                  // Vivado-doğrulanmış MIO konumları açılır menüde: ilk seçenek
+                  // "otomatik" (boş = Vivado varsayılanı), kalanlar gerçek
+                  // geçerli konumlar. Kullanıcı elle de yazabilsin diye tabloda
+                  // olmayan bir değer seçilirse (ör. eski kayıt) korunur.
+                  <select
+                    value={row.mio}
+                    onChange={(e) => setMio(e.target.value)}
+                    disabled={!row.enabled}
+                    className="h-8 w-full min-w-0 rounded-md border border-border bg-inset px-2 font-mono text-xs text-text disabled:opacity-50"
+                  >
+                    <option value="">otomatik (Vivado varsayılanı)</option>
+                    {row.mio && !opts.includes(row.mio) ? <option value={row.mio}>{row.mio} (elle)</option> : null}
+                    {opts.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={row.mio}
+                    onChange={(e) => setMio(e.target.value)}
+                    placeholder={row.mioPlaceholder}
+                    disabled={!row.enabled}
+                    className="font-mono text-xs"
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       </Card>
 

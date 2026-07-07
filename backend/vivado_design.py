@@ -566,6 +566,30 @@ def _log_tail(log_path: Path, lines: int = 12) -> str:
     return "\n".join(content[-lines:])
 
 
+#: ZynqMP MIO seçenek tablosu (backend/data/zynqmp_mio_options.json): her PS
+#: çevre biriminin Vivado'nun kabul ettiği geçerli MIO konumları. UYDURMA
+#: DEĞİL — kurulu Vivado 2023.2'de kabul-testi taramasıyla üretildi
+#: (peripheral enable → her MIO konumunu dene → kabul edilenleri topla).
+#: MIO düzeni ZynqMP ailesinde sabit silikon olduğundan part-bağımsızdır;
+#: yine de nihai geçerlilik üretimde Vivado'ya aittir. QSPI özel modludur
+#: (x1: MIO 0..5, x4: MIO 0..12) ve DATA_MODE'a bağlı olduğundan bu tabloda
+#: iki bilinen değeriyle verilir.
+_MIO_OPTIONS_PATH = Path(__file__).with_name("data") / "zynqmp_mio_options.json"
+_QSPI_MIO_OPTIONS = {"width": 6, "default": "MIO 0 .. 5",
+                     "options": ["MIO 0 .. 5", "MIO 0 .. 12"]}
+
+
+def zynqmp_mio_options() -> dict:
+    """Peripheral -> {width, default, options} (ZynqMP). Dosya yoksa boş."""
+    try:
+        raw = json.loads(_MIO_OPTIONS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    peripherals = dict(raw.get("peripherals", {}))
+    peripherals.setdefault("qspi", _QSPI_MIO_OPTIONS)
+    return peripherals
+
+
 def _platform_of_family(family: str) -> str | None:
     """Vivado FAMILY -> Spec2Code platform. Aile adı Vivado'nun kendi
     sınıflandırmasıdır (zynquplus, zynquplusRFSOC, versalaicore,

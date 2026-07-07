@@ -8,6 +8,7 @@ from backend.vivado_design import (
     design_tcl,
     group_parts,
     validate_design,
+    zynqmp_mio_options,
 )
 
 
@@ -178,6 +179,25 @@ class VivadoDesignTclTests(unittest.TestCase):
                          ["xczu9eg-ffvb1156-1-e", "xczu9eg-ffvb1156-2-e"])
         self.assertEqual(list(grouped["versal"]), ["xcvc1902"])
         self.assertNotIn("xcvu9p", str(grouped))
+
+    def test_zynqmp_mio_options_table_is_present_and_vivado_sourced(self) -> None:
+        # MIO dropdown tablosu (backend/data/zynqmp_mio_options.json): Vivado
+        # kabul-testi taramasindan uretildi, part-bagimsiz. UI bu tablodan
+        # beslenir. Temel birimlerin gecerli konumlari bulunmali; UART0
+        # taramada temiz cikti (4'er blok), QSPI iki bilinen moduyla eklenir.
+        opts = zynqmp_mio_options()
+        for kind in ("uart0", "i2c0", "i2c1", "spi0", "gem3", "sd1", "qspi"):
+            self.assertIn(kind, opts, f"{kind} MIO tablosunda yok")
+            self.assertTrue(opts[kind]["options"], f"{kind} icin secenek listesi bos")
+        # UART0 taramasi 4'er blok verdi (2..3, 6..7, 10..11 ...).
+        self.assertIn("MIO 2 .. 3", opts["uart0"]["options"])
+        self.assertIn("MIO 18 .. 19", opts["uart0"]["options"])
+        # QSPI iki bilinen moduyla (x1 dar, x4 genis).
+        self.assertEqual(opts["qspi"]["options"], ["MIO 0 .. 5", "MIO 0 .. 12"])
+        # Tum secenekler "MIO a .. b" bicimindedir (bozuk kayit yok).
+        for kind, spec in opts.items():
+            for opt in spec["options"]:
+                self.assertRegex(opt, r"^MIO \d+ \.\. \d+$", f"{kind}: bozuk MIO '{opt}'")
 
     def test_validate_accepts_good_zynqmp_and_versal(self) -> None:
         self.assertEqual(validate_design(_zynqmp_cfg()), [])
