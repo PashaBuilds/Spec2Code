@@ -5,10 +5,10 @@ import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 /** Register Map editörü (Spec2Code içi ikiz): sayısal ekipten gelen register
- * haritasını (base + 4 baytlık register'lar + LSB-first bitfield + reset) tek
- * yerde düzenle, self-contained HTML olarak paylaş, JSON olarak sakla, .h/.c C
- * kodu üret. Veri modeli JSON'dur; self-contained HTML editör aynı şemayı
- * paylaşır (backend export/import). */
+ * haritasını düzenle, self-contained HTML olarak paylaş, JSON olarak sakla,
+ * .h/.c C kodu üret. Register genişliği offset'lerden çıkarılır (sabit 4 bayt
+ * değil); skaler/bitfield ayrımı alanlardan otomatik, canlı rozette gösterilir.
+ * Veri modeli JSON; self-contained HTML editör aynı şemayı paylaşır. */
 
 interface RegField { name: string; bits: string; description?: string }
 interface Register { name: string; offset: string; reset: string; reserved?: boolean; description?: string; fields?: RegField[] }
@@ -21,6 +21,45 @@ function bitSpan(bits: string): [number, number] | null {
   const m = /^(\d+)(?::(\d+))?$/.exec((bits || "").trim()); if (!m) return null;
   const a = +m[1]; const b = m[2] !== undefined ? +m[2] : +m[1]; return a >= b ? [a, b] : null; }
 const ident = (s: string) => /^[A-Za-z_]\w*$/.test(s || "");
+
+// --- Genişlik / tip çıkarımı (backend register_map.py ile birebir) --------- //
+function rawType(width: number): { c: string; prefix: string } | null {
+  const map: Record<number, { c: string; prefix: string }> = {
+    1: { c: "unsigned char", prefix: "uc" }, 2: { c: "unsigned short", prefix: "us" },
+    4: { c: "unsigned int", prefix: "ui" }, 8: { c: "unsigned long long", prefix: "ull" },
+  };
+  return map[width] || null;
+}
+function highestBit(reg: Register): number {
+  let hb = -1; (reg.fields || []).forEach((f) => { const s = bitSpan(f.bits); if (s) hb = Math.max(hb, s[0]); }); return hb;
+}
+function roundUpWidth(hb: number): number { const n = hb + 1; for (const w of [1, 2, 4, 8]) if (n <= w * 8) return w; return 8; }
+function pascal(name: string): string {
+  return (name || "").split(/[_\s]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join("") || "Map";
+}
+/** Sıralı register'lar için byte genişlikleri: sonraki offset farkı; son
+ * register alanlarından 1/2/4/8'e yuvarlanır (alan yoksa 4). */
+function inferWidths(regs: Register[]): number[] {
+  const sorted = regs.slice().sort((a, b) => (parseInt0(a.offset) || 0) - (parseInt0(b.offset) || 0));
+  return sorted.map((r, i) => {
+    const off = parseInt0(r.offset) || 0;
+    if (i + 1 < sorted.length) return (parseInt0(sorted[i + 1].offset) || 0) - off;
+    const hb = highestBit(r); return hb >= 0 ? roundUpWidth(hb) : 4;
+  });
+}
+function isScalar(reg: Register, width: number): boolean {
+  if (reg.reserved) return false;
+  const fields = reg.fields || [];
+  if (!fields.length) return true;
+  if (fields.length === 1) { const s = bitSpan(fields[0].bits); if (s && s[1] === 0 && s[0] === width * 8 - 1) return true; }
+  return false;
+}
+/** Canlı rozet metni: üretilecek C üye tipini gösterir. */
+function memberDesc(reg: Register, width: number): string {
+  if (reg.reserved) return `${width}B · reserved · ucReserved[]`;
+  if (isScalar(reg, width)) { const p = rawType(width)?.prefix || "uc"; return `${width}B · skaler · ${p}${pascal(reg.name)}`; }
+  return `${width}B · bitfield · S${pascal(reg.name)}`;
+}
 
 export default function RegisterMapPanel() {
   const [doc, setDoc] = useState<RegDoc | null>(null);
@@ -181,18 +220,23 @@ export default function RegisterMapPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {map.registers.slice().sort((a, b) => (parseInt0(a.offset) || 0) - (parseInt0(b.offset) || 0)).map((reg) => {
+                  {(() => {
+                    const sorted = map.registers.slice().sort((a, b) => (parseInt0(a.offset) || 0) - (parseInt0(b.offset) || 0));
+                    const widths = inferWidths(map.registers);
+                    return sorted.map((reg, si) => {
                     const ri = map.registers.indexOf(reg);
+                    const width = widths[si];
                     return (
                       <tr key={ri} className="align-top">
-                        <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-20 font-mono text-xs", (parseInt0(reg.offset) % 4 !== 0) && "border-danger")} value={reg.offset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].offset = e.target.value; })} /></td>
+                        <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-20 font-mono text-xs", isNaN(parseInt0(reg.offset)) && "border-danger")} value={reg.offset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].offset = e.target.value; })} /></td>
                         <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-32 font-mono text-xs", !ident(reg.name) && "border-danger")} value={reg.name} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].name = e.target.value; })} /></td>
                         <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-32 font-mono text-xs", isNaN(parseInt0(reg.reset)) && "border-danger")} value={reg.reset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].reset = e.target.value; })} /></td>
                         <td className="border-b border-border p-1.5 text-center"><input type="checkbox" checked={!!reg.reserved} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].reserved = e.target.checked; })} className="accent-[var(--accent)]" /></td>
                         <td className="border-b border-border p-1.5">
-                          {reg.reserved ? <span className="text-faint">reserved — 4 bayt yer tutar</span> : (
+                          <div className="mb-1 font-mono text-[10px] text-accent/80">{memberDesc(reg, width)}</div>
+                          {reg.reserved ? <span className="text-faint">reserved — {width} bayt yer tutar (offset'ten çıkarıldı)</span> : (
                             <div className="space-y-1">
-                              <BitStrip fields={reg.fields || []} />
+                              <BitStrip fields={reg.fields || []} width={width} />
                               {(reg.fields || []).map((f, fi) => (
                                 <div key={fi} className="flex flex-wrap items-center gap-1">
                                   <Input className={cn("h-6 w-28 font-mono text-[11px]", !ident(f.name) && "border-danger")} value={f.name} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].fields![fi].name = e.target.value; })} />
@@ -208,7 +252,8 @@ export default function RegisterMapPanel() {
                         <td className="border-b border-border p-1.5"><button className="text-danger" onClick={() => patch((d) => { d.maps[activeMap].registers.splice(ri, 1); })}><Trash2 className="h-3.5 w-3.5" /></button></td>
                       </tr>
                     );
-                  })}
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -245,12 +290,13 @@ export default function RegisterMapPanel() {
   );
 }
 
-function BitStrip({ fields }: { fields: RegField[] }) {
-  const used = new Array(32).fill(0);
-  fields.forEach((f) => { const s = bitSpan(f.bits); if (s) for (let b = s[1]; b <= s[0] && b < 32; b++) used[b]++; });
+function BitStrip({ fields, width }: { fields: RegField[]; width: number }) {
+  const bits = Math.min(64, Math.max(8, width * 8));
+  const used = new Array(bits).fill(0);
+  fields.forEach((f) => { const s = bitSpan(f.bits); if (s) for (let b = s[1]; b <= s[0] && b < bits; b++) used[b]++; });
   return (
     <div className="flex flex-wrap gap-0.5">
-      {Array.from({ length: 32 }, (_, i) => 31 - i).map((b) => (
+      {Array.from({ length: bits }, (_, i) => bits - 1 - i).map((b) => (
         <span key={b} title={`bit ${b}`}
           className={cn("h-3.5 w-3.5 rounded-[2px] border text-center text-[7px] leading-[13px]",
             used[b] === 0 ? "border-border text-faint" : used[b] > 1 ? "border-danger bg-danger/50" : "border-accent bg-accent/30 text-text")}>
@@ -270,13 +316,27 @@ function validateLocal(doc: RegDoc | null): string[] {
     const offs: Record<number, string> = {};
     m.registers.forEach((r) => {
       const o = parseInt0(r.offset);
-      if (isNaN(o) || o % 4 !== 0) errs.push(`${m.name}.${r.name}: offset 4'ün katı olmalı`);
-      else if (offs[o]) errs.push(`${m.name}: offset ${r.offset} çakışıyor (${offs[o]} & ${r.name})`);
+      if (isNaN(o) || o < 0) errs.push(`${m.name}.${r.name}: offset geçersiz`);
+      else if (offs[o] !== undefined) errs.push(`${m.name}: offset ${r.offset} çakışıyor (${offs[o]} & ${r.name})`);
       else offs[o] = r.name;
       if (isNaN(parseInt0(r.reset))) errs.push(`${m.name}.${r.name}: reset geçersiz`);
       if (!r.reserved) { let mask = 0; (r.fields || []).forEach((f) => { const s = bitSpan(f.bits);
         if (!s) { errs.push(`${m.name}.${r.name}.${f.name}: bit biçimi hatalı`); return; }
         const fm = ((1 << (s[0] - s[1] + 1)) - 1) << s[1]; if (mask & fm) errs.push(`${m.name}.${r.name}.${f.name}: bit çakışması`); mask |= fm; }); }
+    });
+    // Genişlik çıkarımı sonrası: alan genişliğe sığmalı, bit alanlı register
+    // 1/2/4/8 byte olmalı (backend ile birebir).
+    const sorted = m.registers.slice().sort((a, b) => (parseInt0(a.offset) || 0) - (parseInt0(b.offset) || 0));
+    const widths = inferWidths(m.registers);
+    sorted.forEach((r, i) => {
+      const w = widths[i];
+      if (w < 1) { errs.push(`${m.name}.${r.name}: offset'ler kesin artan olmalı`); return; }
+      if (r.reserved) return;
+      const hb = highestBit(r);
+      if (hb >= 0 && hb >= w * 8) errs.push(`${m.name}.${r.name}: en yüksek bit ${hb}, genişlik ${w} byte — alan sığmıyor`);
+      if ((r.fields || []).length && !isScalar(r, w) && !rawType(w)) errs.push(`${m.name}.${r.name}: bit alanlı register genişliği 1/2/4/8 byte olmalı`);
+      const rv = parseInt0(r.reset);
+      if (!isNaN(rv) && w >= 1 && w <= 4 && rv >= Math.pow(2, w * 8)) errs.push(`${m.name}.${r.name}: reset genişliğe sığmıyor`);
     });
   });
   return errs;

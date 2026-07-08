@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.129 - 2026-07-09
+
+- REGISTER MAP DEGISKEN GENISLIK (kullanici istegi): register'lar artik sabit
+  4 bayt DEGIL. Genislik offset'lerden cikarilir: bir register'in byte
+  genisligi = bir sonraki register'in offset'ine olan fark; SON register'in
+  genisligi alanlarindan cikarilip 1/2/4/8'e yuvarlanir (alan yoksa 4 bayt).
+  - Ham tip genislige gore: 1->unsigned char (uc), 2->unsigned short (us),
+    4->unsigned int (ui), 8->unsigned long long (ull). Ornek: offset 0 sonra
+    0x2 -> ilk register 2 bayt -> union ham uyesi `unsigned short usValue`.
+  - Skaler mi bitfield mi ALANLARDAN otomatik cikarilir (ayri bayrak yok,
+    kullanici karari): reserved -> `unsigned char ucReservedN[width]`; alan
+    yok / tek alan tum genisligi kapliyor (or. 31:0) -> DUZ skaler uye
+    `<onek><Ad>` (or. `unsigned int uiTemperature;`); register'i bolen alanlar
+    -> INLINE union `S<Ad>` { <onek>Value; anonim bitfield }. Arayuz uretilecek
+    C uyesini (genislik + skaler/bitfield + ad) canli rozette gosterir.
+  - Reset sabitleri genislik kadar hex hane (2B -> 0x0001). Bit alanli
+    register'da bit alanlarinin depolama tipi de genislige uyar (unsigned
+    short/char bitfield) ki union boyutu genislikle birebir kalsin.
+  - Dogrulama: offset artik 4'un kati olmak zorunda degil; eklenen kurallar:
+    alanlar cikarilan genislige sigmali, bit alanli register 1/2/4/8 byte
+    olmali, reset genislige sigmali, offset'ler kesin artan olmali.
+  - Gercek aarch64 gcc -std=c11 -Wall -Wextra -Werror ile dogrulandi: 2B
+    unsigned short + 1B unsigned char bitfield'lar, skalerler, bayt-dizisi
+    reserved, HIZALANMAMIS offsetteki (0x09) skaler, tum erisim yollari ve
+    static_assert offset muhurleri temiz derlendi. Backend + iki editor
+    (Spec2Code paneli ve self-contained HTML) ayni cikarim mantigini paylasir.
+
 ## v0.1.128 - 2026-07-08
 
 - REGISTER MAP KOD STILI (kullanici istegi, devam): uretilen .h artik su

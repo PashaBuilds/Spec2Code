@@ -64,6 +64,7 @@
   dialog { background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: 10px; max-width: 640px; }
   dialog::backdrop { background: rgba(0,0,0,0.6); }
   .small { font-size: 12px; color: var(--muted); }
+  .typebadge { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; color: var(--accent); margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -143,6 +144,22 @@ function parseInt0(v) { if (typeof v === "number") return v; const s = String(v|
   return /^0[xX][0-9a-fA-F]+$/.test(s) ? parseInt(s,16) : (/^\d+$/.test(s) ? parseInt(s,10) : NaN); }
 function bitSpan(bits) { const m = /^(\d+)(?::(\d+))?$/.exec(String(bits||"").trim()); if(!m) return null;
   const a = +m[1], b = m[2]!==undefined ? +m[2] : +m[1]; return a>=b ? [a,b] : null; }
+// Genislik / tip cikarimi (backend register_map.py ile birebir).
+function rawType(width) { return ({1:{c:"unsigned char",p:"uc"},2:{c:"unsigned short",p:"us"},
+  4:{c:"unsigned int",p:"ui"},8:{c:"unsigned long long",p:"ull"}})[width] || null; }
+function highestBit(reg) { let hb=-1; (reg.fields||[]).forEach(f=>{const s=bitSpan(f.bits); if(s) hb=Math.max(hb,s[0]);}); return hb; }
+function roundUpWidth(hb) { const n=hb+1; for(const w of [1,2,4,8]) if(n<=w*8) return w; return 8; }
+function pascalName(name) { return String(name||"").split(/[_\s]+/).filter(Boolean).map(p=>p[0].toUpperCase()+p.slice(1)).join("")||"Map"; }
+function inferWidths(regs) { const s=regs.slice().sort((a,b)=>(parseInt0(a.offset)||0)-(parseInt0(b.offset)||0));
+  return s.map((r,i)=>{ const off=parseInt0(r.offset)||0; if(i+1<s.length) return (parseInt0(s[i+1].offset)||0)-off;
+    const hb=highestBit(r); return hb>=0 ? roundUpWidth(hb) : 4; }); }
+function regWidth(m, reg) { const s=m.registers.slice().sort((a,b)=>(parseInt0(a.offset)||0)-(parseInt0(b.offset)||0));
+  return inferWidths(m.registers)[s.indexOf(reg)]; }
+function isScalar(reg, width) { if(reg.reserved) return false; const f=reg.fields||[]; if(!f.length) return true;
+  if(f.length===1){ const sp=bitSpan(f[0].bits); if(sp && sp[1]===0 && sp[0]===width*8-1) return true; } return false; }
+function memberDesc(reg, width) { if(reg.reserved) return width+"B · reserved · ucReserved[]";
+  if(isScalar(reg,width)){ const p=(rawType(width)||{p:"uc"}).p; return width+"B · skaler · "+p+pascalName(reg.name); }
+  return width+"B · bitfield · S"+pascalName(reg.name); }
 function el(tag, attrs, kids) { const e = document.createElement(tag);
   if (attrs) for (const k in attrs) { if (k==="class") e.className=attrs[k]; else if (k==="text") e.textContent=attrs[k]; else e.setAttribute(k, attrs[k]); }
   (kids||[]).forEach(c => e.appendChild(c)); return e; }
@@ -187,23 +204,27 @@ function renderRegisters() {
 }
 function regRow(m, reg) {
   const tr = el("tr", { class: "reg-row" });
-  tr.appendChild(el("td", {}, [ input(reg.offset, v => reg.offset = v, "mono", (parseInt0(reg.offset)%4===0)) ]));
+  const width = regWidth(m, reg);
+  tr.appendChild(el("td", {}, [ input(reg.offset, v => reg.offset = v, "mono", !isNaN(parseInt0(reg.offset))) ]));
   tr.appendChild(el("td", {}, [ input(reg.name, v => reg.name = v, "mono", /^[A-Za-z_]\w*$/.test(reg.name)) ]));
   tr.appendChild(el("td", {}, [ input(reg.reset, v => reg.reset = v, "mono", !isNaN(parseInt0(reg.reset))) ]));
   const chk = el("input"); chk.type="checkbox"; chk.checked=!!reg.reserved; chk.onchange = () => { reg.reserved = chk.checked; render(); };
   tr.appendChild(el("td", {}, [ chk ]));
   const fcell = el("td");
-  if (!reg.reserved) { fcell.appendChild(bitMap(reg)); fcell.appendChild(fieldEditor(reg)); }
-  else fcell.appendChild(el("span", { class:"small", text:"reserved — yalnız 4 bayt yer tutar" }));
+  // Canli tip rozeti: uretilecek C uyesini (genislik + skaler/bitfield) gosterir.
+  fcell.appendChild(el("div", { class:"typebadge", text: memberDesc(reg, width) }));
+  if (!reg.reserved) { fcell.appendChild(bitMap(reg, width)); fcell.appendChild(fieldEditor(reg)); }
+  else fcell.appendChild(el("span", { class:"small", text:"reserved — "+width+" bayt yer tutar (offset'ten cikarildi)" }));
   tr.appendChild(fcell);
   const del = el("button", { class:"danger", text:"sil" }); del.onclick = () => { m.registers = m.registers.filter(r => r!==reg); render(); };
   tr.appendChild(el("td", {}, [ del ]));
   return tr;
 }
-function bitMap(reg) {
-  const wrap = el("div", { class:"bitmap" }); const used = new Array(32).fill(0);
-  (reg.fields||[]).forEach(f => { const s = bitSpan(f.bits); if(s) for(let b=s[1]; b<=s[0] && b<32; b++) used[b]++; });
-  for (let b=31; b>=0; b--) { const c = used[b]===0 ? "" : (used[b]>1 ? " conflict":" used");
+function bitMap(reg, width) {
+  const bits = Math.min(64, Math.max(8, (width||4)*8));
+  const wrap = el("div", { class:"bitmap" }); const used = new Array(bits).fill(0);
+  (reg.fields||[]).forEach(f => { const s = bitSpan(f.bits); if(s) for(let b=s[1]; b<=s[0] && b<bits; b++) used[b]++; });
+  for (let b=bits-1; b>=0; b--) { const c = used[b]===0 ? "" : (used[b]>1 ? " conflict":" used");
     wrap.appendChild(el("div", { class:"bit"+c, text:String(b), title:"bit "+b })); }
   return wrap;
 }
@@ -234,12 +255,26 @@ function validate() {
     const offs = {};
     (m.registers||[]).forEach(r => {
       const o = parseInt0(r.offset);
-      if (isNaN(o) || o%4!==0) errs.push(m.name+"."+r.name+": offset 4'ün katı olmalı");
-      if (offs[o]) errs.push(m.name+": offset "+r.offset+" çakışıyor ("+offs[o]+" & "+r.name+")"); else offs[o]=r.name;
+      if (isNaN(o) || o<0) errs.push(m.name+"."+r.name+": offset geçersiz");
+      else if (offs[o]!==undefined) errs.push(m.name+": offset "+r.offset+" çakışıyor ("+offs[o]+" & "+r.name+")");
+      else offs[o]=r.name;
       if (isNaN(parseInt0(r.reset))) errs.push(m.name+"."+r.name+": reset geçersiz");
       if (!r.reserved) { let used=0; (r.fields||[]).forEach(f => { const s=bitSpan(f.bits);
         if(!s){errs.push(m.name+"."+r.name+"."+f.name+": bit biçimi hatalı");return;}
         const mask=((1<<(s[0]-s[1]+1))-1)<<s[1]; if(used&mask) errs.push(m.name+"."+r.name+"."+f.name+": bit çakışması"); used|=mask; }); }
+    });
+    // Genislik cikarimi sonrasi: alan genislige sigmali, bit alanli register
+    // 1/2/4/8 byte olmali (backend ile birebir).
+    const sorted = (m.registers||[]).slice().sort((a,b)=>(parseInt0(a.offset)||0)-(parseInt0(b.offset)||0));
+    const widths = inferWidths(m.registers||[]);
+    sorted.forEach((r, i2) => { const w = widths[i2];
+      if (w<1) { errs.push(m.name+"."+r.name+": offset'ler kesin artan olmalı"); return; }
+      if (r.reserved) return;
+      const hb = highestBit(r);
+      if (hb>=0 && hb>=w*8) errs.push(m.name+"."+r.name+": en yüksek bit "+hb+", genişlik "+w+" byte — alan sığmıyor");
+      if ((r.fields||[]).length && !isScalar(r,w) && !rawType(w)) errs.push(m.name+"."+r.name+": bit alanlı register 1/2/4/8 byte olmalı");
+      const rv = parseInt0(r.reset);
+      if (!isNaN(rv) && w>=1 && w<=4 && rv>=Math.pow(2,w*8)) errs.push(m.name+"."+r.name+": reset genişliğe sığmıyor");
     });
   });
   return errs;

@@ -22,11 +22,20 @@ class RegisterMapValidationTests(unittest.TestCase):
     def test_valid_document_passes(self) -> None:
         self.assertEqual(rm.validate_register_document(self._doc()), [])
 
-    def test_offset_must_be_multiple_of_four(self) -> None:
+    def test_non_multiple_of_four_offset_is_allowed(self) -> None:
+        # 4-byte varsayimi kalkti: 0x02 gibi offset artik gecerli (2 bayt genislik).
         doc = self._doc()
-        doc["maps"][0]["registers"][1]["offset"] = "0x06"
+        doc["maps"][0]["registers"][1]["offset"] = "0x02"
+        self.assertEqual(rm.validate_register_document(doc), [])
+
+    def test_field_must_fit_in_inferred_width(self) -> None:
+        # Offset 0x00, sonraki 0x02 -> genislik 2 bayt (16 bit); bit 20 sigmaz.
+        doc = {"maps": [{"name": "pl_blk", "base_address": "0xA0000000", "registers": [
+            {"name": "A", "offset": "0x00", "reset": "0x0", "fields": [{"name": "WIDE", "bits": "20:16"}]},
+            {"name": "B", "offset": "0x02", "reset": "0x0", "fields": [{"name": "X", "bits": "0"}]},
+        ]}]}
         errs = rm.validate_register_document(doc)
-        self.assertTrue(any("4'ün katı" in e for e in errs))
+        self.assertTrue(any("sığmıyor" in e for e in errs))
 
     def test_duplicate_offset_rejected(self) -> None:
         doc = self._doc()
@@ -51,54 +60,64 @@ class RegisterMapValidationTests(unittest.TestCase):
 
 class RegisterMapCodegenTests(unittest.TestCase):
     def _doc(self):
+        # Karisik genislik senaryosu:
+        #  CONFIG @0x00 (sonraki 0x02 -> 2B) bitfield -> SCONFIG, usValue
+        #  angle  @0x02 (sonraki 0x04 -> 2B) tek 15:0 alan -> skaler usAngle
+        #  RSVD   @0x04 (sonraki 0x08 -> 4B) reserved -> ucReserved0[4]
+        #  temperature @0x08 (SON, alan 31:0 -> 4B) skaler -> uiTemperature
         return {"maps": [{
-            "name": "pl_radar", "base_address": "0xA0010000",
+            "name": "pl_mix", "base_address": "0xA0020000",
             "registers": [
-                {"name": "CTRL", "offset": "0x00", "reset": "0x00000001",
-                 "fields": [{"name": "EN", "bits": "0"}, {"name": "GAIN", "bits": "7:4"}]},
+                {"name": "CONFIG", "offset": "0x00", "reset": "0x1",
+                 "fields": [{"name": "EN", "bits": "0"}, {"name": "MODE", "bits": "2:1"}]},
+                {"name": "angle", "offset": "0x02", "reset": "0x0",
+                 "fields": [{"name": "ANGLE", "bits": "15:0"}]},
                 {"name": "RSVD", "offset": "0x04", "reset": "0x0", "reserved": True},
-                {"name": "STAT", "offset": "0x10", "reset": "0x0",
-                 "fields": [{"name": "LOCK", "bits": "0"}, {"name": "CODE", "bits": "31:24"}]},
+                {"name": "temperature", "offset": "0x08", "reset": "0x0",
+                 "fields": [{"name": "TEMP", "bits": "31:0"}]},
             ],
         }]}
 
-    def test_header_has_inline_union_packed_reset_and_static_assert(self) -> None:
+    def test_header_variable_width_scalar_bitfield_reserved(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
-        # Ayri per-register typedef URETILMEZ; union struct icine inline yazilir.
         self.assertNotIn("typedef union", h)
-        # __attribute__((packed)) dis struct + her union uyesinin (S onekli)
-        # SOLUNDA; ic bitfield alt-struct'i ANONIM (adsiz + packed'siz).
-        self.assertIn("} __attribute__((packed)) SPlRadarRegs;", h)
-        self.assertIn("} __attribute__((packed)) SCTRL;", h)
         self.assertNotIn("sBits", h)
-        self.assertNotIn("__attribute__((packed)) sBits", h)
-        # Ham deger uiValue korunur; bit alanlari ONEKSIZ + U soneksiz.
-        self.assertIn("unsigned int uiValue;", h)
-        self.assertIn("unsigned int EN : 1;", h)
-        self.assertIn("unsigned int GAIN : 4;", h)
-        self.assertNotIn("uiEN", h)
-        # LSB-first: EN(0) sonra 1..3 anonim reserved, sonra GAIN(4).
-        self.assertIn("unsigned int : 3;", h)
-        # Reset sabiti + base (U soneki yok).
-        self.assertIn("#define PL_RADAR_CTRL_RESET 0x00000001", h)
-        self.assertNotIn("0x00000001U", h)
-        self.assertIn("#define PL_RADAR_BASE_ADDRESS 0xA0010000", h)
-        # Offset deligi 0x08-0x0C icin dolgu + STAT offset muhru 0x10 (S onekli).
-        self.assertIn("unsigned int uiReserved0[2];", h)
-        self.assertIn("offsetof(SPlRadarRegs, SSTAT) == 0x10", h)
+        # Bitfield register 2 bayt -> ham us + bit alanlari unsigned short.
+        self.assertIn("unsigned short usValue;", h)
+        self.assertIn("unsigned short EN : 1;", h)
+        self.assertIn("unsigned short MODE : 2;", h)
+        self.assertIn("unsigned short : 13;", h)   # 16 - (1+2) anonim kuyruk
+        self.assertIn("} __attribute__((packed)) SCONFIG;", h)
+        # Tek tam-genislik alan -> skaler (union yok): 2B usAngle, 4B uiTemperature.
+        self.assertIn("unsigned short usAngle;", h)
+        self.assertIn("unsigned int uiTemperature;", h)
+        # Reserved -> bayt dizisi (0x04..0x07, 4 bayt).
+        self.assertIn("unsigned char ucReserved0[4];", h)
+        # Reset sabitleri genislik kadar hane: CONFIG 2B -> 0x0001, temp 4B.
+        self.assertIn("#define PL_MIX_CONFIG_RESET 0x0001", h)
+        self.assertIn("#define PL_MIX_TEMPERATURE_RESET 0x00000000", h)
+        self.assertIn("#define PL_MIX_BASE_ADDRESS 0xA0020000", h)
+        # Dis struct packed + offset muhurleri (skaler/reserved/bitfield hepsi).
+        self.assertIn("} __attribute__((packed)) SPlMixRegs;", h)
+        self.assertIn("offsetof(SPlMixRegs, SCONFIG) == 0x0", h)
+        self.assertIn("offsetof(SPlMixRegs, usAngle) == 0x2", h)
+        self.assertIn("offsetof(SPlMixRegs, ucReserved0) == 0x4", h)
+        self.assertIn("offsetof(SPlMixRegs, uiTemperature) == 0x8", h)
 
-    def test_source_maps_base_and_init_writes_reset(self) -> None:
+    def test_source_init_scalar_direct_bitfield_via_raw(self) -> None:
         c = rm.generate_source(self._doc()["maps"][0])
-        self.assertIn("static SPlRadarRegs* const S_spPlRadar = (SPlRadarRegs*)(PL_RADAR_BASE_ADDRESS);", c)
-        self.assertIn("void pl_radarInit(void)", c)
-        # Uye adi 'S' + register adi, .uiValue korunur.
-        self.assertIn("S_spPlRadar->SCTRL.uiValue = PL_RADAR_CTRL_RESET;", c)
-        # Reserved register init'te atlanir.
-        self.assertNotIn("SRSVD", c)
+        self.assertIn("static SPlMixRegs* const S_spPlMix = (SPlMixRegs*)(PL_MIX_BASE_ADDRESS);", c)
+        self.assertIn("void pl_mixInit(void)", c)
+        # Bitfield: ham genislik uyesinden (usValue). Skaler: dogrudan.
+        self.assertIn("S_spPlMix->SCONFIG.usValue = PL_MIX_CONFIG_RESET;", c)
+        self.assertIn("S_spPlMix->usAngle = PL_MIX_ANGLE_RESET;", c)
+        self.assertIn("S_spPlMix->uiTemperature = PL_MIX_TEMPERATURE_RESET;", c)
+        # Reserved init'te atlanir.
+        self.assertNotIn("ucReserved0", c)
 
     def test_generate_files_names(self) -> None:
         files = rm.generate_files(self._doc())
-        self.assertEqual(set(files), {"pl_radar_regs.h", "pl_radar.c"})
+        self.assertEqual(set(files), {"pl_mix_regs.h", "pl_mix.c"})
 
 
 class RegisterMapHtmlRoundTripTests(unittest.TestCase):

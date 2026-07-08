@@ -8,16 +8,23 @@ değerleri) elle typedef struct'a çevrilmez; Spec2Code bunu deterministik
 ya da doğrudan); bu modül JSON'u doğrular, C üretir, örnek/boş HTML editörü
 üretir ve bir HTML dosyasından gömülü JSON'u geri çıkarır.
 
-TASARIM KARARLARI (kullanıcı, 2026-07-08):
-  - Her register TAM 4 bayt (32-bit). Reserved register'lar bile 4 bayt yer
-    tutar; hiçbir offset atlanmaz. Ardışık olmayan offset'lerde otomatik
-    reserved dolgu (padding) eklenir.
-  - Her register bir UNION: `unsigned int uiValue` (ham/reset erişimi) +
-    LSB-first packed bitfield struct `sBits` (okunur erişim). Kullanıcı
-    bitfield riskini bilerek kabul etti; union, reset-değeri yazımını (ham)
-    ve bitfield okunabilirliğini birlikte verir.
-  - `__attribute__((packed))` her struct/union'da.
-  - init: alanı SIFIRLAMAZ; her register'ı RESET değerine eşitler.
+TASARIM KARARLARI (kullanıcı, 2026-07-08..09):
+  - Register genişliği artık SABİT 4 bayt DEĞİL: offset'lerden çıkarılır.
+    Bir register'ın byte genişliği = bir sonraki register'ın offset'ine olan
+    fark; SON register'ın genişliği alanlarından çıkarılıp 1/2/4/8'e yuvarlanır
+    (alan yoksa 4 bayt). Ham tip genişliğe göre: 1→unsigned char, 2→unsigned
+    short, 4→unsigned int, 8→unsigned long long.
+  - Skaler mi / bitfield mi ALANLARDAN çıkarılır (ayrı bayrak yok):
+      * reserved              → `unsigned char ucReservedN[width]` (opak dolgu)
+      * alan yok / tek alan tüm genişliği kaplıyor (ör. 31:0)
+                              → düz skaler üye `<önek><Ad>` (ör. uiTemperature)
+      * register'ı bölen alanlar → INLINE union `S<Ad>` { <önek>Value; anonim
+        bitfield alt-struct } — bitfield'lara doğrudan SCONFIG.MODE, ham
+        erişim SCONFIG.usValue. Kullanıcı bitfield riskini bilerek kabul etti.
+  - Tek `__attribute__((packed))` union üyesinin (S<Ad>) solunda; iç
+    alt-struct anonim + packed'siz; kullanılmayan bitler anonim isimsiz alan.
+  - init: alanı SIFIRLAMAZ; her register'ı RESET değerine eşitler (skaler
+    doğrudan, bitfield ham <önek>Value üzerinden; reserved atlanır).
   - static_assert(offsetof(...)) ile struct offset'leri register offset'lerine
     mühürlenir; sayısal ekibin haritasıyla kod asla kayamaz.
   - Kodlama standardı: SPascalStruct, spPointer, camelCase, unsigned int,
@@ -127,8 +134,8 @@ def validate_register_document(doc) -> list[str]:
             offset = _parse_int(reg.get("offset"))
             if offset is None:
                 errors.append(f"{rwhere}.offset: 0x'li ya da ondalık olmalı")
-            elif offset % 4 != 0:
-                errors.append(f"{rwhere}.offset: 4'ün katı olmalı (her register 4 bayttır; şu an: {reg.get('offset')!r})")
+            elif offset < 0:
+                errors.append(f"{rwhere}.offset: negatif olamaz")
             elif offset in seen_offsets:
                 errors.append(f"{rwhere}.offset: {hex(offset)} zaten '{seen_offsets[offset]}' tarafından kullanılıyor")
             elif isinstance(rname, str):
@@ -157,13 +164,40 @@ def validate_register_document(doc) -> list[str]:
                     errors.append(f"{fwhere}.bits: 'msb:lsb' ya da 'n' biçiminde olmalı (şu an: {field.get('bits')!r})")
                     continue
                 msb, lsb = span
-                if msb > 31:
-                    errors.append(f"{fwhere}.bits: 32-bit register — en yüksek bit 31 (şu an: {msb})")
+                if msb > 63:
+                    errors.append(f"{fwhere}.bits: en yüksek bit 63 olabilir (en fazla 8 bayt; şu an: {msb})")
                     continue
                 mask = ((1 << (msb - lsb + 1)) - 1) << lsb
                 if used_bits & mask:
                     errors.append(f"{fwhere}.bits: {field.get('bits')} başka bir alanla ÇAKIŞIYOR")
                 used_bits |= mask
+
+        # Genişlik çıkarımı sonrası kontroller: genişlik = sonraki offset farkı
+        # (son register alanlarından yuvarlanır). Alanlar genişliğe sığmalı;
+        # bit alanlı (skaler olmayan) register 1/2/4/8 byte olmalı; reset değeri
+        # genişliğe sığmalı; offset'ler kesin artan olmalı.
+        valid_regs = [r for r in registers
+                      if isinstance(r, dict) and _parse_int(r.get("offset")) is not None]
+        valid_regs.sort(key=lambda r: _parse_int(r.get("offset")))
+        for reg, width in zip(valid_regs, _register_widths(valid_regs)):
+            rname = reg.get("name", "?")
+            if width < 1:
+                errors.append(f"{where}.{rname}: offset'ler kesin artan olmalı (çıkarılan genişlik {width} byte)")
+                continue
+            if reg.get("reserved"):
+                continue
+            hb = _highest_bit(reg)
+            if hb >= 0 and hb >= width * 8:
+                errors.append(f"{where}.{rname}: en yüksek bit {hb}, register genişliği "
+                              f"{width} byte ({width * 8} bit) — alan sığmıyor")
+            if (reg.get("fields") and not _is_scalar(reg, width)
+                    and _raw_type(width) is None):
+                errors.append(f"{where}.{rname}: bit alanlı register genişliği 1/2/4/8 byte "
+                              f"olmalı (offset aralığı {width} byte)")
+            reset = _parse_int(reg.get("reset", 0))
+            if reset is not None and 1 <= width <= 8 and reset >= (1 << (width * 8)):
+                errors.append(f"{where}.{rname}: reset değeri {hex(reset)} register genişliğine "
+                              f"({width} byte) sığmıyor")
     return errors
 
 
@@ -190,12 +224,93 @@ def _struct_type_name(map_name: str) -> str:
     return f"S{_pascal(map_name)}Regs"
 
 
-def _member_name(reg_name: str) -> str:
-    """Register üye adı = 'S' + register adı (kullanıcı standardı: birleşim/
-    struct üyesi 'S' öneki taşır). Ör. CONTROL → SCONTROL; erişim
-    SCONTROL.uiValue (ham) ve SCONTROL.MODE (anonim bitfield alt-struct'ı
-    sayesinde doğrudan)."""
-    return "S" + reg_name
+def _raw_type(width: int):
+    """Byte genişliği → (C tam sayı tipi, Hungarian önek). Standart olmayan
+    genişlik (1/2/4/8 dışı) → None; çağıran bayt dizisine düşer."""
+    return {
+        1: ("unsigned char", "uc"),
+        2: ("unsigned short", "us"),
+        4: ("unsigned int", "ui"),
+        8: ("unsigned long long", "ull"),
+    }.get(width)
+
+
+def _highest_bit(reg: dict) -> int:
+    """Register alanlarının kullandığı en yüksek bit (0-index); alan yoksa -1."""
+    hb = -1
+    for field in reg.get("fields") or []:
+        span = _bit_span(field.get("bits"))
+        if span is not None:
+            hb = max(hb, span[0])
+    return hb
+
+
+def _round_up_width(highest_bit: int) -> int:
+    """En yüksek bit → 1/2/4/8 byte'a yuvarlanmış genişlik."""
+    needed = highest_bit + 1
+    for width in (1, 2, 4, 8):
+        if needed <= width * 8:
+            return width
+    return 8
+
+
+def _register_widths(regs: list[dict]) -> list[int]:
+    """Sıralı register'lar için byte genişlikleri. Genişlik = bir sonraki
+    register'ın offset'ine olan fark; SON register'ın genişliği alanlarından
+    çıkarılıp 1/2/4/8'e yuvarlanır (alan yoksa 4 byte varsayılır)."""
+    widths: list[int] = []
+    for i, reg in enumerate(regs):
+        offset = _parse_int(reg.get("offset")) or 0
+        if i + 1 < len(regs):
+            nxt = _parse_int(regs[i + 1].get("offset")) or 0
+            widths.append(nxt - offset)
+        else:
+            hb = _highest_bit(reg)
+            widths.append(_round_up_width(hb) if hb >= 0 else 4)
+    return widths
+
+
+def _is_scalar(reg: dict, width: int) -> bool:
+    """Register düz tek bir değer mi (union/bitfield yerine skaler üye)?
+    reserved değilse ve ya hiç alanı yoksa YA DA tek alanı tüm register
+    genişliğini (width*8-1:0) kaplıyorsa skalerdir."""
+    if reg.get("reserved"):
+        return False
+    fields = reg.get("fields") or []
+    if not fields:
+        return True
+    if len(fields) == 1:
+        span = _bit_span(fields[0].get("bits"))
+        if span is not None and span[1] == 0 and span[0] == width * 8 - 1:
+            return True
+    return False
+
+
+def _layout(rmap: dict) -> list[dict]:
+    """Her register için yerleşim kaydı: {reg, offset, width, kind, member, raw}.
+    kind ∈ {scalar, bitfield, reserved}; member = struct üye adı; raw = bitfield
+    union'ının ham üye öneki (yalnız kind=='bitfield'). Header ve source aynı
+    üye adlarını buradan alır ki tutarlı kalsın."""
+    regs = _sorted_registers(rmap)
+    widths = _register_widths(regs)
+    out: list[dict] = []
+    reserved_idx = 0
+    for reg, width in zip(regs, widths):
+        offset = _parse_int(reg.get("offset")) or 0
+        raw = _raw_type(width)
+        if reg.get("reserved"):
+            out.append({"reg": reg, "offset": offset, "width": width,
+                        "kind": "reserved", "member": f"ucReserved{reserved_idx}", "raw": None})
+            reserved_idx += 1
+        elif _is_scalar(reg, width):
+            prefix = raw[1] if raw else "uc"
+            out.append({"reg": reg, "offset": offset, "width": width,
+                        "kind": "scalar", "member": f"{prefix}{_pascal(reg['name'])}", "raw": None})
+        else:
+            out.append({"reg": reg, "offset": offset, "width": width,
+                        "kind": "bitfield", "member": f"S{_pascal(reg['name'])}",
+                        "raw": (raw[1] if raw else "ui")})
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -206,58 +321,62 @@ def _guard(name: str) -> str:
     return re.sub(r"[^A-Z0-9]", "_", f"{name}_REGS_H".upper())
 
 
-def _register_member_lines(reg: dict) -> list[str]:
-    """Struct içindeki INLINE union register üyesi (ayrı bir typedef üretilmez).
+def _reset_hex(reset: int, width: int) -> str:
+    """Reset sabitini register genişliği kadar hex haneyle yaz (2B → 4 hane)."""
+    mask = (1 << (width * 8)) - 1
+    return f"0x{reset & mask:0{width * 2}X}"
 
-    Ham erişim için `unsigned int uiValue` + LSB-first bit alanları ANONİM bir
-    alt-struct içinde (adı yok) ki bitfield'lara doğrudan `SCONTROL.MODE` diye
-    erişilebilsin. Tek bir `__attribute__((packed))` yeterlidir; o da union
-    üyesinin (SCONTROL) SOLUNDA yazılır — iç alt-struct'ta AYRICA packed
-    yazılmaz. Üye adı 'S' + register adı; bit alanı adları verbatim (ui öneki
-    yok, ör. IRQ_EN); kullanılmayan bit aralıkları anonim isimsiz alanlarla
-    (`unsigned int : N;`) kapatılır ki bit konumları birebir kalsın.
-    """
-    name = _member_name(reg["name"])
-    offset = _parse_int(reg.get("offset")) or 0
+
+def _union_lines(item: dict) -> list[str]:
+    """Bitfield register → struct içine INLINE union üyesi. Ham üye tipi
+    genişliğe göre (uiValue/usValue/ucValue/ullValue); bit alanları AYNI tam
+    sayı tipiyle ANONİM alt-struct içinde ki union boyutu genişlikle birebir
+    kalsın ve bitfield'lara doğrudan `SCONFIG.MODE` diye erişilsin. Tek
+    `__attribute__((packed))` üyenin (S<Ad>) solunda; iç alt-struct'ta packed
+    yok; kullanılmayan bit aralıkları anonim isimsiz alanlarla kapatılır."""
+    reg = item["reg"]
+    width = item["width"]
+    offset = item["offset"]
+    member = item["member"]
+    ctype, prefix = _raw_type(width) or ("unsigned int", "ui")
     out: list[str] = []
     out.append("    union")
     out.append("    {")
-    out.append("        unsigned int uiValue;")
-    if not reg.get("reserved") and reg.get("fields"):
-        out.append("        struct")
-        out.append("        {")
-        covered = 0
-        # LSB-first: alanları lsb'ye göre sırala, aradaki boşluklara anonim
-        # reserved bit alanları koy ki bit konumları birebir doğru olsun.
-        fields = sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1])
-        for field in fields:
-            msb, lsb = _bit_span(field["bits"])
-            if lsb > covered:
-                out.append(f"            unsigned int : {lsb - covered};")
-                covered = lsb
-            width = msb - lsb + 1
-            comment = f"  /* {field['description']} */" if field.get("description") else ""
-            out.append(f"            unsigned int {field['name']} : {width};{comment}")
-            covered = msb + 1
-        if covered < 32:
-            out.append(f"            unsigned int : {32 - covered};")
-        # Anonim alt-struct: adsiz + packed'siz; bitfield'lara SCONTROL.MODE.
-        out.append("        };")
-    out.append(f"    }} __attribute__((packed)) {name};  /* 0x{offset:03X} */")
+    out.append(f"        {ctype} {prefix}Value;")
+    out.append("        struct")
+    out.append("        {")
+    covered = 0
+    fields = sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1])
+    for field in fields:
+        msb, lsb = _bit_span(field["bits"])
+        if lsb > covered:
+            out.append(f"            {ctype} : {lsb - covered};")
+            covered = lsb
+        bits = msb - lsb + 1
+        comment = f"  /* {field['description']} */" if field.get("description") else ""
+        out.append(f"            {ctype} {field['name']} : {bits};{comment}")
+        covered = msb + 1
+    total = width * 8
+    if covered < total:
+        out.append(f"            {ctype} : {total - covered};")
+    out.append("        };")
+    out.append(f"    }} __attribute__((packed)) {member};  /* 0x{offset:03X} ({width}B) */")
     return out
 
 
 def generate_header(rmap: dict) -> str:
-    """Bir register map için .h içeriği: her register struct içine INLINE bir
-    union üye (uiValue + LSB-first packed sBits) olarak yazılır; reset sabitleri
-    + static_assert offset mühürleri. `__attribute__((packed))` her yapının
-    kapanış ayracından sonra; sayısal sabitlerde `U` soneki kullanılmaz."""
+    """Bir register map için .h içeriği. Register genişlikleri offset'lerden
+    çıkarılır (son register alanlarından 1/2/4/8'e yuvarlanır). Skaler register
+    düz üye (uiTemperature); bitfield register struct içine INLINE union
+    (S<Ad>); reserved bayt dizisi. `__attribute__((packed))` her yapının
+    solunda; sayısal sabitlerde `U` soneki yok; static_assert offset mühürleri
+    struct'ı register haritasına kilitler."""
     map_name = rmap["name"]
     MOD = re.sub(r"[^A-Z0-9]", "_", map_name.upper())
     struct_t = _struct_type_name(map_name)
     guard = _guard(map_name)
     base = _parse_int(rmap.get("base_address")) or 0
-    regs = _sorted_registers(rmap)
+    layout = _layout(rmap)
 
     lines: list[str] = []
     lines.append(f"#ifndef {guard}")
@@ -266,7 +385,7 @@ def generate_header(rmap: dict) -> str:
     lines.append("/* Spec2Code register map ureticisi tarafindan uretildi.")
     if rmap.get("description"):
         lines.append(f" * {rmap['description']}")
-    lines.append(" * Her register 4 bayttir; bit alanlari LSB-first siralanir.")
+    lines.append(" * Register genislikleri offset'lerden cikarilir; bit alanlari LSB-first.")
     lines.append(" * static_assert offset muhurleri register haritasiyla struct'i kilitler. */")
     lines.append("")
     lines.append("#include <stddef.h>")
@@ -275,39 +394,46 @@ def generate_header(rmap: dict) -> str:
     lines.append(f"#define {MOD}_BASE_ADDRESS 0x{base:08X}")
     lines.append("")
 
-    # Reset sabitleri.
-    for reg in regs:
-        reset = _parse_int(reg.get("reset", 0)) or 0
-        lines.append(f"#define {MOD}_{reg['name'].upper()}_RESET 0x{reset & 0xFFFFFFFF:08X}")
+    # Reset sabitleri (reserved haric; genislik kadar hex hane).
+    for item in layout:
+        if item["reg"].get("reserved"):
+            continue
+        reset = _parse_int(item["reg"].get("reset", 0)) or 0
+        lines.append(f"#define {MOD}_{item['reg']['name'].upper()}_RESET "
+                     f"{_reset_hex(reset, item['width'])}")
     lines.append("")
 
-    # Map struct'i: her register INLINE union üye; ardışık olmayan offset'lere
-    # reserved dolgu (padding) eklenir ki struct offset'leri register
-    # offset'lerine uysun. Ayrı bir per-register typedef ÜRETİLMEZ.
+    # Map struct'i: her register offset'ine gore skaler / bitfield union /
+    # reserved bayt dizisi olarak yerlesir. Genislik = sonraki offset farki.
     lines.append("typedef struct")
     lines.append("{")
-    expected = 0
-    pad_idx = 0
-    for reg in regs:
-        offset = _parse_int(reg.get("offset")) or 0
-        if offset > expected:
-            gap_words = (offset - expected) // 4
-            lines.append(f"    unsigned int uiReserved{pad_idx}[{gap_words}];"
-                         f"  /* 0x{expected:03X}..0x{offset - 4:03X} dolgu */")
-            pad_idx += 1
-            expected = offset
-        lines.extend(_register_member_lines(reg))
-        expected = offset + 4
+    for item in layout:
+        reg = item["reg"]
+        offset = item["offset"]
+        width = item["width"]
+        member = item["member"]
+        desc = reg.get("description")
+        if item["kind"] == "reserved":
+            lines.append(f"    unsigned char {member}[{width}];"
+                         f"  /* 0x{offset:03X} reserved ({width}B) */")
+        elif item["kind"] == "scalar":
+            raw = _raw_type(width)
+            tail = f"  /* 0x{offset:03X}" + (f" - {desc}" if desc else "") + f" ({width}B) */"
+            if raw:
+                lines.append(f"    {raw[0]} {member};{tail}")
+            else:
+                lines.append(f"    unsigned char {member}[{width}];{tail}")
+        else:
+            lines.extend(_union_lines(item))
     lines.append(f"}} __attribute__((packed)) {struct_t};")
     lines.append("")
 
     # Offset muhurleri.
     lines.append("/* Offset muhurleri: struct register haritasindan kayarsa derleme durur. */")
-    for reg in regs:
-        offset = _parse_int(reg.get("offset")) or 0
+    for item in layout:
         lines.append(
-            f"_Static_assert(offsetof({struct_t}, {_member_name(reg['name'])}) == 0x{offset:X}, "
-            f"\"{reg['name']} offset kaymis\");")
+            f"_Static_assert(offsetof({struct_t}, {item['member']}) == 0x{item['offset']:X}, "
+            f"\"{item['reg']['name']} offset kaymis\");")
     lines.append("")
 
     # init prototipi.
@@ -320,12 +446,13 @@ def generate_header(rmap: dict) -> str:
 
 def generate_source(rmap: dict) -> str:
     """Bir register map için .c içeriği: base'e map'li static struct pointer +
-    init (her register'i reset degerine esitler)."""
+    init (her register'i reset degerine esitler; skaler dogrudan, bitfield ham
+    <onek>Value uzerinden; reserved atlanir)."""
     map_name = rmap["name"]
     MOD = re.sub(r"[^A-Z0-9]", "_", map_name.upper())
     struct_t = _struct_type_name(map_name)
     ptr_name = f"S_sp{_pascal(map_name)}"
-    regs = _sorted_registers(rmap)
+    layout = _layout(rmap)
 
     lines: list[str] = []
     lines.append("/* Spec2Code register map ureticisi tarafindan uretildi. */")
@@ -338,11 +465,19 @@ def generate_source(rmap: dict) -> str:
     lines.append(f"void {map_name}Init(void)")
     lines.append("{")
     lines.append("    /* Her register RESET degerine esitlenir (alan sifirlanmaz). */")
-    for reg in regs:
+    for item in layout:
+        reg = item["reg"]
         if reg.get("reserved"):
             continue
-        lines.append(f"    {ptr_name}->{_member_name(reg['name'])}.uiValue = "
-                     f"{MOD}_{reg['name'].upper()}_RESET;")
+        rhs = f"{MOD}_{reg['name'].upper()}_RESET"
+        if item["kind"] == "scalar":
+            if _raw_type(item["width"]):
+                lines.append(f"    {ptr_name}->{item['member']} = {rhs};")
+            else:
+                lines.append(f"    /* {item['member']}: {item['width']}B dizi — "
+                             f"reset elle yazilmali ({rhs}) */")
+        else:  # bitfield
+            lines.append(f"    {ptr_name}->{item['member']}.{item['raw']}Value = {rhs};")
     lines.append("}")
     lines.append("")
     return "\n".join(lines)
