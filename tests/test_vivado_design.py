@@ -156,8 +156,9 @@ class VivadoDesignTclTests(unittest.TestCase):
         tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
         # Elle verilen i2c0 en once; otomatiklerde qspi, spi'lerden ve
         # uart/i2c'den once gelir.
-        order = [line for line in tcl.splitlines() if line.startswith("spec2codeAssignPeripheral")]
-        labels = [line.rsplit(" ", 1)[-1] for line in order]
+        order = [line for line in tcl.splitlines() if line.startswith("spec2codeAssign")]
+        labels = ["qspi" if line.startswith("spec2codeAssignQspi") else line.rsplit(" ", 1)[-1]
+                  for line in order]
         self.assertEqual(labels[0], "i2c0")
         self.assertLess(labels.index("qspi"), labels.index("spi0"))
         self.assertLess(labels.index("spi1"), labels.index("uart0"))
@@ -168,6 +169,34 @@ class VivadoDesignTclTests(unittest.TestCase):
         # Cakisma durumunda eyleme donuk hata: hangi birim, ne yapmali.
         self.assertIn("otomatik yerlestirilemedi", tcl)
         self.assertIn("MIO'yu formda ELLE belirtin", tcl)
+
+    def test_qspi_mode_data_fbclk_are_generic_and_verified_values(self) -> None:
+        # SAHA (2026-07-08, kullanicinin kart plani): QSPI dual parallel
+        # 2x4=x8, FBCLK (MIO 6) KULLANILMIYOR. Parametre adlari/degerleri
+        # zcu102.xsa'dan dogrulandi (MODE 'Dual Parallel', DATA_MODE x4,
+        # GRP_FBCLK MIO 6). Mod IO'yu belirler: Single=0..5, DP=0..12.
+        cfg = _zynqmp_cfg(peripherals=[
+            VivadoPeripheral(kind="qspi", qspi_mode="Dual Parallel",
+                             qspi_data_mode="x4", qspi_fbclk=False),
+            VivadoPeripheral(kind="uart1", mio="MIO 60 .. 61"),
+        ])
+        self.assertEqual(validate_design(cfg), [])
+        tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+        self.assertIn("proc spec2codeAssignQspi", tcl)
+        self.assertIn("spec2codeAssignQspi $spec2code_ps {MIO 0 .. 12} {Dual Parallel} {x4} 0", tcl)
+        self.assertIn("PSU__QSPI__PERIPHERAL__MODE", tcl)
+        self.assertIn("PSU__QSPI__GRP_FBCLK__ENABLE", tcl)
+
+        # Single mod IO 0..5'e gider; FBCLK istenirse MIO 6 dict'e girer.
+        cfg2 = _zynqmp_cfg(peripherals=[VivadoPeripheral(kind="qspi", qspi_fbclk=True)])
+        tcl2 = design_tcl(cfg2, Path(r"D:\tmp\s2c"))
+        self.assertIn("spec2codeAssignQspi $spec2code_ps {MIO 0 .. 5} {Single} {} 1", tcl2)
+
+        # Hatali degerler ve qspi-disi kullanim durust hata verir.
+        bad = _zynqmp_cfg(peripherals=[VivadoPeripheral(kind="qspi", qspi_mode="Octal")])
+        self.assertTrue(any("qspi_mode" in e for e in validate_design(bad)))
+        bad = _zynqmp_cfg(peripherals=[VivadoPeripheral(kind="uart0", qspi_fbclk=True)])
+        self.assertTrue(any("yalnız qspi" in e for e in validate_design(bad)))
 
     def test_group_parts_uses_vivado_family_not_prefix_guess(self) -> None:
         # Siniflama Vivado'nun FAMILY alanindan yapilir: xcvu (Virtex

@@ -23,9 +23,14 @@ interface PeripheralRow {
   mioPlaceholder: string;
   enabled: boolean;
   mio: string;
+  // Yalnız QSPI (ZynqMP): mod IO'yu belirler (Single=MIO 0..5,
+  // Dual Parallel=MIO 0..12 — zcu102'den doğrulanmış değerler).
+  qspiMode: "Single" | "Dual Parallel";
+  qspiDataMode: "" | "x1" | "x2" | "x4";
+  qspiFbclk: boolean;
 }
 
-const ZYNQMP_ROWS: Omit<PeripheralRow, "enabled" | "mio">[] = [
+const ZYNQMP_ROWS: Pick<PeripheralRow, "kind" | "label" | "mioPlaceholder">[] = [
   { kind: "uart0", label: "UART0", mioPlaceholder: "MIO 18 .. 19" },
   { kind: "uart1", label: "UART1", mioPlaceholder: "MIO 20 .. 21" },
   { kind: "i2c0", label: "I2C0", mioPlaceholder: "MIO 14 .. 15" },
@@ -37,7 +42,7 @@ const ZYNQMP_ROWS: Omit<PeripheralRow, "enabled" | "mio">[] = [
   { kind: "sd1", label: "SD1", mioPlaceholder: "MIO 39 .. 51" },
 ];
 
-const VERSAL_ROWS: Omit<PeripheralRow, "enabled" | "mio">[] = [
+const VERSAL_ROWS: Pick<PeripheralRow, "kind" | "label" | "mioPlaceholder">[] = [
   { kind: "uart0", label: "UART0", mioPlaceholder: "PMC_MIO 42 .. 43" },
   { kind: "uart1", label: "UART1", mioPlaceholder: "PMC_MIO 40 .. 41" },
   { kind: "i2c0", label: "I2C0", mioPlaceholder: "PMC_MIO 46 .. 47" },
@@ -70,7 +75,14 @@ const DDR_FIELDS: Array<{ key: string; label: string; placeholder: string }> = [
 
 function buildRows(platform: string): PeripheralRow[] {
   const source = platform === "versal" ? VERSAL_ROWS : ZYNQMP_ROWS;
-  return source.map((row) => ({ ...row, enabled: row.kind === "uart0" || row.kind === "i2c0", mio: "" }));
+  return source.map((row) => ({
+    ...row,
+    enabled: row.kind === "uart0" || row.kind === "i2c0",
+    mio: "",
+    qspiMode: "Single" as const,
+    qspiDataMode: "" as const,
+    qspiFbclk: false,
+  }));
 }
 
 export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
@@ -230,7 +242,13 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     setError("");
     setResult(null);
     setConnectMsg("");
-    const peripherals = rows.filter((r) => r.enabled).map((r) => ({ kind: r.kind, mio: r.mio.trim() }));
+    const peripherals = rows.filter((r) => r.enabled).map((r) => ({
+      kind: r.kind,
+      mio: r.kind === "qspi" ? "" : r.mio.trim(),
+      qspi_mode: r.kind === "qspi" ? r.qspiMode : "",
+      qspi_data_mode: r.kind === "qspi" ? r.qspiDataMode : "",
+      qspi_fbclk: r.kind === "qspi" ? r.qspiFbclk : false,
+    }));
     const ddrParams = Object.fromEntries(
       Object.entries(ddrValues).filter(([, value]) => value.trim() !== "").map(([k, v]) => [k, v.trim()]),
     );
@@ -448,6 +466,57 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
             const opts = platform === "zynq_ultrascale" ? mioOptions[row.kind]?.options ?? [] : [];
             const setMio = (value: string) =>
               setRows((current) => current.map((r, i) => (i === index ? { ...r, mio: value } : r)));
+            const patchRow = (patch: Partial<PeripheralRow>) =>
+              setRows((current) => current.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+            if (row.kind === "qspi" && platform === "zynq_ultrascale") {
+              // QSPI özel satır: MIO'yu mod belirler; mod/data/FBCLK seçilir.
+              return (
+                <div key={row.kind} className={cn("flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5 md:col-span-2", row.enabled ? "border-accent/40 bg-accent/5" : "border-border bg-inset")}>
+                  <label className="flex w-40 shrink-0 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={row.enabled}
+                      onChange={(e) => patchRow({ enabled: e.target.checked })}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                    />
+                    <span className="font-mono text-xs text-text">{row.label}</span>
+                  </label>
+                  <select
+                    value={row.qspiMode}
+                    onChange={(e) => patchRow({ qspiMode: e.target.value as PeripheralRow["qspiMode"] })}
+                    disabled={!row.enabled}
+                    className="h-8 rounded-md border border-border bg-inset px-2 font-mono text-xs text-text disabled:opacity-50"
+                    title="Single: tek yonga (MIO 0..5). Dual Parallel: 2 yonga, toplam x8 veri (MIO 0..12)."
+                  >
+                    <option value="Single">Single — MIO 0 .. 5</option>
+                    <option value="Dual Parallel">Dual Parallel (2×yonga) — MIO 0 .. 12</option>
+                  </select>
+                  <select
+                    value={row.qspiDataMode}
+                    onChange={(e) => patchRow({ qspiDataMode: e.target.value as PeripheralRow["qspiDataMode"] })}
+                    disabled={!row.enabled}
+                    className="h-8 rounded-md border border-border bg-inset px-2 font-mono text-xs text-text disabled:opacity-50"
+                    title="Yonga başına veri hattı (Dual Parallel'de toplam iki katı: 2×4=x8)."
+                  >
+                    <option value="">veri: varsayılan</option>
+                    <option value="x1">x1</option>
+                    <option value="x2">x2</option>
+                    <option value="x4">x4</option>
+                  </select>
+                  <label className={cn("flex cursor-pointer items-center gap-1.5 font-mono text-[11px]", row.enabled ? "text-muted" : "text-faint")}
+                    title="Geri besleme saati (MIO 6). Kartında bağlı değilse kapalı bırak.">
+                    <input
+                      type="checkbox"
+                      checked={row.qspiFbclk}
+                      onChange={(e) => patchRow({ qspiFbclk: e.target.checked })}
+                      disabled={!row.enabled}
+                      className="h-3.5 w-3.5 accent-[var(--accent)]"
+                    />
+                    FBCLK (MIO 6)
+                  </label>
+                </div>
+              );
+            }
             return (
               <div key={row.kind} className={cn("flex items-center gap-2 rounded-md border px-2 py-1.5", row.enabled ? "border-accent/40 bg-accent/5" : "border-border bg-inset")}>
                 <label className="flex w-40 shrink-0 cursor-pointer items-center gap-2">

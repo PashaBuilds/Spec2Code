@@ -3,6 +3,26 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.124 - 2026-07-08
+
+- Vivado QSPI JENERIK oldu (kullanicinin kart plani uzerine): QSPI
+  satirinda MOD (Single = MIO 0..5 | Dual Parallel 2xyonga = MIO 0..12),
+  VERI HATTI (x1/x2/x4 - yonga basina; Dual Parallel'de toplam iki
+  kati, or. 2x4=x8) ve FBCLK (MIO 6, istege bagli) arayuzden secilir.
+  MIO'yu mod belirler; tum parametre adlari/degerleri zcu102.xsa'dan
+  dogrulandi (PSU__QSPI__PERIPHERAL__MODE 'Dual Parallel', DATA_MODE,
+  GRP_FBCLK). Tutarlilik icin tek dict'te uygulanir; hata durumunda
+  mod/data/io'yu soyleyen net mesaj.
+- E2E kaniti (kullanicinin kart plani BIREBIR, gercek Vivado 2023.2 +
+  XSCT): UART1@MIO60-61, I2C0@MIO58-59, SPI0@MIO64-69, QSPI Dual
+  Parallel x4 FBCLK'siz, PSS_REF 33.333MHz, DDR MT40A512M16 x2 32-bit
+  -> XSA uretildi (hwh'de tum degerler birebir); parser 4 denetleyiciyi
+  dogru buldu (XPAR_PSU_UART_1/I2C_0/SPI_0/QSPI_0); FreeRTOS workspace
+  KURULDU ve yazilim tarafi dogrulandi: UART1 0xFF010000, I2C0
+  0xFF020000, SPI0 0xFF040000, QSPI 0xFF0F0000 + XQSPIPSU_0_QSPI_MODE=2
+  (dual parallel), BUS_WIDTH=2 (x4), FBCLK=0; xuartps/xspips/xqspipsu
+  suruculeri libxil'de derli, libfreertos.a uretildi.
+
 ## v0.1.123 - 2026-07-08
 
 - Vivado tasarimlarinda TTC'ler artik HER ZAMAN acik (SAHA BULGUSU):

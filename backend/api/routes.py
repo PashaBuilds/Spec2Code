@@ -931,6 +931,9 @@ def vitis_workspace_result(vitis_job_id: str) -> dict:
 class VivadoPeripheralRequest(BaseModel):
     kind: str
     mio: str = ""
+    qspi_mode: str = ""
+    qspi_data_mode: str = ""
+    qspi_fbclk: bool = False
 
 
 class VivadoDesignRequest(BaseModel):
@@ -957,7 +960,11 @@ def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
         part=req.part,
         temp_path=req.temp_path,
         design_name=re.sub(r"[^A-Za-z0-9_]+", "_", req.design_name).strip("_") or "spec2code_hw",
-        peripherals=[VivadoPeripheral(kind=p.kind, mio=p.mio) for p in req.peripherals],
+        peripherals=[
+            VivadoPeripheral(kind=p.kind, mio=p.mio, qspi_mode=p.qspi_mode,
+                             qspi_data_mode=p.qspi_data_mode, qspi_fbclk=p.qspi_fbclk)
+            for p in req.peripherals
+        ],
         ref_clk_mhz=req.ref_clk_mhz,
         ddr_mode=req.ddr_mode,
         ddr_params=req.ddr_params,

@@ -170,7 +170,7 @@ export const api = {
     part: string;
     temp_path: string;
     design_name: string;
-    peripherals: Array<{ kind: string; mio: string }>;
+    peripherals: Array<{ kind: string; mio: string; qspi_mode?: string; qspi_data_mode?: string; qspi_fbclk?: boolean }>;
     ref_clk_mhz: string;
     ddr_mode: string;
     ddr_params: Record<string, string>;

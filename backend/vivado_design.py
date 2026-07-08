@@ -65,10 +65,21 @@ _VERSAL_PERIPHERALS: dict[str, str] = {
 _MIO_RE = re.compile(r"^(?:MIO|PMC_MIO|PS_MIO)\s+\d+(?:\s*\.\.\s*\d+)?$")
 
 
+#: QSPI mod seçenekleri (değerler zcu102.xsa'dan ve canlı probe'dan
+#: doğrulandı): Single → IO 'MIO 0 .. 5'; Dual Parallel (2 yonga, toplam x8)
+#: → IO 'MIO 0 .. 12'. FBCLK MIO 6'dadır ve isteğe bağlıdır.
+_QSPI_MODES = {"Single": "MIO 0 .. 5", "Dual Parallel": "MIO 0 .. 12"}
+_QSPI_DATA_MODES = ("x1", "x2", "x4")
+
+
 @dataclass
 class VivadoPeripheral:
     kind: str          # uart0 | i2c0 | ... (yukarıdaki tablolardan)
     mio: str = ""      # "MIO 18 .. 19" / "PMC_MIO 42 .. 43"; boş = IP varsayılanı
+    # Yalnız qspi için (ZynqMP): mod/data/FBCLK — jenerik giriş.
+    qspi_mode: str = ""       # "" = Single | "Dual Parallel"
+    qspi_data_mode: str = ""  # "" = IP varsayılanı | x1 | x2 | x4 (yonga başına)
+    qspi_fbclk: bool = False  # MIO 6 geri besleme saati
 
 
 @dataclass
@@ -110,6 +121,15 @@ def validate_design(cfg: VivadoDesignConfig) -> list[str]:
         if per.mio and not _MIO_RE.match(per.mio.strip()):
             errors.append(
                 f"peripherals.{per.kind}.mio: biçim 'MIO 18 .. 19' / 'PMC_MIO 42 .. 43' olmalı (şu an: {per.mio!r})")
+        if per.kind == "qspi":
+            if per.qspi_mode and per.qspi_mode not in _QSPI_MODES:
+                errors.append(
+                    f"peripherals.qspi.qspi_mode: {' | '.join(_QSPI_MODES)} olmalı (şu an: {per.qspi_mode!r})")
+            if per.qspi_data_mode and per.qspi_data_mode not in _QSPI_DATA_MODES:
+                errors.append(
+                    f"peripherals.qspi.qspi_data_mode: {' | '.join(_QSPI_DATA_MODES)} olmalı (şu an: {per.qspi_data_mode!r})")
+        elif per.qspi_mode or per.qspi_data_mode or per.qspi_fbclk:
+            errors.append(f"peripherals.{per.kind}: qspi_* alanları yalnız qspi için geçerli")
     if cfg.ref_clk_mhz:
         try:
             float(cfg.ref_clk_mhz)
@@ -190,6 +210,23 @@ _ZYNQMP_IO_HELPERS_TCL = """proc spec2codeAssignPeripheral {ps enable_param io_p
         }
     }
     puts "S2C-VIVADO|io_assigned=$label|[get_property CONFIG.$io_param $ps]"
+}
+proc spec2codeAssignQspi {ps io mode data_mode fbclk} {
+    # QSPI mod/IO/FBCLK tutarli TEK dict'te verilmeli (parametre adlari ve
+    # 'Dual Parallel' degeri zcu102.xsa'dan dogrulandi).
+    set cfg [list CONFIG.PSU__QSPI__PERIPHERAL__ENABLE {1} \
+                  CONFIG.PSU__QSPI__PERIPHERAL__IO $io \
+                  CONFIG.PSU__QSPI__PERIPHERAL__MODE $mode]
+    if {$data_mode ne ""} { lappend cfg CONFIG.PSU__QSPI__PERIPHERAL__DATA_MODE $data_mode }
+    if {$fbclk} {
+        lappend cfg CONFIG.PSU__QSPI__GRP_FBCLK__ENABLE {1} CONFIG.PSU__QSPI__GRP_FBCLK__IO {MIO 6}
+    } else {
+        lappend cfg CONFIG.PSU__QSPI__GRP_FBCLK__ENABLE {0}
+    }
+    if {[catch {set_property -dict $cfg $ps} spec2code_err]} {
+        error "Spec2Code: QSPI konfigurasyonu reddedildi (mod=$mode data=$data_mode io=$io fbclk=$fbclk). Vivado: $spec2code_err"
+    }
+    puts "S2C-VIVADO|io_assigned=qspi|$io ($mode[expr {$data_mode ne {} ? \" $data_mode\" : {}}][expr {$fbclk ? { +FBCLK} : {}}])"
 }
 """
 
@@ -273,6 +310,17 @@ def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
     )
     for per in manual + auto:
         root = _ZYNQMP_PERIPHERALS[per.kind]
+        if per.kind == "qspi":
+            # QSPI ozel: mod IO'yu belirler (Single=0..5, Dual Parallel=0..12,
+            # zcu102'den dogrulandi); mod/data/FBCLK tek dict'te uygulanir.
+            mode = per.qspi_mode or "Single"
+            io = _tcl_brace(_QSPI_MODES[mode])
+            data = _tcl_brace(per.qspi_data_mode) if per.qspi_data_mode else "{}"
+            fbclk = "1" if per.qspi_fbclk else "0"
+            lines.append(
+                f"spec2codeAssignQspi $spec2code_ps {io} {_tcl_brace(mode)} {data} {fbclk}\n"
+            )
+            continue
         requested = _tcl_brace(per.mio.strip()) if per.mio.strip() else "{}"
         lines.append(
             f"spec2codeAssignPeripheral $spec2code_ps {root}__PERIPHERAL__ENABLE "
