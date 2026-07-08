@@ -436,18 +436,72 @@ def generate_header(rmap: dict) -> str:
             f"\"{item['reg']['name']} offset kaymis\");")
     lines.append("")
 
-    # init prototipi.
+    # init + dump prototipleri.
     lines.append(f"void {map_name}Init(void);")
+    lines.append(f"void {map_name}Dump(void);")
     lines.append("")
     lines.append(f"#endif /* {guard} */")
     lines.append("")
     return "\n".join(lines)
 
 
+def _dump_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[dict]) -> list[str]:
+    """Register değerlerini isimleriyle DÜZGÜN bir tablo halinde yazan
+    `<map>Dump(void)`. Bitfield register'da ham değer + her bit alanı adıyla;
+    skaler register doğrudan; reserved atlanır. Çıktı fonksiyonu REGMAP_PRINTF
+    makrosuyla soyutlanır (varsayılan printf; Vitis'te -DREGMAP_PRINTF=xil_printf
+    ile hafif çıktı). -DREGMAP_NO_DUMP tümünü derleme dışı bırakır."""
+    out: list[str] = []
+    out.append("")
+    out.append("#ifndef REGMAP_NO_DUMP")
+    out.append("/* Register haritasini duzgun bir tablo halinde yazar. Vitis'te hafif")
+    out.append(" * cikti icin -DREGMAP_PRINTF=xil_printf; istemezseniz -DREGMAP_NO_DUMP. */")
+    out.append("#include <stdio.h>")
+    out.append("#ifndef REGMAP_PRINTF")
+    out.append("#define REGMAP_PRINTF printf")
+    out.append("#endif")
+    out.append("")
+    out.append(f"void {map_name}Dump(void)")
+    out.append("{")
+    out.append(f'    REGMAP_PRINTF("=== {map_name} @ 0x%08X ===\\r\\n", (unsigned int)({MOD}_BASE_ADDRESS));')
+    out.append('    REGMAP_PRINTF("%-26s %-8s   %s\\r\\n", "NAME", "OFFS/BIT", "VALUE");')
+    for item in layout:
+        reg = item["reg"]
+        if reg.get("reserved"):
+            continue
+        width = item["width"]
+        member = item["member"]
+        name = reg["name"]
+        offs = f"0x{item['offset']:03X}"
+        if width <= 4:
+            cast, rawfmt, fieldfmt = "unsigned int", f"0x%0{width * 2}X", "0x%X"
+        elif width == 8:
+            cast, rawfmt, fieldfmt = "unsigned long long", "0x%016llX", "0x%llX"
+        else:
+            # Standart olmayan genişlik: skaler bayt dizisi — tek değer basılamaz.
+            out.append(f'    REGMAP_PRINTF("%-26s %-8s   ({width}B dizi)\\r\\n", "{name}", "{offs}");')
+            continue
+        if item["kind"] == "scalar":
+            out.append(f'    REGMAP_PRINTF("%-26s %-8s = {rawfmt}\\r\\n", "{name}", "{offs}", '
+                       f'({cast})({ptr_name}->{member}));')
+        else:
+            out.append(f'    REGMAP_PRINTF("%-26s %-8s = {rawfmt}\\r\\n", "{name}", "{offs}", '
+                       f'({cast})({ptr_name}->{member}.{item["raw"]}Value));')
+            for field in sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1]):
+                msb, lsb = _bit_span(field["bits"])
+                bits = f"[{msb}:{lsb}]" if msb != lsb else f"[{msb}]"
+                out.append(f'    REGMAP_PRINTF("  %-24s %-8s = {fieldfmt}\\r\\n", "{field["name"]}", '
+                           f'"{bits}", ({cast})({ptr_name}->{member}.{field["name"]}));')
+    out.append("}")
+    out.append("#endif /* REGMAP_NO_DUMP */")
+    return out
+
+
 def generate_source(rmap: dict) -> str:
     """Bir register map için .c içeriği: base'e map'li static struct pointer +
     init (her register'i reset degerine esitler; skaler dogrudan, bitfield ham
-    <onek>Value uzerinden; reserved atlanir)."""
+    <onek>Value uzerinden; reserved atlanir) + Dump (degerleri tablo halinde
+    yazar)."""
     map_name = rmap["name"]
     MOD = re.sub(r"[^A-Z0-9]", "_", map_name.upper())
     struct_t = _struct_type_name(map_name)
@@ -479,6 +533,7 @@ def generate_source(rmap: dict) -> str:
         else:  # bitfield
             lines.append(f"    {ptr_name}->{item['member']}.{item['raw']}Value = {rhs};")
     lines.append("}")
+    lines.extend(_dump_function_lines(map_name, MOD, ptr_name, layout))
     lines.append("")
     return "\n".join(lines)
 

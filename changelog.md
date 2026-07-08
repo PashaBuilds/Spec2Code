@@ -3,6 +3,20 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.130 - 2026-07-09
+
+- REGISTER MAP DUMP FONKSIYONU (kullanici istegi): uretilen .c dosyasina her
+  register'i DUZGUN bir tablo halinde yazan `<map>Dump(void)` eklendi.
+  - Bitfield register: once ham deger, sonra HER bit alani kendi adiyla ve
+    [bit] araligiyla (sirasiyla, LSB-first). Skaler register: dogrudan
+    degiskeni adiyla (or. temperature). Reserved atlanir.
+  - Cikti REGMAP_PRINTF makrosuyla soyut: varsayilan `printf`; Vitis'te hafif
+    cikti icin derlerken -DREGMAP_PRINTF=xil_printf; istenmezse -DREGMAP_NO_DUMP
+    ile tumu derleme disi. Prototip header'da (`void <map>Dump(void);`).
+  - Deger tipi/bicimi genislige uyar (2B -> %04X unsigned int, 8B -> %016llX
+    unsigned long long). Gercek aarch64 gcc -std=c11 -Wall -Wextra -Werror
+    (-Wformat dahil) ile temiz derlendi.
+
 ## v0.1.129 - 2026-07-09
 
 - REGISTER MAP DEGISKEN GENISLIK (kullanici istegi): register'lar artik sabit

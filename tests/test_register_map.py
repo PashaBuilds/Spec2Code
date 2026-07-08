@@ -119,6 +119,26 @@ class RegisterMapCodegenTests(unittest.TestCase):
         files = rm.generate_files(self._doc())
         self.assertEqual(set(files), {"pl_mix_regs.h", "pl_mix.c"})
 
+    def test_dump_function_prints_registers_and_fields_by_name(self) -> None:
+        h = rm.generate_header(self._doc()["maps"][0])
+        c = rm.generate_source(self._doc()["maps"][0])
+        # Prototip header'da, fonksiyon source'ta; REGMAP_PRINTF makrosu.
+        self.assertIn("void pl_mixDump(void);", h)
+        self.assertIn("void pl_mixDump(void)", c)
+        self.assertIn("#define REGMAP_PRINTF printf", c)
+        self.assertIn("#ifndef REGMAP_NO_DUMP", c)
+        # Bitfield register: ham deger + her alan adiyla ([bit] etiketiyle).
+        self.assertIn("S_spPlMix->SCONFIG.usValue", c)
+        self.assertIn('"EN"', c)
+        self.assertIn("S_spPlMix->SCONFIG.EN", c)
+        self.assertIn('"MODE"', c)
+        self.assertIn('"[2:1]"', c)
+        # Skaler register: dogrudan degiskeniyle.
+        self.assertIn("S_spPlMix->uiTemperature", c)
+        self.assertIn('"temperature"', c)
+        # Reserved dump'ta atlanir.
+        self.assertNotIn("ucReserved0", c)
+
 
 class RegisterMapHtmlRoundTripTests(unittest.TestCase):
     def test_build_html_embeds_and_extract_recovers_document(self) -> None:
