@@ -1626,6 +1626,46 @@ class TestbenchTests(unittest.TestCase):
         # Kilitlenen kombine desen bu birimde bir daha uretilmemeli.
         self.assertNotIn("XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX", driver)
 
+    def test_qspi_flash_stripes_data_phase_in_parallel_mode_only(self) -> None:
+        # SAHA BULGUSU (2026-07-08): MT25QU02G dual-parallel'de beklenen
+        # formatta okunamadi. Kok neden: veri fazinda XQSPIPSU_MSG_FLAG_STRIPE
+        # yoktu. Resmi qspipsu flash ornegi (v1_16) ile dogrulandi: STRIPE
+        # YALNIZ veri fazina (data read RX / page program TX payload) ve
+        # YALNIZ ConnectionMode PARALLEL iken eklenir; komut/adres/dummy'ye ve
+        # ID okumaya EKLENMEZ. Single flash'ta kosul false, davranis degismez.
+        spec = load_sample_spec("unit_no_spi_testbench")
+        spec["controllers"] = [
+            {"id": "ps_qspi_0", "type": "qspi", "instance": "XPAR_XQSPIPSU_0",
+             "base_address": "0xFF0F0000", "device_id": 0, "driver": "XQspiPsu",
+             "source": "xparameters", "zone": "ps"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [
+            {"id": "u2_mt25qu02g", "part": "MT25QU02G",
+             "descriptor_ref": "descriptors/mt25qu02g.yaml",
+             "attach": {"controller_id": "ps_qspi_0", "spi_chip_select": 0,
+                        "address_width": 32, "reset_gpio": None},
+             "operations_requested": ["device_init", "id_read", "data_read", "page_program"],
+             "tests_requested": ["self_test"]},
+        ]
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            driver = (out_dir / "drivers" / "mt25qu02g.c").read_text(encoding="utf-8")
+
+        # Runtime PARALLEL kosulu (single flash'i etkilemez) + stripe |= .
+        self.assertIn("Config.ConnectionMode == XQSPIPSU_CONNECTION_MODE_PARALLEL", driver)
+        self.assertIn("|= XQSPIPSU_MSG_FLAG_STRIPE;", driver)
+        # command_read: stripe RX veri mesajina; command_write: veri ayri
+        # mesaj + uiMsgCount ile kosullu (verisiz cagride tek mesaj).
+        self.assertEqual(driver.count("|= XQSPIPSU_MSG_FLAG_STRIPE;"), 2)
+        self.assertIn("uiMsgCount", driver)
+        self.assertIn("if (uiLength > 0U)", driver)
+        # ID okuma (command_send) stripe kullanmaz: tek TX opcode.
+        idx = driver.find("CommandSend")
+        # Stripe yalniz iki veri fazinda; ID/komut fazinda gecmez (sayi 2).
+
     @unittest.skipUnless(shutil.which("gcc") or shutil.which("cc"), "host C compiler required")
     def test_generated_request_parser_round_trips_on_host_compiler(self) -> None:
         # Regresyon (sahada bulundu): satir kopyalama TextCopy ile yapilinca

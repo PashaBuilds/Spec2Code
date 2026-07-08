@@ -1073,6 +1073,15 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         rd.ln("sArrMessage[1].ByteCount = uiLength;")
         rd.ln("sArrMessage[1].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
         rd.ln("sArrMessage[1].Flags = XQSPIPSU_MSG_FLAG_RX;")
+        # Dual-parallel (iki flash) modunda VERI fazi iki yongaya seritlenir:
+        # STRIPE yalniz veri RX mesajina, yalniz ConnectionMode PARALLEL iken
+        # eklenir - komut/adres/dummy'ye eklenmez (resmi Xilinx qspipsu flash
+        # ornegi FlashRead ile birebir; SAHA 2026-07-08: stripe'siz okumada
+        # dual-parallel byte'lari yanlis birlesiyordu). Single flash'ta kosul
+        # false, davranis degismez.
+        rd.open(f"if ({hvar}->Config.ConnectionMode == XQSPIPSU_CONNECTION_MODE_PARALLEL)")
+        rd.ln("sArrMessage[1].Flags |= XQSPIPSU_MSG_FLAG_STRIPE;")
+        rd.close()
         rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 2U);").check_status()
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiIndex];").close()
         rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader);")
@@ -1092,7 +1101,8 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     wr = Emit()
     wr.ln("unsigned char ucArrTx[" + max_def + "];")
     if _is_qspipsu(htype):
-        wr.ln("XQspiPsu_Msg sArrMessage[1];")
+        wr.ln("XQspiPsu_Msg sArrMessage[2];")
+        wr.ln("unsigned int uiMsgCount;")
     wr.ln("unsigned int uiIndex;").ln("unsigned int uiHeader;")
     wr.ln("int iStatus;")
     wr.blank()
@@ -1104,12 +1114,29 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     wr.close()
     wr.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucArrTx[uiHeader + uiIndex] = ucpData[uiIndex];").close()
     if _is_qspipsu(htype):
+        # Resmi flash write akisi: komut+adres AYRI TX mesaj, veri payload'i
+        # AYRI TX mesaj. Dual-parallel'de STRIPE yalniz veri mesajina ve
+        # yalniz ConnectionMode PARALLEL iken eklenir (komut/adres seritlenmez
+        # - resmi qspipsu FlashWrite ile birebir). Verisiz (uiLength==0)
+        # cagrilarda tek mesaj gonderilir.
         wr.ln("sArrMessage[0].TxBfrPtr = ucArrTx;")
         wr.ln("sArrMessage[0].RxBfrPtr = NULL;")
-        wr.ln("sArrMessage[0].ByteCount = uiHeader + uiLength;")
+        wr.ln("sArrMessage[0].ByteCount = uiHeader;")
         wr.ln("sArrMessage[0].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
         wr.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
-        wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
+        wr.ln("uiMsgCount = 1U;")
+        wr.open("if (uiLength > 0U)")
+        wr.ln("sArrMessage[1].TxBfrPtr = &ucArrTx[uiHeader];")
+        wr.ln("sArrMessage[1].RxBfrPtr = NULL;")
+        wr.ln("sArrMessage[1].ByteCount = uiLength;")
+        wr.ln("sArrMessage[1].BusWidth = XQSPIPSU_SELECT_MODE_SPI;")
+        wr.ln("sArrMessage[1].Flags = XQSPIPSU_MSG_FLAG_TX;")
+        wr.open(f"if ({hvar}->Config.ConnectionMode == XQSPIPSU_CONNECTION_MODE_PARALLEL)")
+        wr.ln("sArrMessage[1].Flags |= XQSPIPSU_MSG_FLAG_STRIPE;")
+        wr.close()
+        wr.ln("uiMsgCount = 2U;")
+        wr.close()
+        wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, uiMsgCount);").check_status()
     else:
         wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
         wr.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, uiHeader + uiLength);").check_status()

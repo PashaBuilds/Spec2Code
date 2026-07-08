@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.125 - 2026-07-08
+
+- QSPI FLASH DUAL-PARALLEL DUZELTMESI (SAHA, kullanici): MT25QU02G
+  dual-parallel modda beklenen formatta okunamiyordu. Kok neden: veri
+  fazinda XQSPIPSU_MSG_FLAG_STRIPE eksikti. Resmi Xilinx qspipsu flash
+  ornegi (v1_16) ile DOGRULANDI: stripe YALNIZ veri fazina eklenir
+  (data read RX mesaji + page program TX payload mesaji) ve YALNIZ
+  ConnectionMode PARALLEL iken - komut/adres/dummy'ye ve JEDEC ID
+  okumaya EKLENMEZ (kullanicinin tespiti birebir dogru). Runtime kosul
+  oldugundan single flash tasarimlar hic etkilenmez. command_write
+  ayrica resmi akisa gore komut+adres / veri olarak iki mesaja bolundu
+  (verisiz cagride tek mesaj). vck190 BSP -Werror derlemesi temiz.
+- Test Bench: "Dosya transferi" artik AYRI bir mod (saha istegi). Flash
+  cihazinda operasyon butonlari arasina "Dosya transferi (oku -> .bin /
+  .bin -> yaz)" secenegi eklendi; secilince tekil operasyon paneli
+  gizlenir, yalniz binary aktarim karti gorunur. Boylece dosya oku/yaz
+  kutusu artik JEDEC ID / data read / page program panellerine
+  sizmiyor - kendi bolumunde kaliyor.
+
 ## v0.1.124 - 2026-07-08
 
 - Vivado QSPI JENERIK oldu (kullanicinin kart plani uzerine): QSPI

@@ -193,6 +193,11 @@ export default function TestBenchPanel() {
   const board = useBoardConnection();
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [selectedOperationName, setSelectedOperationName] = useState("");
+  // Flash cihazlarında "Dosya transferi" AYRI bir moddur: seçilince tekil
+  // operasyon paneli gizlenir, yalnız FlashTransferCard görünür (saha isteği:
+  // dosya oku/.bin yaz kutusu id_read/data_read/page_program panellerine
+  // sızmamalı).
+  const [flashTransferMode, setFlashTransferMode] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerAddress, setRegisterAddress] = useState("");
   const [address, setAddress] = useState("0x0");
@@ -525,12 +530,13 @@ export default function TestBenchPanel() {
                   type="button"
                   onClick={() => {
                     setSelectedOperationName(op.name);
+                    setFlashTransferMode(false);
                     setResult(null);
                     setResultMeta(null);
                   }}
                   className={cn(
                     "rounded-md border px-3 py-2 text-left text-xs transition-colors",
-                    selectedOperation.name === op.name
+                    !flashTransferMode && selectedOperation.name === op.name
                       ? "border-accent/50 bg-accent/15 text-text"
                       : "border-border bg-inset text-muted hover:text-text",
                   )}
@@ -539,8 +545,25 @@ export default function TestBenchPanel() {
                   <span className="block font-mono text-[10px] text-faint">{op.name}</span>
                 </button>
               ))}
+              {/* Flash cihazları için ayrı bir toplu "Dosya transferi" modu. */}
+              {selectedDevice.operations.some((op) => op.name === "data_read" || op.name === "page_program") ? (
+                <button
+                  type="button"
+                  onClick={() => setFlashTransferMode(true)}
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-left text-xs transition-colors",
+                    flashTransferMode
+                      ? "border-accent/50 bg-accent/15 text-text"
+                      : "border-border bg-inset text-muted hover:text-text",
+                  )}
+                >
+                  <span className="block font-semibold">Dosya transferi</span>
+                  <span className="block font-mono text-[10px] text-faint">oku → .bin / .bin → yaz</span>
+                </button>
+              ) : null}
             </div>
 
+            {flashTransferMode ? null : (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
               <div className="space-y-3">
                 <div className="rounded-md border border-border bg-inset p-3">
@@ -636,11 +659,10 @@ export default function TestBenchPanel() {
 
               <ResultPanel result={result} meta={resultMeta} operation={resultOperation} />
             </div>
+            )}
 
-            {selectedDevice.operations.some((op) => op.name === "data_read" || op.name === "page_program") ? (
-              <div className="mt-4">
-                <FlashTransferCard device={selectedDevice} />
-              </div>
+            {flashTransferMode ? (
+              <FlashTransferCard device={selectedDevice} />
             ) : null}
           </div>
         ) : (
