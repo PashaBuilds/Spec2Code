@@ -30,8 +30,9 @@ DATA_DIRS = [
     "std",
     "orchestrator/templates",
     "orchestrator/qc/bsp_stubs",
-    # Vivado MIO seçenek tablosu (zynqmp_mio_options.json) buradan okunur;
-    # pakette olmazsa MIO dropdown boş kalır.
+    # Vivado MIO seçenek tablosu (zynqmp_mio_options.json) + DDR havuzu +
+    # register map HTML editör template'i buradan okunur; pakette olmazsa
+    # MIO dropdown boş kalır / register map HTML export çalışmaz.
     "backend/data",
 ]
 

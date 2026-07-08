@@ -3,6 +3,43 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.126 - 2026-07-08
+
+- REGISTER MAP YETENEGI (yeni): sayisal tasarim ekibinin verdigi register
+  haritasi (base adres + her biri 4 bayt/32 bit register + LSB-first bit
+  alanlari + reset degerleri + register isimleri) otomatik olarak
+  typedef struct/union header (.h) + kaynak (.c) koduna cevriliyor.
+  - Her register bir UNION: ham erisim icin `unsigned int uiValue` +
+    LSB-first paketli bit alani struct'i `sBits`. Tanimsiz bit araliklari
+    otomatik `uiReservedBitsN` dolgulariyla kapatilir.
+  - Her register TAM 4 bayt yer tutar (reserved olsa bile); ardisik olmayan
+    offsetler struct icinde `uiReservedN[...]` dolgusuyla korunur.
+  - Init fonksiyonu her register'i RESET degerine esitler (sifirlama DEGIL);
+    reserved register'lar init'te atlanir.
+  - `_Static_assert(offsetof(...))` muhurleri struct offset'lerini register
+    offset'lerine kilitler - kayma olursa derleme durur.
+  - Tek dosyada birden fazla register map; her map icin bir .h + bir .c.
+  - KANONIK BICIM = JSON, self-contained bir HTML editorun icine gomulu
+    (`<script id="spec2code-registermap-data" type="application/json">`).
+    Sayisal tasarim muhendisi Spec2Code olmadan herhangi bir tarayicida
+    acip duzenleyip geri gonderebilir. HTML "Kaydet" (Chrome/Edge) File
+    System Access API ile AYNI dosyaya yazar; desteklenmeyen tarayicida
+    "Indir"e duser. Ag uzerinde ortak dosyayi iki kisi duzenlerse kaydetten
+    once disk surumu yeniden okunur ve register duzeyinde 3-yollu
+    optimistic merge yapilir (cakisan register'lar icin secim diyalogu).
+  - Spec2Code icinde IKIZ editor sayfasi ("Register Map" sekmesi + komut
+    paleti): ayni JSON semasini paylasir; HTML/JSON ice/disa aktarma, canli
+    bit haritasi gorsellestirmesi ve .h/.c uretimi/onizlemesi.
+  - Derleme dogrulamasi: uretilen header+kaynak gercek aarch64 bare-metal
+    gcc ile `-std=c11 -Wall -Wextra -Werror` altinda temiz derlendi;
+    static_assert offset muhurlerinin gecmesi paketlemenin dogrulugunu
+    kanitliyor (bosluklu + reserved senaryo dahil).
+  - HTML->doc cikaricisinda kok-neden duzeltmesi: regex, sablonun en
+    ustundeki yorumda METIN olarak gecen <script id="..."> etiketine
+    takiliyordu; artik `type="application/json"` niteligini de arayan
+    lookahead'lerle yalniz gercek veri adasini eslestiriyor (hem backend
+    hem editor JS tarafinda).
+
 ## v0.1.125 - 2026-07-08
 
 - QSPI FLASH DUAL-PARALLEL DUZELTMESI (SAHA, kullanici): MT25QU02G

@@ -26,10 +26,11 @@ import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
 import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
+import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
 import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "regmap";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -129,6 +130,7 @@ export default function App() {
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
+    { id: "regmap", label: "Register Map — struct/union header üret", hint: "görünüm", keywords: "register map struct union header bitfield memory mapped pl ip", run: () => setView("regmap") },
     { id: "vivado", label: "Vivado ile XSA üret (Setup içinde)", hint: "adım", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => { setStep("setup"); setView("flow"); setSetupVivado(true); } },
   ];
 
@@ -202,6 +204,7 @@ export default function App() {
           ["serial", AudioWaveform, "Seri Hat"],
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
+          ["regmap", Cpu, "Register Map"],
           ["docs", BookOpenText, "Kılavuz"],
           ["import", FileInput, "Import"],
         ] as const).map(([id, Icon, label]) => (
@@ -289,6 +292,11 @@ export default function App() {
         {keepAlive("docs", (
           <div className="h-full min-h-0 p-4">
             <DocsPanel />
+          </div>
+        ))}
+        {keepAlive("regmap", (
+          <div className="h-full min-h-0 overflow-auto p-4">
+            <RegisterMapPanel />
           </div>
         ))}
         {keepAlive("import", (

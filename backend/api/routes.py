@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
+from backend import register_map as regmap
 from backend.parsers.xsa import XsaParseError, parse_xsa, safe_xsa_filename
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
 from backend.testbench import (
@@ -998,6 +999,56 @@ def vivado_parts(req: VivadoPartsRequest) -> dict:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - Vivado hatası kullanıcıya aynen gider
         raise HTTPException(502, str(exc)) from exc
+
+
+class RegisterMapRequest(BaseModel):
+    document: dict
+
+
+class RegisterMapHtmlRequest(BaseModel):
+    html: str
+
+
+@router.post("/register-map/validate")
+def register_map_validate(req: RegisterMapRequest) -> dict:
+    errors = regmap.validate_register_document(req.document)
+    return {"valid": not errors, "errors": errors}
+
+
+@router.post("/register-map/generate")
+def register_map_generate(req: RegisterMapRequest) -> dict:
+    """Register map dokümanı → { '<map>_regs.h': ..., '<map>.c': ... }."""
+    errors = regmap.validate_register_document(req.document)
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+    return {"files": regmap.generate_files(req.document)}
+
+
+@router.post("/register-map/export-html")
+def register_map_export_html(req: RegisterMapRequest) -> dict:
+    """Dokümanı self-contained HTML editöre gömer (sayısal ekiple paylaşım)."""
+    errors = regmap.validate_register_document(req.document)
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+    return {"html": regmap.build_html(req.document)}
+
+
+@router.post("/register-map/import-html")
+def register_map_import_html(req: RegisterMapHtmlRequest) -> dict:
+    """Self-contained HTML'den gömülü register map dokümanını çıkarır."""
+    try:
+        document = regmap.extract_document_from_html(req.html)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    errors = regmap.validate_register_document(document)
+    return {"document": document, "valid": not errors, "errors": errors}
+
+
+@router.get("/register-map/example")
+def register_map_example() -> dict:
+    """Boş/örnek register map + gömülü hâli (self-contained HTML editör)."""
+    doc = regmap.blank_document()
+    return {"document": doc, "html": regmap.build_html(doc)}
 
 
 @router.get("/vivado/ddr-parts")

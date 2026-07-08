@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spec2Code — Register Map Editörü</title>
+<!--
+  Spec2Code self-contained register map editörü.
+  Tek dosya: veri aşağıdaki <script id="spec2code-registermap-data"> içinde
+  JSON olarak gömülü. Herhangi bir tarayıcıda açılır; Spec2Code gerektirmez.
+  "Kaydet" (Chrome/Edge) File System Access API ile AYNI dosyaya yazar;
+  desteklenmeyen tarayıcıda "İndir"e düşer. Kaydetmeden önce disk sürümü
+  yeniden okunur ve register düzeyinde birleştirme (optimistic merge) yapılır.
+-->
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --inset: #0b0f14; --border: #30363d;
+    --text: #e6edf3; --muted: #9da7b3; --faint: #6e7681; --accent: #e0913a;
+    --ok: #3fb950; --warn: #d29922; --danger: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px; }
+  code, .mono { font-family: "JetBrains Mono", Consolas, monospace; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header .logo { font-weight: 700; color: var(--accent); }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  button { background: var(--inset); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #1a1300; border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--danger); }
+  main { padding: 16px 18px; max-width: 1100px; margin: 0 auto; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tab { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--inset); cursor: pointer; color: var(--muted); }
+  .tab.active { border-color: var(--accent); color: var(--text); background: rgba(224,145,58,0.12); }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  label { font-size: 11px; color: var(--muted); }
+  input, textarea { background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 6px 8px; font-family: inherit; font-size: 13px; }
+  input.mono { font-family: "JetBrains Mono", Consolas, monospace; }
+  input.err { border-color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .reg-row td { background: var(--panel); }
+  .fields { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+  .fieldrow { display: flex; gap: 8px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+  .fieldrow input { width: auto; }
+  .bitmap { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 4px; }
+  .bit { width: 15px; height: 15px; border: 1px solid var(--border); border-radius: 2px;
+    font-size: 8px; text-align: center; line-height: 15px; color: var(--faint); }
+  .bit.used { background: rgba(224,145,58,0.35); border-color: var(--accent); color: var(--text); }
+  .bit.conflict { background: rgba(248,81,73,0.5); border-color: var(--danger); }
+  .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px; }
+  .msg { padding: 8px 12px; border-radius: 6px; margin: 10px 0; font-size: 13px; }
+  .msg.ok { background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.3); color: var(--ok); }
+  .msg.warn { background: rgba(210,153,34,0.12); border: 1px solid rgba(210,153,34,0.35); color: var(--warn); }
+  .msg.err { background: rgba(248,81,73,0.12); border: 1px solid rgba(248,81,73,0.35); color: var(--danger); }
+  .meta { font-size: 11px; color: var(--faint); }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: 10px; max-width: 640px; }
+  dialog::backdrop { background: rgba(0,0,0,0.6); }
+  .small { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">S2 Register Map</span>
+  <span class="sub">Spec2Code — sayısal ekip register haritası editörü</span>
+  <span class="spacer"></span>
+  <input id="editor" placeholder="Düzenleyen adı" style="width:150px" />
+  <button id="btnOpen">Aç…</button>
+  <button id="btnSave" class="primary">Kaydet</button>
+  <button id="btnDownload">İndir</button>
+  <button id="btnExportJson">JSON dışa aktar</button>
+</header>
+<main>
+  <div id="banner"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="mapMeta"></div>
+  <div id="regArea"></div>
+  <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+    <button id="btnAddReg">+ Register ekle</button>
+    <button id="btnAddMap">+ Yeni register map</button>
+    <button id="btnDelMap" class="danger">Bu map'i sil</button>
+  </div>
+  <p class="meta" id="footMeta"></p>
+</main>
+
+<dialog id="mergeDlg">
+  <h3 style="margin-top:0">Dosya sen açtıktan sonra değişmiş</h3>
+  <p class="small" id="mergeInfo"></p>
+  <div id="mergeConflicts"></div>
+  <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end">
+    <button id="mergeCancel">İptal</button>
+    <button id="mergeApply" class="primary">Birleştir ve kaydet</button>
+  </div>
+</dialog>
+
+<script id="spec2code-registermap-data" type="application/json">
+/*__SPEC2CODE_REGISTERMAP_DATA__*/
+</script>
+
+<script>
+"use strict";
+// --- Veri yükleme -------------------------------------------------------- //
+function loadEmbedded() {
+  const el = document.getElementById("spec2code-registermap-data");
+  const raw = (el ? el.textContent : "").trim();
+  if (!raw || raw.indexOf("__SPEC2CODE_REGISTERMAP_DATA__") >= 0) {
+    return { version: 1, maps: [ blankMap("ornek_blok") ] };
+  }
+  try { return JSON.parse(raw.replace(/<\\\//g, "</")); }
+  catch (e) { alert("Gömülü veri okunamadı: " + e); return { version: 1, maps: [ blankMap("ornek_blok") ] }; }
+}
+function blankMap(name) {
+  return { name: name, base_address: "0xA0000000", description: "",
+    registers: [ { name: "CONTROL", offset: "0x00", reset: "0x00000000", reserved: false,
+      description: "", fields: [ { name: "ENABLE", bits: "0", description: "" } ] } ] };
+}
+// Ham HTML metninden veri adasindaki JSON'i cikarir. Veri adasi hem id hem
+// type="application/json" tasir; ustteki yorum <script id="..."> etiketini
+// yalnizca METIN olarak aniyor, type'i yok, bu yuzden lookahead'ler onu eler.
+// Bulunamaz/parse edilemezse null doner.
+function parseEmbeddedJson(html) {
+  const re = /<script\b(?=[^>]*\bid=["']spec2code-registermap-data["'])(?=[^>]*\btype=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/i;
+  const m = re.exec(html);
+  if (!m) return null;
+  try { return JSON.parse(m[1].trim().replace(/<\\\//g, "</")); }
+  catch (e) { return null; }
+}
+
+let doc = loadEmbedded();
+let baseSnapshot = JSON.stringify(doc);   // açılış/son-kayıt hâli (merge tabanı)
+let activeMap = 0;
+let fileHandle = null;                     // File System Access handle (varsa)
+
+// --- Yardımcılar --------------------------------------------------------- //
+function parseInt0(v) { if (typeof v === "number") return v; const s = String(v||"").trim();
+  return /^0[xX][0-9a-fA-F]+$/.test(s) ? parseInt(s,16) : (/^\d+$/.test(s) ? parseInt(s,10) : NaN); }
+function bitSpan(bits) { const m = /^(\d+)(?::(\d+))?$/.exec(String(bits||"").trim()); if(!m) return null;
+  const a = +m[1], b = m[2]!==undefined ? +m[2] : +m[1]; return a>=b ? [a,b] : null; }
+function el(tag, attrs, kids) { const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) { if (k==="class") e.className=attrs[k]; else if (k==="text") e.textContent=attrs[k]; else e.setAttribute(k, attrs[k]); }
+  (kids||[]).forEach(c => e.appendChild(c)); return e; }
+
+// --- Render -------------------------------------------------------------- //
+function render() {
+  renderTabs(); renderMapMeta(); renderRegisters();
+  document.getElementById("footMeta").textContent =
+    "sürüm " + (doc.version||1) + (doc.lastEditedBy ? " · son: " + doc.lastEditedBy : "") +
+    (doc.lastEditedAt ? " @ " + doc.lastEditedAt : "");
+}
+function renderTabs() {
+  const t = document.getElementById("tabs"); t.innerHTML = "";
+  doc.maps.forEach((m, i) => {
+    const tab = el("div", { class: "tab" + (i===activeMap ? " active":""), text: m.name || ("map"+i) });
+    tab.onclick = () => { activeMap = i; render(); };
+    t.appendChild(tab);
+  });
+}
+function renderMapMeta() {
+  const m = doc.maps[activeMap]; const box = document.getElementById("mapMeta"); box.innerHTML = "";
+  const grid = el("div", { class: "row2" });
+  grid.appendChild(labeled("Map adı (C tanımlayıcı)", input(m.name, v => { m.name = v; renderTabs(); }, "mono", /^[A-Za-z_]\w*$/.test(m.name))));
+  grid.appendChild(labeled("Base adres", input(m.base_address, v => m.base_address = v, "mono", !isNaN(parseInt0(m.base_address)))));
+  grid.appendChild(labeled("Açıklama", input(m.description||"", v => m.description = v)));
+  box.appendChild(grid);
+}
+function labeled(text, node) { return el("div", { class: "field" }, [ el("label", { text }), node ]); }
+function input(value, onChange, cls, valid) {
+  const i = el("input", { class: (cls||"") + (valid===false ? " err":"") }); i.value = value||"";
+  i.oninput = () => { onChange(i.value); }; i.onblur = () => render(); return i;
+}
+
+function renderRegisters() {
+  const m = doc.maps[activeMap]; const area = document.getElementById("regArea"); area.innerHTML = "";
+  const table = el("table");
+  const thead = el("tr"); ["Offset","İsim","Reset","Reserved","Bit alanları / açıklama",""].forEach(h => thead.appendChild(el("th",{text:h})));
+  table.appendChild(thead);
+  const regs = m.registers.slice().sort((a,b) => (parseInt0(a.offset)||0)-(parseInt0(b.offset)||0));
+  regs.forEach(reg => table.appendChild(regRow(m, reg)));
+  area.appendChild(table);
+}
+function regRow(m, reg) {
+  const tr = el("tr", { class: "reg-row" });
+  tr.appendChild(el("td", {}, [ input(reg.offset, v => reg.offset = v, "mono", (parseInt0(reg.offset)%4===0)) ]));
+  tr.appendChild(el("td", {}, [ input(reg.name, v => reg.name = v, "mono", /^[A-Za-z_]\w*$/.test(reg.name)) ]));
+  tr.appendChild(el("td", {}, [ input(reg.reset, v => reg.reset = v, "mono", !isNaN(parseInt0(reg.reset))) ]));
+  const chk = el("input"); chk.type="checkbox"; chk.checked=!!reg.reserved; chk.onchange = () => { reg.reserved = chk.checked; render(); };
+  tr.appendChild(el("td", {}, [ chk ]));
+  const fcell = el("td");
+  if (!reg.reserved) { fcell.appendChild(bitMap(reg)); fcell.appendChild(fieldEditor(reg)); }
+  else fcell.appendChild(el("span", { class:"small", text:"reserved — yalnız 4 bayt yer tutar" }));
+  tr.appendChild(fcell);
+  const del = el("button", { class:"danger", text:"sil" }); del.onclick = () => { m.registers = m.registers.filter(r => r!==reg); render(); };
+  tr.appendChild(el("td", {}, [ del ]));
+  return tr;
+}
+function bitMap(reg) {
+  const wrap = el("div", { class:"bitmap" }); const used = new Array(32).fill(0);
+  (reg.fields||[]).forEach(f => { const s = bitSpan(f.bits); if(s) for(let b=s[1]; b<=s[0] && b<32; b++) used[b]++; });
+  for (let b=31; b>=0; b--) { const c = used[b]===0 ? "" : (used[b]>1 ? " conflict":" used");
+    wrap.appendChild(el("div", { class:"bit"+c, text:String(b), title:"bit "+b })); }
+  return wrap;
+}
+function fieldEditor(reg) {
+  const box = el("div", { class:"fields" });
+  (reg.fields||[]).forEach(f => {
+    const row = el("div", { class:"fieldrow" });
+    const nm = input(f.name, v => f.name = v, "mono", /^[A-Za-z_]\w*$/.test(f.name)); nm.style.width="140px";
+    const bt = input(f.bits, v => f.bits = v, "mono", !!bitSpan(f.bits)); bt.style.width="70px"; bt.placeholder="15:8";
+    const ds = input(f.description||"", v => f.description = v); ds.placeholder="açıklama"; ds.style.flex="1"; ds.style.minWidth="120px";
+    const rm = el("button", { class:"danger", text:"×" }); rm.onclick = () => { reg.fields = reg.fields.filter(x=>x!==f); render(); };
+    [labeled("alan", nm), labeled("bit", bt), labeled("açıklama", ds), rm].forEach(x=>row.appendChild(x));
+    box.appendChild(row);
+  });
+  const add = el("button", { text:"+ bit alanı" }); add.onclick = () => { reg.fields = reg.fields||[]; reg.fields.push({name:"YENI",bits:"0",description:""}); render(); };
+  box.appendChild(add);
+  return box;
+}
+
+// --- Doğrulama (kaydetmeden önce hafif) ---------------------------------- //
+function validate() {
+  const errs = [];
+  doc.maps.forEach((m,i) => {
+    if (!/^[A-Za-z_]\w*$/.test(m.name||"")) errs.push("map["+i+"] adı geçersiz");
+    if (isNaN(parseInt0(m.base_address))) errs.push(m.name+": base adres geçersiz");
+    const offs = {};
+    (m.registers||[]).forEach(r => {
+      const o = parseInt0(r.offset);
+      if (isNaN(o) || o%4!==0) errs.push(m.name+"."+r.name+": offset 4'ün katı olmalı");
+      if (offs[o]) errs.push(m.name+": offset "+r.offset+" çakışıyor ("+offs[o]+" & "+r.name+")"); else offs[o]=r.name;
+      if (isNaN(parseInt0(r.reset))) errs.push(m.name+"."+r.name+": reset geçersiz");
+      if (!r.reserved) { let used=0; (r.fields||[]).forEach(f => { const s=bitSpan(f.bits);
+        if(!s){errs.push(m.name+"."+r.name+"."+f.name+": bit biçimi hatalı");return;}
+        const mask=((1<<(s[0]-s[1]+1))-1)<<s[1]; if(used&mask) errs.push(m.name+"."+r.name+"."+f.name+": bit çakışması"); used|=mask; }); }
+    });
+  });
+  return errs;
+}
+
+// --- Kaydet / merge ------------------------------------------------------ //
+function stamp() {
+  doc.version = (doc.version||1) + 1;
+  doc.lastEditedBy = document.getElementById("editor").value.trim() || "bilinmeyen";
+  // Sabit bir zaman damgasi (uretimde yeniden-uretilebilirlik onemli degil).
+  doc.lastEditedAt = new Date().toISOString().slice(0,19).replace("T"," ");
+}
+function serializeHtml() {
+  // Bu sayfanin kendisini gunel veriyle yeniden uretir (self-contained).
+  const clone = document.documentElement.cloneNode(true);
+  const dataEl = clone.querySelector("#spec2code-registermap-data");
+  dataEl.textContent = "\n" + JSON.stringify(doc, null, 1).replace(/<\//g, "<\\/") + "\n";
+  return "<!DOCTYPE html>\n" + clone.outerHTML;
+}
+function download(name, content, mime) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+}
+function banner(kind, text) {
+  document.getElementById("banner").innerHTML = "";
+  if (text) document.getElementById("banner").appendChild(el("div", { class:"msg "+kind, text }));
+}
+
+async function readHandleDoc() {
+  if (!fileHandle) return null;
+  try { const file = await fileHandle.getFile(); const html = await file.text();
+    return parseEmbeddedJson(html);
+  } catch(e) { return null; }
+}
+
+// 3-yollu register-düzeyi birleştirme: base, mine (doc), theirs (disk).
+function mergeDocs(base, mine, theirs) {
+  const conflicts = [];
+  const byName = arr => { const o={}; (arr||[]).forEach(x=>o[x.name]=x); return o; };
+  const result = { version: Math.max(mine.version||1, theirs.version||1)+1, maps: [] };
+  const baseMaps = byName(base.maps), theirMaps = byName(theirs.maps), myMaps = byName(mine.maps);
+  const allMapNames = Array.from(new Set([...Object.keys(myMaps), ...Object.keys(theirMaps)]));
+  allMapNames.forEach(mn => {
+    const bm = baseMaps[mn], mm = myMaps[mn], tm = theirMaps[mn];
+    if (mm && !tm) { result.maps.push(mm); return; }
+    if (tm && !mm) { result.maps.push(tm); return; }
+    // ikisinde de var: register düzeyinde birleştir
+    const out = { name: mn, base_address: mm.base_address, description: mm.description, registers: [] };
+    const bR = byName(bm && bm.registers), mR = byName(mm.registers), tR = byName(tm.registers);
+    const names = Array.from(new Set([...Object.keys(mR), ...Object.keys(tR)]));
+    names.forEach(rn => {
+      const b = bR[rn], me = mR[rn], th = tR[rn];
+      if (me && !th) { out.registers.push(me); return; }
+      if (th && !me) { out.registers.push(th); return; }
+      const meStr = JSON.stringify(me), thStr = JSON.stringify(th), bStr = JSON.stringify(b||{});
+      if (meStr === thStr) { out.registers.push(me); return; }
+      if (meStr === bStr) { out.registers.push(th); return; }   // sadece disk değişmiş
+      if (thStr === bStr) { out.registers.push(me); return; }   // sadece ben değişmiş
+      conflicts.push({ map: mn, reg: rn, mine: me, theirs: th }); out.registers.push(me); // geçici: benimki
+    });
+    result.maps.push(out);
+  });
+  return { result, conflicts };
+}
+
+async function doSave() {
+  const errs = validate();
+  if (errs.length) { banner("err", "Kaydedilmedi — " + errs.length + " hata: " + errs.slice(0,3).join(" · ")); return; }
+
+  // Optimistic merge: disk sürümü açtığımızdan yeniyse birleştir.
+  if (fileHandle) {
+    const disk = await readHandleDoc();
+    if (disk && (disk.version||1) > (JSON.parse(baseSnapshot).version||1)) {
+      const { result, conflicts } = mergeDocs(JSON.parse(baseSnapshot), doc, disk);
+      if (conflicts.length) { showMergeDialog(result, conflicts, disk); return; }
+      doc = result; render();
+      banner("warn", "Disk sürümü daha yeniydi; register'lar otomatik birleştirildi.");
+    }
+  }
+  await writeOut();
+}
+
+async function writeOut() {
+  stamp();
+  const html = serializeHtml();
+  if (fileHandle && fileHandle.createWritable) {
+    try {
+      const w = await fileHandle.createWritable(); await w.write(html); await w.close();
+      baseSnapshot = JSON.stringify(doc); render();
+      banner("ok", "Kaydedildi → aynı dosyaya yazıldı (sürüm " + doc.version + ").");
+      return;
+    } catch(e) { banner("warn", "Aynı dosyaya yazılamadı, indiriliyor: " + e); }
+  }
+  download((doc.maps[0]?doc.maps[0].name:"register_map") + "_map.html", html, "text/html");
+  baseSnapshot = JSON.stringify(doc); render();
+  banner("ok", "İndirildi (tarayıcı 'aynı dosyaya kaydet'i desteklemiyor).");
+}
+
+function showMergeDialog(result, conflicts, disk) {
+  const dlg = document.getElementById("mergeDlg");
+  document.getElementById("mergeInfo").textContent =
+    disk.lastEditedBy + " tarafından değiştirilmiş (" + (disk.lastEditedAt||"") + "). " +
+    conflicts.length + " register çakışıyor — her biri için hangi sürümü tutacağını seç:";
+  const box = document.getElementById("mergeConflicts"); box.innerHTML = "";
+  conflicts.forEach((c, idx) => {
+    const row = el("div", { class:"fieldrow" });
+    row.appendChild(el("code", { text: c.map + "." + c.reg }));
+    const sel = el("select"); ["Benimki","Disk (onunki)"].forEach((o,i)=>{ const op=el("option",{text:o}); op.value=i; sel.appendChild(op); });
+    sel.dataset.idx = idx; row.appendChild(sel);
+    box.appendChild(row);
+  });
+  document.getElementById("mergeApply").onclick = async () => {
+    box.querySelectorAll("select").forEach(sel => {
+      const c = conflicts[+sel.dataset.idx];
+      if (+sel.value === 1) { // disk seçildi
+        const map = result.maps.find(m=>m.name===c.map);
+        const i = map.registers.findIndex(r=>r.name===c.reg); if(i>=0) map.registers[i] = c.theirs;
+      }
+    });
+    dlg.close(); doc = result; render(); await writeOut();
+  };
+  document.getElementById("mergeCancel").onclick = () => dlg.close();
+  dlg.showModal();
+}
+
+// --- Butonlar ------------------------------------------------------------ //
+document.getElementById("btnSave").onclick = () => doSave();
+document.getElementById("btnDownload").onclick = () => { stamp(); download((doc.maps[0]?doc.maps[0].name:"register_map")+"_map.html", serializeHtml(), "text/html"); baseSnapshot=JSON.stringify(doc); render(); };
+document.getElementById("btnExportJson").onclick = () => download((doc.maps[0]?doc.maps[0].name:"register_map")+".json", JSON.stringify(doc, null, 2), "application/json");
+document.getElementById("btnOpen").onclick = async () => {
+  if (window.showOpenFilePicker) {
+    try {
+      const [h] = await window.showOpenFilePicker({ types:[{description:"HTML",accept:{"text/html":[".html"]}}] });
+      fileHandle = h; const file = await h.getFile(); const html = await file.text();
+      const parsed = parseEmbeddedJson(html);
+      if (parsed) { doc = parsed; baseSnapshot=JSON.stringify(doc); activeMap=0; render();
+        banner("ok", "Açıldı: " + h.name + " — 'Kaydet' artık aynı dosyaya yazar."); }
+      else banner("err", "Açılamadı: " + h.name + " içinde geçerli register map verisi yok.");
+    } catch(e) { if (e.name!=="AbortError") banner("err","Açılamadı: "+e); }
+  } else { banner("warn","Tarayıcın 'Aç'ı desteklemiyor; dosyayı doğrudan aç ya da 'İndir' kullan."); }
+};
+document.getElementById("btnAddReg").onclick = () => {
+  const m = doc.maps[activeMap]; const maxOff = m.registers.reduce((a,r)=>Math.max(a,parseInt0(r.offset)||0),-4);
+  m.registers.push({ name:"YENI_REG", offset:"0x"+((maxOff+4)>>>0).toString(16).toUpperCase().padStart(2,"0"), reset:"0x00000000", reserved:false, fields:[] }); render();
+};
+document.getElementById("btnAddMap").onclick = () => { doc.maps.push(blankMap("yeni_map"+doc.maps.length)); activeMap=doc.maps.length-1; render(); };
+document.getElementById("btnDelMap").onclick = () => { if(doc.maps.length<=1){banner("warn","En az bir map kalmalı.");return;} doc.maps.splice(activeMap,1); activeMap=0; render(); };
+
+render();
+banner("", "");
+</script>
+</body>
+</html>

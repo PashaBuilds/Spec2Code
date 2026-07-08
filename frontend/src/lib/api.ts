@@ -149,6 +149,29 @@ export const api = {
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),
 
+  registerMapValidate: (document: unknown) =>
+    req<{ valid: boolean; errors: string[] }>("/api/register-map/validate", {
+      method: "POST", body: JSON.stringify({ document }),
+    }),
+
+  registerMapGenerate: (document: unknown) =>
+    req<{ files: Record<string, string> }>("/api/register-map/generate", {
+      method: "POST", body: JSON.stringify({ document }),
+    }),
+
+  registerMapExportHtml: (document: unknown) =>
+    req<{ html: string }>("/api/register-map/export-html", {
+      method: "POST", body: JSON.stringify({ document }),
+    }),
+
+  registerMapImportHtml: (html: string) =>
+    req<{ document: unknown; valid: boolean; errors: string[] }>("/api/register-map/import-html", {
+      method: "POST", body: JSON.stringify({ html }),
+    }),
+
+  registerMapExample: () =>
+    req<{ document: unknown; html: string }>("/api/register-map/example"),
+
   vivadoDdrParts: () =>
     req<{
       zynq_ultrascale: Array<{
