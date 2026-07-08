@@ -3,6 +3,23 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.128 - 2026-07-08
+
+- REGISTER MAP KOD STILI (kullanici istegi, devam): uretilen .h artik su
+  bicimde:
+  - Ic bitfield alt-struct'i ANONIM (adsiz): `sBits` uye adi ve ic struct'in
+    kendi `__attribute__((packed))`'i kaldirildi. Boylece bitfield'lara
+    DOGRUDAN erisilir: SCONTROL.MODE / SCONTROL.IRQ_EN.
+  - Register union uye adina 'S' oneki: CONTROL -> SCONTROL, STATUS ->
+    SSTATUS. Ham erisim SCONTROL.uiValue korunur.
+  - Her register icin TEK bir `__attribute__((packed))`, o da union uyesinin
+    (SCONTROL) SOLUNDA. Ic alt-struct'ta ayrica packed yazilmaz.
+  - Gercek aarch64 gcc -std=c11 -Wall -Wextra -Werror ile dogrulandi: anonim
+    struct uzerinden dogrudan bitfield erisimi (SCONTROL.MODE), ham erisim
+    (SCONTROL.uiValue) ve static_assert offset muhurleri temiz derlendi
+    (bosluklu + reserved senaryo). Dis struct mühürleyici packed korundu
+    (offset seal'leri zaten her kaymayi derlemede yakalar).
+
 ## v0.1.127 - 2026-07-08
 
 - REGISTER MAP KOD STILI (kullanici istegi): uretilen .h/.c artik su bicimde:

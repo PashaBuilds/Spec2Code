@@ -66,10 +66,12 @@ class RegisterMapCodegenTests(unittest.TestCase):
         h = rm.generate_header(self._doc()["maps"][0])
         # Ayri per-register typedef URETILMEZ; union struct icine inline yazilir.
         self.assertNotIn("typedef union", h)
-        # __attribute__((packed)) her yapinin KAPANIS ayracindan SONRA.
+        # __attribute__((packed)) dis struct + her union uyesinin (S onekli)
+        # SOLUNDA; ic bitfield alt-struct'i ANONIM (adsiz + packed'siz).
         self.assertIn("} __attribute__((packed)) SPlRadarRegs;", h)
-        self.assertIn("} __attribute__((packed)) CTRL;", h)
-        self.assertIn("} __attribute__((packed)) sBits;", h)
+        self.assertIn("} __attribute__((packed)) SCTRL;", h)
+        self.assertNotIn("sBits", h)
+        self.assertNotIn("__attribute__((packed)) sBits", h)
         # Ham deger uiValue korunur; bit alanlari ONEKSIZ + U soneksiz.
         self.assertIn("unsigned int uiValue;", h)
         self.assertIn("unsigned int EN : 1;", h)
@@ -81,20 +83,18 @@ class RegisterMapCodegenTests(unittest.TestCase):
         self.assertIn("#define PL_RADAR_CTRL_RESET 0x00000001", h)
         self.assertNotIn("0x00000001U", h)
         self.assertIn("#define PL_RADAR_BASE_ADDRESS 0xA0010000", h)
-        # Offset deligi 0x08-0x0C icin dolgu + STAT offset muhru 0x10 (u onexsiz).
+        # Offset deligi 0x08-0x0C icin dolgu + STAT offset muhru 0x10 (S onekli).
         self.assertIn("unsigned int uiReserved0[2];", h)
-        self.assertIn("offsetof(SPlRadarRegs, STAT) == 0x10", h)
-        self.assertNotIn("uSTAT", h)
+        self.assertIn("offsetof(SPlRadarRegs, SSTAT) == 0x10", h)
 
     def test_source_maps_base_and_init_writes_reset(self) -> None:
         c = rm.generate_source(self._doc()["maps"][0])
         self.assertIn("static SPlRadarRegs* const S_spPlRadar = (SPlRadarRegs*)(PL_RADAR_BASE_ADDRESS);", c)
         self.assertIn("void pl_radarInit(void)", c)
-        # Uye adi register adinin kendisi (u onexi yok), .uiValue korunur.
-        self.assertIn("S_spPlRadar->CTRL.uiValue = PL_RADAR_CTRL_RESET;", c)
-        self.assertNotIn("uCTRL", c)
+        # Uye adi 'S' + register adi, .uiValue korunur.
+        self.assertIn("S_spPlRadar->SCTRL.uiValue = PL_RADAR_CTRL_RESET;", c)
         # Reserved register init'te atlanir.
-        self.assertNotIn("RSVD.uiValue", c)
+        self.assertNotIn("SRSVD", c)
 
     def test_generate_files_names(self) -> None:
         files = rm.generate_files(self._doc())

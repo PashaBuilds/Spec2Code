@@ -191,9 +191,11 @@ def _struct_type_name(map_name: str) -> str:
 
 
 def _member_name(reg_name: str) -> str:
-    """Register üye adı = register adının kendisi (Hungarian 'u' öneki YOK;
-    bit alanı adları gibi verbatim korunur, ör. CONTROL / IRQ_EN)."""
-    return reg_name
+    """Register üye adı = 'S' + register adı (kullanıcı standardı: birleşim/
+    struct üyesi 'S' öneki taşır). Ör. CONTROL → SCONTROL; erişim
+    SCONTROL.uiValue (ham) ve SCONTROL.MODE (anonim bitfield alt-struct'ı
+    sayesinde doğrudan)."""
+    return "S" + reg_name
 
 
 # --------------------------------------------------------------------------- #
@@ -207,12 +209,13 @@ def _guard(name: str) -> str:
 def _register_member_lines(reg: dict) -> list[str]:
     """Struct içindeki INLINE union register üyesi (ayrı bir typedef üretilmez).
 
-    Ham erişim için `unsigned int uiValue` + LSB-first packed bit alanı
-    alt-struct'ı `sBits`. `__attribute__((packed))` her birleşim/alt-struct'ın
-    KAPANIŞ ayracından SONRA yazılır (kullanıcı standardı). Register üye adı
-    register adının kendisidir (u öneki yok); bit alanı adları verbatim (ui
-    öneki yok, ör. IRQ_EN); kullanılmayan bit aralıkları anonim isimsiz
-    alanlarla (`unsigned int : N;`) kapatılır ki bit konumları birebir kalsın.
+    Ham erişim için `unsigned int uiValue` + LSB-first bit alanları ANONİM bir
+    alt-struct içinde (adı yok) ki bitfield'lara doğrudan `SCONTROL.MODE` diye
+    erişilebilsin. Tek bir `__attribute__((packed))` yeterlidir; o da union
+    üyesinin (SCONTROL) SOLUNDA yazılır — iç alt-struct'ta AYRICA packed
+    yazılmaz. Üye adı 'S' + register adı; bit alanı adları verbatim (ui öneki
+    yok, ör. IRQ_EN); kullanılmayan bit aralıkları anonim isimsiz alanlarla
+    (`unsigned int : N;`) kapatılır ki bit konumları birebir kalsın.
     """
     name = _member_name(reg["name"])
     offset = _parse_int(reg.get("offset")) or 0
@@ -238,7 +241,8 @@ def _register_member_lines(reg: dict) -> list[str]:
             covered = msb + 1
         if covered < 32:
             out.append(f"            unsigned int : {32 - covered};")
-        out.append("        } __attribute__((packed)) sBits;")
+        # Anonim alt-struct: adsiz + packed'siz; bitfield'lara SCONTROL.MODE.
+        out.append("        };")
     out.append(f"    }} __attribute__((packed)) {name};  /* 0x{offset:03X} */")
     return out
 
