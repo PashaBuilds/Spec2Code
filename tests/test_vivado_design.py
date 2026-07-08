@@ -54,6 +54,11 @@ class VivadoDesignTclTests(unittest.TestCase):
         # PS-only: baglantisiz PL-yonlu arabirimler kapali (validate temiz).
         self.assertIn("CONFIG.PSU__USE__M_AXI_GP0 {0}", tcl)
         self.assertIn("CONFIG.PSU__FPGA_PL0_ENABLE {0}", tcl)
+        # SAHA BULGUSU (2026-07-08): FreeRTOS BSP'si psu_ttc_0 tick ister;
+        # TTC'siz XSA'da workspace "FreeRTOS requires valid ticker timer"
+        # ile dusuyordu. TTC0-3 her zaman acik (dahili, MIO harcamaz).
+        for i in range(4):
+            self.assertIn(f"CONFIG.PSU__TTC{i}__PERIPHERAL__ENABLE {{1}}", tcl)
         # Asama 1 sentezsiz XSA + isaret; bit istenmedi -> synth yok.
         # -fixed sart: fixed olmayan export PFM metadata ister (E2E bulgusu).
         self.assertIn("write_hw_platform -fixed -force -file", tcl)
@@ -98,6 +103,9 @@ class VivadoDesignTclTests(unittest.TestCase):
         self.assertIn("PS_UART0_PERIPHERAL {{ENABLE 1} {IO {PMC_MIO 42 .. 43}}}", tcl)
         self.assertIn("PS_I2C1_PERIPHERAL {{ENABLE 1} {IO {PMC_MIO 44 .. 45}}}", tcl)
         self.assertIn("PMC_REF_CLK_FREQMHZ 33.3333", tcl)
+        # FreeRTOS tick icin TTC'ler Versal'da da acik.
+        self.assertIn("PS_TTC0_PERIPHERAL_ENABLE 1", tcl)
+        self.assertIn("PS_TTC3_PERIPHERAL_ENABLE 1", tcl)
         # Versal'da imaj .pdi'dir ve write_device_image adimiyla uretilir.
         self.assertIn("launch_runs impl_1 -to_step write_device_image", tcl)
         self.assertIn(".pdi", tcl)

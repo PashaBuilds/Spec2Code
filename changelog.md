@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.123 - 2026-07-08
+
+- Vivado tasarimlarinda TTC'ler artik HER ZAMAN acik (SAHA BULGUSU):
+  FreeRTOS BSP'si tick icin psu_ttc_0 ister; onceki PS-only XSA'larda
+  TTC olmadigindan FreeRTOS'lu workspace kurulumu "FreeRTOS requires
+  valid ticker timer" hatasiyla dusuyordu. TTC0-3 ZynqMP'de
+  (PSU__TTCn__PERIPHERAL__ENABLE, zcu102'den dogrulandi) ve Versal'da
+  (PS_TTCn_PERIPHERAL_ENABLE, vck190'dan dogrulandi) acilir - dahili
+  cevre birimleridir, MIO harcamazlar.
+- E2E kaniti: TTC'li + DDR'li (MT40A512M16 x2) yeni XSA uretildi;
+  XSCT ile freertos10_xilinx platform + app KURULDU (onceki hata yok),
+  BSP'de XPAR_PSU_TTC_0 (0xFF110000) + FreeRTOSConfig.h uretildi,
+  libfreertos.a derlendi.
+- NOT: eski surumle uretilmis XSA'lar TTC icermez - FreeRTOS
+  kullanacaksan XSA'yi bu surumle yeniden uret.
+
 ## v0.1.122 - 2026-07-07
 
 - Vivado DDR: "Custom parametre" formu yerine MODEL HAVUZU (kullanici

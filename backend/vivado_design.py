@@ -252,6 +252,14 @@ def _zynqmp_ps_config_tcl(cfg: VivadoDesignConfig) -> str:
         "CONFIG.PSU__USE__M_AXI_GP1 {0}",
         "CONFIG.PSU__USE__M_AXI_GP2 {0}",
         "CONFIG.PSU__FPGA_PL0_ENABLE {0}",
+        # TTC'ler HER ZAMAN açık (SAHA BULGUSU 2026-07-08): FreeRTOS BSP'si
+        # tick için psu_ttc_0 ister; TTC'siz XSA'da workspace kurulumu
+        # "FreeRTOS requires valid ticker timer" ile düşer. TTC'ler dahili
+        # (PERIPHERAL__IO = NA, MIO harcamaz); dördü de zcu102 gibi açılır.
+        "CONFIG.PSU__TTC0__PERIPHERAL__ENABLE {1}",
+        "CONFIG.PSU__TTC1__PERIPHERAL__ENABLE {1}",
+        "CONFIG.PSU__TTC2__PERIPHERAL__ENABLE {1}",
+        "CONFIG.PSU__TTC3__PERIPHERAL__ENABLE {1}",
     ])
     lines = [f"set_property -dict [list {' '.join(pairs)}] $spec2code_ps\n"]
 
@@ -291,6 +299,10 @@ def _versal_cips_config_tcl(cfg: VivadoDesignConfig) -> str:
             entries.append(f"{key} {{{{ENABLE 1}}}}")
     if cfg.ref_clk_mhz:
         entries.append(f"PMC_REF_CLK_FREQMHZ {cfg.ref_clk_mhz}")
+    # TTC'ler her zaman açık: FreeRTOS tick zamanlayıcısı ister (adlar
+    # vck190 PS_PMC_CONFIG'ten doğrulandı; dahili, MIO harcamaz).
+    for index in range(4):
+        entries.append(f"PS_TTC{index}_PERIPHERAL_ENABLE 1")
     joined = " ".join(entries)
     return (
         "set_property -dict [list CONFIG.PS_PMC_CONFIG "
