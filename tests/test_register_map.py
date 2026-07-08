@@ -62,29 +62,39 @@ class RegisterMapCodegenTests(unittest.TestCase):
             ],
         }]}
 
-    def test_header_has_union_packed_reset_and_static_assert(self) -> None:
+    def test_header_has_inline_union_packed_reset_and_static_assert(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
-        # Union + ham deger + LSB-first bitfield + packed.
-        self.assertIn("typedef union __attribute__((packed))", h)
+        # Ayri per-register typedef URETILMEZ; union struct icine inline yazilir.
+        self.assertNotIn("typedef union", h)
+        # __attribute__((packed)) her yapinin KAPANIS ayracindan SONRA.
+        self.assertIn("} __attribute__((packed)) SPlRadarRegs;", h)
+        self.assertIn("} __attribute__((packed)) CTRL;", h)
+        self.assertIn("} __attribute__((packed)) sBits;", h)
+        # Ham deger uiValue korunur; bit alanlari ONEKSIZ + U soneksiz.
         self.assertIn("unsigned int uiValue;", h)
-        self.assertIn("unsigned int uiEN : 1U;", h)
-        self.assertIn("unsigned int uiGAIN : 4U;", h)
-        # LSB-first: EN(0) once, sonra 1..3 reserved, sonra GAIN(4).
-        self.assertIn("uiReservedBits0 : 3U;", h)
-        # Reset sabiti + base.
-        self.assertIn("#define PL_RADAR_CTRL_RESET 0x00000001U", h)
-        self.assertIn("#define PL_RADAR_BASE_ADDRESS 0xA0010000U", h)
-        # Offset deligi 0x08-0x0C icin dolgu + STAT offset muhru 0x10.
-        self.assertIn("unsigned int uiReserved0[2U];", h)
-        self.assertIn("offsetof(SPlRadarRegs, uSTAT) == 0x10U", h)
+        self.assertIn("unsigned int EN : 1;", h)
+        self.assertIn("unsigned int GAIN : 4;", h)
+        self.assertNotIn("uiEN", h)
+        # LSB-first: EN(0) sonra 1..3 anonim reserved, sonra GAIN(4).
+        self.assertIn("unsigned int : 3;", h)
+        # Reset sabiti + base (U soneki yok).
+        self.assertIn("#define PL_RADAR_CTRL_RESET 0x00000001", h)
+        self.assertNotIn("0x00000001U", h)
+        self.assertIn("#define PL_RADAR_BASE_ADDRESS 0xA0010000", h)
+        # Offset deligi 0x08-0x0C icin dolgu + STAT offset muhru 0x10 (u onexsiz).
+        self.assertIn("unsigned int uiReserved0[2];", h)
+        self.assertIn("offsetof(SPlRadarRegs, STAT) == 0x10", h)
+        self.assertNotIn("uSTAT", h)
 
     def test_source_maps_base_and_init_writes_reset(self) -> None:
         c = rm.generate_source(self._doc()["maps"][0])
         self.assertIn("static SPlRadarRegs* const S_spPlRadar = (SPlRadarRegs*)(PL_RADAR_BASE_ADDRESS);", c)
         self.assertIn("void pl_radarInit(void)", c)
-        self.assertIn("S_spPlRadar->uCTRL.uiValue = PL_RADAR_CTRL_RESET;", c)
+        # Uye adi register adinin kendisi (u onexi yok), .uiValue korunur.
+        self.assertIn("S_spPlRadar->CTRL.uiValue = PL_RADAR_CTRL_RESET;", c)
+        self.assertNotIn("uCTRL", c)
         # Reserved register init'te atlanir.
-        self.assertNotIn("uRSVD.uiValue", c)
+        self.assertNotIn("RSVD.uiValue", c)
 
     def test_generate_files_names(self) -> None:
         files = rm.generate_files(self._doc())

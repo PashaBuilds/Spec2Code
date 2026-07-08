@@ -187,7 +187,7 @@ export default function RegisterMapPanel() {
                       <tr key={ri} className="align-top">
                         <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-20 font-mono text-xs", (parseInt0(reg.offset) % 4 !== 0) && "border-danger")} value={reg.offset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].offset = e.target.value; })} /></td>
                         <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-32 font-mono text-xs", !ident(reg.name) && "border-danger")} value={reg.name} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].name = e.target.value; })} /></td>
-                        <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-24 font-mono text-xs", isNaN(parseInt0(reg.reset)) && "border-danger")} value={reg.reset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].reset = e.target.value; })} /></td>
+                        <td className="border-b border-border p-1.5"><Input className={cn("h-7 w-32 font-mono text-xs", isNaN(parseInt0(reg.reset)) && "border-danger")} value={reg.reset} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].reset = e.target.value; })} /></td>
                         <td className="border-b border-border p-1.5 text-center"><input type="checkbox" checked={!!reg.reserved} onChange={(e) => patch((d) => { d.maps[activeMap].registers[ri].reserved = e.target.checked; })} className="accent-[var(--accent)]" /></td>
                         <td className="border-b border-border p-1.5">
                           {reg.reserved ? <span className="text-faint">reserved — 4 bayt yer tutar</span> : (

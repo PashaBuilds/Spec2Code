@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.127 - 2026-07-08
+
+- REGISTER MAP KOD STILI (kullanici istegi): uretilen .h/.c artik su bicimde:
+  - Her register struct icine INLINE union olarak yazilir; ayri per-register
+    typedef (UOrnekBlok...Reg) URETILMEZ, ayri bir uye degiskenine
+    (uCONTROL) donusturulmez. Erisim: regs.CONTROL.uiValue /
+    regs.CONTROL.sBits.ENABLE.
+  - `__attribute__((packed))` her birlesim/struct'in KAPANIS ayracindan SONRA
+    yazilir (typedef struct { ... }__attribute__((packed)) SOrnekBlokRegs;).
+  - Register uye adi register adinin kendisidir (Hungarian 'u' oneki yok):
+    uCONTROL -> CONTROL.
+  - Bit alanlarinda onek yok: uiIRQ_EN -> IRQ_EN (verbatim, kullanicinin
+    yazdigi adla).
+  - Sayisal sabitlerde 'U' soneki kaldirildi (base/reset define'lari, bit
+    genislikleri, offsetof, dolgu dizisi boyu).
+  - Kullanilmayan bit araliklari anonim isimsiz alanlarla kapatilir
+    (unsigned int : N;) - rereferans edilemez, en temiz.
+  - uiValue (ham erisim) ve sBits (bitfield alt-struct) adlari korundu
+    (kullanici karari). Gercek aarch64 gcc -std=c11 -Wall -Wextra -Werror ile
+    yeniden dogrulandi (inline union, tum erisim yollari, static_assert
+    offset muhurleri; bosluklu+reserved senaryo).
+- Register Map editor (HTML): bir bit alanina ait her sey artik TEK satirda
+  (alan | bit | aciklama | sil) - Spec2Code'daki gibi; dikey yigilan
+  etiketler kaldirilip placeholder'a gecildi, satir nowrap yapildi.
+- Spec2Code Register Map ekrani: reset giris kutusu genisletildi (w-24 ->
+  w-32) - 0x00000000 gibi tam degerin son haneleri artik sigmiyordu.
+
 ## v0.1.126 - 2026-07-08
 
 - REGISTER MAP YETENEGI (yeni): sayisal tasarim ekibinin verdigi register

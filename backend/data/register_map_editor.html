@@ -48,7 +48,7 @@
   th { color: var(--muted); font-weight: 600; font-size: 12px; }
   .reg-row td { background: var(--panel); }
   .fields { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--border); }
-  .fieldrow { display: flex; gap: 8px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+  .fieldrow { display: flex; gap: 8px; align-items: center; margin: 4px 0; flex-wrap: nowrap; }
   .fieldrow input { width: auto; }
   .bitmap { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 4px; }
   .bit { width: 15px; height: 15px; border: 1px solid var(--border); border-radius: 2px;
@@ -210,12 +210,14 @@ function bitMap(reg) {
 function fieldEditor(reg) {
   const box = el("div", { class:"fields" });
   (reg.fields||[]).forEach(f => {
+    // Bir bit alanina ait her sey TEK satirda (alan | bit | aciklama | sil);
+    // etiket yerine placeholder kullanilir ki dikey yigilma olmasin.
     const row = el("div", { class:"fieldrow" });
-    const nm = input(f.name, v => f.name = v, "mono", /^[A-Za-z_]\w*$/.test(f.name)); nm.style.width="140px";
-    const bt = input(f.bits, v => f.bits = v, "mono", !!bitSpan(f.bits)); bt.style.width="70px"; bt.placeholder="15:8";
-    const ds = input(f.description||"", v => f.description = v); ds.placeholder="açıklama"; ds.style.flex="1"; ds.style.minWidth="120px";
-    const rm = el("button", { class:"danger", text:"×" }); rm.onclick = () => { reg.fields = reg.fields.filter(x=>x!==f); render(); };
-    [labeled("alan", nm), labeled("bit", bt), labeled("açıklama", ds), rm].forEach(x=>row.appendChild(x));
+    const nm = input(f.name, v => f.name = v, "mono", /^[A-Za-z_]\w*$/.test(f.name)); nm.style.width="130px"; nm.placeholder="alan";
+    const bt = input(f.bits, v => f.bits = v, "mono", !!bitSpan(f.bits)); bt.style.width="64px"; bt.placeholder="15:8"; bt.title="bit (msb:lsb ya da n)";
+    const ds = input(f.description||"", v => f.description = v); ds.placeholder="açıklama"; ds.style.flex="1"; ds.style.minWidth="90px";
+    const rm = el("button", { class:"danger", text:"×" }); rm.title="alanı sil"; rm.onclick = () => { reg.fields = reg.fields.filter(x=>x!==f); render(); };
+    [nm, bt, ds, rm].forEach(x=>row.appendChild(x));
     box.appendChild(row);
   });
   const add = el("button", { text:"+ bit alanı" }); add.onclick = () => { reg.fields = reg.fields||[]; reg.fields.push({name:"YENI",bits:"0",description:""}); render(); };

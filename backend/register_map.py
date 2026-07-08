@@ -186,17 +186,14 @@ def _sorted_registers(rmap: dict) -> list[dict]:
     return sorted(rmap["registers"], key=lambda r: _parse_int(r.get("offset")) or 0)
 
 
-def _field_type_name(map_name: str, reg_name: str) -> str:
-    return f"U{_pascal(map_name)}{_pascal(reg_name)}Reg"
-
-
 def _struct_type_name(map_name: str) -> str:
     return f"S{_pascal(map_name)}Regs"
 
 
 def _member_name(reg_name: str) -> str:
-    """Register üye adı: uKontrol (union → 'u' öneki)."""
-    return "u" + _pascal(reg_name)
+    """Register üye adı = register adının kendisi (Hungarian 'u' öneki YOK;
+    bit alanı adları gibi verbatim korunur, ör. CONTROL / IRQ_EN)."""
+    return reg_name
 
 
 # --------------------------------------------------------------------------- #
@@ -207,9 +204,50 @@ def _guard(name: str) -> str:
     return re.sub(r"[^A-Z0-9]", "_", f"{name}_REGS_H".upper())
 
 
+def _register_member_lines(reg: dict) -> list[str]:
+    """Struct içindeki INLINE union register üyesi (ayrı bir typedef üretilmez).
+
+    Ham erişim için `unsigned int uiValue` + LSB-first packed bit alanı
+    alt-struct'ı `sBits`. `__attribute__((packed))` her birleşim/alt-struct'ın
+    KAPANIŞ ayracından SONRA yazılır (kullanıcı standardı). Register üye adı
+    register adının kendisidir (u öneki yok); bit alanı adları verbatim (ui
+    öneki yok, ör. IRQ_EN); kullanılmayan bit aralıkları anonim isimsiz
+    alanlarla (`unsigned int : N;`) kapatılır ki bit konumları birebir kalsın.
+    """
+    name = _member_name(reg["name"])
+    offset = _parse_int(reg.get("offset")) or 0
+    out: list[str] = []
+    out.append("    union")
+    out.append("    {")
+    out.append("        unsigned int uiValue;")
+    if not reg.get("reserved") and reg.get("fields"):
+        out.append("        struct")
+        out.append("        {")
+        covered = 0
+        # LSB-first: alanları lsb'ye göre sırala, aradaki boşluklara anonim
+        # reserved bit alanları koy ki bit konumları birebir doğru olsun.
+        fields = sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1])
+        for field in fields:
+            msb, lsb = _bit_span(field["bits"])
+            if lsb > covered:
+                out.append(f"            unsigned int : {lsb - covered};")
+                covered = lsb
+            width = msb - lsb + 1
+            comment = f"  /* {field['description']} */" if field.get("description") else ""
+            out.append(f"            unsigned int {field['name']} : {width};{comment}")
+            covered = msb + 1
+        if covered < 32:
+            out.append(f"            unsigned int : {32 - covered};")
+        out.append("        } __attribute__((packed)) sBits;")
+    out.append(f"    }} __attribute__((packed)) {name};  /* 0x{offset:03X} */")
+    return out
+
+
 def generate_header(rmap: dict) -> str:
-    """Bir register map için .h içeriği (LSB-first packed bitfield union'lar
-    + struct + reset sabitleri + static_assert offset mühürleri)."""
+    """Bir register map için .h içeriği: her register struct içine INLINE bir
+    union üye (uiValue + LSB-first packed sBits) olarak yazılır; reset sabitleri
+    + static_assert offset mühürleri. `__attribute__((packed))` her yapının
+    kapanış ayracından sonra; sayısal sabitlerde `U` soneki kullanılmaz."""
     map_name = rmap["name"]
     MOD = re.sub(r"[^A-Z0-9]", "_", map_name.upper())
     struct_t = _struct_type_name(map_name)
@@ -230,53 +268,19 @@ def generate_header(rmap: dict) -> str:
     lines.append("#include <stddef.h>")
     lines.append("#include <assert.h>")
     lines.append("")
-    lines.append(f"#define {MOD}_BASE_ADDRESS 0x{base:08X}U")
+    lines.append(f"#define {MOD}_BASE_ADDRESS 0x{base:08X}")
     lines.append("")
 
     # Reset sabitleri.
     for reg in regs:
         reset = _parse_int(reg.get("reset", 0)) or 0
-        lines.append(f"#define {MOD}_{reg['name'].upper()}_RESET 0x{reset & 0xFFFFFFFF:08X}U")
+        lines.append(f"#define {MOD}_{reg['name'].upper()}_RESET 0x{reset & 0xFFFFFFFF:08X}")
     lines.append("")
 
-    # Register union'lari (bit alanli).
-    for reg in regs:
-        field_t = _field_type_name(map_name, reg["name"])
-        lines.append(f"/* {reg['name']}"
-                     + (f" - {reg['description']}" if reg.get("description") else "") + " */")
-        lines.append("typedef union __attribute__((packed))")
-        lines.append("{")
-        lines.append("    unsigned int uiValue;")
-        if reg.get("reserved") or not reg.get("fields"):
-            lines.append("    /* bit alani tanimlanmadi: yalniz ham uiValue */")
-        else:
-            lines.append("    struct __attribute__((packed))")
-            lines.append("    {")
-            covered = 0
-            # LSB-first: alanlari lsb'ye gore sirala, aradaki bosluklara
-            # reserved bit alanlari koy ki bit konumlari birebir dogru olsun.
-            fields = sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1])
-            reserved_idx = 0
-            for field in fields:
-                msb, lsb = _bit_span(field["bits"])
-                if lsb > covered:
-                    gap = lsb - covered
-                    lines.append(f"        unsigned int uiReservedBits{reserved_idx} : {gap}U;")
-                    reserved_idx += 1
-                    covered += gap
-                width = msb - lsb + 1
-                comment = f"  /* {field['description']} */" if field.get("description") else ""
-                lines.append(f"        unsigned int ui{_pascal(field['name'])} : {width}U;{comment}")
-                covered = msb + 1
-            if covered < 32:
-                lines.append(f"        unsigned int uiReservedBits{reserved_idx} : {32 - covered}U;")
-            lines.append("    } sBits;")
-        lines.append(f"}} {field_t};")
-        lines.append("")
-
-    # Map struct'i: her register 4 bayt; ardisik olmayan offset'lere reserved
-    # dolgu (padding) eklenir ki struct offset'leri register offset'lerine uysun.
-    lines.append(f"typedef struct __attribute__((packed))")
+    # Map struct'i: her register INLINE union üye; ardışık olmayan offset'lere
+    # reserved dolgu (padding) eklenir ki struct offset'leri register
+    # offset'lerine uysun. Ayrı bir per-register typedef ÜRETİLMEZ.
+    lines.append("typedef struct")
     lines.append("{")
     expected = 0
     pad_idx = 0
@@ -284,15 +288,13 @@ def generate_header(rmap: dict) -> str:
         offset = _parse_int(reg.get("offset")) or 0
         if offset > expected:
             gap_words = (offset - expected) // 4
-            lines.append(f"    unsigned int uiReserved{pad_idx}[{gap_words}U];"
+            lines.append(f"    unsigned int uiReserved{pad_idx}[{gap_words}];"
                          f"  /* 0x{expected:03X}..0x{offset - 4:03X} dolgu */")
             pad_idx += 1
             expected = offset
-        field_t = _field_type_name(map_name, reg["name"])
-        lines.append(f"    {field_t} {_member_name(reg['name'])};"
-                     f"  /* 0x{offset:03X} */")
+        lines.extend(_register_member_lines(reg))
         expected = offset + 4
-    lines.append(f"}} {struct_t};")
+    lines.append(f"}} __attribute__((packed)) {struct_t};")
     lines.append("")
 
     # Offset muhurleri.
@@ -300,7 +302,7 @@ def generate_header(rmap: dict) -> str:
     for reg in regs:
         offset = _parse_int(reg.get("offset")) or 0
         lines.append(
-            f"_Static_assert(offsetof({struct_t}, {_member_name(reg['name'])}) == 0x{offset:X}U, "
+            f"_Static_assert(offsetof({struct_t}, {_member_name(reg['name'])}) == 0x{offset:X}, "
             f"\"{reg['name']} offset kaymis\");")
     lines.append("")
 
