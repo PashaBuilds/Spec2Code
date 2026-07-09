@@ -1888,6 +1888,15 @@ def render_xsct_script(
         "            if {$spec2code_lwip_api_mode_ok == 0} {\n"
         f"                {_tcl_put('WARNING: lwIP API mode could not be set automatically; check BSP api_mode manually before relying on this workspace.')}"
         "            }\n"
+        # PHY autonegotiation'i ACIKCA sec (kullanici istegi). Xilinx lwip
+        # varsayilani zaten CONFIG_LINKSPEED_AUTODETECT'tir; catch ile sürüm
+        # farkina dayanikli — parametre yoksa varsayilan (autodetect) kalir.
+        f"            {_tcl_put('configuring lwIP PHY link speed: autonegotiation (autodetect)')}"
+        "            if {[catch {bsp config phy_link_speed CONFIG_LINKSPEED_AUTODETECT} spec2code_phy_err]} {\n"
+        f"                {_tcl_put('lwIP phy_link_speed ayarlanamadi (BSP varsayilani autodetect): $spec2code_phy_err')}"
+        "            } else {\n"
+        f"                {_tcl_put('lwIP PHY autonegotiation (autodetect) secildi')}"
+        "            }\n"
         "            spec2codeDisableCustomIpBspLibsrc\n"
         "            if {[catch {bsp regenerate} spec2code_lwip_regen_err]} {\n"
         f"                {_tcl_put('WARNING: BSP regenerate failed after lwIP selection: $spec2code_lwip_regen_err')}"

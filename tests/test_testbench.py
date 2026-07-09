@@ -535,6 +535,16 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U", lwip_header)
         self.assertIn("SPEC2CODE_TESTBENCH_THREAD_STACKSIZE", lwip_header)
         self.assertIn("void spec2codeTestbenchLwipMainThread(void* vpArg);", lwip_header)
+        # SABIT statik ag: IP 18.2.75.121 / 255.255.255.0 / gw 18.2.75.1, DHCP yok.
+        for macro, val in (("IP_ADDR0", "18U"), ("IP_ADDR1", "2U"), ("IP_ADDR2", "75U"), ("IP_ADDR3", "121U"),
+                           ("NETMASK_ADDR0", "255U"), ("NETMASK_ADDR3", "0U"),
+                           ("GATEWAY_ADDR0", "18U"), ("GATEWAY_ADDR3", "1U")):
+            self.assertIn(f"#define SPEC2CODE_TESTBENCH_{macro} {val}", lwip_header)
+        self.assertNotIn("dhcp_start", lwip_source)
+        # SABIT MAC 00-0A-35-00-01-02.
+        for macro, val in (("MAC0", "0x00U"), ("MAC1", "0x0AU"), ("MAC2", "0x35U"),
+                           ("MAC3", "0x00U"), ("MAC4", "0x01U"), ("MAC5", "0x02U")):
+            self.assertIn(f"#define SPEC2CODE_TESTBENCH_{macro} {val}", lwip_source)
         self.assertIn("XPAR_XEMACPS_0_BASEADDR", lwip_source)
         self.assertIn("xemac_add", lwip_source)
         self.assertIn("lwip_socket(AF_INET, SOCK_STREAM, 0)", lwip_source)

@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.136 - 2026-07-09
+
+- ETHERNET SABIT STATIK KONFIG (kullanici karari - esneklik yok): uretilen
+  lwIP Test Bench ajaninin ag ayarlari sabitlendi.
+  - IP: 18.2.75.121 (statik, DHCP YOK — netif dogrudan bu adresle eklenir).
+  - Netmask: 255.255.255.0 (/24), Gateway: 18.2.75.1 (kullanici IP+MAC verdi;
+    mask/gw sensible /24 varsayilani).
+  - MAC: 00-0A-35-00-01-02 (00:0A:35 = Xilinx OUI). Hem SOCKET_API (FreeRTOS)
+    hem RAW_API (bare-metal) uretim yollarinda ayni deger.
+  - PHY: BSP'de autonegotiation ACIKCA secildi (bsp config phy_link_speed
+    CONFIG_LINKSPEED_AUTODETECT; catch ile surum-dayanikli, varsayilan zaten
+    autodetect).
+  - Baglan/kopar altyapisi incelendi ve saglam: accept -> serve -> close ->
+    tekrar accept; istemci koptugunda recv<=0 -> soket kapatilir ve yeni
+    baglanti kabul edilir (tek istemci, temiz). Degismedi, dogrulandi.
+  - 202 test gecti (uretilen kaynakta IP/MAC/netmask/gw + DHCP-yok kilitleme
+    testleriyle).
+
 ## v0.1.135 - 2026-07-09
 
 - REGISTER MAP TEST IP — VIVADO'YA OPSIYONEL CUSTOM AXI IP (kullanici istegi,

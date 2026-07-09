@@ -2728,11 +2728,14 @@ def _testbench_lwip_header(spec: dict) -> str:
         "#ifndef SPEC2CODE_TESTBENCH_LWIP_H\n"
         "#define SPEC2CODE_TESTBENCH_LWIP_H\n\n"
         "#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U\n\n"
+        "/* SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):\n"
+        " * IP 18.2.75.121, netmask 255.255.255.0 (/24), gateway 18.2.75.1.\n"
+        " * DHCP YOK; netif dogrudan bu adreslerle eklenir. */\n"
         "#ifndef SPEC2CODE_TESTBENCH_IP_ADDR0\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR0 192U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR1 168U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR2 1U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR3 10U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR0 18U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR1 2U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR2 75U\n"
+        "#define SPEC2CODE_TESTBENCH_IP_ADDR3 121U\n"
         "#endif\n\n"
         "#ifndef SPEC2CODE_TESTBENCH_NETMASK_ADDR0\n"
         "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR0 255U\n"
@@ -2741,9 +2744,9 @@ def _testbench_lwip_header(spec: dict) -> str:
         "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR3 0U\n"
         "#endif\n\n"
         "#ifndef SPEC2CODE_TESTBENCH_GATEWAY_ADDR0\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR0 192U\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 168U\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 1U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR0 18U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 2U\n"
+        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 75U\n"
         "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 1U\n"
         "#endif\n\n"
         + api_decls +
@@ -2961,12 +2964,14 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
+        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
+        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */",
         "#ifndef SPEC2CODE_TESTBENCH_MAC0",
-        "#define SPEC2CODE_TESTBENCH_MAC0 0x02U",
-        "#define SPEC2CODE_TESTBENCH_MAC1 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC2 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
+        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
         "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC4 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
         "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
         "#endif",
         "",
@@ -3223,12 +3228,14 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
+        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
+        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */",
         "#ifndef SPEC2CODE_TESTBENCH_MAC0",
-        "#define SPEC2CODE_TESTBENCH_MAC0 0x02U",
-        "#define SPEC2CODE_TESTBENCH_MAC1 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC2 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
+        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
         "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC4 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
         "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
         "#endif",
         "",
