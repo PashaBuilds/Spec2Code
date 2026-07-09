@@ -11,7 +11,7 @@ class CatalogTests(unittest.TestCase):
             "TRACE_EVENT": 0x53430181, "BUS_TRACE_EVENT": 0x53430182,
             "REGISTER_READ": 0x53430201, "REGISTER_WRITE": 0x53430202,
             "REGISTERS_READ": 0x53430203, "MEM_READ": 0x53430204,
-            "MEM_WRITE": 0x53430205, "I2C_SCAN": 0x53430206,
+            "MEM_WRITE": 0x53430205, "I2C_SCAN": 0x53430206, "I2C_MUX_SET": 0x53430207,
             "CIT_RUN": 0x53430301, "CIT_READ": 0x53430302,
             "DEVICE_INIT": 0x53430401, "VOLTAGE_READ": 0x53430402,
             "TEMPERATURE_READ": 0x53430403, "CURRENT_READ": 0x53430404,
@@ -40,6 +40,14 @@ class CatalogTests(unittest.TestCase):
         catalog = s2cmsg.load_catalog()
         ids = [m["id"] for m in catalog["messages"]]
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_real_wire_ops_resolve(self) -> None:
+        # Kod tabaninin fiilen gonderdigi tel op'lari katalogda COZULMELI
+        # (canli KeyError regresyon korumasi; kaynaklar: i2c_scan.py,
+        # registers.py, register-map/BoardConnectionCard UI).
+        for op in ("spec2code_version", "log_level", "i2c_mux_set", "i2c_scan",
+                   "register_read", "register_write", "mem_read", "mem_write"):
+            self.assertEqual(s2cmsg.message_id_for_op(op) >> 16, 0x5343, op)
 
 
 class PackUnpackTests(unittest.TestCase):

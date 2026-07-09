@@ -330,9 +330,9 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(response["ok"], "1")
         self.assertEqual(response["data"], "AABB")
 
-        version_frame = s2cmsg.pack_request("version", 8)
+        version_frame = s2cmsg.pack_request("spec2code_version", 8)
         version_command_id = struct.unpack_from("<I", version_frame, 0)[0]
-        self.assertEqual(version_command_id, s2cmsg.message_id_for_op("version"))
+        self.assertEqual(version_command_id, s2cmsg.message_id_for_op("spec2code_version"))
 
     def test_send_command_reads_one_line_response(self) -> None:
         with socketserver.TCPServer(("127.0.0.1", 0), OneShotHandler) as server:
