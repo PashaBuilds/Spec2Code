@@ -191,6 +191,33 @@ class FakeSerial:
             self._closed = True
 
 
+class SplitSignatureFakeSerial(FakeSerial):
+    """Queues the response frame split into two arrivals AT the signature
+    boundary (byte offset 2/3 of the header), so the reader must recover it
+    from two separate ``read()`` chunks — the Task 2 review scenario that
+    the per-chunk heuristic silently dropped."""
+
+    def write(self, data: bytes) -> int:
+        with self._lock:
+            self.written.append(bytes(data))
+            op_name, counter = _request_op_and_counter(data)
+
+            def _queue_split_response() -> None:
+                time.sleep(0.02)
+                frame = _ok_response_frame(op_name, counter, counter,
+                                            deger=0x1A2B, metin=b"ok")
+                # Baslik ilk 3 bayti (imza baytlarindan biri: offset 3'teki
+                # 0x53/0xD3 haric) bir feed'de, geri kalani baska bir feed'de.
+                with self._lock:
+                    self.rx += frame[:3]
+                time.sleep(0.02)
+                with self._lock:
+                    self.rx += frame[3:]
+
+            threading.Thread(target=_queue_split_response, daemon=True).start()
+        return len(data)
+
+
 class StaleThenAnswerHandler(socketserver.BaseRequestHandler):
     """Saha senaryosu: ilk komuta cevap gelmez (ajan meşgul), ikinci komut
     gönderilince önce GEÇ kalan ilk cevap, sonra doğru cevap gelir."""
@@ -285,7 +312,13 @@ class TestbenchTests(unittest.TestCase):
         self.assertTrue(any("VOLTAGE_READ" in entry["ozet"] for entry in tx_entries))
         self.assertTrue(any("hello" in entry.get("ozet", "") or "hello" in entry.get("hex", "")
                              for entry in tx_entries))
-        self.assertTrue(any("boot noise line" in entry.get("ozet", "") for entry in rx_entries))
+        # ConsoleFrameSplitter tek tampon kullanir: bir sonraki feed'de imza
+        # baslangici olabilecek son <=3 bayt bir chunk'ta bekletilip bir
+        # SONRAKI rx traffic girdisiyle akitilabilir (bkz. s2cmsg.py
+        # ConsoleFrameSplitter.feed). Bu yuzden tam satir metnini TEK bir rx
+        # girdisinde degil, tum rx ozet'lerinin birlesiminde ariyoruz.
+        combined_rx_ozet = "".join(entry.get("ozet", "") for entry in rx_entries)
+        self.assertIn("boot noise line", combined_rx_ozet)
         self.assertTrue(any("VOLTAGE_READ" in entry.get("ozet", "") and "yanit" in entry.get("ozet", "")
                              for entry in rx_entries))
         manager.disconnect("ser1")
@@ -301,6 +334,25 @@ class TestbenchTests(unittest.TestCase):
             manager.send("ser2", BenchCommand(
                 host="", port=0, device="u1_ltc2991", operation="id_read", command_id=4))
         manager.disconnect("ser2")
+
+    def test_serial_session_recovers_response_frame_split_at_signature_boundary(self) -> None:
+        # Task 2 review bulgusu: imza (0x43 0x53/0xD3) iki read() chunk'i
+        # arasinda bolununce eski per-chunk sezgisel bolme cerceveyi
+        # sessizce kaybediyordu. ConsoleFrameSplitter tek tampon kullandigi
+        # icin send() yine dogru sonucu almali.
+        fake = SplitSignatureFakeSerial()
+        manager = SessionManager()
+        manager.connect_serial(
+            "ser_split", "COM8", 115200, 2.0, serial_factory=lambda _p, _b, _t: fake)
+
+        result = manager.send("ser_split", BenchCommand(
+            host="", port=0, device="u1_ltc2991", operation="voltage_read", command_id=11))
+        self.assertEqual(result.parsed["ok"], "1")
+        self.assertEqual(result.parsed["value"], "0x1A2B")
+        self.assertIn("VOLTAGE_READ", result.request_line)
+        self.assertIn("sayac=11", result.request_line)
+        manager.disconnect("ser_split")
+
     def test_command_formatter_and_response_parser(self) -> None:
         frame = s2cmsg.pack_request(
             "register_read", 7, device_index=3, register_address=0x01,

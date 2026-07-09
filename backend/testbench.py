@@ -94,36 +94,6 @@ def _request_frame_summary(command: TestbenchCommand, request: bytes) -> str:
     return s2cmsg.decode_frame_summary(frame)
 
 
-def _split_console_and_frame_bytes(chunk: bytes) -> tuple[bytes, bytes]:
-    """Split ``chunk`` at the earliest S2C-MSG signature into (console, frame) bytes.
-
-    The serial reader must route boot-log/console noise (plain ASCII text
-    written by xil_printf on a shared UART) to the console ring, while binary
-    S2C-MSG frames must NOT appear there as garbled text. FrameParser does not
-    report which bytes it discarded while resyncing, so we cannot ask it "was
-    this chunk consumed as a frame". Instead we use a cheap heuristic: a
-    little-endian u32 command id always ends in the 2 signature bytes 0x43 0x53
-    (request) or 0x43 0xD3 (response, RESPONSE_BIT set) at byte offset 2-3 of
-    a 12B header. A single ``read()`` burst can legitimately contain BOTH a
-    completed console line and a frame (e.g. a boot-log line printed right
-    before the agent's first reply lands in the same OS-level read); treating
-    the whole chunk as one-or-the-other would silently drop whichever came
-    first. So we locate the earliest signature occurrence, step back 2 bytes
-    to the presumed header start, and split there: everything before is
-    console text, everything from the header start onward is handed to the
-    frame parser. If no signature is present the whole chunk is console text.
-    """
-    best = -1
-    for signature in (b"\x43\x53", b"\x43\xD3"):
-        index = chunk.find(signature)
-        if index >= 0 and (best < 0 or index < best):
-            best = index
-    if best < 0:
-        return chunk, b""
-    header_start = max(0, best - 2)
-    return chunk[:header_start], chunk[header_start:]
-
-
 def send_command(command: TestbenchCommand) -> TestbenchResult:
     with socket.create_connection((command.host, int(command.port)), timeout=max(0.2, command.timeout_s)) as sock:
         sock.settimeout(max(0.2, command.timeout_s))
@@ -377,13 +347,15 @@ class _TestbenchTcpSession(_TrafficRing):
 class _TestbenchSerialSession(_TrafficRing):
     """Persistent serial (COM) session for the UART test bench agent.
 
-    A reader thread splits every incoming chunk at the first S2C-MSG frame
-    signature (see ``_split_console_and_frame_bytes``): plain text lands in a
-    bounded console ring (for the UART console UI) while binary S2C-MSG
-    frames are fed to a ``s2cmsg.FrameParser`` and, once decoded, response
-    frames are queued for ``send()``. Console noise between responses is
-    therefore harmless even when the agent shares the console UART with
-    xil_printf output.
+    A reader thread feeds every incoming chunk into a single-buffer
+    ``s2cmsg.ConsoleFrameSplitter``: plain text lands in a bounded console
+    ring (for the UART console UI) while binary S2C-MSG frames are decoded
+    directly and, once decoded, response frames are queued for ``send()``.
+    Because the splitter keeps one running buffer per session (rather than
+    scanning each ``read()`` chunk in isolation), a frame signature or body
+    split across chunk boundaries is still recovered correctly. Console
+    noise between responses is therefore harmless even when the agent shares
+    the console UART with xil_printf output.
     """
 
     def __init__(self, session_id: str) -> None:
@@ -402,7 +374,7 @@ class _TestbenchSerialSession(_TrafficRing):
         self._responses: "queue.Queue[tuple[int, int, bytes]]" = queue.Queue()
         self._console: collections.deque[dict] = collections.deque(maxlen=SERIAL_CONSOLE_MAX_LINES)
         self._console_seq = 0
-        self._parser = s2cmsg.FrameParser()
+        self._splitter = s2cmsg.ConsoleFrameSplitter()
         self._console_buffer = bytearray()
 
     def status(self) -> TestbenchSessionStatus:
@@ -458,7 +430,14 @@ class _TestbenchSerialSession(_TrafficRing):
         handle = self._serial
         self._serial = None
         self.connected_at = None
-        self._parser = s2cmsg.FrameParser()
+        # Baglanti kapanirken bekletilen kuyruk (chunk sinirinda kalmis
+        # tamamlanmamis bir cerceve/console kuyrugu) kaybolmasin diye
+        # console'a dusuruluyor.
+        leftover = self._splitter.flush()
+        if leftover:
+            self._console_buffer.extend(leftover)
+        self._flush_console_lines(force=True)
+        self._splitter = s2cmsg.ConsoleFrameSplitter()
         self._console_buffer = bytearray()
         if handle is not None:
             try:
@@ -517,22 +496,20 @@ class _TestbenchSerialSession(_TrafficRing):
                 return
             if not chunk:
                 continue
-            console_bytes, frame_bytes = _split_console_and_frame_bytes(chunk)
+            console_bytes, frames = self._splitter.feed(chunk)
             if console_bytes:
                 # Plain console/boot-log noise (xil_printf on a shared UART),
-                # possibly followed by a frame in the same read() burst.
+                # possibly interleaved with a frame in the same read() burst.
                 # Still recorded on the Veri Akisi ring (text fallback ozet)
-                # so the live traffic view shows the full conversation.
+                # so the live traffic view shows the full conversation. The
+                # splitter keeps a single running buffer, so a signature or
+                # body split across chunk boundaries is recovered instead of
+                # being misrouted here.
                 self._console_buffer.extend(console_bytes)
                 self._flush_console_lines()
                 self._traffic_push("rx", console_bytes)
-            if frame_bytes:
-                # A frame signature starts here: flush any partial console
-                # line queued so far, then hand the rest to the binary parser
-                # only — frame bytes must never render as console text.
-                self._flush_console_lines(force=True)
-                for frame in self._parser.feed(frame_bytes):
-                    self._handle_frame(frame)
+            for frame in frames:
+                self._handle_frame(frame)
 
     def console_since(self, since_seq: int) -> tuple[int, list[dict]]:
         with self._lock:

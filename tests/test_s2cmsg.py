@@ -99,5 +99,85 @@ class PackUnpackTests(unittest.TestCase):
         self.assertEqual(parsed["message"], "I2C NACK")
 
 
+class ConsoleFrameSplitterTests(unittest.TestCase):
+    def test_signature_split_across_two_feeds_recovers_frame(self) -> None:
+        frame = s2cmsg.pack_request("ping", 1)
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        console1, frames1 = splitter.feed(frame[:3])
+        console2, frames2 = splitter.feed(frame[3:])
+        self.assertEqual(frames1, [])
+        self.assertEqual(len(frames2), 1)
+        self.assertEqual(frames2[0][0], 0x53430101)
+        self.assertEqual(frames2[0][1], 1)
+        # Imza baytlarindan hicbiri console'a sizmamali.
+        self.assertEqual(console1 + console2, b"")
+
+    def test_body_split_across_feeds_recovers_frame(self) -> None:
+        frame = s2cmsg.pack_request("mem_read", 3, address=0xA0000000, length=4)
+        split_at = s2cmsg.HEADER_SIZE + 4  # baslik + govdenin bir kismi
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        console1, frames1 = splitter.feed(frame[:split_at])
+        console2, frames2 = splitter.feed(frame[split_at:])
+        self.assertEqual(frames1, [])
+        self.assertEqual(console1, b"")
+        self.assertEqual(console2, b"")
+        self.assertEqual(len(frames2), 1)
+        command_id, counter, body = frames2[0]
+        self.assertEqual(command_id, s2cmsg.message_id_for_op("mem_read"))
+        self.assertEqual(counter, 3)
+        self.assertEqual(len(body) % 4, 0)
+
+    def test_console_text_around_frame_in_single_feed(self) -> None:
+        frame = s2cmsg.pack_request("ping", 5)
+        payload = b"boot log\r\n" + frame + b"devam"
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        console, frames = splitter.feed(payload)
+        leftover = splitter.flush()
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0][1], 5)
+        # "devam" (5B) <= 3 bayt bekletme toleransindan buyuk oldugu icin en
+        # azindan bir kismi hemen console'a dusmeli olabilir; flush ile
+        # kalan kuyruk dahil edilince iki metin de tam olarak gorunmeli.
+        combined = (console + leftover).decode("ascii", errors="replace")
+        self.assertIn("boot log", combined)
+        self.assertIn("devam", combined)
+
+    def test_plain_text_feeds_produce_no_frames_and_preserve_bytes(self) -> None:
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        chunks = [b"hello ", b"world\r\n", b"another line\r\n", b"tail"]
+        console_total = b""
+        frame_total: list[tuple[int, int, bytes]] = []
+        for chunk in chunks:
+            console, frames = splitter.feed(chunk)
+            console_total += console
+            frame_total += frames
+        leftover = splitter.flush()
+        self.assertEqual(frame_total, [])
+        self.assertEqual(console_total + leftover, b"".join(chunks))
+
+    def test_fake_signature_with_oversized_body_falls_back_to_console(self) -> None:
+        # "CS" (0x43 0x53) gorunur ama boy alani 4096'yi asiyor -> sahte imza.
+        text = b"prefix CS\xff\xff\xff\xffgarbage tail here"
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        console, frames = splitter.feed(text)
+        leftover = splitter.flush()
+        self.assertEqual(frames, [])
+        self.assertEqual(console + leftover, text)
+
+    def test_frame_fed_one_byte_at_a_time_yields_single_frame(self) -> None:
+        frame = s2cmsg.pack_request("ping", 9)
+        splitter = s2cmsg.ConsoleFrameSplitter()
+        frames: list[tuple[int, int, bytes]] = []
+        console_total = b""
+        for i in range(len(frame)):
+            console, new_frames = splitter.feed(frame[i:i + 1])
+            console_total += console
+            frames += new_frames
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0][0], 0x53430101)
+        self.assertEqual(frames[0][1], 9)
+        self.assertEqual(console_total, b"")
+
+
 if __name__ == "__main__":
     unittest.main()

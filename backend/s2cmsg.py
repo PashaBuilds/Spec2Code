@@ -126,6 +126,65 @@ class FrameParser:
         return frames
 
 
+class ConsoleFrameSplitter:
+    """Seri/DCC bayt akisini console metni ile S2C-MSG cerceveleri olarak ayirir.
+
+    FrameParser'dan farki: cerceve OLMAYAN baytlari yutmaz, console olarak
+    geri verir. Tek tampon uzerinde calisir; chunk sinirlarinda bolunmus
+    imza/baslik/govde dogal olarak birikir (Task 2 review bulgusunun kok
+    cozumu — chunk-bazli sezgisel bolme yerine durum makinesi).
+    """
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+
+    def feed(self, chunk: bytes) -> tuple[bytes, list[tuple[int, int, bytes]]]:
+        """(console_baytlari, cerceveler) dondurur; kararsiz kuyruk tamponda kalir."""
+        self._buffer.extend(chunk)
+        console = bytearray()
+        frames: list[tuple[int, int, bytes]] = []
+        while True:
+            start = self._find_header_start()
+            if start is None:
+                # Imza yok: son 3 bayt bir sonraki chunk'ta imza baslangici
+                # olabilir — onlari beklet, gerisini console'a ver. Tampon
+                # sinirsiz buyumesin: 3 bayt disindaki her sey akitilir.
+                keep = min(3, len(self._buffer))
+                console.extend(self._buffer[:len(self._buffer) - keep])
+                del self._buffer[:len(self._buffer) - keep]
+                break
+            console.extend(self._buffer[:start])
+            del self._buffer[:start]
+            if len(self._buffer) < HEADER_SIZE:
+                break  # baslik tamamlanana kadar bekle
+            command_id, body_size, _counter = struct.unpack_from("<III", self._buffer, 0)
+            if body_size > MAX_BODY or body_size % 4 != 0:
+                # sahte imza: ilk bayti console'a ver, taramaya devam et
+                console.append(self._buffer[0])
+                del self._buffer[0]
+                continue
+            if len(self._buffer) < HEADER_SIZE + body_size:
+                break  # govde tamamlanana kadar bekle
+            body = bytes(self._buffer[HEADER_SIZE:HEADER_SIZE + body_size])
+            counter = struct.unpack_from("<III", self._buffer, 0)[2]
+            del self._buffer[:HEADER_SIZE + body_size]
+            frames.append((command_id, counter, body))
+        return bytes(console), frames
+
+    def _find_header_start(self) -> int | None:
+        # Imza baslik offset 2-3'te: 0x43 0x53 (istek) / 0x43 0xD3 (yanit).
+        for index in range(len(self._buffer) - 3):
+            if self._buffer[index + 2] == 0x43 and self._buffer[index + 3] in (0x53, 0xD3):
+                return index
+        return None
+
+    def flush(self) -> bytes:
+        """Baglanti kapanirken bekletilen kuyrugu console olarak bosalt."""
+        leftover = bytes(self._buffer)
+        self._buffer.clear()
+        return leftover
+
+
 def unpack_response(frame: tuple[int, int, bytes]) -> dict:
     _command_id, _counter, body = frame
     if len(body) < 20:
