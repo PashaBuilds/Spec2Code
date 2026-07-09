@@ -480,6 +480,77 @@ class TestbenchTests(unittest.TestCase):
         finally:
             manager.disconnect("ser_stale")
 
+    def test_late_response_with_matching_counter_but_wrong_command_id_is_not_matched(self) -> None:
+        # İki bağımsız sayaç uzayı (send()'in command_id'si, send_named'in
+        # _next_named_counter'ı) aynı oturumu paylaşır; ikisi de 1'den başlar.
+        # Önce timeout'a uğramış eski bir send() (REGISTER_READ) yanıtı
+        # sayac=1 ile GEÇ gelir, sonra doğru CIT_RUN|RESPONSE_BIT sayac=1
+        # yanıtı gelir. send_named("CIT_RUN") yalnız kendi command_id'sine
+        # ait yanıtı kabul etmeli; REGISTER_READ gövdesini CIT decoder'ına
+        # vermemeli.
+        cit_body = struct.pack("<II", 1, 0) + b"\xAA\xBB\xCC\xDD"
+
+        class WrongIdThenCitHandler(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                data = self.request.recv(4096)
+                frames = s2cmsg.FrameParser().feed(data)
+                command_id, counter, _body = frames[0]
+                stale_id = s2cmsg.message_id_for_op("register_read") | RESPONSE_BIT
+                stale_body = _yanit_govdesi(counter, deger=0xBAD, metin=b"stale-register")
+                self.request.sendall(pack_frame(stale_id, counter, stale_body))
+                self.request.sendall(pack_frame(command_id | RESPONSE_BIT, counter, cit_body))
+
+        with socketserver.TCPServer(("127.0.0.1", 0), WrongIdThenCitHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager = SessionManager()
+            manager.connect("unit_cross_id", "127.0.0.1", server.server_address[1], 2.0)
+            try:
+                prefix, raw_body = manager.send_named("unit_cross_id", "CIT_RUN", timeout_s=2.0)
+            finally:
+                manager.disconnect("unit_cross_id")
+                thread.join(timeout=2)
+
+        self.assertEqual(prefix["istek_sayac"], 1)
+        self.assertEqual(prefix["durum"], 0)
+        self.assertEqual(raw_body, b"\xAA\xBB\xCC\xDD")
+
+    def test_send_fallback_never_returns_cross_id_frame(self) -> None:
+        # Yalniz YANLIS command_id'li, sayaci da eslesmeyen bir cerceve
+        # gelirse (once VERSION okumasindan kalma bayat bir yanit, sonra hic
+        # bir REGISTER_READ yaniti gelmez), send() zaman asimina ugramali —
+        # yanlis turden bir govdeyi "fallback" diye dondurmemeli.
+        class WrongIdStaleOnlyHandler(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                data = self.request.recv(4096)
+                s2cmsg.FrameParser().feed(data)
+                stale_id = s2cmsg.message_id_for_op("vcc_read") | RESPONSE_BIT
+                stale_body = _yanit_govdesi(99, deger=0xBAD, metin=b"wrong-type-stale")
+                self.request.sendall(pack_frame(stale_id, 99, stale_body))
+                # Istemcinin 0.4s zaman asimini gozlemleyebilmesi icin baglantiyi
+                # acik tut — handle() erken donerse soket kapanir ve istemci
+                # zaman asimi yerine "connection closed" hatasi alir.
+                time.sleep(0.6)
+
+        with socketserver.TCPServer(("127.0.0.1", 0), WrongIdStaleOnlyHandler) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            manager = SessionManager()
+            manager.connect("unit_cross_id_fb", "127.0.0.1", server.server_address[1], 0.4)
+            try:
+                with self.assertRaises(SessionError):
+                    manager.send("unit_cross_id_fb", BenchCommand(
+                        host="127.0.0.1", port=server.server_address[1],
+                        device="u1_ltc2991", operation="temperature_read", command_id=1))
+            finally:
+                manager.disconnect("unit_cross_id_fb")
+                server.shutdown()
+                thread.join(timeout=2)
+
+        # Ayni-ID sayac-uyumsuz yedek davranisi (counter=0 parse-hata
+        # yanitini fallback olarak dondurme) hala calismali (var olan test:
+        # test_serial_send_falls_back_to_mismatched_response_on_timeout).
+
     def test_tcp_session_records_tx_rx_traffic(self) -> None:
         manager = SessionManager()
         with socketserver.TCPServer(("127.0.0.1", 0), PersistentHandler) as server:

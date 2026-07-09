@@ -75,9 +75,15 @@ def _clean_token(value: str) -> str:
     return "".join(ch for ch in value.strip() if ch not in "|\r\n")
 
 
-def _pack_command(command: TestbenchCommand) -> bytes:
-    """S2C-MSG istek cercevesi kur. Bilinmeyen op -> KeyError (yutulmaz)."""
-    return s2cmsg.pack_request(
+def _pack_command(command: TestbenchCommand) -> tuple[bytes, int]:
+    """S2C-MSG istek cercevesi kur. Bilinmeyen op -> KeyError (yutulmaz).
+
+    Donus: (istek baytlari, istek mesaj ID'si). Cagiran taraf mesaj ID'sini
+    RESPONSE_BIT ile OR'layarak beklenen yanit command_id'sini turetir —
+    op ayni yerde bir kez cozulur (iki kez cozmek yerine).
+    """
+    message_id = s2cmsg.message_id_for_op(command.operation)
+    request = s2cmsg.pack_request(
         command.operation,
         int(command.command_id),
         device_index=int(command.device_index) & 0xFFFFFFFF,
@@ -87,6 +93,7 @@ def _pack_command(command: TestbenchCommand) -> bytes:
         value=command.value,
         data=bytes.fromhex(command.data_hex or ""),
     )
+    return request, message_id
 
 
 def _request_frame_summary(command: TestbenchCommand, request: bytes) -> str:
@@ -98,7 +105,7 @@ def _request_frame_summary(command: TestbenchCommand, request: bytes) -> str:
 def send_command(command: TestbenchCommand) -> TestbenchResult:
     with socket.create_connection((command.host, int(command.port)), timeout=max(0.2, command.timeout_s)) as sock:
         sock.settimeout(max(0.2, command.timeout_s))
-        request = _pack_command(command)
+        request, _message_id = _pack_command(command)
         sock.sendall(request)
         parser = s2cmsg.FrameParser()
         deadline = time.time() + max(0.2, command.timeout_s)
@@ -269,15 +276,22 @@ class _TestbenchTcpSession(_TrafficRing):
         finally:
             sock.settimeout(self.timeout_s)
 
-    def _send_and_await_response(self, request: bytes, expected_counter: int) -> tuple[int, int, bytes]:
-        """Istegi yolla, sayaci eslesen yanit cercevesini bekle, dondur.
+    def _send_and_await_response(
+        self, request: bytes, expected_counter: int, expected_command_id: int,
+    ) -> tuple[int, int, bytes]:
+        """Istegi yolla, ID+sayaci eslesen yanit cercevesini bekle, dondur.
 
-        Yanit govdesinin ILK 4 baytinin (little-endian u32) istek sayaciyla
-        eslesip eslesmedigine bakar — hem standart yanit govdesi
-        (uiIstekSayac ilk alan) hem de CIT govdesi (ayni onek) icin dogru
-        calisir; her iki cagiran da bu ortak sozlesmeye dayanir. Sayac=0
-        govde, ajanin parse-hatasi konvansiyonudur — eslesen yanit gelmezse
-        yedek olarak dondurulur.
+        Eslesme iki asamali: once cercevenin command_id'si beklenen yanit
+        ID'siyle (istek ID | RESPONSE_BIT) esit olmali, sonra govdenin ILK 4
+        baytindaki (little-endian u32) sayac istek sayaciyla eslesmeli.
+        send() ve send_named() ayni oturumda BAGIMSIZ sayac uzaylari
+        kullanir (ikisi de 1'den baslar) — yalniz sayaca bakmak, gec kalan
+        bir send() yanitini bir send_named() bekleyicisine (veya tersi)
+        yanlislikla verebilirdi. Command_id uyusmayan cerceve, sayaci
+        uyusmayan bir cerceve gibi atlanir ve yedek olarak da KULLANILMAZ —
+        yanlis turden bir govde, zaman asimindan daha kotudur. Sayac=0 govde,
+        ajanin parse-hatasi konvansiyonudur — AYNI ID'de eslesen yanit
+        gelmezse yedek olarak dondurulur.
         """
         with self._lock:
             if self._sock is None:
@@ -305,6 +319,8 @@ class _TestbenchTcpSession(_TrafficRing):
                         command_id, _counter, body = frame
                         if not s2cmsg.is_response(command_id):
                             continue  # istek yansiması değil, gerçek yanıt bekleniyor
+                        if command_id != expected_command_id:
+                            continue  # baska bir mesaj turunun (gec) yaniti — yedek de olamaz
                         candidate_counter = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
                         if candidate_counter == expected_counter:
                             response_frame = frame
@@ -360,8 +376,9 @@ class _TestbenchTcpSession(_TrafficRing):
             data_hex=command.data_hex,
             timeout_s=self.timeout_s,
         )
-        request = _pack_command(session_command)
-        response_frame = self._send_and_await_response(request, int(session_command.command_id))
+        request, message_id = _pack_command(session_command)
+        response_frame = self._send_and_await_response(
+            request, int(session_command.command_id), message_id | s2cmsg.RESPONSE_BIT)
         return TestbenchResult(
             request_line=_request_frame_summary(session_command, request),
             response_line=s2cmsg.decode_frame_summary(response_frame),
@@ -383,7 +400,9 @@ class _TestbenchTcpSession(_TrafficRing):
         self.timeout_s = max(0.2, float(timeout_s))
         try:
             request = s2cmsg.pack_named_request(name, counter)
-            response_frame = self._send_and_await_response(request, counter)
+            message_id = s2cmsg.message_id_for_name(name)
+            response_frame = self._send_and_await_response(
+                request, counter, message_id | s2cmsg.RESPONSE_BIT)
         finally:
             self.timeout_s = original_timeout
         _command_id, _resp_counter, body = response_frame
@@ -582,12 +601,20 @@ class _TestbenchSerialSession(_TrafficRing):
             self._traffic_push("tx", payload_bytes)
             self.last_used_at = time.time()
 
-    def _write_and_await_response(self, request: bytes, expected_counter: int) -> tuple[int, int, bytes]:
-        """Istegi yolla, sayaci eslesen yanit cercevesini bekle, dondur.
+    def _write_and_await_response(
+        self, request: bytes, expected_counter: int, expected_command_id: int,
+    ) -> tuple[int, int, bytes]:
+        """Istegi yolla, ID+sayaci eslesen yanit cercevesini bekle, dondur.
 
-        Yanit govdesinin ILK 4 baytini (little-endian u32) sayac olarak okur
-        — hem standart yanit govdesi hem CIT govdesi bu ortak onegi paylasir,
-        bu yuzden ``send()`` ve ``send_named()`` bu tek helper'i kullanabilir.
+        Eslesme iki asamali: once cercevenin command_id'si beklenen yanit
+        ID'siyle (istek ID | RESPONSE_BIT) esit olmali, sonra govdenin ILK 4
+        baytindaki (little-endian u32) sayac istek sayaciyla eslesmeli.
+        send() ve send_named() ayni oturumda BAGIMSIZ sayac uzaylari
+        kullanir (ikisi de 1'den baslar) — yalniz sayaca bakmak, gec kalan
+        bir send() yanitini bir send_named() bekleyicisine (veya tersi)
+        yanlislikla verebilirdi. Command_id uyusmayan cerceve, sayaci
+        uyusmayan bir cerceve gibi atlanir ve yedek olarak da KULLANILMAZ —
+        yanlis turden bir govde, zaman asimindan daha kotudur.
         """
         with self._send_lock:
             with self._lock:
@@ -625,7 +652,9 @@ class _TestbenchSerialSession(_TrafficRing):
                     candidate = self._responses.get(timeout=remaining)
                 except queue.Empty:
                     break
-                _cid, _counter, candidate_body = candidate
+                cid, _counter, candidate_body = candidate
+                if cid != expected_command_id:
+                    continue  # baska bir mesaj turunun (gec) yaniti — yedek de olamaz
                 candidate_counter = struct.unpack_from("<I", candidate_body, 0)[0] if len(candidate_body) >= 4 else -1
                 if candidate_counter == expected_counter:
                     response_frame = candidate
@@ -650,8 +679,9 @@ class _TestbenchSerialSession(_TrafficRing):
         return response_frame
 
     def send(self, command: TestbenchCommand) -> TestbenchResult:
-        request = _pack_command(command)
-        response_frame = self._write_and_await_response(request, int(command.command_id))
+        request, message_id = _pack_command(command)
+        response_frame = self._write_and_await_response(
+            request, int(command.command_id), message_id | s2cmsg.RESPONSE_BIT)
         return TestbenchResult(
             request_line=_request_frame_summary(command, request),
             response_line=s2cmsg.decode_frame_summary(response_frame),
@@ -667,7 +697,9 @@ class _TestbenchSerialSession(_TrafficRing):
         self.timeout_s = max(0.2, float(timeout_s))
         try:
             request = s2cmsg.pack_named_request(name, counter)
-            response_frame = self._write_and_await_response(request, counter)
+            message_id = s2cmsg.message_id_for_name(name)
+            response_frame = self._write_and_await_response(
+                request, counter, message_id | s2cmsg.RESPONSE_BIT)
         finally:
             self.timeout_s = original_timeout
         _command_id, _resp_counter, body = response_frame
