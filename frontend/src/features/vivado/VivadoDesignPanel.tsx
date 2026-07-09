@@ -85,29 +85,64 @@ function buildRows(platform: string): PeripheralRow[] {
   }));
 }
 
+// --- Form kalıcılığı: son girilen ayarlar localStorage'da tutulur; her seferinde
+// yeniden girmeye gerek yok. Dosya yolları (vivadoDir/part/temp) kendi
+// anahtarlarında, gerisi tek bir JSON snapshot'ta. --- //
+const VIVADO_FORM_KEY = "spec2code.vivadoForm";
+type SavedForm = {
+  platform?: "zynq_ultrascale" | "versal"; designName?: string; refClk?: string;
+  ddrMode?: "none" | "model" | "custom"; ddrValues?: Record<string, string>;
+  ddrModel?: string; ddrBusWidth?: string; makeBit?: boolean; addTestIp?: boolean;
+  rows?: Array<Pick<PeripheralRow, "kind" | "enabled" | "mio" | "qspiMode" | "qspiDataMode" | "qspiFbclk">>;
+};
+function loadVivadoForm(): SavedForm {
+  try { return (JSON.parse(localStorage.getItem(VIVADO_FORM_KEY) || "{}") as SavedForm) || {}; }
+  catch { return {}; }
+}
+function restoreRows(platform: string, saved?: SavedForm["rows"]): PeripheralRow[] {
+  const base = buildRows(platform);
+  if (!Array.isArray(saved)) return base;
+  const byKind = new Map(saved.map((r) => [r.kind, r]));
+  return base.map((r) => {
+    const s = byKind.get(r.kind);
+    return s ? {
+      ...r, enabled: !!s.enabled, mio: s.mio ?? "",
+      qspiMode: (s.qspiMode as PeripheralRow["qspiMode"]) ?? "Single",
+      qspiDataMode: (s.qspiDataMode as PeripheralRow["qspiDataMode"]) ?? "",
+      qspiFbclk: !!s.qspiFbclk,
+    } : r;
+  });
+}
+
 export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const setProject = useStore((s) => s.setProject);
   const applyParse = useStore((s) => s.applyParse);
   const setStep = useStore((s) => s.setStep);
   const storeProject = useStore((s) => s.project);
 
+  // Son kaydedilen form ayarlari (bir kez okunur; initializer'lar buradan besler).
+  const savedFormRef = useRef<SavedForm | null>(null);
+  if (savedFormRef.current === null) savedFormRef.current = loadVivadoForm();
+  const savedForm = savedFormRef.current;
+  const savedPlatform = savedForm.platform === "versal" ? "versal" : "zynq_ultrascale";
+
   const [vivadoDir, setVivadoDir] = useState(() => localStorage.getItem("spec2code.vivadoDir") ?? "");
-  const [platform, setPlatform] = useState<"zynq_ultrascale" | "versal">("zynq_ultrascale");
+  const [platform, setPlatform] = useState<"zynq_ultrascale" | "versal">(savedPlatform);
   const [part, setPart] = useState(() => localStorage.getItem("spec2code.vivadoPart") ?? "");
   const [tempPath, setTempPath] = useState(() => localStorage.getItem("spec2code.vivadoTemp") ?? "");
-  const [designName, setDesignName] = useState("spec2code_hw");
-  const [rows, setRows] = useState<PeripheralRow[]>(() => buildRows("zynq_ultrascale"));
-  const [refClk, setRefClk] = useState("33.333");
-  const [ddrMode, setDdrMode] = useState<"none" | "model" | "custom">("none");
-  const [ddrValues, setDdrValues] = useState<Record<string, string>>({});
+  const [designName, setDesignName] = useState(() => savedForm.designName ?? "spec2code_hw");
+  const [rows, setRows] = useState<PeripheralRow[]>(() => restoreRows(savedPlatform, savedForm.rows));
+  const [refClk, setRefClk] = useState(() => savedForm.refClk ?? "33.333");
+  const [ddrMode, setDdrMode] = useState<"none" | "model" | "custom">(() => savedForm.ddrMode ?? "none");
+  const [ddrValues, setDdrValues] = useState<Record<string, string>>(() => savedForm.ddrValues ?? {});
   // DDR model havuzu: geometri Xilinx kataloğundan, zamanlamaları üretim
   // anında PCW hesaplar (elle CL/tRCD taşınmaz).
   type DdrPart = { id: string; label: string; description: string; speed_bins: string[]; default_speed_bin: string; bus_widths: string[]; chip_gb: number; dram_width: string };
   const [ddrParts, setDdrParts] = useState<DdrPart[]>([]);
-  const [ddrModel, setDdrModel] = useState("");
-  const [ddrBusWidth, setDdrBusWidth] = useState("32 Bit");
-  const [makeBit, setMakeBit] = useState(false);
-  const [addTestIp, setAddTestIp] = useState(false);
+  const [ddrModel, setDdrModel] = useState(() => savedForm.ddrModel ?? "");
+  const [ddrBusWidth, setDdrBusWidth] = useState(() => savedForm.ddrBusWidth ?? "32 Bit");
+  const [makeBit, setMakeBit] = useState(() => savedForm.makeBit ?? false);
+  const [addTestIp, setAddTestIp] = useState(() => savedForm.addTestIp ?? false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [events, setEvents] = useState<VivadoEvent[]>([]);
@@ -139,6 +174,23 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [events]);
+
+  // Form ayarlarini her degisiklikte kaydet (dosya yollari kendi anahtarlarinda,
+  // gerisi tek snapshot). Bir sonraki acilista aynen geri yuklenir.
+  useEffect(() => {
+    try {
+      localStorage.setItem("spec2code.vivadoDir", vivadoDir);
+      localStorage.setItem("spec2code.vivadoPart", part);
+      localStorage.setItem("spec2code.vivadoTemp", tempPath);
+      const snapshot: SavedForm = {
+        platform, designName, refClk, ddrMode, ddrValues, ddrModel, ddrBusWidth, makeBit, addTestIp,
+        rows: rows.map((r) => ({ kind: r.kind, enabled: r.enabled, mio: r.mio,
+          qspiMode: r.qspiMode, qspiDataMode: r.qspiDataMode, qspiFbclk: r.qspiFbclk })),
+      };
+      localStorage.setItem(VIVADO_FORM_KEY, JSON.stringify(snapshot));
+    } catch { /* localStorage kapali - ayarlar yalnizca bu oturumda kalir */ }
+  }, [vivadoDir, part, tempPath, platform, designName, refClk, ddrMode, ddrValues,
+      ddrModel, ddrBusWidth, makeBit, addTestIp, rows]);
 
   function switchPlatform(next: "zynq_ultrascale" | "versal") {
     setPlatform(next);

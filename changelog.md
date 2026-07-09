@@ -3,6 +3,26 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.138 - 2026-07-09
+
+- VIVADO SAYFASI FORM HAFIZASI (kullanici istegi): "her seferinde tekrar ayni
+  seyleri girmek istemiyorum". Vivado tasarim ekranindaki TUM ayarlar artik
+  localStorage'a kaydediliyor ve uygulama acildiginda geri yukleniyor.
+  - Onceden yalnizca Vivado dizini/part/temp SADECE "uret"e basinca yaziliyordu;
+    platform, tasarim adi, ref clock, DDR modu/degerleri/model/veri yolu genisligi,
+    "biti da uret", "Register Map Test IP ekle" ve tum cevre birimi satirlari
+    (enabled/MIO/QSPI mod/veri modu/FBCLK) HIC kaydedilmiyordu.
+  - Yeni: `spec2code.vivadoForm` anahtarinda tam form anlik goruntusu; her degisimde
+    yazilir (useEffect), mount'ta lazy initializer'larla geri yuklenir. Vivado
+    dizini/part/temp icin mevcut `spec2code.vivadoDir/vivadoPart/vivadoTemp`
+    anahtarlari korundu (artik degistikce yaziliyor, sadece uretimde degil).
+  - Cevre birimi satirlari kind bazinda eslenip taban sablonun uzerine bindiriliyor
+    (restoreRows); kaydedilmemis/yeni bir kind gracefully taban varsayilanini alir.
+  - `switchPlatform` kullanici callback'i (mount effect degil), bu yuzden acilista
+    geri yuklenen satirlari ezmez. Frontend build gecti; canli dogrulama: ozel bir
+    form (tasarim adi/refClk/DDR/makeBit/addTestIp/uart1) reload sonrasi birebir
+    geri geldi.
+
 ## v0.1.137 - 2026-07-09
 
 - SAHA KOK NEDEN (kullanici): PL AXI register'i (register map Test IP @0xA0000000)
