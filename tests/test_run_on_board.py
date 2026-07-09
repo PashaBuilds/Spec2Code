@@ -71,10 +71,14 @@ class RenderRunScriptTests(unittest.TestCase):
             processor="psu_cortexa53_0",
         )
         markers = ["\nconnect\n", "rst -system", "psu_init", "fpga {",
+                   "psu_ps_pl_isolation_removal", "psu_ps_pl_reset_config",
                    "rst -processor", "\ndow {", "\ncon\n", "disconnect"]
         positions = [script.index(marker) for marker in markers]
         self.assertEqual(positions, sorted(positions))
         self.assertIn('name =~ "*A53*#0"', script)
+        # PL bitstream yuklendiginde: fpga -> isolation kaldir -> PL reset serbest.
+        # Yoksa PL reset'te kalir, PL AXI slave'leri (register map IP) cevap vermez.
+        self.assertLess(script.index("fpga {"), script.index("psu_ps_pl_isolation_removal"))
         # Tcl paths must use forward slashes even on Windows.
         self.assertIn("C:/ws/app/Debug/app.elf", script)
 

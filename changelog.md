@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.137 - 2026-07-09
+
+- SAHA KOK NEDEN (kullanici): PL AXI register'i (register map Test IP @0xA0000000)
+  okunamiyordu — xsdb "Blocked address 0xA0000000. PL reset is active", mrd -force
+  -> "Cortex-A53 EDITR timeout" (cekirdek kilitleniyor); arayuzde Canli Izleme
+  okumasi -> connection timeout (ajan Xil_In32 AXI'de asilip cekirdegi kilitliyor,
+  DCC dusuyor). Kok neden: ZynqMP run-on-board dizisinde PL yuklendikten sonra
+  PS-PL ISOLATION KALDIRMA + PL RESET SERBEST BIRAKMA adimlari YOKTU (Zynq-7000
+  dalinda ps7_post_config vardi, ZynqMP karsiligi eksikti). Tasarimlar simdiye
+  kadar PS-only oldugundan hic patlamamisti; register map Test IP ilk PL AXI slave'i.
+  - Duzeltme (run_on_board.py): ZynqMP'de fpga (bitstream) yuklendikten sonra
+    `psu_ps_pl_isolation_removal` + `psu_ps_pl_reset_config` cagriliyor (psu_init.tcl'de
+    tanimli; catch ile fonksiyon yoksa gracefully atlanir). Boylece PL reset'ten
+    cikar ve PL AXI slave'leri (register map IP dahil) cevap verir. PS-only
+    tasarimda bitstream yok -> bu blok calismaz. 202 test gecti.
+
 ## v0.1.136 - 2026-07-09
 
 - ETHERNET SABIT STATIK KONFIG (kullanici karari - esneklik yok): uretilen

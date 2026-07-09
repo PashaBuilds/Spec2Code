@@ -211,7 +211,8 @@ def render_run_on_board_script(
 ) -> str:
     """xsdb Tcl for the classic JTAG run flow, per platform.
 
-    zynq_ultrascale: rst -system -> psu_init -> [fpga .bit] -> A53/R5 -> dow -> con
+    zynq_ultrascale: rst -system -> psu_init -> [fpga .bit -> ps_pl_isolation_removal
+                     -> ps_pl_reset_config] -> A53/R5 -> dow -> con
     zynq_7000:       rst -system -> ps7_init -> [fpga .bit] -> A9 -> dow -> ps7_post_config -> con
     versal:          device program <pdi> (PLM+PL) -> A72 -> dow -> con
 
@@ -270,6 +271,20 @@ def render_run_on_board_script(
             lines.extend([
                 f"fpga {{{_tcl_path(bitstream_path)}}}",
                 'puts "S2C-RUN: fpga programmed"',
+                # PL yuklendikten SONRA PS-PL isolation'i kaldir ve PL reset'ini
+                # SERBEST BIRAK. Yoksa PL reset'te kalir; PL AXI slave'leri
+                # (or. register map IP @0xA000_0000) cevap vermez -> xsdb "PL reset
+                # is active", mrd -force -> "EDITR timeout", firmware Xil_In32 AXI'de
+                # asilir ve cekirdegi kilitler (arayuzde connection timeout). Bu
+                # fonksiyonlar psu_init.tcl'de tanimlidir (PL'li ZynqMP tasarimi);
+                # PS-only tasarimda bitstream yok, bu blok hic calismaz. catch ile
+                # fonksiyon yoksa gracefully atlanir.
+                "if {[catch {psu_ps_pl_isolation_removal}]} { "
+                'puts "S2C-RUN: psu_ps_pl_isolation_removal atlandi (fonksiyon yok)" } '
+                'else { puts "S2C-RUN: PS-PL isolation kaldirildi" }',
+                "if {[catch {psu_ps_pl_reset_config}]} { "
+                'puts "S2C-RUN: psu_ps_pl_reset_config atlandi (fonksiyon yok)" } '
+                'else { puts "S2C-RUN: PL reset serbest birakildi" }',
             ])
     lines.extend([
         f"targets -set -nocase -filter {{name =~ {core_filter}}}",
