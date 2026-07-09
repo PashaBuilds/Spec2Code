@@ -43,6 +43,37 @@ function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
+const NO_DEVICE_INDEX = 0xffffffff;
+
+/** deviceId'yi aktif (ya da son başarılı/cache'lenmiş) testbench manifest'inin
+ * devices[] sırasındaki indeksine çözer — S2C-MSG tel çerçevesi cihazı isimle
+ * değil bu indeksle taşır. Manifest kaynağı Test Bench / Seri Hat panellerinin
+ * kullandığı YERLE AYNIdır: useStore().job.files (aktif generate) → yoksa
+ * previousFiles (son başarılı generate) → yoksa localStorage cache
+ * (features/testbench/manifest.ts). Manifest yoksa ya da cihaz bulunamazsa
+ * "cihaz yok" değeri (0xFFFFFFFF) döner. */
+async function resolveDeviceIndex(deviceId: string): Promise<number> {
+  if (!deviceId) return NO_DEVICE_INDEX;
+  try {
+    const [{ useStore }, { findManifest, loadCachedManifest }] = await Promise.all([
+      import("@/store/useStore"),
+      import("@/features/testbench/manifest"),
+    ]);
+    const state = useStore.getState();
+    const manifestFiles = state.job.files.length > 0
+      ? state.job.files
+      : state.job.status === "running"
+        ? []
+        : state.previousFiles;
+    const manifest = findManifest(manifestFiles) ?? loadCachedManifest(state.project.name);
+    if (!manifest) return NO_DEVICE_INDEX;
+    const index = manifest.devices.findIndex((device) => device.id === deviceId);
+    return index >= 0 ? index : NO_DEVICE_INDEX;
+  } catch {
+    return NO_DEVICE_INDEX;
+  }
+}
+
 export const api = {
   health: () => req<{ status: string; tools: Record<string, string | null> }>("/api/health"),
 
@@ -261,9 +292,10 @@ export const api = {
       }).catch(() => undefined);
     };
     try {
+      const device_index = payload.device_index ?? await resolveDeviceIndex(payload.device);
       const response = await req<TestbenchCommandResponse>("/api/testbench/command", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, device_index }),
       });
       record(response.parsed.ok === "1", response.parsed.value || response.parsed.data || response.parsed.message || "");
       return response;

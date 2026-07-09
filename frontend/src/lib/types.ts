@@ -343,6 +343,10 @@ export interface TestbenchCommandRequest {
   host: string;
   port: number;
   device: string;
+  /** Manifest devices[] sırasındaki indeks; tel üzerine giden asıl kimlik.
+   * api.testbenchCommand tarafından `device`'tan MERKEZİ olarak çözülür —
+   * çağıranların elle set etmesine gerek yok (bkz. resolveDeviceIndex). */
+  device_index?: number;
   operation: string;
   command_id?: number;
   session_id?: string;
@@ -397,7 +401,10 @@ export interface TrafficEntry {
   seq: number;
   at: number;
   dir: "tx" | "rx";
-  line: string;
+  /** İlk 64B'ın hex dökümü (büyük harf, boşluksuz) — ham S2C-MSG çerçevesi/baytları. */
+  hex: string;
+  /** İnsan-okunur özet: çerçeve ise "AD (istek) sayac=N govde=NB", değilse ASCII fallback metni. */
+  ozet: string;
 }
 
 export interface SerialPortInfo {

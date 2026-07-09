@@ -117,8 +117,12 @@ function ResultPanel({
   const data = result.parsed.data ?? "";
   const bytes = byteGroups(data);
   // Sürüm sorgusu: data ASCII sürüm taşır (eski firmware'de boş — mesajdan
-  // ayıklanır); cihaz operasyonu metasıyla ASLA decode edilmez.
-  const isVersionQuery = result.request_line.includes("op=spec2code_version");
+  // ayıklanır); cihaz operasyonu metasıyla ASLA decode edilmez. Satır metni
+  // artık S2C-MSG çerçeve özeti (op= içermiyor) — sinyal olarak
+  // queryAgentVersion'ın resultOperation'ı bilerek null bıraktığı gerçeği
+  // kullanılır (send() bir operasyon SEÇİLMEDEN asla çağrılamaz, dolayısıyla
+  // operation===null yalnız sürüm sorgusunda olur).
+  const isVersionQuery = operation === null;
   const versionText = isVersionQuery
     ? asciiFromDataHex(data) ?? /v\d+\.\d+\.\d+/.exec(result.parsed.message ?? "")?.[0] ?? null
     : null;

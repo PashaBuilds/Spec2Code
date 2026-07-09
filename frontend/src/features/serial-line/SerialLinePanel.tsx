@@ -1,332 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioWaveform, Eraser, Pause, Play } from "lucide-react";
 import { Badge, Button, Card, Label } from "@/components/ui";
-import BusWaveform from "@/features/device-knowledge/BusWaveform";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
 import { api } from "@/lib/api";
-import { stripAnsi, timeLabel } from "@/lib/console";
-import { formatConvertedValue } from "@/lib/units";
+import { timeLabel } from "@/lib/console";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
-import type { KnowledgeRegisterTransfer } from "@/features/device-knowledge/knowledge";
-import type {
-  TestbenchManifest,
-  TestbenchManifestDevice,
-  TestbenchOperation,
-  TestbenchSessionStatus,
-} from "@/lib/types";
+import type { TestbenchManifest, TestbenchSessionStatus } from "@/lib/types";
 
 const TRAFFIC_POLL_MS = 500;
 const SESSIONS_POLL_MS = 2000;
 const MAX_CARDS = 40;
-const MAX_WAVES_PER_CARD = 3;
 
-/** Manifest'teki bus transfer planı adımı (codegen _op_wire_plan üretir). */
-interface WireStep {
-  kind: string;
-  reg?: string;
-  addr?: number;
-  value?: number;
-  length?: number | null;
-  count?: number;
-  note?: string;
-  repeat?: string;
-  runtime?: boolean;
-  cmd?: string;
-  opcode?: number;
-  addr_bytes?: number;
-  first_word?: string;
-}
-
-/** S2C satırını key=value sözlüğüne çözer; S2C satırı değilse null. */
-export function parseS2CLine(line: string): Record<string, string> | null {
-  const text = stripAnsi(line).trim();
-  if (!text.startsWith("S2C|")) return null;
-  const parsed: Record<string, string> = {};
-  for (const token of text.split("|").slice(1)) {
-    const eq = token.indexOf("=");
-    if (eq > 0) parsed[token.slice(0, eq).trim()] = token.slice(eq + 1).trim();
-  }
-  return parsed;
-}
-
-/** Ajanın canlı bus izi: "S2C-LOG|D|TRACE|id=..|bus=..|..." satırı.
- * Sürücülerin en alt seviye gönder/al fonksiyonları her GERÇEK transferden
- * sonra yayınlar (log seviyesi debug iken). */
-export function parseTraceLine(line: string): Record<string, string> | null {
-  const text = stripAnsi(line).trim();
-  const marker = text.indexOf("TRACE|");
-  if (!text.startsWith("S2C-LOG|") || marker < 0) return null;
-  const parsed: Record<string, string> = {};
-  for (const token of text.slice(marker + "TRACE|".length).split("|")) {
-    const eq = token.indexOf("=");
-    if (eq > 0) parsed[token.slice(0, eq).trim()] = token.slice(eq + 1).trim();
-  }
-  return parsed.id ? parsed : null;
-}
-
-interface TraceRec {
-  bus?: string;
-  addr?: string;
-  reg?: string;
-  dir?: string;
-  cs?: string;
-  len?: string;
-  data?: string;
-  tx?: string;
-  rx?: string;
+/** decode_frame_summary (backend/s2cmsg.py) çıktısını çözer: "{AD} ({istek|yanit}) sayac={n} govde={n}B".
+ * Bu, S2C-MSG binary çerçevesinin insan-okunur özetidir — trafik girdisinde
+ * ayrıştırılmış device/register/data alanları YOK (tel artık binary; bkz.
+ * Task 3 raporu "Mimari not"), yalnız işlem adı + sayaç (id) + yön çözülür. */
+function parseOzet(ozet: string): { name: string; dir: "istek" | "yanit"; sayac: number; bodyBytes: number } | null {
+  const match = /^(\S+) \((istek|yanit)\) sayac=(\d+) govde=(\d+)B$/.exec(ozet.trim());
+  if (!match) return null;
+  return { name: match[1], dir: match[2] as "istek" | "yanit", sayac: Number(match[3]), bodyBytes: Number(match[4]) };
 }
 
 interface TransferCard {
   key: string;
-  id: string;
+  sayac: number;
+  name: string;
   txAt: number;
   rxAt?: number;
-  tx: Record<string, string>;
-  txLine: string;
-  rx?: Record<string, string>;
-  rxLine?: string;
-  traces: TraceRec[];
-}
-
-function hexByte(value: number): string {
-  return `0x${(value & 0xff).toString(16).toUpperCase().padStart(2, "0")}`;
-}
-
-function hexAddr(value: number): string {
-  return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
-}
-
-function dataBytes(dataHex: string): string[] {
-  const clean = (dataHex || "").replace(/[^0-9a-fA-F]/g, "");
-  const bytes: string[] = [];
-  for (let i = 0; i + 2 <= clean.length; i += 2) bytes.push(`0x${clean.slice(i, i + 2).toUpperCase()}`);
-  return bytes;
-}
-
-function parseNumberish(text: string | undefined): number | null {
-  if (!text) return null;
-  const parsed = Number.parseInt(text, text.toLowerCase().startsWith("0x") ? 16 : 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/** SPI TICS frame yerleşimi (UI gösterimi): LMK04832/ADAR1000 addr<<8 +
- * 8-bit veri, LMX ailesi addr<<16 + 16-bit veri — Bilgi ekranındaki
- * sözleşmenin aynısı. */
-function spiFrameModel(part: string): { addrShift: number; dataBits: number } {
-  const upper = part.toUpperCase();
-  if (upper === "LMK04832" || upper === "ADAR1000") return { addrShift: 8, dataBits: 8 };
-  return { addrShift: 16, dataBits: 16 };
-}
-
-function spiWordBytes(rw: 0 | 1, regAddr: number, data: number, addrShift: number): string[] {
-  const word = ((rw << 23) | ((regAddr << addrShift) & 0x7fffff) | (data & ((1 << addrShift) - 1))) >>> 0;
-  return [hexByte(word >> 16), hexByte(word >> 8), hexByte(word)];
-}
-
-function symbolic(count: number): string[] {
-  if (count <= 1) return ["DATA"];
-  if (count === 2) return ["MSB", "LSB"];
-  return Array.from({ length: Math.min(count, 4) }, (_, i) => `D${count - 1 - i}`);
-}
-
-/** Kartın bus diyagramları: manifest'teki kablo planı gerçek adres/register
- * adlarıyla katalog transferlerine çevrilir. Ham (birimsiz) okumalarda yanıt
- * baytları diyagramdaki RX hücrelerine yazılır; dönüştürülmüş sonuçlarda
- * kablo baytları ajanda kaldığından hücreler MSB/LSB etiketiyle kalır ve
- * sonuç ayrıca "= değer" rozetinde gösterilir (uydurma bayt yok). */
-function wireTransfers(
-  card: TransferCard,
-  device: TestbenchManifestDevice | null,
-  operation: TestbenchOperation | null,
-): Array<{ transfer: KnowledgeRegisterTransfer; title: string }> {
-  if (!device) return [];
-  const wire = (operation as { wire?: WireStep[] } | null)?.wire;
-  if (!wire || wire.length === 0) return [];
-  const isI2c = device.transport.startsWith("i2c");
-  // Kablo planında SLA baytları kartın gerçek 7-bit adresiyle çizilir.
-  const deviceI2cAddress = isI2c ? parseNumberish(device.attach?.i2c_address ?? "") ?? undefined : undefined;
-  const rawFill = Boolean(card.rx) && (operation?.result_unit ?? "") === "";
-  // Uzunluğu plan değil İSTEK belirleyen okumalar (data_read gibi): gerçek
-  // bayt sayısı istekteki length alanından gelir — yoksa hücreler yanıt
-  // verisi dolu olduğu halde sembolik (D7..D0) kalıyordu.
-  const requestLength = parseNumberish(card.tx.length);
-  const rxAll = dataBytes(card.rx?.data ?? "");
-  let rxCursor = 0;
-  const takeRx = (count: number): string[] | null => {
-    if (!rawFill) return null;
-    const slice = rxAll.slice(rxCursor, rxCursor + count);
-    rxCursor += count;
-    return slice.length === count ? slice : null;
-  };
-  const spi = spiFrameModel(device.part);
-
-  const out: Array<{ transfer: KnowledgeRegisterTransfer; title: string }> = [];
-  for (const step of wire) {
-    // Generic register_read/register_write: register çalışma zamanında
-    // istekten gelir.
-    const regAddr = step.runtime ? parseNumberish(card.tx.reg_addr) ?? 0 : step.addr ?? 0;
-    const regName = step.runtime ? (card.tx.reg || card.tx.reg_addr || "REG") : step.reg ?? "REG";
-    const regLabel = `${regName} (${hexAddr(regAddr)})`;
-    const writeValue = step.runtime ? parseNumberish(card.tx.value) ?? 0 : step.value ?? 0;
-    const pollNote = step.repeat === "poll" ? `${step.note ?? "hazır olana dek tekrarlanır"} (×N)` : step.note;
-
-    if (step.kind === "reg_read") {
-      const length = step.length ?? requestLength ?? 1;
-      const real = takeRx(length);
-      out.push({
-        title: `${regName} oku${step.repeat === "poll" ? " (poll)" : ""}`,
-        transfer: isI2c
-          ? {
-              title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${length} byte`,
-              tx: [regLabel], rx: real ?? symbolic(length), code: [], note: pollNote,
-              i2cAddress: deviceI2cAddress,
-            }
-          : {
-              title: regLabel, access: "READ", txBytes: "3 byte", rxBytes: `${spi.dataBits / 8} byte`,
-              tx: spiWordBytes(1, regAddr, 0, spi.addrShift), rx: real ?? symbolic(spi.dataBits / 8),
-              code: [], note: pollNote,
-            },
-      });
-    } else if (step.kind === "reg_read_channels") {
-      const count = step.count ?? 8;
-      out.push({
-        title: `${count} kanal oku (${regName}…)`,
-        transfer: {
-          title: regLabel, access: "READ",
-          txBytes: `${count * 2} x 1 byte register pointer`,
-          rxBytes: `${count * 2} byte toplam (${count} x MSB+LSB)`,
-          tx: [`${regName} + 2n`, `${regName} + 2n + 1`],
-          rx: ["MSB", "LSB"], code: [],
-          note: `n = 0..${count - 1}; her kanal için MSB+LSB okunur`,
-          i2cAddress: deviceI2cAddress,
-        },
-      });
-    } else if (step.kind === "reg_write") {
-      out.push({
-        title: `${regName} yaz`,
-        transfer: isI2c
-          ? {
-              title: regLabel, access: "WRITE", txBytes: "2 byte", rxBytes: "0 byte",
-              tx: [regLabel, hexByte(writeValue)], rx: ["-"], code: [], note: step.note,
-              i2cAddress: deviceI2cAddress,
-            }
-          : {
-              title: regLabel, access: "WRITE", txBytes: "3 byte", rxBytes: "0 byte",
-              tx: spiWordBytes(0, regAddr, writeValue, spi.addrShift), rx: ["-"], code: [], note: step.note,
-            },
-      });
-    } else if (step.kind === "tics_init") {
-      const first = parseNumberish(step.first_word) ?? 0;
-      out.push({
-        title: `TICS init dizisi (${step.count ?? 0} word)`,
-        transfer: {
-          title: "TICS Pro word", access: "WRITE",
-          txBytes: `${step.count ?? 0} x 3 byte`, rxBytes: "0 byte",
-          tx: [hexByte(first >> 16), hexByte(first >> 8), hexByte(first)], rx: ["-"], code: [],
-          note: `${step.count ?? 0} word sırayla yazılır — ilki gösteriliyor`,
-        },
-      });
-    } else if (step.kind === "cmd" || step.kind === "cmd_read" || step.kind === "cmd_write") {
-      const opcode = step.opcode ?? 0;
-      const addrBytes = step.addr_bytes ?? 0;
-      const isRead = step.kind === "cmd_read";
-      const length = step.length ?? (isRead ? requestLength : null);
-      const real = isRead && length ? takeRx(length) : null;
-      out.push({
-        title: `${step.cmd ?? "CMD"} (${hexByte(opcode)})`,
-        transfer: {
-          title: step.cmd ?? "CMD",
-          access: isRead ? "READ" : "WRITE",
-          txBytes: `${1 + addrBytes} byte${step.kind === "cmd_write" ? " + payload" : ""}`,
-          rxBytes: isRead ? (length ? `${length} byte` : "N byte") : "0 byte",
-          tx: [hexByte(opcode), ...(addrBytes ? [`ADDR[${addrBytes}]`] : [])],
-          rx: isRead ? (real ?? symbolic(length ?? 2)) : ["-"],
-          code: [], note: step.note,
-        },
-      });
-    }
-  }
-  return out;
-}
-
-function hexPairs(hex: string | undefined): string[] {
-  return dataBytes(hex ?? "");
-}
-
-/** Canlı izlerden diyagram listesi: her GERÇEK bus transferi sırasıyla bir
- * diyagram olur (kanal kanal). Ardışık aynı register/aynı yön okumaları
- * (poll) ×k olarak katlanır — iterasyonlar gerçekten yaşanmıştır, yalnız
- * gösterim sıkıştırılır. */
-function traceTransfers(
-  card: TransferCard,
-  device: TestbenchManifestDevice | null,
-): Array<{ transfer: KnowledgeRegisterTransfer; title: string }> {
-  if (card.traces.length === 0) return [];
-  const regNameByAddr = new Map<number, string>();
-  for (const reg of device?.registers ?? []) regNameByAddr.set(reg.offset, reg.name);
-
-  interface Group { trace: TraceRec; count: number }
-  const groups: Group[] = [];
-  for (const trace of card.traces) {
-    const previous = groups[groups.length - 1];
-    const sameAsPrevious =
-      previous &&
-      previous.trace.bus === trace.bus &&
-      previous.trace.reg === trace.reg &&
-      previous.trace.dir === trace.dir &&
-      previous.trace.tx === trace.tx;
-    if (sameAsPrevious) {
-      previous.count += 1;
-      previous.trace = trace; // son iterasyonun gerçek verisi gösterilir
-    } else {
-      groups.push({ trace, count: 1 });
-    }
-  }
-
-  return groups.map(({ trace, count }) => {
-    const suffix = count > 1 ? ` ×${count}` : "";
-    if (trace.bus === "i2c") {
-      const regAddr = parseNumberish(trace.reg) ?? 0;
-      const regName = regNameByAddr.get(regAddr) ?? trace.reg ?? "REG";
-      const regLabel = `${regName} (${trace.reg ?? "?"})`;
-      const bytes = hexPairs(trace.data);
-      // İzdeki gerçek slave adresi: SLA baytı gerçek bitleriyle çizilir.
-      const busAddress = parseNumberish(trace.addr) ?? undefined;
-      if ((trace.dir ?? "r") === "w") {
-        return {
-          title: `${regName} yaz${suffix}`,
-          transfer: {
-            title: regLabel, access: "WRITE", txBytes: `${1 + bytes.length} byte`, rxBytes: "0 byte",
-            tx: [regLabel, ...bytes], rx: ["-"], code: [],
-            note: count > 1 ? `${count} kez tekrarlandı` : undefined,
-            i2cAddress: busAddress,
-          },
-        };
-      }
-      return {
-        title: `${regName} oku${suffix}`,
-        transfer: {
-          title: regLabel, access: "READ", txBytes: "1 byte", rxBytes: `${bytes.length || 1} byte`,
-          tx: [regLabel], rx: bytes.length ? bytes : ["DATA"], code: [],
-          note: count > 1 ? `hazır olana dek ${count} kez okundu` : undefined,
-          i2cAddress: busAddress,
-        },
-      };
-    }
-    const txBytesList = hexPairs(trace.tx === "-" ? "" : trace.tx);
-    const rxBytesList = trace.rx && trace.rx !== "-" ? hexPairs(trace.rx) : [];
-    const isRead = rxBytesList.length > 0;
-    return {
-      title: `SPI frame${suffix}`,
-      transfer: {
-        title: `SPI (CS${trace.cs ?? "?"})`, access: isRead ? "READ" : "WRITE",
-        txBytes: `${txBytesList.length} byte`, rxBytes: isRead ? `${rxBytesList.length} byte` : "0 byte",
-        tx: txBytesList.length ? txBytesList : ["TX"], rx: isRead ? rxBytesList : ["-"], code: [],
-        note: count > 1 ? `${count} kez tekrarlandı` : undefined,
-      },
-    };
-  });
+  txHex: string;
+  txOzet: string;
+  rxHex?: string;
+  rxOzet?: string;
 }
 
 function transportLabel(status: TestbenchSessionStatus): string {
@@ -335,9 +40,12 @@ function transportLabel(status: TestbenchSessionStatus): string {
   return `TCP ${status.host}:${status.port}`;
 }
 
-/** Akış'ın kardeşi: her S2C komut/yanıt çifti id ile eşleştirilir ve
- * operasyonun BUS seviyesindeki transferleri katalogdaki zaman diyagramıyla
- * (gerçek register adresleri, init'te gerçek değerler) çizilir. */
+/** Akış'ın kardeşi: her S2C-MSG istek/yanıt çifti sayaç (id) ile eşleştirilir
+ * ve manifest'teki operasyon etiketiyle gösterilir. Tel artık binary
+ * olduğundan (S2C-MSG) trafik girdisi yalnız hex dökümü + insan-okunur özet
+ * taşır — device/register/data alanları burada AYRIŞTIRILAMAZ (bkz. Task 3
+ * raporu "Mimari not"); bus-seviyesi dalga biçimi diyagramları bu yüzden
+ * kaldırıldı, kart yalnız istek/yanıt hex+özetini yan yana gösterir. */
 export default function SerialLinePanel() {
   const files = useStore((s) => s.job.files);
   const previousFiles = useStore((s) => s.previousFiles);
@@ -348,6 +56,18 @@ export default function SerialLinePanel() {
     () => findManifest(manifestFiles) ?? loadCachedManifest(projectName),
     [manifestFiles, projectName],
   );
+  // İşlem adı (katalog NAME, ör. VOLTAGE_READ) → manifest operation label
+  // eşlemesi: yalnız görüntü amaçlı, birden çok cihaz aynı op'u paylaşırsa
+  // ilk eşleşen etiket kullanılır.
+  const operationLabelByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const device of manifest?.devices ?? []) {
+      for (const op of device.operations) {
+        if (!map.has(op.name)) map.set(op.name, op.label || op.name);
+      }
+    }
+    return map;
+  }, [manifest]);
 
   const [sessions, setSessions] = useState<TestbenchSessionStatus[]>([]);
   const [sessionId, setSessionId] = useState("");
@@ -355,7 +75,7 @@ export default function SerialLinePanel() {
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
   const sinceRef = useRef(0);
-  const pendingRef = useRef<Map<string, string>>(new Map()); // id -> card key
+  const pendingRef = useRef<Map<number, string>>(new Map()); // sayac -> card key
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) ?? null,
@@ -406,34 +126,22 @@ export default function SerialLinePanel() {
         setCards((current) => {
           let next = current;
           for (const entry of entries) {
-            const trace = parseTraceLine(entry.line);
-            if (trace) {
-              // Canlı bus izi: ilgili komut kartına sırayla eklenir.
-              const key = pendingRef.current.get(trace.id);
-              if (key) {
-                next = next.map((card) =>
-                  card.key === key ? { ...card, traces: [...card.traces, trace as TraceRec] } : card,
-                );
-              }
-              continue;
-            }
-            const parsed = parseS2CLine(entry.line);
-            if (!parsed || !parsed.id) continue;
-            const isResponse = "ok" in parsed;
-            if (!isResponse && parsed.op) {
+            const parsed = parseOzet(entry.ozet);
+            if (!parsed) continue; // konsol metni / çözülemeyen özet — kart değil
+            if (parsed.dir === "istek") {
               const key = `${entry.seq}`;
-              pendingRef.current.set(parsed.id, key);
+              pendingRef.current.set(parsed.sayac, key);
               next = [
-                { key, id: parsed.id, txAt: entry.at, tx: parsed, txLine: stripAnsi(entry.line), traces: [] },
+                { key, sayac: parsed.sayac, name: parsed.name, txAt: entry.at, txHex: entry.hex, txOzet: entry.ozet },
                 ...next,
               ].slice(0, MAX_CARDS);
-            } else if (isResponse) {
-              const key = pendingRef.current.get(parsed.id);
+            } else {
+              const key = pendingRef.current.get(parsed.sayac);
               if (!key) continue;
-              pendingRef.current.delete(parsed.id);
+              pendingRef.current.delete(parsed.sayac);
               next = next.map((card) =>
                 card.key === key
-                  ? { ...card, rx: parsed, rxAt: entry.at, rxLine: stripAnsi(entry.line) }
+                  ? { ...card, rxAt: entry.at, rxHex: entry.hex, rxOzet: entry.ozet }
                   : card,
               );
             }
@@ -449,14 +157,6 @@ export default function SerialLinePanel() {
       window.clearInterval(timer);
     };
   }, [sessionId, paused]);
-
-  function deviceFor(card: TransferCard): TestbenchManifestDevice | null {
-    return manifest?.devices.find((device) => device.id === card.tx.device) ?? null;
-  }
-
-  function operationFor(card: TransferCard, device: TestbenchManifestDevice | null): TestbenchOperation | null {
-    return device?.operations.find((op) => op.name === card.tx.op) ?? null;
-  }
 
   return (
     <Card className="flex h-full min-h-0 flex-col p-0">
@@ -502,13 +202,8 @@ export default function SerialLinePanel() {
           </Button>
         </div>
         <p className="w-full text-[11px] leading-relaxed text-faint">
-          Her kart bir S2C komut/yanıt çiftidir (id eşleşmeli).{" "}
-          <span className="font-semibold text-text">
-            Canlı bit izleme için bağlantı kartından log seviyesini 5 (debug) yap
-          </span>
-          : ajan her gerçek bus transferini raporlar ve diyagramlar GERÇEK TX/RX baytlarıyla, kanal
-          kanal sırayla çizilir (poll tekrarları ×k olarak katlanır). İz yokken operasyonun kablo
-          planı gösterilir.
+          Her kart bir S2C-MSG istek/yanıt çiftidir (sayaç eşleşmeli). İşlem adı katalogdan
+          çözülür; ham hex dökümü ve özet satırı her iki yön için ayrı ayrı gösterilir.
         </p>
       </div>
 
@@ -522,95 +217,51 @@ export default function SerialLinePanel() {
         {cards.length === 0 ? (
           <p className="mt-6 text-center text-xs text-faint">
             {sessionId
-              ? "Transfer bekleniyor... Test Bench'ten komut gönderin; her komut burada bus diyagramıyla görünecek."
+              ? "Transfer bekleniyor... Test Bench'ten komut gönderin; her komut burada istek/yanıt kartı olarak görünecek."
               : "Önce Test Bench veya Registers ekranından bir bağlantı kurun; session burada listelenecek."}
           </p>
         ) : (
           cards.map((card) => {
-            const device = deviceFor(card);
-            const operation = operationFor(card, device);
-            const ok = card.rx?.ok === "1";
-            const decoded = card.rx ? formatConvertedValue(operation, card.rx) : null;
-            const liveWaves = traceTransfers(card, device);
-            const waves = liveWaves.length > 0 ? liveWaves : wireTransfers(card, device, operation);
-            const live = liveWaves.length > 0;
-            // Canlı izde her kanal/adım sırasıyla görünsün (kart içi kaydırma
-            // var); statik planda ilk birkaç adım yeterli.
-            const maxWaves = live ? 32 : MAX_WAVES_PER_CARD;
+            const label = operationLabelByName.get(card.name.toLowerCase()) ?? card.name;
             const durationMs = card.rxAt !== undefined ? Math.max(0, Math.round((card.rxAt - card.txAt) * 1000)) : null;
             return (
               <div
                 key={card.key}
                 className={cn(
                   "rounded-lg border p-3",
-                  !card.rx ? "border-warn/40 bg-warn/5" : ok ? "border-border bg-elev" : "border-danger/40 bg-danger/5",
+                  !card.rxOzet ? "border-warn/40 bg-warn/5" : "border-border bg-elev",
                 )}
               >
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                   <span className="font-mono text-faint">{timeLabel(card.txAt)}</span>
-                  <Badge tone="neutral">#{card.id}</Badge>
-                  <span className="font-mono text-text">{card.tx.device ?? "?"}</span>
-                  <Badge tone="accent">{operation?.label ?? card.tx.op ?? "?"}</Badge>
-                  {card.tx.reg ? <span className="font-mono text-muted">{card.tx.reg}</span> : null}
-                  {card.rx ? (
-                    <Badge tone={ok ? "ok" : "danger"}>{ok ? "ok" : `hata (status ${card.rx.status ?? "?"})`}</Badge>
+                  <Badge tone="neutral">sayaç {card.sayac}</Badge>
+                  <Badge tone="accent">{label}</Badge>
+                  {card.rxOzet ? (
+                    <Badge tone="ok">yanıt geldi</Badge>
                   ) : (
                     <Badge tone="warn">yanıt bekliyor</Badge>
                   )}
                   {durationMs !== null ? <span className="font-mono text-faint">{durationMs} ms</span> : null}
-                  {decoded ? (
-                    <span className="rounded-md border border-ok/40 bg-ok/15 px-2 py-0.5 font-mono font-semibold text-ok">
-                      = {decoded}
-                    </span>
-                  ) : null}
-                  {waves.length > 0 ? (
-                    <Badge tone={live ? "ok" : "neutral"}>{live ? "canlı iz" : "kablo planı"}</Badge>
-                  ) : null}
                 </div>
 
-                {waves.length > 0 && device ? (
-                  <div className={cn("space-y-2", live && "max-h-[460px] overflow-y-auto pr-1")}>
-                    {waves.slice(0, maxWaves).map((wave, index) => (
-                      <div key={`${card.key}-w${index}`}>
-                        <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-faint">
-                          {index + 1}/{waves.length} — {wave.title}
-                        </div>
-                        <BusWaveform
-                          part={device.part}
-                          transfer={wave.transfer}
-                          transport={device.transport === "spi" ? "spi" : "i2c"}
-                          defaultOpen
-                        />
-                      </div>
-                    ))}
-                    {waves.length > maxWaves ? (
-                      <p className="text-[11px] text-faint">
-                        + {waves.length - maxWaves} transfer daha (aynı desen devam eder)
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-faint">
-                    Bu operasyon için kablo planı yok (eski üretimden manifest olabilir — yeni Generate sonrası
-                    diyagramlar gelir).
-                  </p>
-                )}
-
-                <details className="mt-2">
-                  <summary className="cursor-pointer list-none text-[10px] uppercase tracking-wide text-faint">
-                    S2C satırları
-                  </summary>
-                  <div className="mt-1 space-y-1">
+                <div className="space-y-1">
+                  <div>
+                    <div className="mb-0.5 text-[10px] uppercase tracking-wide text-faint">→ TX özet</div>
                     <code className="block break-all rounded border border-border bg-inset px-2 py-1 font-mono text-[11px] text-text">
-                      → {card.txLine}
+                      {card.txOzet}
                     </code>
-                    {card.rxLine ? (
-                      <code className="block break-all rounded border border-border bg-inset px-2 py-1 font-mono text-[11px] text-muted">
-                        ← {card.rxLine}
-                      </code>
-                    ) : null}
+                    <code className="mt-0.5 block break-all px-2 font-mono text-[10px] text-faint">{card.txHex}</code>
                   </div>
-                </details>
+                  {card.rxOzet ? (
+                    <div>
+                      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-faint">← RX özet</div>
+                      <code className="block break-all rounded border border-border bg-inset px-2 py-1 font-mono text-[11px] text-muted">
+                        {card.rxOzet}
+                      </code>
+                      <code className="mt-0.5 block break-all px-2 font-mono text-[10px] text-faint">{card.rxHex}</code>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             );
           })

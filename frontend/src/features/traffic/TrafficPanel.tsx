@@ -16,21 +16,11 @@ function transportLabel(status: TestbenchSessionStatus): string {
   return `TCP ${status.host}:${status.port}`;
 }
 
-// RX satır rengi log seviyesine göre: S2C-LOG|E hata kırmızı, W sarı, I
-// parlak, D soluk, M (TX/RX aynası) en soluk — akış kalabalıkken hata/uyarı
-// göz atarken bile seçilsin (saha isteği). S2C| yanıt satırları bus renginde.
-const LOG_LEVEL_TONE: Record<string, string> = {
-  E: "text-danger",
-  W: "text-warn",
-  I: "text-text",
-  D: "text-muted",
-  M: "text-faint",
-};
-
-function rxLineTone(line: string): string {
-  if (line.startsWith("S2C|")) return "text-bus-uart";
-  const match = /^S2C-LOG\|([A-Z])\|/.exec(line);
-  if (match) return LOG_LEVEL_TONE[match[1]] ?? "text-muted";
+// RX özet rengi: çerçeve özeti (S2C-MSG binary — "AD (istek/yanıt) ...")
+// bus renginde, konsol/log metni (ASCII fallback) soluk kalır — akış
+// kalabalıkken çerçeve/konsol ayrımı göz atarken bile seçilsin (saha isteği).
+function rxOzetTone(ozet: string): string {
+  if (/\(istek\)|\(yanıt\)/.test(ozet)) return "text-bus-uart";
   return "text-muted";
 }
 
@@ -134,7 +124,7 @@ export default function TrafficPanel() {
 
   function downloadLog() {
     downloadTextLog("s2c_traffic", entries
-      .map((entry) => `${timeLabel(entry.at)}  ${entry.dir.toUpperCase()}  ${stripAnsi(entry.line)}`)
+      .map((entry) => `${timeLabel(entry.at)}  ${entry.dir.toUpperCase()}  ${entry.ozet}  [${entry.hex}]`)
       .join("\n"));
   }
 
@@ -210,13 +200,16 @@ export default function TrafficPanel() {
           </p>
         ) : (
           entries.map((entry) => (
-            <div key={entry.seq} className="grid grid-cols-[96px_44px_minmax(0,1fr)] gap-2">
+            <div key={entry.seq} className="grid grid-cols-[96px_44px_minmax(0,1fr)] items-baseline gap-2">
               <span className="select-none text-faint">{timeLabel(entry.at)}</span>
               <span className={cn("select-none font-semibold", entry.dir === "tx" ? "text-accent" : "text-ok")}>
                 {entry.dir === "tx" ? "→ TX" : "← RX"}
               </span>
-              <span className={cn("break-all", entry.dir === "tx" ? "text-text" : rxLineTone(entry.line))}>
-                {stripAnsi(entry.line)}
+              <span className="min-w-0">
+                <span className={cn("block break-all", entry.dir === "tx" ? "text-text" : rxOzetTone(entry.ozet))}>
+                  {stripAnsi(entry.ozet)}
+                </span>
+                <span className="block break-all text-[10px] text-faint">{entry.hex}</span>
               </span>
             </div>
           ))
