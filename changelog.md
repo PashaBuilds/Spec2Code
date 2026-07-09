@@ -3,6 +3,28 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.134 - 2026-07-09
+
+- REGISTER MAP CANLI IZLEME ARTIK TRANSPORT-AGNOSTIK (kullanici istegi): "Canlı
+  İzleme (UART)" -> "Canlı İzleme". Artik UART'a ozel degil; HANGI baglanti
+  (seri / JTAG-CoreSight / TCP) olursa olsun ayni Test Bench komut kanalindan
+  register okunur/yazilir.
+  - AJAN (uretilen firmware, orchestrator/codegen.py): Test Bench ajanina
+    cihazdan bagimsiz built-in `mem_read` / `mem_write` op'lari eklendi.
+    Register'in base+offset adresini hedefte dogrudan Xil_In32/Xil_Out32
+    (length=1/2/4 -> Xil_In8/16/32) ile okur/yazar. Firmware'de UART/Serve()
+    kurmaya GEREK YOK. Gercek aarch64 gcc -std=c11 -Wall -Wextra -Werror ile
+    dogrulandi; QC statik analizi icin bsp_stubs/xil_io.h stub'i eklendi.
+  - ARAYUZ: "Canlı İzleme" sekmesi seri konsol/Serve() yerine
+    api.testbenchCommand ile mem_read/mem_write gonderir (base+offset adresi),
+    donen ham degeri bit alanlarina COZER. Bitfield yazma istemci tarafinda
+    oku-degistir-yaz (RMW). Baglanti transport-agnostik (paylasilan board
+    profili); "Adres" sutunu register mutlak adresini gosterir.
+  - Not: uretilen .c'deki Serve()/Dump() opsiyonel olarak KALDI (duz seri
+    terminal icin); arayuz artik ajan yolunu kullaniyor. Bu yolun calismasi
+    icin hedefte Spec2Code Test Bench ajani kosmali (uretilen workspace'i
+    yeniden derleyip yukleyin).
+
 ## v0.1.133 - 2026-07-09
 
 - Register Map "Canli Izleme": UART gunlugu kutusu artik HER ZAMAN gorunur

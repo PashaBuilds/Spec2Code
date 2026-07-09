@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Cpu, Download, FileCode2, FileSpreadsheet, FileUp, FilePlus2, Loader2, Play, Radio, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Cpu, Download, FileCode2, FileSpreadsheet, FileUp, FilePlus2, Loader2, Radio, RefreshCw, Save, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { useBoardConnection } from "@/store/connection";
@@ -211,7 +211,7 @@ export default function RegisterMapPanel() {
         ) : null}
         <div className="mt-3 flex gap-1 border-t border-border pt-3">
           <Button size="sm" variant={mode === "edit" ? "outline" : "ghost"} onClick={() => setMode("edit")}><Cpu className="h-4 w-4" /> Düzenle / kod üret</Button>
-          <Button size="sm" variant={mode === "live" ? "outline" : "ghost"} onClick={() => setMode("live")}><Radio className="h-4 w-4" /> Canlı İzleme (UART)</Button>
+          <Button size="sm" variant={mode === "live" ? "outline" : "ghost"} onClick={() => setMode("live")}><Radio className="h-4 w-4" /> Canlı İzleme</Button>
         </div>
       </Card>
 
@@ -332,8 +332,6 @@ export default function RegisterMapPanel() {
   );
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /** Bir register'ın ham değerini bit alanlarına çözer (istemci tarafı). */
 function decodeFields(reg: Register, rawv: number): { name: string; bits: string; value: number }[] {
   return (reg.fields || []).map((f) => {
@@ -349,20 +347,19 @@ function hexPad(v: number, width: number): string {
   return "0x" + (v >>> 0).toString(16).toUpperCase().padStart(digits, "0");
 }
 
-/** Register Map "Canlı İzleme": üretilen .c'deki <map>Serve() komut sunucusuna
- * UART1 (seri konsol) üzerinden rd/wr/dump gönderir, cevabı bit alanlarına
- * çözerek gösterir. Bağlantıyı paylaşılan board profilinden alır. */
+/** Register Map "Canlı İzleme": hangi bağlantı olursa olsun (seri/JTAG-CoreSight/
+ * TCP) Test Bench ajanına `mem_read`/`mem_write` komutu gönderir — ajan hedefte
+ * `Xil_In32`/`Xil_Out32` ile register'ın base+offset adresini doğrudan okur/yazar.
+ * Firmware'de UART/Serve() kurmaya gerek yok. Bitfield maskelemesi istemcide. */
 function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap: number; setActiveMap: (i: number) => void }) {
   const board = useBoardConnection();
-  const sinceRef = useRef(0);
+  const cmdId = useRef(1);
   const [values, setValues] = useState<Record<string, number>>({});
   const [wr, setWr] = useState<Record<string, string>>({});
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [rawCmd, setRawCmd] = useState("");
-  const [serialPort, setSerialPort] = useState(board.serialPort);
-  const [baud, setBaud] = useState(board.baud);
   const map = doc.maps[activeMap];
+  const base = map ? (parseInt0(map.base_address) || 0) : 0;
   const widths = useMemo(() => (map ? inferWidths(map.registers) : []), [map]);
   const sorted = useMemo(
     () => (map ? map.registers.slice().sort((a, b) => (parseInt0(a.offset) || 0) - (parseInt0(b.offset) || 0)) : []),
@@ -371,35 +368,32 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
 
   function pushLog(...lines: string[]) { setLog((prev) => [...lines, ...prev].slice(0, 300)); }
 
-  async function exchange(cmd: string, wantPrefix?: string, timeoutMs = 1500): Promise<string[]> {
-    const sid = board.sessionId;
-    try { const base = await api.testbenchConsoleRead(sid, sinceRef.current); sinceRef.current = base.seq; } catch { /* ilk okuma */ }
-    pushLog("» " + cmd);
-    await api.testbenchConsoleWrite(sid, cmd + "\r\n");
-    const deadline = Date.now() + timeoutMs;
-    const lines: string[] = [];
-    while (Date.now() < deadline) {
-      await sleep(100);
-      const r = await api.testbenchConsoleRead(sid, sinceRef.current);
-      sinceRef.current = r.seq;
-      for (const e of r.entries) { lines.push(e.line); pushLog(e.line); }
-      if (wantPrefix && lines.some((l) => l.trim().startsWith(wantPrefix))) break;
-    }
-    return lines;
-  }
-
-  async function readReg(name: string): Promise<number | null> {
-    const lines = await exchange(`rd ${name}`, `${name}=`);
-    const hit = lines.map((l) => l.trim()).find((l) => l.startsWith(`${name}=`));
-    if (!hit) return null;
-    const v = parseInt0(hit.slice(name.length + 1).trim());
+  async function memRead(addr: number, width: number): Promise<number | null> {
+    const resp = await api.testbenchCommand({
+      host: "session", port: 0, device: "regmap", operation: "mem_read",
+      address: addr, length: width, command_id: cmdId.current++, session_id: board.sessionId, timeout_s: 4,
+    });
+    pushLog(`rd 0x${(addr >>> 0).toString(16).toUpperCase()} → ${resp.parsed.value ?? resp.parsed.message ?? "?"}`);
+    const v = parseInt0(resp.parsed.value || "");
     return isNaN(v) ? null : v;
   }
 
-  async function readOne(name: string) {
-    if (!board.connected) return;
+  async function memWrite(addr: number, width: number, value: number): Promise<number | null> {
+    const resp = await api.testbenchCommand({
+      host: "session", port: 0, device: "regmap", operation: "mem_write",
+      address: addr, length: width, value: value >>> 0, command_id: cmdId.current++, session_id: board.sessionId, timeout_s: 4,
+    });
+    pushLog(`wr 0x${(addr >>> 0).toString(16).toUpperCase()} = 0x${(value >>> 0).toString(16).toUpperCase()} → ${resp.parsed.value ?? resp.parsed.message ?? "?"}`);
+    const v = parseInt0(resp.parsed.value || "");
+    return isNaN(v) ? null : v;
+  }
+
+  const addrOf = (reg: Register) => (base + (parseInt0(reg.offset) || 0)) >>> 0;
+
+  async function readOne(reg: Register, width: number) {
+    if (!board.connected || reg.reserved) return;
     setBusy(true);
-    try { const v = await readReg(name); if (v !== null) setValues((p) => ({ ...p, [name]: v })); }
+    try { const v = await memRead(addrOf(reg), width); if (v !== null) setValues((p) => ({ ...p, [reg.name]: v })); }
     catch (e) { pushLog("HATA: " + (e instanceof Error ? e.message : String(e))); }
     finally { setBusy(false); }
   }
@@ -408,38 +402,44 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
     if (!board.connected || !map) return;
     setBusy(true);
     try {
-      for (const reg of sorted) {
+      for (let i = 0; i < sorted.length; i++) {
+        const reg = sorted[i];
         if (reg.reserved) continue;
-        const v = await readReg(reg.name);
+        const v = await memRead(addrOf(reg), widths[i]);
         if (v !== null) setValues((p) => ({ ...p, [reg.name]: v }));
       }
     } catch (e) { pushLog("HATA: " + (e instanceof Error ? e.message : String(e))); }
     finally { setBusy(false); }
   }
 
-  async function writeTarget(regName: string, field: string | null) {
+  async function writeRaw(reg: Register, width: number) {
     if (!board.connected) return;
-    const key = field ? `${regName}.${field}` : regName;
-    const val = (wr[key] || "").trim();
-    if (!val) return;
+    const v = parseInt0((wr[reg.name] || "").trim());
+    if (isNaN(v)) return;
+    setBusy(true);
+    try { const rb = await memWrite(addrOf(reg), width, v); if (rb !== null) setValues((p) => ({ ...p, [reg.name]: rb })); }
+    catch (e) { pushLog("HATA: " + (e instanceof Error ? e.message : String(e))); }
+    finally { setBusy(false); }
+  }
+
+  async function writeField(reg: Register, width: number, field: RegField) {
+    if (!board.connected) return;
+    const s = bitSpan(field.bits);
+    const fv = parseInt0((wr[`${reg.name}.${field.name}`] || "").trim());
+    if (!s || isNaN(fv)) return;
+    const n = s[0] - s[1] + 1;
+    const mask = (((n >= 32 ? 0xffffffff : (1 << n) - 1) >>> 0) << s[1]) >>> 0;
     setBusy(true);
     try {
-      await exchange(`wr ${key} ${val}`, `${key}=`);
-      const v = await readReg(regName);
-      if (v !== null) setValues((p) => ({ ...p, [regName]: v }));
+      const cur = (await memRead(addrOf(reg), width)) ?? 0;
+      const next = (((cur & ~mask) >>> 0) | ((fv << s[1]) & mask)) >>> 0;
+      const rb = await memWrite(addrOf(reg), width, next);
+      if (rb !== null) setValues((p) => ({ ...p, [reg.name]: rb }));
     } catch (e) { pushLog("HATA: " + (e instanceof Error ? e.message : String(e))); }
     finally { setBusy(false); }
   }
 
-  async function connectSerial() {
-    board.update({ transport: "serial", serialPort: serialPort.trim(), baud: baud.trim() });
-    setBusy(true);
-    try { await board.connect(); } finally { setBusy(false); }
-  }
-
   if (!map) return <Card className="p-4 text-sm text-muted">Map yok.</Card>;
-
-  const wrongTransport = board.connected && board.transport !== "serial";
 
   return (
     <Card className="p-4">
@@ -455,31 +455,27 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
         </div>
       ) : null}
 
-      {/* Bağlantı durumu / seri kur */}
+      {/* Bağlantı durumu (transport-agnostik: hangi bağlantıysan onu kullanır) */}
       <div className="mb-3 rounded-md border border-border bg-inset p-2.5 text-xs">
-        {board.connected ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-ok"><span className="h-2 w-2 rounded-full bg-ok" /> Bağlı</span>
-            <span className="text-muted">({board.transport})</span>
-            <Button size="sm" variant="outline" className="ml-auto h-6 text-[11px]" onClick={() => void board.disconnect()}>Kes</Button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1"><Label>Seri port (UART1)</Label>
-              <Input className="h-7 w-28 font-mono text-xs" placeholder="COM4" value={serialPort} onChange={(e) => setSerialPort(e.target.value)} /></div>
-            <div className="space-y-1"><Label>Baud</Label>
-              <Input className="h-7 w-24 font-mono text-xs" value={baud} onChange={(e) => setBaud(e.target.value)} /></div>
-            <Button size="sm" onClick={() => void connectSerial()} disabled={busy || !serialPort.trim()}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />} Seri bağlan
-            </Button>
-            {board.lastError ? <span className="text-danger">{board.lastError}</span> : null}
-          </div>
-        )}
-        {wrongTransport ? (
-          <p className="mt-1 text-warn">Uyarı: ham komut yalnızca seri (UART) bağlantıda çalışır; şu an <b>{board.transport}</b>. UART1 için seri bağlan.</p>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {board.connected ? (
+            <>
+              <span className="inline-flex items-center gap-1 text-ok"><span className="h-2 w-2 rounded-full bg-ok" /> Bağlı</span>
+              <span className="text-muted">({board.transport})</span>
+              <Button size="sm" variant="outline" className="ml-auto h-6 text-[11px]" onClick={() => void board.disconnect()}>Kes</Button>
+            </>
+          ) : (
+            <>
+              <span className="text-faint">Bağlı değil ({board.transport})</span>
+              <Button size="sm" className="ml-auto h-6 text-[11px]" onClick={() => { setBusy(true); void board.connect().finally(() => setBusy(false)); }} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />} Bağlan
+              </Button>
+              {board.lastError ? <span className="w-full text-danger">{board.lastError}</span> : null}
+            </>
+          )}
+        </div>
         <p className="mt-1 text-[10px] leading-relaxed text-faint">
-          Hedef firmware'inde üretilen <code>{map.name}Serve()</code>'i UART1 RX satırına bağla (bkz. .c). Komutlar: <code>rd</code>/<code>wr</code> &lt;REG&gt;[.&lt;ALAN&gt;] · <code>dump</code>. Aynı komutları düz seri terminalden de yazabilirsin.
+          Register'lar hedefte <code>Xil_In32</code>/<code>Xil_Out32</code> ile <code>base+offset</code> adresinden doğrudan okunur/yazılır — hangi bağlantı (seri/JTAG/TCP) olursa olsun aynı Test Bench ajanı üzerinden. Bağlantı türü Test Bench/Board ayarlarından. Hedefte Spec2Code Test Bench ajanı koşmalı (üretilen workspace'i yeniden derleyip yükle).
         </p>
       </div>
 
@@ -487,11 +483,7 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
         <Button size="sm" variant="outline" onClick={() => void readAll()} disabled={busy || !board.connected}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Hepsini oku
         </Button>
-        <Button size="sm" variant="outline" onClick={() => void exchange("dump", undefined, 2500)} disabled={busy || !board.connected}><Play className="h-4 w-4" /> Dump</Button>
-        <form className="ml-auto flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); if (rawCmd.trim()) void exchange(rawCmd.trim()); }}>
-          <Input className="h-7 w-48 font-mono text-xs" placeholder="ham komut: rd CONFIG" value={rawCmd} onChange={(e) => setRawCmd(e.target.value)} disabled={!board.connected} />
-          <Button size="sm" variant="outline" type="submit" disabled={busy || !board.connected || !rawCmd.trim()}>Gönder</Button>
-        </form>
+        <span className="self-center text-[10px] text-faint">base: <code className="text-muted">0x{(base >>> 0).toString(16).toUpperCase()}</code></span>
       </div>
 
       <div className="overflow-x-auto">
@@ -499,7 +491,7 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
           <thead>
             <tr className="text-left text-muted">
               <th className="border-b border-border p-1.5">Register</th>
-              <th className="border-b border-border p-1.5">Offset</th>
+              <th className="border-b border-border p-1.5">Adres</th>
               <th className="border-b border-border p-1.5">Değer</th>
               <th className="border-b border-border p-1.5">Çözüm / yaz</th>
               <th className="border-b border-border p-1.5" />
@@ -513,36 +505,39 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
               return (
                 <tr key={reg.name + si} className="align-top">
                   <td className="border-b border-border p-1.5 font-mono">{reg.name}<div className="text-[10px] text-faint">{memberDesc(reg, width)}</div></td>
-                  <td className="border-b border-border p-1.5 font-mono text-muted">0x{(parseInt0(reg.offset) || 0).toString(16).toUpperCase().padStart(3, "0")}</td>
+                  <td className="border-b border-border p-1.5 font-mono text-muted">0x{addrOf(reg).toString(16).toUpperCase()}</td>
                   <td className="border-b border-border p-1.5 font-mono">{has ? <span className="text-accent">{hexPad(rawv, width)}</span> : <span className="text-faint">—</span>}</td>
                   <td className="border-b border-border p-1.5">
                     {reg.reserved ? <span className="text-faint">reserved</span> : (reg.fields && reg.fields.length > 0) ? (
                       <div className="space-y-0.5">
-                        {(has ? decodeFields(reg, rawv) : (reg.fields || []).map((f) => ({ name: f.name, bits: f.bits, value: NaN }))).map((f, fi) => (
-                          <div key={fi} className="flex items-center gap-1.5 font-mono text-[11px]">
-                            <span className="w-28 truncate text-text">{f.name}</span>
-                            <span className="w-12 text-faint">[{f.bits}]</span>
-                            <span className={cn("w-16", isNaN(f.value) ? "text-faint" : "text-ok")}>{isNaN(f.value) ? "—" : "0x" + f.value.toString(16).toUpperCase()}</span>
-                            <Input className="h-5 w-16 font-mono text-[10px]" placeholder="yaz" value={wr[`${reg.name}.${f.name}`] || ""} onChange={(e) => setWr((p) => ({ ...p, [`${reg.name}.${f.name}`]: e.target.value }))} />
-                            <button className="text-[10px] text-accent hover:underline" onClick={() => void writeTarget(reg.name, f.name)} disabled={!board.connected}>yaz</button>
-                          </div>
-                        ))}
+                        {(has ? decodeFields(reg, rawv) : (reg.fields || []).map((f) => ({ name: f.name, bits: f.bits, value: NaN }))).map((f, fi) => {
+                          const fdef = (reg.fields || [])[fi];
+                          return (
+                            <div key={fi} className="flex items-center gap-1.5 font-mono text-[11px]">
+                              <span className="w-28 truncate text-text">{f.name}</span>
+                              <span className="w-12 text-faint">[{f.bits}]</span>
+                              <span className={cn("w-16", isNaN(f.value) ? "text-faint" : "text-ok")}>{isNaN(f.value) ? "—" : "0x" + f.value.toString(16).toUpperCase()}</span>
+                              <Input className="h-5 w-16 font-mono text-[10px]" placeholder="yaz" value={wr[`${reg.name}.${f.name}`] || ""} onChange={(e) => setWr((p) => ({ ...p, [`${reg.name}.${f.name}`]: e.target.value }))} />
+                              <button className="text-[10px] text-accent hover:underline disabled:text-faint" onClick={() => void writeField(reg, width, fdef)} disabled={!board.connected}>yaz</button>
+                            </div>
+                          );
+                        })}
                         <div className="flex items-center gap-1.5 pt-0.5 font-mono text-[11px]">
                           <span className="w-28 text-faint">ham değer</span>
                           <Input className="h-5 w-24 font-mono text-[10px]" placeholder="0x…" value={wr[reg.name] || ""} onChange={(e) => setWr((p) => ({ ...p, [reg.name]: e.target.value }))} />
-                          <button className="text-[10px] text-accent hover:underline" onClick={() => void writeTarget(reg.name, null)} disabled={!board.connected}>yaz</button>
+                          <button className="text-[10px] text-accent hover:underline disabled:text-faint" onClick={() => void writeRaw(reg, width)} disabled={!board.connected}>yaz</button>
                         </div>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 font-mono text-[11px]">
                         <span className="text-faint">skaler</span>
                         <Input className="h-5 w-24 font-mono text-[10px]" placeholder="0x…" value={wr[reg.name] || ""} onChange={(e) => setWr((p) => ({ ...p, [reg.name]: e.target.value }))} />
-                        <button className="text-[10px] text-accent hover:underline" onClick={() => void writeTarget(reg.name, null)} disabled={!board.connected}>yaz</button>
+                        <button className="text-[10px] text-accent hover:underline disabled:text-faint" onClick={() => void writeRaw(reg, width)} disabled={!board.connected}>yaz</button>
                       </div>
                     )}
                   </td>
                   <td className="border-b border-border p-1.5">
-                    <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => void readOne(reg.name)} disabled={busy || !board.connected || reg.reserved}>oku</Button>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => void readOne(reg, width)} disabled={busy || !board.connected || reg.reserved}>oku</Button>
                   </td>
                 </tr>
               );
@@ -553,12 +548,12 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
 
       <div className="mt-3">
         <div className="mb-1 flex items-center gap-2">
-          <span className="text-xs text-muted">UART günlüğü</span>
-          <span className="text-[10px] text-faint">Dump ve tüm komut/cevaplar burada görünür</span>
+          <span className="text-xs text-muted">Etkinlik günlüğü</span>
+          <span className="text-[10px] text-faint">okuma/yazma komutları ve cevapları</span>
           {log.length > 0 ? <Button size="sm" variant="ghost" className="ml-auto h-5 text-[10px]" onClick={() => setLog([])}>temizle</Button> : null}
         </div>
         <pre className="max-h-48 min-h-16 overflow-auto rounded-md border border-border bg-inset p-2 font-mono text-[10px] leading-relaxed text-muted">
-          {log.length > 0 ? log.join("\n") : (board.connected ? "» Bir komut gönder (Hepsini oku / Dump / oku) — cevaplar burada akar." : "Önce yukarıdan seri bağlan; bağlı değilken butonlar pasiftir ve komut gönderilmez.")}
+          {log.length > 0 ? log.join("\n") : (board.connected ? "Bir register'da 'oku' / 'Hepsini oku' — komut ve cevaplar burada akar." : "Önce bağlan (Test Bench/Board ayarlarındaki bağlantı türüyle); bağlı değilken butonlar pasiftir.")}
         </pre>
       </div>
     </Card>

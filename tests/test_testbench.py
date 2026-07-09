@@ -734,6 +734,14 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(lmx_regs["R0"]["width"], 16)
         self.assertEqual(lmx_regs["R74"]["access"], "ro")  # rb_* durum registerlari
 
+        # Built-in generic AXI mem_read/mem_write (cihaz gerektirmez; register map
+        # "Canlı İzleme" bunu her transport uzerinden kullanir).
+        self.assertIn('#include "xil_io.h"', ops_source)
+        self.assertIn('"mem_read"', ops_source)
+        self.assertIn('"mem_write"', ops_source)
+        self.assertIn("Xil_In32((UINTPTR)spRequest->uiAddress)", ops_source)
+        self.assertIn("Xil_Out32((UINTPTR)spRequest->uiAddress", ops_source)
+
         # Agent side: shared SPI helpers + wide (15-bit) resolver + packing.
         self.assertIn("spec2codeTestbenchSpiRegisterWrite", ops_source)
         self.assertIn("spec2codeTestbenchSpiRegisterRead", ops_source)
