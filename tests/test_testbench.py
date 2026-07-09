@@ -2132,6 +2132,205 @@ class TestbenchTests(unittest.TestCase):
         self.assertNotIn("aarch64-none-elf-ar", issues[0]["message"])
         self.assertIn("BSP archive", issues[0]["suggestion"])
 
+    # ------------------------------------------------------------------
+    # S2C-MSG üretilen mesaj katmanı (spec2code_mesaj.h/.c)
+    # ------------------------------------------------------------------
+    def test_mesaj_header_static_asserts_present(self) -> None:
+        # Üretilen başlık: SMesajBaslik 12 bayt sabit; uint*_t YOK (proje
+        # konvansiyonu unsigned int/int); durum makroları 0..7.
+        header = codegen._mesaj_header()
+        self.assertIn("_Static_assert(sizeof(SMesajBaslik) == 12U", header)
+        self.assertNotIn("uint32_t", header)
+        self.assertNotIn("stdint.h", header)
+        self.assertIn("#define SPEC2CODE_MESAJ_DURUM_OK 0U", header)
+        self.assertIn("#define SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR 7U", header)
+        self.assertIn("#define SPEC2CODE_MESAJ_DURUM_BUS_HATASI 5U", header)
+        # Katalogdan üretilmiş ID makroları başlıkta yer alır.
+        self.assertIn("#define SPEC2CODE_MESAJ_VERSION 0x53430102U", header)
+        self.assertIn("#define SPEC2CODE_MESAJ_TRACE_EVENT 0x53430181U", header)
+
+    def test_mesaj_id_tablosu_kataloga_esit(self) -> None:
+        # Üretilen spec2code_mesaj.c içindeki ID→op tablosu ile başlıktaki
+        # SPEC2CODE_MESAJ_* makroları katalogla birebir; spec'te kullanılan
+        # her descriptor op'unun katalogda karşılığı olmalı.
+        catalog = s2cmsg.load_catalog()
+        spec = load_sample_spec("unit_mesaj_ids")
+        add_zynqmp_ps_ethernet(spec)
+        get_descriptor = codegen.make_descriptor_loader(codegen._ROOT)
+        header = codegen._mesaj_header()
+        source = codegen._mesaj_source(spec, get_descriptor)
+
+        # Başlıktaki her ID makrosu katalog ID'siyle aynı.
+        for message in catalog["messages"]:
+            macro = f"#define SPEC2CODE_MESAJ_{message['name']} {message['id']}U"
+            self.assertIn(macro, header, message["name"])
+
+        # ID→op tablosu satırları katalogdaki op'lu mesajlarla eşleşir.
+        for message in catalog["messages"]:
+            if not message.get("op"):
+                continue
+            row = f'{{ {message["id"]}U, "{message["op"]}" }}'
+            self.assertIn(row, source, message["name"])
+
+        # Spec'te kullanılan her op katalogda karşılığı olduğundan üretim
+        # hatasız tamamlanır (yukarıdaki çağrı zaten fırlatmadı).
+        self.assertIn("S_sArrMesajOpTablosu", source)
+
+    def test_mesaj_source_raises_when_spec_op_absent_from_catalog(self) -> None:
+        # Katalog-dışı op'lu sahte descriptor üretim sırasında CodegenError
+        # fırlatmalı (elle op eklenip katalog güncellenmediğinde uyarı).
+        from orchestrator import cmodel
+
+        spec = load_sample_spec("unit_mesaj_absent_op")
+        add_zynqmp_ps_ethernet(spec)
+        real_loader = codegen.make_descriptor_loader(codegen._ROOT)
+
+        def fake_loader(ref_or_part: str) -> dict:
+            descriptor = dict(real_loader(ref_or_part))
+            if "ltc2991" in ref_or_part.lower():
+                operations = list(descriptor.get("operations", []))
+                operations.append({"name": "zzz_bogus_op", "returns": "uint32",
+                                   "steps": []})
+                descriptor["operations"] = operations
+            return descriptor
+
+        # Sahte op'u cihaza da isteyelim ki üretim listesine girsin.
+        for device in spec["devices"]:
+            if "ltc2991" in device["part"].lower():
+                device["operations_requested"] = list(
+                    device.get("operations_requested", [])) + ["zzz_bogus_op"]
+
+        with self.assertRaises(cmodel.CodegenError) as ctx:
+            codegen._mesaj_source(spec, fake_loader)
+        self.assertIn("mesaj katalogunda yok", str(ctx.exception))
+
+    def test_mesaj_layer_is_wired_into_harness(self) -> None:
+        # Harness üretimi yeni iki dosyayı yazar (transportlar henüz
+        # kullanmasa da mevcut derlemeyi bozmadan yanlarında dururlar).
+        spec = load_sample_spec("unit_mesaj_wiring")
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+            self.assertTrue((tests_dir / "spec2code_mesaj.h").is_file())
+            self.assertTrue((tests_dir / "spec2code_mesaj.c").is_file())
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        # Manifest katalog CRC32'yi taşır (backend s2cmsg ile aynı değer).
+        self.assertEqual(manifest["message_catalog_crc32"], s2cmsg.catalog_crc32())
+
+    @unittest.skipUnless(shutil.which("gcc") or shutil.which("cc"), "host C compiler required")
+    def test_generated_mesaj_layer_round_trips_on_host_compiler(self) -> None:
+        # Üretilen binary mesaj katmanını gerçek bir derleyiciyle derleyip
+        # uçtan uca doğrula: Python s2cmsg.pack_request ile kurulmuş İKİ istek
+        # çerçevesi (biri araya çöp bayt sokulmuş) C tarafında baytlar halinde
+        # spec2codeMesajBesle'ye beslenir; spec2codeMesajIsle (dispatch yerine
+        # sabit uiValue/iStatus dönen stub'la linkli) yanıt çerçeveleri üretir;
+        # Python FrameParser+unpack_response ile çözülüp alanlar doğrulanır.
+        compiler = shutil.which("gcc") or shutil.which("cc")
+        spec = load_sample_spec("unit_mesaj_roundtrip")
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+            work = Path(tmp) / "host"
+            work.mkdir()
+            for name in ("spec2code_mesaj.c", "spec2code_mesaj.h",
+                         "spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
+                shutil.copy2(tests_dir / name, work / name)
+            (work / "xstatus.h").write_text(
+                "#ifndef XSTATUS_H\n#define XSTATUS_H\n"
+                "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
+                encoding="utf-8")
+
+            # İki istek çerçevesi: biri global (cihazsız), biri cihaz index=0.
+            frame_a = s2cmsg.pack_request("spec2code_version", 11)
+            frame_b = s2cmsg.pack_request(
+                "register_read", 22, device_index=0, register_address=0x1, length=1)
+            # Çöp baytlar araya sokulur (resync doğrulaması).
+            byte_stream = frame_a + b"\xDE\xAD\xBE\xEF" + frame_b
+            # Baytları bir C dizisi olarak göm.
+            c_bytes = ", ".join(f"0x{b:02X}U" for b in byte_stream)
+
+            (work / "main.c").write_text(
+                '#include <stdio.h>\n'
+                '#include "spec2code_mesaj.h"\n'
+                '#include "spec2code_testbench_protocol.h"\n'
+                '#include "xstatus.h"\n'
+                '/* Dispatch stub: sabit deger/status; message katmanini izole test eder. */\n'
+                'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
+                '                               SSpec2codeTestbenchResponse* spResponse)\n'
+                '{\n'
+                '    spec2codeTestbenchResponseClear(spResponse);\n'
+                '    spResponse->uiId = spRequest->uiId;\n'
+                '    spResponse->uiOk = 1U;\n'
+                '    spResponse->iStatus = 0;\n'
+                '    spResponse->uiValue = 0xABCDU;\n'
+                '    return XST_SUCCESS;\n'
+                '}\n'
+                f'static const unsigned char S_ucArrStream[] = {{ {c_bytes} }};\n'
+                'static void emitFrame(const unsigned char* ucpFrame, unsigned int uiLen)\n'
+                '{\n'
+                '    unsigned int uiIndex;\n'
+                '    for (uiIndex = 0U; uiIndex < uiLen; uiIndex++)\n'
+                '    {\n'
+                '        printf("%02X", ucpFrame[uiIndex]);\n'
+                '    }\n'
+                '    printf("\\n");\n'
+                '}\n'
+                'int main(void)\n'
+                '{\n'
+                '    SMesajParser sParser;\n'
+                '    unsigned char ucArrCikti[4200];\n'
+                '    unsigned int uiPos;\n'
+                '    unsigned int uiToplam;\n'
+                '    spec2codeMesajParserSifirla(&sParser);\n'
+                '    uiPos = 0U;\n'
+                '    uiToplam = (unsigned int)sizeof(S_ucArrStream);\n'
+                '    /* Baytlari birer birer besle (chunk sinirlarini zorla). */\n'
+                '    while (uiPos < uiToplam)\n'
+                '    {\n'
+                '        unsigned int uiTuketilen = 0U;\n'
+                '        int iTam = spec2codeMesajBesle(&sParser, &S_ucArrStream[uiPos], 1U, &uiTuketilen);\n'
+                '        uiPos += uiTuketilen;\n'
+                '        if (iTam == 1)\n'
+                '        {\n'
+                '            unsigned int uiCiktiBoy = spec2codeMesajIsle(&sParser.sBaslik,\n'
+                '                sParser.ucArrGovde, ucArrCikti, (unsigned int)sizeof(ucArrCikti));\n'
+                '            emitFrame(ucArrCikti, uiCiktiBoy);\n'
+                '        }\n'
+                '    }\n'
+                '    return 0;\n'
+                '}\n',
+                encoding="utf-8")
+            binary = work / "mesaj_roundtrip"
+            compile_run = subprocess.run(
+                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
+                 str(work / "main.c"), str(work / "spec2code_mesaj.c"),
+                 str(work / "spec2code_testbench_protocol.c")],
+                capture_output=True, text=True)
+            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
+            output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
+
+        response_hex = [line.strip() for line in output.strip().splitlines() if line.strip()]
+        self.assertEqual(len(response_hex), 2, output)
+        parser = FrameParser()
+        responses = []
+        for hex_line in response_hex:
+            for frame in parser.feed(bytes.fromhex(hex_line)):
+                responses.append(s2cmsg.unpack_response(frame))
+        self.assertEqual(len(responses), 2)
+        # İlk yanıt: istek sayacı 11, durum OK, deger stub değeri.
+        self.assertEqual(responses[0]["id"], "11")
+        self.assertEqual(responses[0]["durum"], 0)
+        self.assertEqual(responses[0]["value"], "0xABCD")
+        # İkinci yanıt: istek sayacı 22, durum OK.
+        self.assertEqual(responses[1]["id"], "22")
+        self.assertEqual(responses[1]["durum"], 0)
+        self.assertEqual(responses[1]["value"], "0xABCD")
+
 
 if __name__ == "__main__":
     unittest.main()

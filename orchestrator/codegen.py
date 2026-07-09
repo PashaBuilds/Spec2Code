@@ -6,9 +6,12 @@ templates, and writes drop-in output through hostplat.io (always CRLF). No LLM i
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
+import zlib
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -135,6 +138,34 @@ def _app_version() -> str:
 def _c_string_literal(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+# --- S2C-MSG mesaj kataloğu (tek doğruluk kaynağı: backend/data/message_catalog.json) ---
+# Codegen backend'i import ETMEZ (katman ayrımı); katalog dosyası _ROOT'a göre
+# okunur, CRC32 zlib ile aynı bayt dizisinden hesaplanır (s2cmsg.catalog_crc32
+# ile birebir eşdeğer). Paketli exe'de dosya PyInstaller datas'ıyla gelir.
+_MESSAGE_CATALOG_PATH = _ROOT / "backend" / "data" / "message_catalog.json"
+
+
+@lru_cache(maxsize=1)
+def _load_message_catalog() -> dict:
+    catalog = json.loads(_MESSAGE_CATALOG_PATH.read_text(encoding="utf-8"))
+    catalog["by_op"] = {m["op"]: m for m in catalog["messages"] if m.get("op")}
+    catalog["by_name"] = {m["name"]: m for m in catalog["messages"]}
+    return catalog
+
+
+def _message_catalog_crc32() -> int:
+    return zlib.crc32(_MESSAGE_CATALOG_PATH.read_bytes()) & 0xFFFFFFFF
+
+
+def _message_id_for_op(op_name: str) -> int:
+    entry = _load_message_catalog()["by_op"].get(op_name)
+    if entry is None:
+        raise cmodel.CodegenError(
+            f"op {op_name!r} mesaj katalogunda yok — "
+            "backend/data/message_catalog.json'a KALICI ID ile ekleyin")
+    return int(entry["id"], 16)
 
 
 def _apply_default_identifier_style(text: str) -> str:
@@ -499,6 +530,530 @@ def _testbench_protocol_source() -> str:
         "    return XST_SUCCESS;\n"
         "}\n"
     )
+
+
+def _mesaj_header() -> str:
+    """Üretilen `spec2code_mesaj.h`: S2C-MSG binary çerçeve başlığı + parser API.
+
+    Katalog (backend/data/message_catalog.json) tek doğruluk kaynağı; ID
+    makroları (SPEC2CODE_MESAJ_*) buradan üretilir. Durum kodları 0..7. Yalnız
+    unsigned int/int kullanılır (proje konvansiyonu — uint*_t / stdint.h yok).
+    """
+    catalog = _load_message_catalog()
+    id_lines = [
+        f"#define SPEC2CODE_MESAJ_{message['name']} {message['id']}U"
+        for message in catalog["messages"]
+    ]
+    durum_names = ["OK", "GENEL_HATA", "GECERSIZ_MESAJ", "GECERSIZ_PARAMETRE",
+                   "CIHAZ_YOK", "BUS_HATASI", "ZAMAN_ASIMI", "DESTEKLENMIYOR"]
+    durum_lines = [
+        f"#define SPEC2CODE_MESAJ_DURUM_{name} {index}U"
+        for index, name in enumerate(durum_names)
+    ]
+    return (
+        "/**\n"
+        " * @file spec2code_mesaj.h\n"
+        " * @brief S2C-MSG binary tel katmani: cerceve basligi, cozucu (resync'li)\n"
+        " *        ve dispatch koprusu. Baytlar little-endian.\n"
+        " *\n"
+        " * ID makrolari (SPEC2CODE_MESAJ_*) mesaj katalogundan uretildi\n"
+        " * (backend/data/message_catalog.json - tek dogruluk kaynagi). El ile\n"
+        " * duzenlemeyin; katalogdan yeniden uretilir.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_MESAJ_H\n"
+        "#define SPEC2CODE_MESAJ_H\n\n"
+        '#include "spec2code_testbench_protocol.h"\n\n'
+        "/* Cerceve sabitleri (little-endian). */\n"
+        "#define SPEC2CODE_MESAJ_BASLIK_BOY 12U\n"
+        "#define SPEC2CODE_MESAJ_GOVDE_MAX 4096U\n"
+        "#define SPEC2CODE_MESAJ_YANIT_BIT 0x80000000U\n"
+        "#define SPEC2CODE_MESAJ_IMZA 0x5343U\n"
+        "#define SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY 28U\n\n"
+        "/* Mesaj ID makrolari (katalogdan uretildi). */\n"
+        + "\n".join(id_lines) + "\n\n"
+        "/* Durum kodlari (yanit govdesi uiDurum). */\n"
+        + "\n".join(durum_lines) + "\n\n"
+        "/**\n"
+        " * @brief 12 baytlik S2C-MSG cerceve basligi (little-endian, dogal 4B hizali).\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        "    unsigned int uiMesajKomut;\n"
+        "    unsigned int uiMesajBoyu;\n"
+        "    unsigned int uiMesajSayac;\n"
+        "} SMesajBaslik;\n\n"
+        "_Static_assert(sizeof(SMesajBaslik) == 12U, \"SMesajBaslik 12 bayt olmalidir\");\n\n"
+        "/* Ic dispatch (metin protokolu para birimi olarak kalir): mesaj katmani\n"
+        " * her istek cercevesini bu fonksiyona kopruler. Ayni prototip uretilen\n"
+        " * spec2code_..._testbench_ops.h icinde de bulunur (uyumlu tekrar). */\n"
+        "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n"
+        "                               SSpec2codeTestbenchResponse* spResponse);\n\n"
+        "/**\n"
+        " * @brief Bayt akisindan cerceve toplayan cozucu (Python FrameParser'in C ikizi).\n"
+        " *\n"
+        " * ucArrTampon: baslik + govde (en fazla SPEC2CODE_MESAJ_GOVDE_MAX). uiDolu\n"
+        " * o ana kadar biriken bayt sayisi. Cerceve tamamlaninca sBaslik + ucArrGovde\n"
+        " * doldurulur ve spec2codeMesajBesle 1 doner.\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        "    unsigned char ucArrTampon[SPEC2CODE_MESAJ_BASLIK_BOY + SPEC2CODE_MESAJ_GOVDE_MAX];\n"
+        "    unsigned int uiDolu;\n"
+        "    SMesajBaslik sBaslik;\n"
+        "    unsigned char ucArrGovde[SPEC2CODE_MESAJ_GOVDE_MAX];\n"
+        "} SMesajParser;\n\n"
+        "/** @brief Cozucuyu sifirlar (tampon bosaltilir). */\n"
+        "void spec2codeMesajParserSifirla(SMesajParser* spParser);\n\n"
+        "/**\n"
+        " * @brief Akistan bayt besle; tam cerceve tamamlaninca 1 doner.\n"
+        " * @param spParser     cozucu durumu\n"
+        " * @param ucpVeri      gelen bayt tamponu\n"
+        " * @param uiBoy        gelen bayt sayisi\n"
+        " * @param upTuketilen  bu cagride tuketilen bayt sayisi (NULL degil)\n"
+        " * @return 1 = spParser->sBaslik + ucArrGovde hazir; 0 = daha fazla bayt gerek.\n"
+        " *\n"
+        " * Cagiran, tuketilmeyen baytlari bir sonraki cagriya tasir (tam cerceve\n"
+        " * dondugunde uiBoy'un tamami tuketilmemis olabilir).\n"
+        " */\n"
+        "int spec2codeMesajBesle(SMesajParser* spParser, const unsigned char* ucpVeri,\n"
+        "                        unsigned int uiBoy, unsigned int* upTuketilen);\n\n"
+        "/**\n"
+        " * @brief Bir istek cercevesini dispatch'e kopruleyip yanit cercevesi uretir.\n"
+        " * @return yazilan cikti bayt sayisi (0 = cikti yok / kapasite yetersiz).\n"
+        " */\n"
+        "unsigned int spec2codeMesajIsle(const SMesajBaslik* spBaslik,\n"
+        "                                const unsigned char* ucpGovde,\n"
+        "                                unsigned char* ucpCikti,\n"
+        "                                unsigned int uiCiktiKapasite);\n\n"
+        "/**\n"
+        " * @brief TRACE_EVENT/BUS_TRACE_EVENT cercevesi kurar (istem disi olay).\n"
+        " * @return yazilan cikti bayt sayisi (0 = kapasite yetersiz).\n"
+        " */\n"
+        "unsigned int spec2codeMesajTraceCerceveKur(unsigned int uiMesajId, unsigned int uiSeviye,\n"
+        "                                           const char* cpMetin, unsigned char* ucpCikti,\n"
+        "                                           unsigned int uiKapasite);\n\n"
+        "#endif /* SPEC2CODE_MESAJ_H */\n"
+    )
+
+
+def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
+    """Üretilen `spec2code_mesaj.c`: cozucu + dispatch koprusu + katalog tablolari.
+
+    Spec'te kullanilan HER descriptor op'unun katalogda karsiligi olmali;
+    olmayan bir op uretim aninda CodegenError firlatir.
+    """
+    catalog = _load_message_catalog()
+    entries = _testbench_device_entries(spec, get_descriptor)
+
+    # Katalog-dogrulama: spec'te fiilen uretilen her op katalogda olmali.
+    # (_message_id_for_op eksikse CodegenError firlatir.)
+    for row in _testbench_op_table(entries):
+        _message_id_for_op(row["operation"])
+
+    # ID -> op adi tablosu: KATALOGUN TAMAMINDAN uretilir (kalici ID'ler);
+    # backend yalniz katalogdaki ID'leri gonderebilir, bu yuzden tam kapsama.
+    op_rows = [
+        f'    {{ {message["id"]}U, "{message["op"]}" }},'
+        for message in catalog["messages"] if message.get("op")
+    ]
+    op_table = "\n".join(op_rows) if op_rows else "    { 0U, \"\" }"
+
+    # Cihaz indeks -> id tablosu: device-entry sirasi == manifest devices[]
+    # sirasi (indeks <-> id eslemesi garanti).
+    device_ids = [entry["device"].get("id", "") for entry in entries]
+    device_rows = "\n".join(
+        f'    "{_c_string_escape(device_id)}",' for device_id in device_ids
+    ) or '    ""'
+    device_count = len(device_ids)
+
+    return (
+        "/**\n"
+        " * @file spec2code_mesaj.c\n"
+        " * @brief S2C-MSG binary tel katmani gerceklemesi (cozucu + dispatch\n"
+        " *        koprusu). Cozucu semantigi Python s2cmsg.FrameParser.feed'in\n"
+        " *        satir satir C ikizidir. Katalog tablolari otomatik uretildi.\n"
+        " */\n"
+        '#include "spec2code_mesaj.h"\n'
+        '#include "spec2code_testbench_protocol.h"\n\n'
+        "/* ID -> op adi tablosu (katalogdan uretildi; kalici ID'ler). */\n"
+        "typedef struct\n"
+        "{\n"
+        "    unsigned int uiId;\n"
+        "    const char* cpOp;\n"
+        "} SMesajOpSatir;\n\n"
+        "static const SMesajOpSatir S_sArrMesajOpTablosu[] =\n"
+        "{\n"
+        f"{op_table}\n"
+        "};\n"
+        "static const unsigned int S_uiMesajOpTabloBoy =\n"
+        "    (unsigned int)(sizeof(S_sArrMesajOpTablosu) / sizeof(S_sArrMesajOpTablosu[0]));\n\n"
+        "/* Cihaz indeks -> id tablosu (manifest devices[] sirasiyla ayni). */\n"
+        f"#define SPEC2CODE_MESAJ_CIHAZ_SAYISI {device_count}U\n"
+        "static const char* const S_cpArrCihazTablosu[] =\n"
+        "{\n"
+        f"{device_rows}\n"
+        "};\n\n"
+        "/* Yanit sayaci: ajan tarafinda monoton, 1'den baslar. */\n"
+        "static unsigned int S_uiYanitSayac = 0U;\n\n"
+        + _MESAJ_SOURCE_BODY
+    )
+
+
+# Sabit gövde: tablolardan bağımsız, tüm parser/köprü gerçeklemesi.
+_MESAJ_SOURCE_BODY = (
+    "/* --- Little-endian yardimcilar (kontrat LE; hedef endian'dan bagimsiz). --- */\n"
+    "static unsigned int spec2codeMesajOku32(const unsigned char* ucpVeri)\n"
+    "{\n"
+    "    return ((unsigned int)ucpVeri[0])\n"
+    "         | ((unsigned int)ucpVeri[1] << 8U)\n"
+    "         | ((unsigned int)ucpVeri[2] << 16U)\n"
+    "         | ((unsigned int)ucpVeri[3] << 24U);\n"
+    "}\n\n"
+    "static void spec2codeMesajYaz32(unsigned char* ucpCikti, unsigned int uiDeger)\n"
+    "{\n"
+    "    ucpCikti[0] = (unsigned char)(uiDeger & 0xFFU);\n"
+    "    ucpCikti[1] = (unsigned char)((uiDeger >> 8U) & 0xFFU);\n"
+    "    ucpCikti[2] = (unsigned char)((uiDeger >> 16U) & 0xFFU);\n"
+    "    ucpCikti[3] = (unsigned char)((uiDeger >> 24U) & 0xFFU);\n"
+    "}\n\n"
+    "static const char* spec2codeMesajOpAdi(unsigned int uiKomut)\n"
+    "{\n"
+    "    unsigned int uiIndex;\n"
+    "    unsigned int uiIstekId = uiKomut & ~SPEC2CODE_MESAJ_YANIT_BIT;\n\n"
+    "    for (uiIndex = 0U; uiIndex < S_uiMesajOpTabloBoy; uiIndex++)\n"
+    "    {\n"
+    "        if (S_sArrMesajOpTablosu[uiIndex].uiId == uiIstekId)\n"
+    "        {\n"
+    "            return S_sArrMesajOpTablosu[uiIndex].cpOp;\n"
+    "        }\n"
+    "    }\n"
+    "    return (const char*)0;\n"
+    "}\n\n"
+    "static void spec2codeMesajMetinKopya(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
+    "{\n"
+    "    unsigned int uiIndex;\n\n"
+    "    if ((cpDst == (char*)0) || (uiDstBoy == 0U))\n"
+    "    {\n"
+    "        return;\n"
+    "    }\n"
+    "    for (uiIndex = 0U; uiIndex < (uiDstBoy - 1U); uiIndex++)\n"
+    "    {\n"
+    "        if ((cpSrc == (const char*)0) || (cpSrc[uiIndex] == '\\0'))\n"
+    "        {\n"
+    "            break;\n"
+    "        }\n"
+    "        cpDst[uiIndex] = cpSrc[uiIndex];\n"
+    "    }\n"
+    "    cpDst[uiIndex] = '\\0';\n"
+    "}\n\n"
+    "void spec2codeMesajParserSifirla(SMesajParser* spParser)\n"
+    "{\n"
+    "    if (spParser == (SMesajParser*)0)\n"
+    "    {\n"
+    "        return;\n"
+    "    }\n"
+    "    spParser->uiDolu = 0U;\n"
+    "    spParser->sBaslik.uiMesajKomut = 0U;\n"
+    "    spParser->sBaslik.uiMesajBoyu = 0U;\n"
+    "    spParser->sBaslik.uiMesajSayac = 0U;\n"
+    "}\n\n"
+    "/* Python FrameParser.feed'in C ikizi: baytlari biriktir, imza/boy dogrula,\n"
+    " * senkron kaybinda 1 bayt kaydir; tam cerceve tamamlaninca 1 don. */\n"
+    "int spec2codeMesajBesle(SMesajParser* spParser, const unsigned char* ucpVeri,\n"
+    "                        unsigned int uiBoy, unsigned int* upTuketilen)\n"
+    "{\n"
+    "    unsigned int uiGiris;\n"
+    "    unsigned int uiKomut;\n"
+    "    unsigned int uiGovdeBoy;\n"
+    "    unsigned int uiImza;\n"
+    "    unsigned int uiToplam;\n"
+    "    unsigned int uiIndex;\n\n"
+    "    if (upTuketilen != (unsigned int*)0)\n"
+    "    {\n"
+    "        *upTuketilen = 0U;\n"
+    "    }\n"
+    "    if ((spParser == (SMesajParser*)0) || (ucpVeri == (const unsigned char*)0))\n"
+    "    {\n"
+    "        return 0;\n"
+    "    }\n"
+    "    uiGiris = 0U;\n"
+    "    while (uiGiris < uiBoy)\n"
+    "    {\n"
+    "        /* Tampon dolana kadar bayt cek (tampon = baslik + govde max). */\n"
+    "        if (spParser->uiDolu < (unsigned int)sizeof(spParser->ucArrTampon))\n"
+    "        {\n"
+    "            spParser->ucArrTampon[spParser->uiDolu] = ucpVeri[uiGiris];\n"
+    "            spParser->uiDolu++;\n"
+    "            uiGiris++;\n"
+    "            if (upTuketilen != (unsigned int*)0)\n"
+    "            {\n"
+    "                *upTuketilen = uiGiris;\n"
+    "            }\n"
+    "        }\n"
+    "        else\n"
+    "        {\n"
+    "            /* Tampon dolu ama cerceve cozulmedi: senkron kaybi, 1 bayt at. */\n"
+    "            for (uiIndex = 1U; uiIndex < spParser->uiDolu; uiIndex++)\n"
+    "            {\n"
+    "                spParser->ucArrTampon[uiIndex - 1U] = spParser->ucArrTampon[uiIndex];\n"
+    "            }\n"
+    "            spParser->uiDolu--;\n"
+    "            continue;\n"
+    "        }\n"
+    "        /* Baslik tamamlanmadi: daha fazla bayt bekle. */\n"
+    "        if (spParser->uiDolu < SPEC2CODE_MESAJ_BASLIK_BOY)\n"
+    "        {\n"
+    "            continue;\n"
+    "        }\n"
+    "        uiKomut = spec2codeMesajOku32(&spParser->ucArrTampon[0]);\n"
+    "        uiGovdeBoy = spec2codeMesajOku32(&spParser->ucArrTampon[4]);\n"
+    "        uiImza = (uiKomut & ~SPEC2CODE_MESAJ_YANIT_BIT) >> 16U;\n"
+    "        if ((uiImza != SPEC2CODE_MESAJ_IMZA) || (uiGovdeBoy > SPEC2CODE_MESAJ_GOVDE_MAX) ||\n"
+    "            ((uiGovdeBoy % 4U) != 0U))\n"
+    "        {\n"
+    "            /* Senkron kaybi: bir bayt kaydir, imzayi yeniden ara. */\n"
+    "            for (uiIndex = 1U; uiIndex < spParser->uiDolu; uiIndex++)\n"
+    "            {\n"
+    "                spParser->ucArrTampon[uiIndex - 1U] = spParser->ucArrTampon[uiIndex];\n"
+    "            }\n"
+    "            spParser->uiDolu--;\n"
+    "            continue;\n"
+    "        }\n"
+    "        uiToplam = SPEC2CODE_MESAJ_BASLIK_BOY + uiGovdeBoy;\n"
+    "        if (spParser->uiDolu < uiToplam)\n"
+    "        {\n"
+    "            /* Govde henuz tamamlanmadi. */\n"
+    "            continue;\n"
+    "        }\n"
+    "        /* Tam cerceve hazir: basligi + govdeyi disari cikar. */\n"
+    "        spParser->sBaslik.uiMesajKomut = uiKomut;\n"
+    "        spParser->sBaslik.uiMesajBoyu = uiGovdeBoy;\n"
+    "        spParser->sBaslik.uiMesajSayac = spec2codeMesajOku32(&spParser->ucArrTampon[8]);\n"
+    "        for (uiIndex = 0U; uiIndex < uiGovdeBoy; uiIndex++)\n"
+    "        {\n"
+    "            spParser->ucArrGovde[uiIndex] = spParser->ucArrTampon[SPEC2CODE_MESAJ_BASLIK_BOY + uiIndex];\n"
+    "        }\n"
+    "        /* Cerceveyi tampondan cikar (kalan baytlar basa kayar). */\n"
+    "        for (uiIndex = uiToplam; uiIndex < spParser->uiDolu; uiIndex++)\n"
+    "        {\n"
+    "            spParser->ucArrTampon[uiIndex - uiToplam] = spParser->ucArrTampon[uiIndex];\n"
+    "        }\n"
+    "        spParser->uiDolu -= uiToplam;\n"
+    "        if (upTuketilen != (unsigned int*)0)\n"
+    "        {\n"
+    "            *upTuketilen = uiGiris;\n"
+    "        }\n"
+    "        return 1;\n"
+    "    }\n"
+    "    return 0;\n"
+    "}\n\n"
+    "/* Yanit cercevesi kur: yanit ID = istek ID | YANIT_BIT; sayac monoton. */\n"
+    "static unsigned int spec2codeMesajYanitCerceveKur(unsigned int uiIstekKomut,\n"
+    "    const SSpec2codeTestbenchResponse* spYanit, unsigned int uiDurum, int iCihazDurum,\n"
+    "    unsigned char* ucpCikti, unsigned int uiKapasite)\n"
+    "{\n"
+    "    unsigned int uiVeriBoy;\n"
+    "    unsigned int uiVeriPad;\n"
+    "    unsigned int uiMetinBoy;\n"
+    "    unsigned int uiMetinPad;\n"
+    "    unsigned int uiGovdeBoy;\n"
+    "    unsigned int uiToplam;\n"
+    "    unsigned int uiOfset;\n"
+    "    unsigned int uiIndex;\n"
+    "    unsigned int uiDeger;\n\n"
+    "    uiVeriBoy = 0U;\n"
+    "    uiMetinBoy = 0U;\n"
+    "    uiDeger = 0U;\n"
+    "    if (spYanit != (const SSpec2codeTestbenchResponse*)0)\n"
+    "    {\n"
+    "        uiVeriBoy = spYanit->uiDataLength;\n"
+    "        uiDeger = spYanit->uiValue;\n"
+    "        while ((uiMetinBoy < SPEC2CODE_TESTBENCH_MESSAGE_MAX) &&\n"
+    "               (spYanit->cArrMessage[uiMetinBoy] != '\\0'))\n"
+    "        {\n"
+    "            uiMetinBoy++;\n"
+    "        }\n"
+    "    }\n"
+    "    uiVeriPad = (uiVeriBoy + 3U) & ~3U;\n"
+    "    uiMetinPad = (uiMetinBoy + 3U) & ~3U;\n"
+    "    /* Govde: 5*4 (sayac,durum,cihazDurum,deger,veriBoy) + veriPad + 4 (metinBoy) + metinPad. */\n"
+    "    uiGovdeBoy = 20U + uiVeriPad + 4U + uiMetinPad;\n"
+    "    uiToplam = SPEC2CODE_MESAJ_BASLIK_BOY + uiGovdeBoy;\n"
+    "    if ((ucpCikti == (unsigned char*)0) || (uiToplam > uiKapasite))\n"
+    "    {\n"
+    "        return 0U;\n"
+    "    }\n"
+    "    for (uiIndex = 0U; uiIndex < uiToplam; uiIndex++)\n"
+    "    {\n"
+    "        ucpCikti[uiIndex] = 0U;\n"
+    "    }\n"
+    "    /* Baslik: yanit ID, govde boyu, ajan yanit sayaci (monoton). */\n"
+    "    S_uiYanitSayac++;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[0], uiIstekKomut | SPEC2CODE_MESAJ_YANIT_BIT);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[4], uiGovdeBoy);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[8], S_uiYanitSayac);\n"
+    "    uiOfset = SPEC2CODE_MESAJ_BASLIK_BOY;\n"
+    "    /* Govde alanlari. uiIstekSayac = istek cercevesinin sayaci (spYanit->uiId). */\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], (spYanit != (const SSpec2codeTestbenchResponse*)0) ? spYanit->uiId : 0U);\n"
+    "    uiOfset += 4U;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiDurum);\n"
+    "    uiOfset += 4U;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], (unsigned int)iCihazDurum);\n"
+    "    uiOfset += 4U;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiDeger);\n"
+    "    uiOfset += 4U;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiVeriBoy);\n"
+    "    uiOfset += 4U;\n"
+    "    if (spYanit != (const SSpec2codeTestbenchResponse*)0)\n"
+    "    {\n"
+    "        for (uiIndex = 0U; uiIndex < uiVeriBoy; uiIndex++)\n"
+    "        {\n"
+    "            ucpCikti[uiOfset + uiIndex] = spYanit->ucArrData[uiIndex];\n"
+    "        }\n"
+    "    }\n"
+    "    uiOfset += uiVeriPad;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiMetinBoy);\n"
+    "    uiOfset += 4U;\n"
+    "    if (spYanit != (const SSpec2codeTestbenchResponse*)0)\n"
+    "    {\n"
+    "        for (uiIndex = 0U; uiIndex < uiMetinBoy; uiIndex++)\n"
+    "        {\n"
+    "            ucpCikti[uiOfset + uiIndex] = (unsigned char)spYanit->cArrMessage[uiIndex];\n"
+    "        }\n"
+    "    }\n"
+    "    return uiToplam;\n"
+    "}\n\n"
+    "/* Hata yolu: dispatch'e inmeden uygun durumlu (bos) yanit cercevesi. */\n"
+    "static unsigned int spec2codeMesajHataCerceve(unsigned int uiIstekKomut, unsigned int uiIstekSayac,\n"
+    "    unsigned int uiDurum, unsigned char* ucpCikti, unsigned int uiKapasite)\n"
+    "{\n"
+    "    SSpec2codeTestbenchResponse sYanit;\n\n"
+    "    spec2codeTestbenchResponseClear(&sYanit);\n"
+    "    sYanit.uiId = uiIstekSayac;\n"
+    "    sYanit.uiOk = 0U;\n"
+    "    return spec2codeMesajYanitCerceveKur(uiIstekKomut, &sYanit, uiDurum, sYanit.iStatus,\n"
+    "                                         ucpCikti, uiKapasite);\n"
+    "}\n\n"
+    "unsigned int spec2codeMesajIsle(const SMesajBaslik* spBaslik, const unsigned char* ucpGovde,\n"
+    "                                unsigned char* ucpCikti, unsigned int uiCiktiKapasite)\n"
+    "{\n"
+    "    SSpec2codeTestbenchRequest sIstek;\n"
+    "    SSpec2codeTestbenchResponse sYanit;\n"
+    "    const char* cpOp;\n"
+    "    unsigned int uiCihazIndeks;\n"
+    "    unsigned int uiVeriBoyu;\n"
+    "    unsigned int uiDurum;\n"
+    "    unsigned int uiIndex;\n\n"
+    "    if ((spBaslik == (const SMesajBaslik*)0) || (ucpGovde == (const unsigned char*)0))\n"
+    "    {\n"
+    "        return 0U;\n"
+    "    }\n"
+    "    /* Bozuk govde (sabit istek alanlari sigmiyor) -> GECERSIZ_MESAJ. */\n"
+    "    if (spBaslik->uiMesajBoyu < SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY)\n"
+    "    {\n"
+    "        return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "            SPEC2CODE_MESAJ_DURUM_GECERSIZ_MESAJ, ucpCikti, uiCiktiKapasite);\n"
+    "    }\n"
+    "    cpOp = spec2codeMesajOpAdi(spBaslik->uiMesajKomut);\n"
+    "    if (cpOp == (const char*)0)\n"
+    "    {\n"
+    "        /* Bilinmeyen mesaj ID -> GECERSIZ_MESAJ. */\n"
+    "        return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "            SPEC2CODE_MESAJ_DURUM_GECERSIZ_MESAJ, ucpCikti, uiCiktiKapasite);\n"
+    "    }\n"
+    "    /* Sabit istek govdesi: cihazIndeks, registerAdres, adres, uzunluk, deger, degerVar, veriBoyu. */\n"
+    "    spec2codeTestbenchRequestClear(&sIstek);\n"
+    "    sIstek.uiId = spBaslik->uiMesajSayac;\n"
+    "    spec2codeMesajMetinKopya(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX, cpOp);\n"
+    "    uiCihazIndeks = spec2codeMesajOku32(&ucpGovde[0]);\n"
+    "    sIstek.uiRegister = spec2codeMesajOku32(&ucpGovde[4]);\n"
+    "    sIstek.uiAddress = spec2codeMesajOku32(&ucpGovde[8]);\n"
+    "    sIstek.uiLength = spec2codeMesajOku32(&ucpGovde[12]);\n"
+    "    sIstek.uiValue = spec2codeMesajOku32(&ucpGovde[16]);\n"
+    "    sIstek.uiHasValue = (spec2codeMesajOku32(&ucpGovde[20]) != 0U) ? 1U : 0U;\n"
+    "    uiVeriBoyu = spec2codeMesajOku32(&ucpGovde[24]);\n"
+    "    if (uiVeriBoyu > SPEC2CODE_TESTBENCH_DATA_MAX)\n"
+    "    {\n"
+    "        uiVeriBoyu = SPEC2CODE_TESTBENCH_DATA_MAX;\n"
+    "    }\n"
+    "    /* Veri, sabit 28B alanlarin ardindan gelir. */\n"
+    "    if ((SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY + uiVeriBoyu) > spBaslik->uiMesajBoyu)\n"
+    "    {\n"
+    "        return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "            SPEC2CODE_MESAJ_DURUM_GECERSIZ_MESAJ, ucpCikti, uiCiktiKapasite);\n"
+    "    }\n"
+    "    for (uiIndex = 0U; uiIndex < uiVeriBoyu; uiIndex++)\n"
+    "    {\n"
+    "        sIstek.ucArrData[uiIndex] = ucpGovde[SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY + uiIndex];\n"
+    "    }\n"
+    "    sIstek.uiDataLength = uiVeriBoyu;\n"
+    "    /* Cihaz indeks -> id string (0xFFFFFFFF = cihazsiz global op). */\n"
+    "    if (uiCihazIndeks != 0xFFFFFFFFU)\n"
+    "    {\n"
+    "        if (uiCihazIndeks >= SPEC2CODE_MESAJ_CIHAZ_SAYISI)\n"
+    "        {\n"
+    "            /* Tablo disi cihaz indeksi -> CIHAZ_YOK. */\n"
+    "            return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                SPEC2CODE_MESAJ_DURUM_CIHAZ_YOK, ucpCikti, uiCiktiKapasite);\n"
+    "        }\n"
+    "        spec2codeMesajMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+    "                                 S_cpArrCihazTablosu[uiCihazIndeks]);\n"
+    "    }\n"
+    "    /* Ic dispatch (metin protokolu para birimi olarak kalir). */\n"
+    "    spec2codeTestbenchResponseClear(&sYanit);\n"
+    "    (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
+    "    /* Durum eslemesi: uiOk==1 -> OK; aksi halde BUS_HATASI + ham iStatus. */\n"
+    "    uiDurum = (sYanit.uiOk == 1U) ? SPEC2CODE_MESAJ_DURUM_OK : SPEC2CODE_MESAJ_DURUM_BUS_HATASI;\n"
+    "    return spec2codeMesajYanitCerceveKur(spBaslik->uiMesajKomut, &sYanit, uiDurum,\n"
+    "                                         sYanit.iStatus, ucpCikti, uiCiktiKapasite);\n"
+    "}\n\n"
+    "unsigned int spec2codeMesajTraceCerceveKur(unsigned int uiMesajId, unsigned int uiSeviye,\n"
+    "                                           const char* cpMetin, unsigned char* ucpCikti,\n"
+    "                                           unsigned int uiKapasite)\n"
+    "{\n"
+    "    unsigned int uiMetinBoy;\n"
+    "    unsigned int uiMetinPad;\n"
+    "    unsigned int uiGovdeBoy;\n"
+    "    unsigned int uiToplam;\n"
+    "    unsigned int uiOfset;\n"
+    "    unsigned int uiIndex;\n\n"
+    "    uiMetinBoy = 0U;\n"
+    "    while ((cpMetin != (const char*)0) && (cpMetin[uiMetinBoy] != '\\0'))\n"
+    "    {\n"
+    "        uiMetinBoy++;\n"
+    "    }\n"
+    "    uiMetinPad = (uiMetinBoy + 3U) & ~3U;\n"
+    "    /* TRACE govdesi: uiSeviye + uiMetinBoy + metin pad4. */\n"
+    "    uiGovdeBoy = 8U + uiMetinPad;\n"
+    "    uiToplam = SPEC2CODE_MESAJ_BASLIK_BOY + uiGovdeBoy;\n"
+    "    if ((ucpCikti == (unsigned char*)0) || (uiToplam > uiKapasite))\n"
+    "    {\n"
+    "        return 0U;\n"
+    "    }\n"
+    "    for (uiIndex = 0U; uiIndex < uiToplam; uiIndex++)\n"
+    "    {\n"
+    "        ucpCikti[uiIndex] = 0U;\n"
+    "    }\n"
+    "    spec2codeMesajYaz32(&ucpCikti[0], uiMesajId);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[4], uiGovdeBoy);\n"
+    "    S_uiYanitSayac++;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[8], S_uiYanitSayac);\n"
+    "    uiOfset = SPEC2CODE_MESAJ_BASLIK_BOY;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiSeviye);\n"
+    "    uiOfset += 4U;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[uiOfset], uiMetinBoy);\n"
+    "    uiOfset += 4U;\n"
+    "    for (uiIndex = 0U; uiIndex < uiMetinBoy; uiIndex++)\n"
+    "    {\n"
+    "        ucpCikti[uiOfset + uiIndex] = (unsigned char)cpMetin[uiIndex];\n"
+    "    }\n"
+    "    return uiToplam;\n"
+    "}\n"
+)
+
+
+def _c_string_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _testbench_risk(op_name: str) -> str:
@@ -1069,6 +1624,10 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
         "project": spec.get("project", {}).get("name", ""),
         "agent_version": _app_version(),
         "protocol": "S2C line protocol v1",
+        # S2C-MSG binary katalog imzasi: uretilen mesaj katmani (spec2code_mesaj.c)
+        # ile backend s2cmsg ayni katalog baytlarindan uretilir; bu CRC32
+        # (Python zlib.crc32) ikisinin es oldugunu dogrular.
+        "message_catalog_crc32": _message_catalog_crc32(),
         "line_format": ("S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; "
                         "global: S2C|id=1|op=spec2code_version, S2C|id=1|op=log_level|value=1..5"),
         "transport_agent": agent,
@@ -4143,6 +4702,8 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
     paths = [
         tests_dir / "spec2code_testbench_protocol.h",
         tests_dir / "spec2code_testbench_protocol.c",
+        tests_dir / "spec2code_mesaj.h",
+        tests_dir / "spec2code_mesaj.c",
         tests_dir / "spec2code_testbench_log.h",
         tests_dir / "spec2code_testbench_log.c",
         tests_dir / "spec2code_testbench_trace.h",
@@ -4181,6 +4742,8 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
     contents = [
         _apply_default_identifier_style(_testbench_protocol_header()),
         _apply_default_identifier_style(_testbench_protocol_source()),
+        _apply_default_identifier_style(_mesaj_header()),
+        _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source()),
         _apply_default_identifier_style(_testbench_trace_header()),
