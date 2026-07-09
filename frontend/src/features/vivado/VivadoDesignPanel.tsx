@@ -234,7 +234,12 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     try {
       const res = await api.vivadoDesignResult(jobId);
       setResult(res.result);
-      if (res.result?.xsa_path) localStorage.setItem("spec2code.lastVivadoXsa", res.result.xsa_path);
+      // Setup kisayolu (spec2code.lastVivadoXsa): bit'li XSA varsa ONU tercih et.
+      // Sebep: Setup bit'siz XSA'dan platform kurunca platformda .bit olmaz ve
+      // board'da 'auto' PL programlama bit'i bulamaz. Bit XSA'nin icinde .bit
+      // platforma tasinir -> find_bitstream bulur (Xilinx-canonical yol).
+      const preferredXsa = res.result?.xsa_bit_path || res.result?.xsa_path;
+      if (preferredXsa) localStorage.setItem("spec2code.lastVivadoXsa", preferredXsa);
       if (res.error) setError(res.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -253,7 +258,14 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         if (ev.event === "vivado.xsa_ready" && ev.xsa_path) {
           // Ana Setup sayfası "Vivado'da üretilen XSA'yı kullan" kısayolunu
           // bu anahtardan besler (kullanıcı esnekliği: elle de seçebilir).
+          // Bit'siz XSA erken hazır olur; bit'li XSA gelince aşağıda yükseltilir.
           localStorage.setItem("spec2code.lastVivadoXsa", ev.xsa_path);
+        }
+        if (ev.event === "vivado.xsa_bit_ready" && ev.xsa_bit_path) {
+          // Bit'li XSA hazır: Setup kısayolunu buna YÜKSELT. Böylece Setup
+          // platformu bit'li XSA'dan kurar, .bit platforma taşınır ve board'da
+          // 'auto' PL programlama .bit'i bulur.
+          localStorage.setItem("spec2code.lastVivadoXsa", ev.xsa_bit_path);
         }
         if (ev.event === "vivado.end") void refreshResult(jobId);
       },
@@ -374,7 +386,11 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const multiBlankMioWarning = enabledRows.length >= 2 && blankMioCount >= 2;
 
   const xsaReady = result?.xsa_path || events.find((e) => e.event === "vivado.xsa_ready")?.xsa_path;
+  const xsaBitReady = result?.xsa_bit_path || events.find((e) => e.event === "vivado.xsa_bit_ready")?.xsa_bit_path;
   const imageReady = result?.image_path || events.find((e) => e.event === "vivado.bit_ready")?.image_path;
+  // Setup'a HANGI XSA bağlanmalı: bit'li XSA varsa o (PL programlanabilir,
+  // .bit platforma taşınır); yoksa hızlı bit'siz XSA (PS-only).
+  const setupXsa = xsaBitReady || xsaReady;
   const regmapBase = result?.regmap_ip_base || events.find((e) => e.event === "vivado.regmap_ip")?.regmap_ip_base;
   // Test IP adresi atandiginda Register Map ekrani "Test IP haritasini yukle"
   // ile bu adresi kullanir (adres + register + bitfield otomatik gelir).
@@ -763,13 +779,16 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           <div className="flex flex-wrap items-center gap-3">
             <PackageCheck className="h-5 w-5 shrink-0 text-ok" aria-hidden />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-ok">Aşama 1 tamam — sentezsiz XSA hazır</p>
-              <p className="break-all font-mono text-[11px] text-muted">{xsaReady}</p>
+              <p className="text-sm font-semibold text-ok">
+                {xsaBitReady ? "Bit'li XSA hazır — Setup'a bit'li XSA bağlanır (PL programlanabilir)" : "Aşama 1 tamam — sentezsiz XSA hazır"}
+              </p>
+              <p className="break-all font-mono text-[11px] text-muted">{setupXsa}</p>
               {imageReady ? <p className="break-all font-mono text-[11px] text-muted">imaj: {imageReady}</p> : null}
-              {result?.xsa_bit_path ? <p className="break-all font-mono text-[11px] text-muted">bit&apos;li XSA: {result.xsa_bit_path}</p> : null}
+              {xsaBitReady && xsaReady && xsaReady !== xsaBitReady ? <p className="break-all font-mono text-[11px] text-faint">bit&apos;siz XSA (PS-only, hızlı): {xsaReady}</p> : null}
+              {xsaBitReady ? <p className="text-[11px] text-ok">Bit XSA&apos;nın içindeki .bit Vitis platformuna taşınır → board&apos;da &quot;PL bitstream: auto&quot; .bit&apos;i otomatik bulur.</p> : null}
               {regmapBase ? <p className="font-mono text-[11px] text-accent">Register Map Test IP adresi: {regmapBase} — <b>Register Map → &quot;Test IP haritasını yükle&quot;</b> ile bu adresle otomatik gelir.</p> : null}
             </div>
-            <Button onClick={() => void connectToSetup(String(xsaReady))}>
+            <Button onClick={() => void connectToSetup(String(setupXsa))}>
               <Wand2 className="h-4 w-4" /> Setup&apos;a bağla — şemayı kur
             </Button>
           </div>

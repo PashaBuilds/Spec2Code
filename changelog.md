@@ -3,7 +3,38 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
-## v0.1.138 - 2026-07-09
+## v0.1.139 - 2026-07-09
+
+- SAHA KOK NEDEN (kullanici): Vivado'da bit uretilse bile board'da "PL bitstream:
+  auto" .bit'i BULAMIYORDU -> PL programlanmadan kaliyor -> register map AXI
+  slave'i (0xA0000000) "AP transaction timeout". Kullanici bit'i ELLE gosterince
+  calisiyordu. Iki bagimsiz kok neden bulundu ve duzeltildi:
+  - (1) SETUP'A BIT'SIZ XSA GIDIYORDU. Vivado iki XSA uretir: hizli `{ad}.xsa`
+    (bit YOK, PS-only) ve `{ad}_bit.xsa` (write_hw_platform -include_bit, bit VAR).
+    Frontend hem "Setup'a bagla" butonu hem `spec2code.lastVivadoXsa` kisayolu
+    HER ZAMAN bit'siz XSA'yi kullaniyordu; bit'li XSA yalnizca metin olarak
+    gosteriliyordu. Setup bit'siz XSA'dan platform kurunca platformda .bit olmaz,
+    `find_bitstream` bos doner, auto PL programlama atlanir. Duzeltme
+    (VivadoDesignPanel.tsx): bit'li XSA hazir oldugunda Setup hand-off'u ve kisayol
+    ONU tercih ediyor (`setupXsa = xsaBitReady || xsaReady`). Boylece platform
+    bit'li XSA'dan kurulur, .bit `platform/**/hw` altina cikar ve `find_bitstream`
+    (`**/*.bit`) onu bulur — Xilinx-canonical yol (bit XSA'nin icinde tasinir).
+  - (2) SESSIZ ATLAMA. run_on_board 'auto' modda platformda .bit bulamayinca
+    hicbir uyari vermeden PL'siz devam ediyordu; kullanici ancak sahada kesfetti.
+    Duzeltme (run_on_board.py): auto + bit-yok artik net bir `runboard.warn`
+    yayiyor ("PL PROGRAMLANMAYACAK — bit'li XSA ile Setup kurun ya da .bit'i elle
+    secin"). Akis yine kosar (firmware PL'siz de calisir) ama sebep gizlenmez.
+- MANUEL BRING-UP TANI (ayrica): kullanicinin elle xsdb oturumunda
+  `psu_ps_pl_isolation_removal` "invalid command name" veriyordu. Sebep: bu adlar
+  built-in xsdb komutu DEGIL, psu_init.tcl icinde tanimli PROC'lardir; ayrica
+  `source psu_init.tcl` yapilmis ama `psu_init` CAGRILMAMISTI -> pl_clk0
+  (PL0_REF_CTRL @ 0xFF5E00C0 CLKACT=1) uretilmedigi icin PL AXI slave saatsiz
+  kalip timeout veriyordu. Dogru sira: source -> psu_init -> fpga -> isolation ->
+  reset. Spec2Code'un otomatik Build&Run akisi bu sirayi zaten dogru uyguluyor.
+- run_on_board.py: PL bring-up proc cagrilari artik `info procs` ile korunuyor —
+  "proc yok" ile "proc calisti ama hata verdi" (or. mask_poll timeout) durumlari
+  ayri ayri ve GERCEK hata mesajiyla raporlaniyor (eskiden her hatayi yaniltici
+  sekilde "fonksiyon yok" diye etiketliyordu). 203 test gecti.
 
 - VIVADO SAYFASI FORM HAFIZASI (kullanici istegi): "her seferinde tekrar ayni
   seyleri girmek istemiyorum". Vivado tasarim ekranindaki TUM ayarlar artik

@@ -185,6 +185,25 @@ def _tcl_path(path: Path) -> str:
     return str(path).replace("\\", "/")
 
 
+def _guarded_proc_call(proc: str, ok_msg: str) -> str:
+    """xsdb Tcl that calls a psu_init.tcl proc only if it is actually defined.
+
+    ``psu_ps_pl_isolation_removal`` / ``psu_ps_pl_reset_config`` are NOT built-in
+    xsdb commands — they are procs defined inside the platform's psu_init.tcl
+    (already sourced above). ``info procs`` lets us tell "proc missing" (source
+    failed / older tool) apart from "proc ran but errored" (e.g. mask_poll
+    timeout because the PL is not powered), and surfaces the REAL error text
+    instead of silently swallowing every failure as "function missing".
+    """
+    return (
+        f"if {{[llength [info procs {proc}]] == 0}} {{ "
+        f'puts "S2C-RUN: UYARI {proc} tanimli degil (psu_init.tcl source edilmedi mi / eski arac?)" }} '
+        f"elseif {{[catch {{{proc}}} _e]}} {{ "
+        f'puts "S2C-RUN: {proc} HATA: $_e" }} '
+        f'else {{ puts "S2C-RUN: {ok_msg}" }}'
+    )
+
+
 def _core_filter(processor: str) -> str:
     lowered = processor.lower()
     if "a72" in lowered:
@@ -271,20 +290,17 @@ def render_run_on_board_script(
             lines.extend([
                 f"fpga {{{_tcl_path(bitstream_path)}}}",
                 'puts "S2C-RUN: fpga programmed"',
-                # PL yuklendikten SONRA PS-PL isolation'i kaldir ve PL reset'ini
-                # SERBEST BIRAK. Yoksa PL reset'te kalir; PL AXI slave'leri
+                # PL yuklendikten SONRA PS-PL isolation'i kaldir ve PL fabric
+                # reset'ini pulse'la. Yoksa PL reset'te kalir; PL AXI slave'leri
                 # (or. register map IP @0xA000_0000) cevap vermez -> xsdb "PL reset
                 # is active", mrd -force -> "EDITR timeout", firmware Xil_In32 AXI'de
-                # asilir ve cekirdegi kilitler (arayuzde connection timeout). Bu
-                # fonksiyonlar psu_init.tcl'de tanimlidir (PL'li ZynqMP tasarimi);
-                # PS-only tasarimda bitstream yok, bu blok hic calismaz. catch ile
-                # fonksiyon yoksa gracefully atlanir.
-                "if {[catch {psu_ps_pl_isolation_removal}]} { "
-                'puts "S2C-RUN: psu_ps_pl_isolation_removal atlandi (fonksiyon yok)" } '
-                'else { puts "S2C-RUN: PS-PL isolation kaldirildi" }',
-                "if {[catch {psu_ps_pl_reset_config}]} { "
-                'puts "S2C-RUN: psu_ps_pl_reset_config atlandi (fonksiyon yok)" } '
-                'else { puts "S2C-RUN: PL reset serbest birakildi" }',
+                # asilir ve cekirdegi kilitler (arayuzde connection timeout). Bu iki
+                # ad psu_init.tcl'de tanimli PROC'tur (built-in xsdb komutu DEGIL);
+                # yukarida source edildi. info procs ile varlik netçe kontrol edilir.
+                "after 1000",
+                _guarded_proc_call("psu_ps_pl_isolation_removal", "PS-PL isolation kaldirildi"),
+                "after 500",
+                _guarded_proc_call("psu_ps_pl_reset_config", "PL reset serbest birakildi"),
             ])
     lines.extend([
         f"targets -set -nocase -filter {{name =~ {core_filter}}}",
@@ -401,6 +417,19 @@ class RunOnBoardJobManager:
                     raise FileNotFoundError(
                         "bitstream requested but no .bit found under the platform "
                         "(XSA'da bit yoksa 'Bitstream dosyası' alanından elle seçebilirsiniz)")
+                if bitstream is None and config.program_fpga == "auto":
+                    # SESSIZ ATLAMA YOK: auto modda platformda .bit yoksa PL
+                    # programlanmaz; kullanici bunu net gormeli. (Kok neden: Setup
+                    # bit'siz XSA'dan kurulmus olabilir -> platformda .bit yok. PL'li
+                    # tasarim icin Vivado'da bit uretip Setup'i bit'li XSA ile kurun,
+                    # ya da 'Bitstream dosyasi' alanindan .bit'i elle secin.)
+                    job.emit({
+                        "event": "runboard.warn", "stage": "script", "progress": 33,
+                        "message": ("UYARI: 'auto' secili ama platformda .bit bulunamadi — "
+                                    "PL PROGRAMLANMAYACAK. PL'li tasarim (or. register map IP) "
+                                    "icin Vivado'da bit uretip Setup'i bit'li XSA ile kurun, ya da "
+                                    "'Bitstream dosyasi' alanindan .bit'i elle secin."),
+                    })
         bit_note = "yok"
         if bitstream is not None:
             bit_note = f"{bitstream.name} ({'elle seçildi' if manual_bit else 'otomatik bulundu'})"

@@ -254,6 +254,21 @@ class RunOnBoardBlockingTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 self._run(_RUN_OK_BODY, root, program_fpga="yes")
 
+    def test_auto_without_bitstream_warns_instead_of_silent_skip(self) -> None:
+        # 'auto' + platformda .bit yok: hata degil ama SESSIZ ATLAMA da yok —
+        # PL programlanmayacagi net bir uyariyla bildirilmeli (saha kok nedeni:
+        # Setup bit'siz XSA'dan kurulmus, platformda .bit yok).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_workspace(root, with_bit=False)
+            job = self._run(_RUN_OK_BODY, root, program_fpga="auto")
+        warns = [e for e in job.events if e.get("event") == "runboard.warn"]
+        self.assertTrue(warns, "auto+bit-yok bir uyari yaymali")
+        self.assertIn("PROGRAMLANMAYACAK", warns[0]["message"])
+        self.assertIsNone(job.result["bitstream"])
+        # Akis yine de basariyla kosmali (PL'siz de olsa firmware calisir).
+        self.assertIn("S2C-RUN: running", job.result["markers"])
+
     def test_versal_blocking_flow_finds_pdi(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
