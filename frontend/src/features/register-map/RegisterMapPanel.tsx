@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Cpu, Download, FileCode2, FileUp, FilePlus2, Loader2, Save, Trash2 } from "lucide-react";
+import { Cpu, Download, FileCode2, FileSpreadsheet, FileUp, FilePlus2, Loader2, Save, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,22 @@ function bitSpan(bits: string): [number, number] | null {
   const m = /^(\d+)(?::(\d+))?$/.exec((bits || "").trim()); if (!m) return null;
   const a = +m[1]; const b = m[2] !== undefined ? +m[2] : +m[1]; return a >= b ? [a, b] : null; }
 const ident = (s: string) => /^[A-Za-z_]\w*$/.test(s || "");
+
+// Binary <-> base64 (Excel dosyalari base64 olarak backend'e gider/gelir).
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf); let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64); const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function downloadBytes(name: string, bytes: Uint8Array, mime: string) {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+}
 
 // --- Genişlik / tip çıkarımı (backend register_map.py ile birebir) --------- //
 function rawType(width: number): { c: string; prefix: string } | null {
@@ -88,14 +104,18 @@ export default function RegisterMapPanel() {
     if (!file) return;
     setBusy(true); setErrors([]); setNotice("");
     try {
-      const text = await file.text();
-      if (file.name.endsWith(".json")) {
-        const parsed = JSON.parse(text) as RegDoc;
+      if (file.name.endsWith(".xlsx")) {
+        const b64 = arrayBufferToBase64(await file.arrayBuffer());
+        const res = await api.registerMapImportXlsx(b64);
+        setDoc(res.document as RegDoc); setActiveMap(0);
+        setNotice(`${file.name} (Excel) yüklendi.`); if (!res.valid) setErrors(res.errors);
+      } else if (file.name.endsWith(".json")) {
+        const parsed = JSON.parse(await file.text()) as RegDoc;
         const v = await api.registerMapValidate(parsed);
         setDoc(parsed); setActiveMap(0);
         setNotice(`${file.name} yüklendi.`); if (!v.valid) setErrors(v.errors);
       } else {
-        const res = await api.registerMapImportHtml(text);
+        const res = await api.registerMapImportHtml(await file.text());
         setDoc(res.document as RegDoc); setActiveMap(0);
         setNotice(`${file.name} içindeki register map yüklendi.`); if (!res.valid) setErrors(res.errors);
       }
@@ -118,6 +138,18 @@ export default function RegisterMapPanel() {
       const res = await api.registerMapExportHtml(doc);
       download((doc.maps[0]?.name || "register_map") + "_map.html", res.html, "text/html");
       setNotice("Self-contained HTML editör indirildi — sayısal ekiple paylaşabilirsin.");
+    } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
+    finally { setBusy(false); }
+  }
+
+  async function exportXlsx() {
+    if (!doc) return;
+    setBusy(true); setErrors([]);
+    try {
+      const res = await api.registerMapExportXlsx(doc);
+      downloadBytes((doc.maps[0]?.name || "register_map") + "_map.xlsx", base64ToBytes(res.xlsx_base64),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      setNotice("Excel (katı şablon) indirildi — sayısal ekiple paylaşabilirsin.");
     } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
     finally { setBusy(false); }
   }
@@ -152,16 +184,16 @@ export default function RegisterMapPanel() {
           <span className="text-xs text-faint">memory-mapped donanım bloğu → .h/.c</span>
         </div>
         <p className="mb-3 text-xs leading-relaxed text-muted">
-          Sayısal ekipten gelen register haritasını buradan düzenle; her register 4 bayt, bit alanları
-          LSB-first, init reset değerlerine eşitler, offset'ler <code>static_assert</code> ile mühürlenir.
-          Sayısalcıya paylaşmak için <b>self-contained HTML editör</b> ver — Spec2Code'a gerek kalmadan
-          tarayıcıda açıp doldurur, "Kaydet" ile aynı dosyaya yazar (Chrome/Edge), çoklu kullanıcıda
-          register-düzeyinde birleştirme yapar.
+          Sayısal ekipten gelen register haritasını buradan düzenle; register genişliği offset'lerden
+          çıkarılır, bit alanları LSB-first, init reset değerlerine eşitler, offset'ler <code>static_assert</code>
+          ile mühürlenir. Sayısalcıya paylaşmak için <b>self-contained HTML editör</b> ya da <b>katı
+          şablonlu Excel</b> ver — ikisi de aynı şemayı taşır, geri alıp içe aktarabilirsin.
         </p>
         <div className="flex flex-wrap gap-2">
-          <input ref={fileRef} type="file" accept=".html,.json" className="hidden" onChange={(e) => void importFile(e.target.files?.[0])} />
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={busy}><FileUp className="h-4 w-4" /> HTML/JSON içe aktar</Button>
+          <input ref={fileRef} type="file" accept=".html,.json,.xlsx" className="hidden" onChange={(e) => void importFile(e.target.files?.[0])} />
+          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={busy}><FileUp className="h-4 w-4" /> İçe aktar (HTML/JSON/Excel)</Button>
           <Button size="sm" variant="outline" onClick={() => void exportHtml()} disabled={busy}><Download className="h-4 w-4" /> HTML editör dışa aktar</Button>
+          <Button size="sm" variant="outline" onClick={() => void exportXlsx()} disabled={busy}><FileSpreadsheet className="h-4 w-4" /> Excel dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => doc && download((doc.maps[0]?.name || "register_map") + ".json", JSON.stringify(doc, null, 2), "application/json")}><Download className="h-4 w-4" /> JSON dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => void downloadExampleHtml()} disabled={busy}><FilePlus2 className="h-4 w-4" /> Örnek editör indir</Button>
           <Button size="sm" onClick={() => void generateC()} disabled={busy || localErrors.length > 0} className="ml-auto">

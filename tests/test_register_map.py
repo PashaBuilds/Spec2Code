@@ -140,6 +140,48 @@ class RegisterMapCodegenTests(unittest.TestCase):
         self.assertNotIn("ucReserved0", c)
 
 
+class RegisterMapXlsxTests(unittest.TestCase):
+    def _doc(self):
+        return {"version": 1, "maps": [{
+            "name": "pl_mix", "base_address": "0xA0020000", "description": "",
+            "registers": [
+                {"name": "CONFIG", "offset": "0x00", "reset": "0x1", "description": "kontrol",
+                 "fields": [{"name": "EN", "bits": "0", "description": "etkin"},
+                            {"name": "MODE", "bits": "2:1", "description": "mod"}]},
+                {"name": "angle", "offset": "0x02", "reset": "0x0", "reserved": False,
+                 "fields": [{"name": "ANGLE", "bits": "15:0", "description": ""}]},
+                {"name": "RSVD", "offset": "0x04", "reset": "0x0", "reserved": True, "description": "", "fields": []},
+                {"name": "temperature", "offset": "0x08", "reset": "0x0", "reserved": False,
+                 "fields": [{"name": "TEMP", "bits": "31:0", "description": ""}]},
+            ]}]}
+
+    def test_xlsx_round_trip_preserves_registers_and_fields(self) -> None:
+        doc = self._doc()
+        data = rm.build_xlsx(doc)
+        # Gecerli xlsx (zip + beklenen parcalar).
+        import io, zipfile
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            names = set(z.namelist())
+        self.assertIn("xl/worksheets/sheet1.xml", names)
+        self.assertIn("[Content_Types].xml", names)
+        back = rm.parse_xlsx(data)
+        self.assertEqual(rm.validate_register_document(back), [])
+        regs = back["maps"][0]["registers"]
+        self.assertEqual([r["name"] for r in regs], ["CONFIG", "angle", "RSVD", "temperature"])
+        self.assertTrue(regs[2]["reserved"])          # RSVD
+        self.assertEqual([f["name"] for f in regs[0]["fields"]], ["EN", "MODE"])
+        self.assertEqual(regs[0]["fields"][1]["bits"], "2:1")
+        self.assertEqual(regs[0]["description"], "kontrol")
+
+    def test_import_rejects_wrong_template_header(self) -> None:
+        with self.assertRaises(ValueError):
+            rm.rows_to_document([["yanlis", "baslik"], ["a", "b"]])
+
+    def test_headers_are_the_strict_template(self) -> None:
+        rows = rm.document_to_rows(self._doc())
+        self.assertEqual(rows[0], rm.XLSX_HEADERS)
+
+
 class RegisterMapHtmlRoundTripTests(unittest.TestCase):
     def test_build_html_embeds_and_extract_recovers_document(self) -> None:
         doc = rm.blank_document()

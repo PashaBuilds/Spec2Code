@@ -1044,6 +1044,38 @@ def register_map_import_html(req: RegisterMapHtmlRequest) -> dict:
     return {"document": document, "valid": not errors, "errors": errors}
 
 
+class RegisterMapXlsxRequest(BaseModel):
+    xlsx_base64: str
+
+
+@router.post("/register-map/export-xlsx")
+def register_map_export_xlsx(req: RegisterMapRequest) -> dict:
+    """Dokümanı KATI şablon .xlsx'e (base64) çevirir (Excel ile paylaşım)."""
+    import base64
+
+    errors = regmap.validate_register_document(req.document)
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+    data = regmap.build_xlsx(req.document)
+    return {"xlsx_base64": base64.b64encode(data).decode("ascii")}
+
+
+@router.post("/register-map/import-xlsx")
+def register_map_import_xlsx(req: RegisterMapXlsxRequest) -> dict:
+    """KATI şablon .xlsx'ten (base64) register map dokümanını çıkarır."""
+    import base64
+
+    try:
+        data = base64.b64decode(req.xlsx_base64)
+        document = regmap.parse_xlsx(data)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - okuma hatası kullanıcıya aynen gider
+        raise HTTPException(422, f"XLSX okunamadı: {exc}") from exc
+    errors = regmap.validate_register_document(document)
+    return {"document": document, "valid": not errors, "errors": errors}
+
+
 @router.get("/register-map/example")
 def register_map_example() -> dict:
     """Boş/örnek register map + gömülü hâli (self-contained HTML editör)."""

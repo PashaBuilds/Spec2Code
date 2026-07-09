@@ -169,6 +169,16 @@ export const api = {
       method: "POST", body: JSON.stringify({ html }),
     }),
 
+  registerMapExportXlsx: (document: unknown) =>
+    req<{ xlsx_base64: string }>("/api/register-map/export-xlsx", {
+      method: "POST", body: JSON.stringify({ document }),
+    }),
+
+  registerMapImportXlsx: (xlsx_base64: string) =>
+    req<{ document: unknown; valid: boolean; errors: string[] }>("/api/register-map/import-xlsx", {
+      method: "POST", body: JSON.stringify({ xlsx_base64 }),
+    }),
+
   registerMapExample: () =>
     req<{ document: unknown; html: string }>("/api/register-map/example"),
 

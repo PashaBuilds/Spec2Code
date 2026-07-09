@@ -38,6 +38,8 @@ import json
 import re
 from pathlib import Path
 
+from backend import xlsx_min
+
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 #: "7" (tek bit) veya "15:8" (aralık, msb:lsb). Bit alanı gösterimi.
 _BITS = re.compile(r"^\d+(:\d+)?$")
@@ -545,6 +547,107 @@ def generate_files(doc: dict) -> dict[str, str]:
         out[f"{rmap['name']}_regs.h"] = generate_header(rmap)
         out[f"{rmap['name']}.c"] = generate_source(rmap)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Excel (XLSX) — KATI şablon: içe/dışa aktar (openpyxl'siz, bkz. xlsx_min)
+# --------------------------------------------------------------------------- #
+
+#: Şablonun ZORUNLU başlık satırı (birebir, bu sıra). Her satır bir bit alanı;
+#: alanı olmayan (skaler/reserved) register için tek satır (field/bits boş).
+XLSX_HEADERS = [
+    "map", "base_address", "register", "offset", "reset", "reserved",
+    "reg_description", "field", "bits", "field_description",
+]
+
+_XLSX_TRUE = {"x", "1", "true", "evet", "yes", "reserved", "rsvd", "e"}
+
+
+def _truthy(value: str) -> bool:
+    return str(value).strip().lower() in _XLSX_TRUE
+
+
+def document_to_rows(doc: dict) -> list[list[str]]:
+    """Doküman → katı şablon satırları (başlık + register/alan satırları)."""
+    rows: list[list[str]] = [list(XLSX_HEADERS)]
+    for rmap in doc.get("maps", []):
+        mname = rmap.get("name", "")
+        base = rmap.get("base_address", "")
+        for reg in rmap.get("registers", []):
+            rname = reg.get("name", "")
+            off = reg.get("offset", "")
+            reset = reg.get("reset", "")
+            resv = "x" if reg.get("reserved") else ""
+            rdesc = reg.get("description", "") or ""
+            fields = reg.get("fields") or []
+            if reg.get("reserved") or not fields:
+                rows.append([mname, base, rname, off, reset, resv, rdesc, "", "", ""])
+            else:
+                for field in fields:
+                    rows.append([mname, base, rname, off, reset, resv, rdesc,
+                                 field.get("name", ""), field.get("bits", ""),
+                                 field.get("description", "") or ""])
+    return rows
+
+
+def rows_to_document(rows: list[list]) -> dict:
+    """Katı şablon satırları → doküman. Başlık birebir eşleşmezse ValueError."""
+    if not rows:
+        raise ValueError("XLSX boş: en az başlık satırı olmalı.")
+    header = [str(c).strip().lower() for c in rows[0]][:len(XLSX_HEADERS)]
+    if header != XLSX_HEADERS:
+        raise ValueError(
+            "XLSX şablonu beklenen sütunlarla eşleşmiyor. İlk satır birebir şu "
+            "olmalı: " + " | ".join(XLSX_HEADERS))
+    idx = {h: i for i, h in enumerate(XLSX_HEADERS)}
+
+    def cell(row: list, key: str) -> str:
+        i = idx[key]
+        return str(row[i]).strip() if i < len(row) and row[i] is not None else ""
+
+    maps: dict[str, dict] = {}
+    reg_by_key: dict[tuple, dict] = {}
+    order: list[str] = []
+    for row in rows[1:]:
+        if not any(str(c).strip() for c in row):
+            continue
+        mname = cell(row, "map")
+        if not mname:
+            continue
+        if mname not in maps:
+            maps[mname] = {"name": mname, "base_address": cell(row, "base_address"),
+                           "description": "", "registers": []}
+            order.append(mname)
+        rmap = maps[mname]
+        if not rmap["base_address"]:
+            rmap["base_address"] = cell(row, "base_address")
+        rname = cell(row, "register")
+        if not rname:
+            continue
+        key = (mname, rname)
+        if key not in reg_by_key:
+            reg = {"name": rname, "offset": cell(row, "offset"),
+                   "reset": cell(row, "reset") or "0x0",
+                   "reserved": _truthy(cell(row, "reserved")),
+                   "description": cell(row, "reg_description"), "fields": []}
+            reg_by_key[key] = reg
+            rmap["registers"].append(reg)
+        reg = reg_by_key[key]
+        fname = cell(row, "field")
+        if fname:
+            reg["fields"].append({"name": fname, "bits": cell(row, "bits"),
+                                  "description": cell(row, "field_description")})
+    return {"version": 1, "maps": [maps[name] for name in order]}
+
+
+def build_xlsx(doc: dict) -> bytes:
+    """Doküman → katı şablon .xlsx (byte)."""
+    return xlsx_min.write_sheet(document_to_rows(doc))
+
+
+def parse_xlsx(data: bytes) -> dict:
+    """Katı şablon .xlsx (byte) → doküman."""
+    return rows_to_document(xlsx_min.read_first_sheet(data))
 
 
 # --------------------------------------------------------------------------- #

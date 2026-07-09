@@ -3,6 +3,28 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.131 - 2026-07-09
+
+- REGISTER MAP EXCEL ICE/DISA AKTAR (kullanici istegi, opsiyonel esneklik):
+  Register Map bolumune KATI SABLONLU .xlsx ice/disa aktarma eklendi. Sayisal
+  ekip HTML editor yerine Excel'le de calisip geri gonderebilir; ayni JSON
+  semasina cevrilir.
+  - Kati sablon: tek sayfa, birebir su baslik satiri: map | base_address |
+    register | offset | reset | reserved | reg_description | field | bits |
+    field_description. Her satir bir bit alani; alani olmayan (skaler/reserved)
+    register icin tek satir. Ice aktarirken baslik birebir eslesmezse
+    reddedilir (net hata).
+  - BAGIMLILIKSIZ: openpyxl/pandas YOK (air-gapped + paketli exe'ye ek yuk
+    istemiyoruz). Yeni backend/xlsx_min.py stdlib zipfile+xml ile minimal xlsx
+    yazar/okur. Yazarken tum hucreler METIN bicimli (Excel "2:1"i saate,
+    "0x00"i sayiya cevirmesin). Okurken hem bizim inline string'lerimizi hem
+    Excel'in kaydettigi shared-string bicimini destekler (dogrulandi).
+  - API: POST /register-map/export-xlsx (base64) + /import-xlsx (base64).
+    Arayuze "Excel disa aktar" butonu ve ice-aktar .xlsx destegi eklendi.
+  - HTML editor tarafi degismedi (HTML/JSON olarak kalir); Excel yalniz
+    Spec2Code panelinde. Round-trip (doc->xlsx->doc) ve Excel-uyumlu okuma
+    testlerle + canli API ile dogrulandi (195 test).
+
 ## v0.1.130 - 2026-07-09
 
 - REGISTER MAP DUMP FONKSIYONU (kullanici istegi): uretilen .c dosyasina her
