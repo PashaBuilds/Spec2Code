@@ -509,6 +509,34 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("yanit", entries[1]["ozet"])
         self.assertEqual(len(newer), 2)
 
+    def test_unsolicited_trace_frame_carries_decoded_text_in_traffic_entry(self) -> None:
+        # Seri Hat panelinin bit-seviyesi dalga formu (Task 3'te yanlislikla
+        # silindi) agent'in "S2C-LOG|D|TRACE|..." METIN satirlarini parse
+        # eder — bu format binary gecisle DEGISMEDI. Traffic ring'e giren
+        # unsolicited TRACE_EVENT cercevesi artik decode edilmis "text"
+        # alanini da tasimali ki frontend ayni parser'i besleyebilsin.
+        from backend.testbench import _TestbenchSerialSession
+
+        session = _TestbenchSerialSession("trace-unit")
+        trace_line = "S2C-LOG|D|TRACE|id=7|bus=i2c|reg=0x10|dir=r|tx=|rx=|data=AB"
+        text_bytes = trace_line.encode("utf-8")
+        body = struct.pack("<II", 2, len(text_bytes)) + _pad4(text_bytes)
+        frame = pack_frame(s2cmsg.message_id_for_name("TRACE_EVENT"), 1, body)
+        parsed_frame = FrameParser().feed(frame)[0]
+
+        session._handle_frame(parsed_frame)
+
+        _seq, traffic = session.traffic_since(0)
+        self.assertEqual(len(traffic), 1)
+        entry = traffic[0]
+        self.assertEqual(entry["dir"], "rx")
+        self.assertIn("text", entry)
+        self.assertIn(trace_line, entry["text"])
+
+        # Trace metni konsol halkasina da dusmeye devam eder (mevcut davranis).
+        _cseq, console = session.console_since(0)
+        self.assertTrue(any(trace_line in entry["line"] for entry in console))
+
     def test_coresight_session_bridges_over_fake_jtagterminal_socket(self) -> None:
         # Kopru sahte: bridge_factory xsdb yerine hazir bir TCP portu verir;
         # oturumun geri kalani gercek yol (_TcpBridgeStream + reader thread).

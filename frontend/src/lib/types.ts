@@ -405,6 +405,11 @@ export interface TrafficEntry {
   hex: string;
   /** İnsan-okunur özet: çerçeve ise "AD (istek) sayac=N govde=NB", değilse ASCII fallback metni. */
   ozet: string;
+  /** Yalnız unsolicited TRACE_EVENT/BUS_TRACE_EVENT çerçevelerinde dolu:
+   * ajanın çözülmüş "S2C-LOG|D|TRACE|id=..|bus=..|..." satırı (bkz.
+   * backend/testbench.py `_traffic_push`). Seri Hat panelinin bit-seviyesi
+   * bus-dalga formu bunu konsol satırlarıyla aynı parser'a besler. */
+  text?: string;
 }
 
 export interface SerialPortInfo {

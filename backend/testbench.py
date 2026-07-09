@@ -133,34 +133,47 @@ class _TrafficRing:
         self._traffic_lock = threading.Lock()
 
     def _traffic_push(self, direction: str, data: bytes) -> None:
-        """Record one TX/RX entry as ``{"dir","hex","ozet"}``.
+        """Record one TX/RX entry as ``{"dir","hex","ozet"[,"text"]}``.
 
         ``data`` is either a raw S2C-MSG frame (protocol traffic) or a plain
         byte string (e.g. a manual console write via ``write_raw`` that never
         goes through the FrameParser). Frame bytes decode to a catalog-based
         summary via ``decode_frame_summary``; anything else falls back to a
         printable text summary so manual console input still shows up.
+
+        When every frame in ``data`` is an unsolicited TRACE_EVENT/
+        BUS_TRACE_EVENT frame, the entry also carries ``text``: the decoded
+        ``S2C-LOG|D|TRACE|...`` line(s) (``s2cmsg.unpack_trace``). The Seri
+        Hat panel's bit-level bus-waveform view parses that text the same way
+        it always has — the binary migration changed the wire format, not
+        the trace text the agent emits, so this is the ingestion point that
+        feeds the waveform from the new traffic stream.
         """
         if not data:
             return
         frames = s2cmsg.FrameParser().feed(data)
         consumed = sum(s2cmsg.HEADER_SIZE + len(body) for _cid, _ctr, body in frames)
+        entry: dict = {
+            "seq": 0,
+            "at": time.time(),
+            "dir": direction,
+            "hex": data[:64].hex().upper(),
+        }
         if frames and consumed == len(data):
             # The whole payload parsed as one or more well-formed frames
             # (the only bytes we ever push here are exact pack_frame() output
             # or plain text) — no leftover/garbage bytes.
-            ozet = "; ".join(s2cmsg.decode_frame_summary(frame) for frame in frames)
+            entry["ozet"] = "; ".join(s2cmsg.decode_frame_summary(frame) for frame in frames)
+            if all(s2cmsg.is_unsolicited(frame[0]) for frame in frames):
+                text = "\n".join(s2cmsg.unpack_trace(frame)["text"] for frame in frames)
+                if text:
+                    entry["text"] = text
         else:
-            ozet = data.decode("ascii", errors="replace").strip() or "(bos)"
+            entry["ozet"] = data.decode("ascii", errors="replace").strip() or "(bos)"
         with self._traffic_lock:
             self._traffic_seq += 1
-            self._traffic.append({
-                "seq": self._traffic_seq,
-                "at": time.time(),
-                "dir": direction,
-                "hex": data[:64].hex().upper(),
-                "ozet": ozet,
-            })
+            entry["seq"] = self._traffic_seq
+            self._traffic.append(entry)
 
     def traffic_since(self, since_seq: int) -> tuple[int, list[dict]]:
         with self._traffic_lock:
