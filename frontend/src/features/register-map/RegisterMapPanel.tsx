@@ -551,13 +551,16 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
         </table>
       </div>
 
-      {log.length > 0 ? (
-        <div className="mt-3">
-          <div className="mb-1 flex items-center gap-2"><span className="text-xs text-muted">UART günlüğü</span>
-            <Button size="sm" variant="ghost" className="h-5 text-[10px]" onClick={() => setLog([])}>temizle</Button></div>
-          <pre className="max-h-40 overflow-auto rounded-md border border-border bg-inset p-2 font-mono text-[10px] leading-relaxed text-muted">{log.join("\n")}</pre>
+      <div className="mt-3">
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-xs text-muted">UART günlüğü</span>
+          <span className="text-[10px] text-faint">Dump ve tüm komut/cevaplar burada görünür</span>
+          {log.length > 0 ? <Button size="sm" variant="ghost" className="ml-auto h-5 text-[10px]" onClick={() => setLog([])}>temizle</Button> : null}
         </div>
-      ) : null}
+        <pre className="max-h-48 min-h-16 overflow-auto rounded-md border border-border bg-inset p-2 font-mono text-[10px] leading-relaxed text-muted">
+          {log.length > 0 ? log.join("\n") : (board.connected ? "» Bir komut gönder (Hepsini oku / Dump / oku) — cevaplar burada akar." : "Önce yukarıdan seri bağlan; bağlı değilken butonlar pasiftir ve komut gönderilmez.")}
+        </pre>
+      </div>
     </Card>
   );
 }

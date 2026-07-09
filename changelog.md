@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.133 - 2026-07-09
+
+- Register Map "Canli Izleme": UART gunlugu kutusu artik HER ZAMAN gorunur
+  (eskiden yalniz icerik olunca beliriyordu, bu yuzden Dump/oku "hicbir yerde
+  cikmiyor" gibi hissettiriyordu). Bosken net ipucu: bagli degilken
+  "once seri baglan; butonlar pasif", bagliyken "bir komut gonder" yazar.
+  Dump ve tum komut/cevaplar bu kutuda; okunan degerler ayrica tablonun
+  "Deger"/"Cozum" sutunlarinda gorunur.
+
 ## v0.1.132 - 2026-07-09
 
 - REGISTER MAP CANLI SORGULAMA + UART1 KOMUT SUNUCUSU (kullanici istegi): hem
