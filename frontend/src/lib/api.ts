@@ -376,6 +376,18 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  citRun: (sessionId: string, manifest: import("./types").TestbenchManifest, timeoutS = 10.0) =>
+    req<import("./types").CitDecodeResult>("/api/testbench/cit/run", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, manifest, timeout_s: timeoutS }),
+    }),
+
+  citRead: (sessionId: string, manifest: import("./types").TestbenchManifest, timeoutS = 10.0) =>
+    req<import("./types").CitDecodeResult>("/api/testbench/cit/read", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, manifest, timeout_s: timeoutS }),
+    }),
+
   jobFileDownloadUrl: (jobId: string, filePath: string) =>
     `/api/jobs/${encodeURIComponent(jobId)}/files/${encodePath(filePath)}`,
 

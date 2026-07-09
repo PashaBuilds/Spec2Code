@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, AudioWaveform, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, Grid3X3, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, AudioWaveform, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -28,9 +28,10 @@ import DocsPanel from "@/features/docs/DocsPanel";
 import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
 import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
+import CitPanel from "@/features/cit/CitPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "regmap";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "regmap" | "cit";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -128,6 +129,7 @@ export default function App() {
     { id: "serial", label: "Seri Hat — transfer diyagramları", hint: "görünüm", keywords: "seri hat bus waveform i2c spi transfer diyagram", run: () => setView("serial") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
+    { id: "cit", label: "CİT sayfası", hint: "görünüm", keywords: "cit cihaz ici test board contract ok nok limit", run: () => setView("cit") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
     { id: "regmap", label: "Register Map — struct/union header üret", hint: "görünüm", keywords: "register map struct union header bitfield memory mapped pl ip", run: () => setView("regmap") },
@@ -205,6 +207,7 @@ export default function App() {
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
           ["regmap", Cpu, "Register Map"],
+          ["cit", HeartPulse, "CİT"],
           ["docs", BookOpenText, "Kılavuz"],
           ["import", FileInput, "Import"],
         ] as const).map(([id, Icon, label]) => (
@@ -297,6 +300,14 @@ export default function App() {
         {keepAlive("regmap", (
           <div className="h-full min-h-0 overflow-auto p-4">
             <RegisterMapPanel />
+          </div>
+        ))}
+        {keepAlive("cit", (
+          <div className="flex h-full min-h-0 flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">CİT — Cihaz İçi Test</h2>
+            <div className="min-h-0 flex-1">
+              <CitPanel />
+            </div>
           </div>
         ))}
         {keepAlive("import", (

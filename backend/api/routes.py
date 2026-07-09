@@ -6,6 +6,7 @@ import json
 import io
 import os
 import re
+import struct
 import zipfile
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -16,6 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel, Field
 
+from backend.cit import decode_board_cit
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend import register_map as regmap
@@ -1325,6 +1327,43 @@ def registers_snapshot(req: RegisterSnapshotRequest) -> dict:
         raise HTTPException(400, "registers list is empty")
     return snapshot_registers(
         req.session_id, req.device_id, req.registers, timeout_s=req.timeout_s)
+
+
+_DURUM_DESTEKLENMIYOR = 7  # bkz. backend/s2cmsg.py STATUS_LABELS
+
+
+class CitRequest(BaseModel):
+    session_id: str
+    manifest: dict
+    timeout_s: float = 10.0
+
+
+def _cit_run_or_read(name: str, req: CitRequest) -> dict:
+    if not (req.manifest or {}).get("cit"):
+        raise HTTPException(400, "bu uretimde CIT olcumu yok")
+    try:
+        prefix, raw_body = testbench_sessions.send_named(req.session_id, name, timeout_s=req.timeout_s)
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench session is not usable", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "CIT transport hatasi", "error": str(exc)}) from exc
+    if prefix.get("durum") == _DURUM_DESTEKLENMIYOR:
+        return {"durum": prefix["durum"], "sayac": 0, "zaman": 0, "olcumler": [], "desteklenmiyor": True}
+    body = struct.pack("<II", prefix["istek_sayac"], prefix["durum"]) + raw_body
+    try:
+        return decode_board_cit(body, req.manifest)
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/testbench/cit/run")
+def testbench_cit_run(req: CitRequest) -> dict:
+    return _cit_run_or_read("CIT_RUN", req)
+
+
+@router.post("/testbench/cit/read")
+def testbench_cit_read(req: CitRequest) -> dict:
+    return _cit_run_or_read("CIT_READ", req)
 
 
 class BringupStartRequest(BaseModel):

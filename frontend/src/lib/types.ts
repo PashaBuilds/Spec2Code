@@ -354,6 +354,34 @@ export interface TestbenchCitSection {
   bit_sirasi: string[];
 }
 
+/** POST /api/testbench/cit/{run,read} yanit satiri: manifest cit.olcumler
+ * sirasiyla coz(ul)mus tek CIT olcumu (bkz. backend/cit.py decode_board_cit). */
+export interface CitDecodeMeasurement {
+  index: number;
+  name: string;
+  cname: string;
+  part: string;
+  device: string;
+  op: string;
+  unit: string | null;
+  raw: number;
+  value: number;
+  ok: boolean;
+  durum: number;
+  min: number | null;
+  max: number | null;
+  severity: "critical" | "warning" | string;
+  enabled: boolean;
+}
+
+export interface CitDecodeResult {
+  durum: number;
+  sayac: number;
+  zaman: number;
+  olcumler: CitDecodeMeasurement[];
+  desteklenmiyor?: boolean;
+}
+
 export interface I2cScanResult {
   controller_id: string;
   taken_at: number;

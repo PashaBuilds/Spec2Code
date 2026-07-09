@@ -6,6 +6,7 @@ import collections
 import os
 import queue
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
@@ -268,28 +269,20 @@ class _TestbenchTcpSession(_TrafficRing):
         finally:
             sock.settimeout(self.timeout_s)
 
-    def send(self, command: TestbenchCommand) -> TestbenchResult:
+    def _send_and_await_response(self, request: bytes, expected_counter: int) -> tuple[int, int, bytes]:
+        """Istegi yolla, sayaci eslesen yanit cercevesini bekle, dondur.
+
+        Yanit govdesinin ILK 4 baytinin (little-endian u32) istek sayaciyla
+        eslesip eslesmedigine bakar — hem standart yanit govdesi
+        (uiIstekSayac ilk alan) hem de CIT govdesi (ayni onek) icin dogru
+        calisir; her iki cagiran da bu ortak sozlesmeye dayanir. Sayac=0
+        govde, ajanin parse-hatasi konvansiyonudur — eslesen yanit gelmezse
+        yedek olarak dondurulur.
+        """
         with self._lock:
             if self._sock is None:
                 raise TestbenchSessionError("testbench tcp session is not connected")
             sock = self._sock
-            session_command = TestbenchCommand(
-                host=self.host,
-                port=self.port,
-                device=command.device,
-                operation=command.operation,
-                command_id=command.command_id,
-                device_index=command.device_index,
-                register=command.register,
-                register_address=command.register_address,
-                address=command.address,
-                length=command.length,
-                value=command.value,
-                data_hex=command.data_hex,
-                timeout_s=self.timeout_s,
-            )
-            request = _pack_command(session_command)
-            expected_counter = int(session_command.command_id)
             self._drain_stale(sock)
             self._traffic_push("tx", request)
             try:
@@ -309,14 +302,13 @@ class _TestbenchTcpSession(_TrafficRing):
                 while response_frame is None:
                     frame = self._pop_frame()
                     if frame is not None:
-                        command_id, _counter, _body = frame
+                        command_id, _counter, body = frame
                         if not s2cmsg.is_response(command_id):
                             continue  # istek yansiması değil, gerçek yanıt bekleniyor
-                        parsed = s2cmsg.unpack_response(frame)
-                        candidate_counter = parsed["id"]
-                        if candidate_counter == str(expected_counter):
+                        candidate_counter = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else -1
+                        if candidate_counter == expected_counter:
                             response_frame = frame
-                        elif candidate_counter == "0":
+                        elif candidate_counter == 0:
                             fallback_frame = frame
                         continue
                     remaining = deadline - time.time()
@@ -350,11 +342,55 @@ class _TestbenchTcpSession(_TrafficRing):
                     "(oturum acik kaldi; ajan mesgul olabilir)")
             self.last_used_at = time.time()
             self.last_error = ""
-            return TestbenchResult(
-                request_line=_request_frame_summary(session_command, request),
-                response_line=s2cmsg.decode_frame_summary(response_frame),
-                parsed=s2cmsg.unpack_response(response_frame),
-            )
+            return response_frame
+
+    def send(self, command: TestbenchCommand) -> TestbenchResult:
+        session_command = TestbenchCommand(
+            host=self.host,
+            port=self.port,
+            device=command.device,
+            operation=command.operation,
+            command_id=command.command_id,
+            device_index=command.device_index,
+            register=command.register,
+            register_address=command.register_address,
+            address=command.address,
+            length=command.length,
+            value=command.value,
+            data_hex=command.data_hex,
+            timeout_s=self.timeout_s,
+        )
+        request = _pack_command(session_command)
+        response_frame = self._send_and_await_response(request, int(session_command.command_id))
+        return TestbenchResult(
+            request_line=_request_frame_summary(session_command, request),
+            response_line=s2cmsg.decode_frame_summary(response_frame),
+            parsed=s2cmsg.unpack_response(response_frame),
+        )
+
+    def send_named(self, name: str, counter: int, timeout_s: float) -> tuple[dict, bytes]:
+        """Op'suz katalog mesaji (CIT_RUN/CIT_READ) gonderir; onegi + ham govdeyi dondurur.
+
+        Donus: ({"istek_sayac": int, "durum": int}, ham_govde) — ham_govde
+        SYanitOnek'ten SONRAKI baytlardir (CIT icin SBoardCit). CIT govdesi
+        standart response layout'una (unpack_response) UYMADIGINDAN burada
+        elle parse edilir.
+        """
+        with self._lock:
+            if self._sock is None:
+                raise TestbenchSessionError("testbench tcp session is not connected")
+        original_timeout = self.timeout_s
+        self.timeout_s = max(0.2, float(timeout_s))
+        try:
+            request = s2cmsg.pack_named_request(name, counter)
+            response_frame = self._send_and_await_response(request, counter)
+        finally:
+            self.timeout_s = original_timeout
+        _command_id, _resp_counter, body = response_frame
+        if len(body) < 8:
+            raise TestbenchSessionError(f"testbench response body too short for {name}")
+        istek_sayac, durum = struct.unpack_from("<II", body, 0)
+        return {"istek_sayac": istek_sayac, "durum": durum}, body[8:]
 
 
 class _TestbenchSerialSession(_TrafficRing):
@@ -546,9 +582,13 @@ class _TestbenchSerialSession(_TrafficRing):
             self._traffic_push("tx", payload_bytes)
             self.last_used_at = time.time()
 
-    def send(self, command: TestbenchCommand) -> TestbenchResult:
-        request = _pack_command(command)
-        expected_counter = int(command.command_id)
+    def _write_and_await_response(self, request: bytes, expected_counter: int) -> tuple[int, int, bytes]:
+        """Istegi yolla, sayaci eslesen yanit cercevesini bekle, dondur.
+
+        Yanit govdesinin ILK 4 baytini (little-endian u32) sayac olarak okur
+        — hem standart yanit govdesi hem CIT govdesi bu ortak onegi paylasir,
+        bu yuzden ``send()`` ve ``send_named()`` bu tek helper'i kullanabilir.
+        """
         with self._send_lock:
             with self._lock:
                 handle = self._serial
@@ -585,10 +625,11 @@ class _TestbenchSerialSession(_TrafficRing):
                     candidate = self._responses.get(timeout=remaining)
                 except queue.Empty:
                     break
-                candidate_counter = s2cmsg.unpack_response(candidate)["id"]
-                if candidate_counter == str(expected_counter):
+                _cid, _counter, candidate_body = candidate
+                candidate_counter = struct.unpack_from("<I", candidate_body, 0)[0] if len(candidate_body) >= 4 else -1
+                if candidate_counter == expected_counter:
                     response_frame = candidate
-                elif candidate_counter == "0":
+                elif candidate_counter == 0:
                     # counter=0 is the agent's parse-error convention; surface
                     # it instead of a bare timeout.
                     fallback_frame = candidate
@@ -606,11 +647,34 @@ class _TestbenchSerialSession(_TrafficRing):
         with self._lock:
             self.last_used_at = time.time()
             self.last_error = ""
+        return response_frame
+
+    def send(self, command: TestbenchCommand) -> TestbenchResult:
+        request = _pack_command(command)
+        response_frame = self._write_and_await_response(request, int(command.command_id))
         return TestbenchResult(
             request_line=_request_frame_summary(command, request),
             response_line=s2cmsg.decode_frame_summary(response_frame),
             parsed=s2cmsg.unpack_response(response_frame),
         )
+
+    def send_named(self, name: str, counter: int, timeout_s: float) -> tuple[dict, bytes]:
+        """Op'suz katalog mesaji (CIT_RUN/CIT_READ) gonderir; onegi + ham govdeyi dondurur."""
+        with self._lock:
+            if self._serial is None:
+                raise TestbenchSessionError("testbench serial session is not connected")
+        original_timeout = self.timeout_s
+        self.timeout_s = max(0.2, float(timeout_s))
+        try:
+            request = s2cmsg.pack_named_request(name, counter)
+            response_frame = self._write_and_await_response(request, counter)
+        finally:
+            self.timeout_s = original_timeout
+        _command_id, _resp_counter, body = response_frame
+        if len(body) < 8:
+            raise TestbenchSessionError(f"testbench response body too short for {name}")
+        istek_sayac, durum = struct.unpack_from("<II", body, 0)
+        return {"istek_sayac": istek_sayac, "durum": durum}, body[8:]
 
 
 class _TcpBridgeStream:
@@ -807,6 +871,7 @@ class TestbenchSessionManager:
     def __init__(self) -> None:
         self._sessions: dict[str, _TestbenchTcpSession | _TestbenchSerialSession] = {}
         self._lock = threading.RLock()
+        self._named_counter = 0
 
     def _clean_session_id(self, session_id: str) -> str:
         clean_id = _clean_token(session_id)
@@ -908,6 +973,23 @@ class TestbenchSessionManager:
 
     def send(self, session_id: str, command: TestbenchCommand) -> TestbenchResult:
         return self._session(session_id).send(command)
+
+    def _next_named_counter(self) -> int:
+        with self._lock:
+            self._named_counter += 1
+            return self._named_counter
+
+    def send_named(self, session_id: str, name: str, timeout_s: float = 10.0) -> tuple[dict, bytes]:
+        """Op'suz katalog mesaji (PING/VERSION/CIT_RUN/CIT_READ) gonderir.
+
+        Donus: (onek sozlugu {"istek_sayac","durum"}, ham CIT/govde baytlari).
+        CIT yaniti standart response layout'undan farkli oldugundan
+        (bkz. backend/cit.py) burada s2cmsg.unpack_response KULLANILMAZ —
+        cagiran taraf ham baytlari kendi coder'ina (decode_board_cit) verir.
+        """
+        session = self._session(session_id)
+        counter = self._next_named_counter()
+        return session.send_named(name, counter, timeout_s=timeout_s)
 
 
 testbench_sessions = TestbenchSessionManager()
