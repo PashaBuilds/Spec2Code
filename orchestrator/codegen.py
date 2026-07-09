@@ -1150,6 +1150,29 @@ _TESTBENCH_LOG_LEVELS: dict[str, int] = {
 }
 _TESTBENCH_LOG_DEFAULT_LEVEL = "warning"
 
+#: CIT (cihaz ici test) adayi olcum op'lari — v1 beyaz listesi (Board Contract
+#: v1, tasarim §4.1). Yalnizca "birimli okuma" niteligindeki op adlari; lock
+#: detect/loss op'lari 0/1 olcum olarak sayilir (limit girilirse ayni [min,max]
+#: mantigi calisir). Bu liste elle kontrol edilir: yeni bir olcum op'u eklenirse
+#: buraya da eklenmesi gerekir (aksi halde CIT'e girmez).
+_CIT_MEASUREMENT_OP_WHITELIST: frozenset[str] = frozenset({
+    "voltage_read",
+    "temperature_read",
+    "current_read",
+    "vcc_read",
+    "sense_read",
+    "adin_read",
+    "vout_read",
+    "power_read",
+    "humidity_read",
+    "elapsed_read",
+    "pll1_lock_detect",
+    "pll1_lock_loss",
+    "pll2_lock_detect",
+    "pll2_lock_loss",
+    "multiplier_lock_detect",
+})
+
 
 def _testbench_log_header() -> str:
     return (
@@ -1442,6 +1465,78 @@ def _testbench_trace_source() -> str:
     )
 
 
+def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
+    """Manifest "cit" bolumu: birimli olcum op'larinin duz, kararli sirali listesi.
+
+    `manifest_devices` cagiran tarafta zaten uretilmis olan
+    ``manifest["devices"]`` listesidir (id/part/operations alanlariyla); bu
+    fonksiyon onu YENIDEN OKUR, degistirmez — device_index = manifest devices[]
+    offset'i (Task 7 bit i == olcumler[i] sozlesmesi bu hizalamaya dayanir).
+
+    Kural sirasi: manifest devices[] sirasi, cihaz icinde de operations[]
+    sirasi (bu da descriptor'daki op sirasidir, `_requested_operations`
+    descriptor sirasini korur). `enabled: false` olcumler LISTEDE KALIR (slot
+    stabil kalsin diye) — yalnizca bayrak kapanir.
+    """
+    olcumler: list[dict] = []
+    seen_cnames: dict[str, str] = {}  # cname -> hangi olcumden geldigi (hata mesaji icin)
+    for device_index, device_manifest in enumerate(manifest_devices):
+        device_id = device_manifest.get("id", "")
+        part = device_manifest.get("part", "")
+        user_measurements = {
+            str(m.get("op", "")): m
+            for m in (
+                ((spec.get("devices", [])[device_index].get("config") or {}).get("cit") or {})
+                .get("measurements") or []
+            )
+            if isinstance(m, dict) and m.get("op")
+        } if device_index < len(spec.get("devices", [])) else {}
+        for op in device_manifest.get("operations", []):
+            op_name = str(op.get("name", ""))
+            if op_name not in _CIT_MEASUREMENT_OP_WHITELIST:
+                continue
+            if not op.get("result_returns"):
+                continue
+            if op.get("risk") != "safe":
+                continue
+            if op.get("requires_address") or op.get("requires_data") or op.get("requires_value"):
+                continue
+            user = user_measurements.get(op_name, {})
+            default_name = f"{part}_{op_name}_{device_index}".upper()
+            name = str(user.get("name") or default_name)
+            # _pascal_identifier yalnizca her parcanin ILK harfini buyutur; CIT
+            # isimleri genelde BUYUK_HARFLI (VCC_3V3_RF / varsayilan <PART>_<OP>_<i>)
+            # geldiginden once kucuk harfe cevrilir (Vcc3v3Rf, VCC3V3RF degil).
+            cname = _pascal_identifier(name.lower())
+            if cname in seen_cnames and seen_cnames[cname] != name:
+                raise cmodel.CodegenError(
+                    f"CIT olcum cname catismasi: '{cname}' hem '{seen_cnames[cname]}' hem '{name}' "
+                    "icin uretiliyor — isimleri benzersiz secin.")
+            seen_cnames[cname] = name
+            severity = str(user.get("severity") or "warning")
+            enabled = bool(user.get("enabled", True))
+            min_value = user.get("min")
+            max_value = user.get("max")
+            olcumler.append({
+                "index": len(olcumler),
+                "device": device_id,
+                "device_index": device_index,
+                "part": part,
+                "op": op_name,
+                "name": name,
+                "cname": cname,
+                "unit": op.get("result_unit") or None,
+                "min": min_value if isinstance(min_value, (int, float)) else None,
+                "max": max_value if isinstance(max_value, (int, float)) else None,
+                "severity": severity,
+                "enabled": enabled,
+            })
+    return {
+        "olcumler": olcumler,
+        "bit_sirasi": [m["cname"] for m in olcumler],
+    }
+
+
 def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     agent = _testbench_transport_agent(spec)
     manifest = {
@@ -1651,6 +1746,17 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             ),
             "operations": operations,
         })
+    # Hardening (Task 4 bulgusu): _testbench_device_entries denetleyicisi
+    # olmayan cihazlari atlar, yukaridaki dongu atlamaz — bugun cmodel.build_units
+    # daha erken dogruladigi icin ulasilamaz ama CIT bit hizasi bu esitlige
+    # dayandigindan sessizce sapmasin diye burada da dogrulaniyor.
+    entry_ids = [entry["device"].get("id", "") for entry in _testbench_device_entries(spec, get_descriptor)]
+    manifest_ids = [d.get("id", "") for d in manifest["devices"]]
+    if entry_ids != manifest_ids:
+        raise cmodel.CodegenError(
+            "manifest devices[] sirasi _testbench_device_entries ile uyusmuyor "
+            f"(manifest={manifest_ids!r}, entries={entry_ids!r}); CIT bit hizasi bu esitlige dayanir.")
+    manifest["cit"] = _testbench_cit_section(spec, manifest["devices"])
     return json_dumps_crlf(manifest)
 
 

@@ -2301,6 +2301,146 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(responses[1]["durum"], 0)
         self.assertEqual(responses[1]["value"], "0xABCD")
 
+    def _cit_spec(self, project_name: str) -> dict:
+        """LTC2991 (I2C, mux arkasinda) + AD7414 (I2C, dogrudan) iceren CIT test speci."""
+        spec = load_sample_spec(project_name)
+        spec["devices"] = [
+            {
+                "id": "u12_ltc2991",
+                "part": "LTC2991",
+                "descriptor_ref": "descriptors/ltc2991.yaml",
+                "attach": {
+                    "controller_id": "ps_i2c_0",
+                    "i2c_address": "0x48",
+                    "via_mux": {"mux_id": "u7_tca9548a", "channel": 3},
+                    "reset_gpio": None,
+                    "irq_line": None,
+                },
+                "config": {
+                    "pairs": {
+                        "v1_v2": {"mode": "single_ended_voltage", "shunt_milliohm": None},
+                        "v3_v4": {"mode": "single_ended_voltage", "shunt_milliohm": None},
+                        "v5_v6": {"mode": "single_ended_voltage", "shunt_milliohm": None},
+                        "v7_v8": {"mode": "single_ended_voltage", "shunt_milliohm": None},
+                    },
+                    "internal_temperature": True,
+                    "vcc_read": False,
+                    "cit": {
+                        "measurements": [
+                            {
+                                "op": "voltage_read",
+                                "name": "VCC_3V3_RF",
+                                "min": 3135,
+                                "max": 3465,
+                                "severity": "critical",
+                            },
+                        ],
+                    },
+                },
+                "operations_requested": ["device_init", "voltage_read", "temperature_read"],
+                "tests_requested": ["self_test"],
+            },
+            {
+                "id": "u13_ad7414",
+                "part": "AD7414",
+                "descriptor_ref": "descriptors/ad7414.yaml",
+                "attach": {
+                    "controller_id": "ps_i2c_0",
+                    "i2c_address": "0x49",
+                    "via_mux": None,
+                    "reset_gpio": None,
+                    "irq_line": None,
+                },
+                "operations_requested": ["device_init", "temperature_read", "config_read"],
+                "tests_requested": ["self_test"],
+            },
+        ]
+        return spec
+
+    def test_manifest_cit_section_lists_unit_measurements_with_limits(self) -> None:
+        spec = self._cit_spec("unit_cit_manifest")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        cit = manifest["cit"]
+        olcumler = cit["olcumler"]
+
+        # Global index'ler ardisik 0..N-1.
+        self.assertEqual([m["index"] for m in olcumler], list(range(len(olcumler))))
+
+        # Named entry (LTC2991 voltage_read) -> config.cit'ten isim/limit/onem.
+        named = next(m for m in olcumler if m["op"] == "voltage_read" and m["device"] == "u12_ltc2991")
+        self.assertEqual(named["name"], "VCC_3V3_RF")
+        self.assertEqual(named["cname"], "Vcc3v3Rf")
+        self.assertEqual(named["min"], 3135)
+        self.assertEqual(named["max"], 3465)
+        self.assertEqual(named["severity"], "critical")
+        self.assertTrue(named["enabled"])
+        self.assertEqual(named["unit"], "mV")
+        self.assertEqual(named["part"], "LTC2991")
+        self.assertEqual(named["device_index"], 0)
+
+        # Unnamed op (LTC2991 temperature_read) -> varsayilan isim <PART>_<OP>_<indeks>.
+        unnamed = next(m for m in olcumler if m["op"] == "temperature_read" and m["device"] == "u12_ltc2991")
+        self.assertEqual(unnamed["name"], "LTC2991_TEMPERATURE_READ_0")
+        self.assertEqual(unnamed["severity"], "warning")
+        self.assertIsNone(unnamed["min"])
+        self.assertIsNone(unnamed["max"])
+        self.assertEqual(unnamed["unit"], "0.01 C")
+
+        # AD7414 temperature_read (device_index 1) de listede, kendi ismiyle.
+        ad_temp = next(m for m in olcumler if m["op"] == "temperature_read" and m["device"] == "u13_ad7414")
+        self.assertEqual(ad_temp["name"], "AD7414_TEMPERATURE_READ_1")
+        self.assertEqual(ad_temp["device_index"], 1)
+        self.assertEqual(ad_temp["unit"], "0.01 C")
+
+        # Olcum disi (birimsiz/whitelist disi) op'lar listede YOK:
+        # device_init (risky, whitelist disi), config_read (returns var ama unit yok + whitelist disi).
+        listed_ops = {(m["device"], m["op"]) for m in olcumler}
+        self.assertNotIn(("u12_ltc2991", "device_init"), listed_ops)
+        self.assertNotIn(("u13_ad7414", "device_init"), listed_ops)
+        self.assertNotIn(("u13_ad7414", "config_read"), listed_ops)
+
+        # bit_sirasi == cname'ler ayni sirada.
+        self.assertEqual(cit["bit_sirasi"], [m["cname"] for m in olcumler])
+
+        # device_index degerleri manifest devices[] sirasiyla eslesir.
+        device_ids = [d["id"] for d in manifest["devices"]]
+        for m in olcumler:
+            self.assertEqual(device_ids[m["device_index"]], m["device"])
+
+    def test_manifest_cit_disabled_measurement_keeps_bit_slot(self) -> None:
+        spec = self._cit_spec("unit_cit_disabled")
+        spec["devices"][0]["config"]["cit"]["measurements"][0]["enabled"] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        olcumler = manifest["cit"]["olcumler"]
+        # Sira/slot korunur: voltage_read hala index 0'da, sadece enabled=False.
+        disabled = next(m for m in olcumler if m["op"] == "voltage_read" and m["device"] == "u12_ltc2991")
+        self.assertFalse(disabled["enabled"])
+        self.assertEqual(disabled["index"], 0)
+        self.assertEqual([m["index"] for m in olcumler], list(range(len(olcumler))))
+        self.assertEqual(manifest["cit"]["bit_sirasi"], [m["cname"] for m in olcumler])
+
+    def test_manifest_device_order_matches_entries(self) -> None:
+        """Hardening: manifest devices[] sirasi _testbench_device_entries ile
+        sapmamali (CIT bit hizasi bu esitlige dayanir; Task 4 bulgusu)."""
+        spec = self._cit_spec("unit_cit_device_order")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([d["id"] for d in manifest["devices"]], ["u12_ltc2991", "u13_ad7414"])
+
 
 if __name__ == "__main__":
     unittest.main()

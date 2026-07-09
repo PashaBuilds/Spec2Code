@@ -50,9 +50,24 @@ export interface InitSequenceWrite {
   value: number;
   note?: string;
 }
+/** CIT (cihaz ici test) olcum satiri: sematik config.cit.measurements[] (Task 6).
+ * `op` bir "birimli okuma" op adiyla eslesir (voltage_read, temperature_read...);
+ * eslesmeyen op'lar manifest cit.olcumler'e girmez. Hepsi opsiyonel — bos
+ * birakilirsa uretim tarafi varsayilan isim/onem uygular (bkz. codegen.py
+ * _testbench_cit_section). `enabled: false` olcum manifest listesinde KALIR
+ * (bit sirasi/slot stabil kalsin diye), yalnizca disable edilir. */
+export interface DeviceCitMeasurement {
+  op: string;
+  name?: string;
+  min?: number;
+  max?: number;
+  severity?: "critical" | "warning";
+  enabled?: boolean;
+}
 export interface DeviceConfig {
   init_sequence?: InitSequenceWrite[];
   ticspro_registers?: string[];
+  cit?: { measurements: DeviceCitMeasurement[] };
   [key: string]: unknown;
 }
 export interface Mux {
@@ -314,6 +329,29 @@ export interface TestbenchManifest {
     muxes: Array<{ id: string; part: string; controller_id: string; address: number; channels: number }>;
   };
   devices: TestbenchManifestDevice[];
+  /** CIT (cihaz ici test) duz olcum listesi (Task 6); bit i == olcumler[i]
+   * (Task 7 codegen + Task 8 decode ayni sirayi kullanir). */
+  cit?: TestbenchCitSection;
+}
+
+export interface TestbenchCitMeasurement {
+  index: number;
+  device: string;
+  device_index: number;
+  part: string;
+  op: string;
+  name: string;
+  cname: string;
+  unit: string | null;
+  min: number | null;
+  max: number | null;
+  severity: "critical" | "warning" | string;
+  enabled: boolean;
+}
+
+export interface TestbenchCitSection {
+  olcumler: TestbenchCitMeasurement[];
+  bit_sirasi: string[];
 }
 
 export interface I2cScanResult {
