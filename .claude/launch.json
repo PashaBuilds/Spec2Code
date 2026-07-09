@@ -18,6 +18,12 @@
       "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": ["run_spec2code.py", "--no-browser", "--port", "8079"],
       "port": 8079
+    },
+    {
+      "name": "app-8077",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": ["run_spec2code.py", "--no-browser", "--port", "8077"],
+      "port": 8077
     }
   ]
 }

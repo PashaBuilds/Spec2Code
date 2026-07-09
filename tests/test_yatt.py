@@ -1,0 +1,179 @@
+"""Task 9: YATT (Yazilim Arayuzu Tanimlama/Tarifi) sayfasi + export testleri.
+
+build_yatt_html/build_yatt_markdown KATALOG-TABANLI ureteclerdir: yeni bir
+mesaj backend/data/message_catalog.json'a eklenince YATT elle dokunulmadan
+buyumeli. Bu yuzden testler sabit metin yerine katalogdan TUReTiLEN beklenti
+listeleriyle karsilastirir (bkz. brief self-review sorusu 1).
+"""
+from __future__ import annotations
+
+import re
+import unittest
+
+from fastapi.testclient import TestClient
+
+from backend import s2cmsg
+from backend.s2cmsg import load_catalog, catalog_crc32, STATUS_LABELS
+from backend.yatt import build_yatt_html, build_yatt_markdown, _BODY_LAYOUTS
+
+
+def _fake_manifest(n: int = 2) -> dict:
+    return {
+        "message_catalog_crc32": catalog_crc32(),
+        "devices": [
+            {"id": "u1_ltc2991", "part": "LTC2991"},
+            {"id": "u2_ad7414", "part": "AD7414"},
+        ],
+        "cit": {
+            "olcumler": [
+                {
+                    "index": 0, "device": "u1_ltc2991", "device_index": 0, "part": "LTC2991",
+                    "op": "voltage_read", "name": "VCC_3V3_RF", "cname": "Vcc3v3Rf",
+                    "unit": "mV", "min": 3135, "max": 3465, "severity": "critical", "enabled": True,
+                },
+                {
+                    "index": 1, "device": "u2_ad7414", "device_index": 1, "part": "AD7414",
+                    "op": "temperature_read", "name": "AD_TEMP", "cname": "AdTemp",
+                    "unit": "C", "min": 2000, "max": 3000, "severity": "warning", "enabled": True,
+                },
+            ][:n],
+            "bit_sirasi": ["Vcc3v3Rf", "AdTemp"][:n],
+        },
+    }
+
+
+class YattContentTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.catalog = load_catalog()
+        self.html = build_yatt_html(self.catalog, None)
+        self.md = build_yatt_markdown(self.catalog, None)
+
+    def test_html_contains_all_catalog_message_ids(self) -> None:
+        for message in self.catalog["messages"]:
+            with self.subTest(message["id"]):
+                self.assertIn(message["id"], self.html)
+
+    def test_html_contains_all_catalog_message_names(self) -> None:
+        for message in self.catalog["messages"]:
+            with self.subTest(message["name"]):
+                self.assertIn(message["name"], self.html)
+
+    def test_html_contains_header_field_names(self) -> None:
+        for field in self.catalog["header"]:
+            self.assertIn(field["name"], self.html)
+
+    def test_html_contains_all_status_labels(self) -> None:
+        for label in STATUS_LABELS.values():
+            with self.subTest(label):
+                self.assertIn(label, self.html)
+
+    def test_html_contains_all_body_layout_field_names(self) -> None:
+        # Kullanilan tum govde sablonlarinin alan adlari tabloda gecmeli.
+        used_bodies = {m["body"] for m in self.catalog["messages"]}
+        for body_name in used_bodies:
+            for field in _BODY_LAYOUTS[body_name]:
+                with self.subTest(body=body_name, field=field["name"]):
+                    self.assertIn(field["name"], self.html)
+
+    def test_html_is_self_contained_no_external_resources(self) -> None:
+        self.assertNotIn("http://", self.html)
+        self.assertNotIn("https://", self.html)
+
+    def test_html_is_deterministic(self) -> None:
+        again = build_yatt_html(self.catalog, None)
+        self.assertEqual(self.html, again)
+
+    def test_md_message_row_count_matches_catalog(self) -> None:
+        # Mesaj tablosu satirlarini say: "| 0x" ile baslayan satirlar ID hex.
+        rows = [line for line in self.md.splitlines() if line.startswith("| 0x")]
+        self.assertEqual(len(rows), len(self.catalog["messages"]))
+
+    def test_md_is_not_empty_and_deterministic(self) -> None:
+        self.assertTrue(self.md.strip())
+        again = build_yatt_markdown(self.catalog, None)
+        self.assertEqual(self.md, again)
+
+    def test_md_contains_all_catalog_message_ids(self) -> None:
+        for message in self.catalog["messages"]:
+            with self.subTest(message["id"]):
+                self.assertIn(message["id"], self.md)
+
+    def test_html_message_table_sorted_by_id(self) -> None:
+        ids_in_catalog_order = sorted(m["id"] for m in self.catalog["messages"])
+        found = re.findall(r"0x[0-9A-Fa-f]{8}", self.html)
+        found_ids = [f for f in found if f.upper() in {i.upper() for i in ids_in_catalog_order}]
+        # Ilk gorulen N (mesaj sayisi kadar) ID, katalogdaki ID sirasiyla (kucukten buyuge) esit olmali.
+        first_n = found_ids[: len(ids_in_catalog_order)]
+        self.assertEqual([x.upper() for x in first_n], [i.upper() for i in ids_in_catalog_order])
+
+    def test_html_contains_notes_constraints_section(self) -> None:
+        # v1 notlari: bit-alani LSB-first, uiZaman v1'de 0, BUS_HATASI,
+        # disabled olcum uiHam=0, CRC/magic yok, little-endian.
+        for needle in ["LSB", "uiZaman", "BUS_HATASI", "little", "endian"]:
+            with self.subTest(needle):
+                self.assertIn(needle, self.html)
+
+
+class YattManifestEnrichmentTests(unittest.TestCase):
+    def test_html_with_manifest_includes_device_table_and_cit_cnames(self) -> None:
+        manifest = _fake_manifest(2)
+        html = build_yatt_html(load_catalog(), manifest)
+        for device in manifest["devices"]:
+            self.assertIn(device["id"], html)
+            self.assertIn(device["part"], html)
+        for measurement in manifest["cit"]["olcumler"]:
+            self.assertIn(measurement["cname"], html)
+
+    def test_html_with_manifest_is_still_deterministic(self) -> None:
+        manifest = _fake_manifest(2)
+        first = build_yatt_html(load_catalog(), manifest)
+        second = build_yatt_html(load_catalog(), manifest)
+        self.assertEqual(first, second)
+
+    def test_html_without_manifest_still_builds(self) -> None:
+        html = build_yatt_html(load_catalog(), None)
+        self.assertTrue(html.strip())
+
+
+class YattApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from backend.main import app
+
+        self.client = TestClient(app)
+
+    def test_catalog_endpoint_shape(self) -> None:
+        res = self.client.get("/api/yatt/catalog")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertIn("messages", body)
+        self.assertIn("crc32", body)
+        self.assertIn("status_codes", body)
+        self.assertEqual(len(body["messages"]), len(load_catalog()["messages"]))
+        self.assertTrue(body["crc32"].startswith("0x"))
+
+    def test_export_html_returns_download(self) -> None:
+        res = self.client.post("/api/yatt/export", json={"fmt": "html"})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("Content-Disposition", res.headers)
+        self.assertIn("attachment", res.headers["Content-Disposition"])
+        self.assertIn("PING", res.text)
+
+    def test_export_md_returns_download(self) -> None:
+        res = self.client.post("/api/yatt/export", json={"fmt": "md"})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("Content-Disposition", res.headers)
+        self.assertIn("PING", res.text)
+
+    def test_export_with_manifest_includes_cit(self) -> None:
+        manifest = _fake_manifest(2)
+        res = self.client.post("/api/yatt/export", json={"fmt": "html", "manifest": manifest})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("Vcc3v3Rf", res.text)
+
+    def test_export_rejects_unknown_format(self) -> None:
+        res = self.client.post("/api/yatt/export", json={"fmt": "pdf"})
+        self.assertEqual(res.status_code, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()

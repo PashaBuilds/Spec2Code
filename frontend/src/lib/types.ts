@@ -382,6 +382,29 @@ export interface CitDecodeResult {
   desteklenmiyor?: boolean;
 }
 
+// --- YATT (Yazılım Arayüzü Tanımlama Tablosu) — Task 9 ---------------------- //
+
+export interface YattHeaderField {
+  name: string;
+  type: string;
+}
+
+export interface YattMessage {
+  id: string;
+  name: string;
+  op: string | null;
+  dir: "req" | "unsolicited" | string;
+  body: string;
+  aciklama: string;
+}
+
+export interface YattCatalogResponse {
+  messages: YattMessage[];
+  header: YattHeaderField[];
+  crc32: string;
+  status_codes: Record<string, string>;
+}
+
 export interface I2cScanResult {
   controller_id: string;
   taken_at: number;

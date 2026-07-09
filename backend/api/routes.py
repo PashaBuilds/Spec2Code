@@ -10,6 +10,7 @@ import struct
 import zipfile
 from pathlib import Path
 from pathlib import PurePosixPath
+from typing import Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -17,6 +18,8 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel, Field
 
+from backend import s2cmsg
+from backend import yatt
 from backend.cit import decode_board_cit
 from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
@@ -1364,6 +1367,40 @@ def testbench_cit_run(req: CitRequest) -> dict:
 @router.post("/testbench/cit/read")
 def testbench_cit_read(req: CitRequest) -> dict:
     return _cit_run_or_read("CIT_READ", req)
+
+
+@router.get("/yatt/catalog")
+def yatt_catalog_route() -> dict:
+    """S2C-MSG mesaj kataloğu (frontend YattPanel tablosu için)."""
+    catalog = s2cmsg.load_catalog()
+    return {
+        "messages": catalog["messages"],
+        "header": catalog["header"],
+        "crc32": f"0x{s2cmsg.catalog_crc32():08X}",
+        "status_codes": catalog.get("status_codes") or {str(k): v for k, v in s2cmsg.STATUS_LABELS.items()},
+    }
+
+
+class YattExportRequest(BaseModel):
+    fmt: Literal["html", "md"]
+    manifest: dict | None = None
+
+
+@router.post("/yatt/export")
+def yatt_export_route(req: YattExportRequest) -> Response:
+    """YATT sayfasini self-contained HTML/MD olarak indirir (manifest verilirse cihaz/CIT tablolari dahil)."""
+    catalog = s2cmsg.load_catalog()
+    if req.fmt == "html":
+        content = yatt.build_yatt_html(catalog, req.manifest)
+        media_type, ext = "text/html", "html"
+    else:
+        content = yatt.build_yatt_markdown(catalog, req.manifest)
+        media_type, ext = "text/markdown", "md"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="yatt.{ext}"'},
+    )
 
 
 class BringupStartRequest(BaseModel):

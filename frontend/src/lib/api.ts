@@ -402,6 +402,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ stem, part, role, files }),
     }),
+
+  yattCatalog: () => req<import("./types").YattCatalogResponse>("/api/yatt/catalog"),
+
+  yattExport: async (fmt: "html" | "md", manifest?: unknown): Promise<Blob> => {
+    const res = await fetch("/api/yatt/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fmt, manifest: manifest ?? null }),
+    });
+    if (!res.ok) {
+      let detail: unknown = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return res.blob();
+  },
 };
 
 // WebSocket helper for the generate console. Returns a closer.
