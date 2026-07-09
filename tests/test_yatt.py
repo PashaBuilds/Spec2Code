@@ -12,9 +12,9 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from backend import s2cmsg
+from backend import cit, s2cmsg
 from backend.s2cmsg import load_catalog, catalog_crc32, STATUS_LABELS
-from backend.yatt import build_yatt_html, build_yatt_markdown, _BODY_LAYOUTS
+from backend.yatt import build_yatt_html, build_yatt_markdown, _BODY_LAYOUTS, _cit_layout_rows, body_layouts_json
 
 
 def _fake_manifest(n: int = 2) -> dict:
@@ -135,6 +135,55 @@ class YattManifestEnrichmentTests(unittest.TestCase):
         self.assertTrue(html.strip())
 
 
+class YattCitOffsetCrossCheckTests(unittest.TestCase):
+    """Finding 1: backend/cit.py ve backend/yatt.py CIT offset matematigi
+    birbirinden BAGIMSIZ turemez — bu test her ikisini de import edip
+    cit.py'nin GERCEK sabitlerinden (import edilen degerlerden, sayilari
+    tekrar yazmadan) beklenen offset/boy listesini turetir ve
+    yatt._cit_layout_rows(n) ile birebir karsilastirir. Taraflardan biri
+    (flag_words formulu, _PREFIX_SIZE, _CIT_HEADER_SIZE, _OLCUM_SIZE) tek
+    tarafli degisirse bu test KIRILIR.
+    """
+
+    def _expected_rows(self, n: int) -> list[tuple[int | None, int | None, str]]:
+        # cit.py'nin GERCEK ozel sabitlerini import ederek (sayilari elle
+        # tekrarlamadan) beklenen (offset, size, name) uclusunu kur.
+        prefix_size = cit._PREFIX_SIZE  # uiIstekSayac(4) + uiDurum(4)
+        header_size = cit._CIT_HEADER_SIZE  # uiSayac(4) + uiZaman(4)
+        olcum_size = cit._OLCUM_SIZE  # iDeger(4)+uiHam(4)+uiDurum(4)
+        flag_words = cit._flag_words_size(n)
+
+        rows: list[tuple[int | None, int | None, str]] = [
+            (0, 4, "uiIstekSayac"),
+            (4, 4, "uiDurum"),
+            (prefix_size, 4, "uiSayac"),
+            (prefix_size + 4, 4, "uiZaman"),
+            (prefix_size + header_size, flag_words, "bayrak_words"),
+        ]
+        olcum_off = prefix_size + header_size + flag_words
+        for i in range(n):
+            rows.append((olcum_off + i * olcum_size, olcum_size, f"arrOlcum[{i}]"))
+        return rows
+
+    def test_cit_layout_rows_match_cit_decoder_math(self) -> None:
+        for n in (1, 2, 32, 33, 40):
+            with self.subTest(n=n):
+                actual = [(row["offset"], row["size"], row["name"]) for row in _cit_layout_rows(n)]
+                expected = self._expected_rows(n)
+                self.assertEqual(actual, expected)
+
+                # Toplam govde boyu da decode_board_cit'in expected_size hesabiyla
+                # (_PREFIX_SIZE + _CIT_HEADER_SIZE + flag_words + n*_OLCUM_SIZE)
+                # birebir uyusmali — yerlesim satirlari son bayta kadar dogru olsun.
+                last = actual[-1]
+                total_from_layout = last[0] + last[1] if n > 0 else actual[-1][0] + actual[-1][1]
+                expected_total = (
+                    cit._PREFIX_SIZE + cit._CIT_HEADER_SIZE
+                    + cit._flag_words_size(n) + n * cit._OLCUM_SIZE
+                )
+                self.assertEqual(total_from_layout, expected_total)
+
+
 class YattApiTests(unittest.TestCase):
     def setUp(self) -> None:
         from backend.main import app
@@ -148,8 +197,26 @@ class YattApiTests(unittest.TestCase):
         self.assertIn("messages", body)
         self.assertIn("crc32", body)
         self.assertIn("status_codes", body)
+        self.assertIn("body_layouts", body)
         self.assertEqual(len(body["messages"]), len(load_catalog()["messages"]))
         self.assertTrue(body["crc32"].startswith("0x"))
+
+    def test_catalog_endpoint_body_layouts_contains_template_keys(self) -> None:
+        res = self.client.get("/api/yatt/catalog")
+        self.assertEqual(res.status_code, 200)
+        body_layouts = res.json()["body_layouts"]
+        for key in ("request_std", "response_std", "trace", "cit"):
+            with self.subTest(key):
+                self.assertIn(key, body_layouts)
+                self.assertTrue(body_layouts[key])
+
+        first_field = body_layouts["request_std"][0]
+        self.assertEqual(first_field["name"], "uiCihazIndeks")
+        self.assertEqual(first_field["offset"], 0)
+
+    def test_catalog_endpoint_body_layouts_matches_backend_source(self) -> None:
+        res = self.client.get("/api/yatt/catalog")
+        self.assertEqual(res.json()["body_layouts"], body_layouts_json())
 
     def test_export_html_returns_download(self) -> None:
         res = self.client.post("/api/yatt/export", json={"fmt": "html"})

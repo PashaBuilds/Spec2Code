@@ -1378,6 +1378,7 @@ def yatt_catalog_route() -> dict:
         "header": catalog["header"],
         "crc32": f"0x{s2cmsg.catalog_crc32():08X}",
         "status_codes": catalog.get("status_codes") or {str(k): v for k, v in s2cmsg.STATUS_LABELS.items()},
+        "body_layouts": yatt.body_layouts_json(),
     }
 
 

@@ -4,54 +4,19 @@ import { Badge, Button, Card } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
-import type { TestbenchManifest, YattCatalogResponse, YattMessage } from "@/lib/types";
+import type { TestbenchManifest, YattBodyField, YattCatalogResponse, YattMessage } from "@/lib/types";
 
-// backend/yatt.py _BODY_LAYOUTS ile birebir — alan tabloları katalogdan değil
-// (govde sablonlari katalogda yok) bu sabitten gelir; sunum amaçlı, YATT'ın
-// kendi mesaj/ID listesi HER ZAMAN backend katalogdan (api.yattCatalog) gelir.
-interface BodyField {
-  offset: string;
-  name: string;
-  type: string;
-  size: string;
-  note: string;
+// Govde sablon alan tabloları backend'den gelir (GET /api/yatt/catalog ->
+// body_layouts), backend/yatt.py _BODY_LAYOUTS'un JSON-serilestirilmis hali
+// (bkz. yatt.body_layouts_json()) — burada elle kopyalanmis bir sabit YOK,
+// tek dogruluk kaynagi backend'dir.
+function formatOffset(f: YattBodyField): string {
+  return f.offset === null || f.offset === undefined ? "değişken" : String(f.offset);
 }
 
-const BODY_LAYOUTS: Record<string, BodyField[]> = {
-  request_std: [
-    { offset: "0", name: "uiCihazIndeks", type: "u32", size: "4", note: "manifest devices[] sırası; cihazsız mesajda 0xFFFFFFFF" },
-    { offset: "4", name: "uiRegisterAdres", type: "u32", size: "4", note: "reg_addr; yoksa 0" },
-    { offset: "8", name: "uiAdres", type: "u32", size: "4", note: "address; yoksa 0" },
-    { offset: "12", name: "uiUzunluk", type: "u32", size: "4", note: "length; yoksa 0" },
-    { offset: "16", name: "uiDeger", type: "u32", size: "4", note: "value" },
-    { offset: "20", name: "uiDegerVar", type: "u32", size: "4", note: "0/1 — uiDeger geçerli mi" },
-    { offset: "24", name: "uiVeriBoyu", type: "u32", size: "4", note: "N (<=256)" },
-    { offset: "28", name: "veri", type: "u8[N]+pad4", size: "değişken", note: "N bayt veri, 4'e tamamlanır" },
-  ],
-  response_std: [
-    { offset: "0", name: "uiIstekSayac", type: "u32", size: "4", note: "isteğin uiMesajSayac'ı" },
-    { offset: "4", name: "uiDurum", type: "u32", size: "4", note: "0 OK / hata tablosu" },
-    { offset: "8", name: "iCihazDurum", type: "i32", size: "4", note: "ajan iStatus ham (işaretli)" },
-    { offset: "12", name: "uiDeger", type: "u32", size: "4", note: "işlenmiş/birimli değer" },
-    { offset: "16", name: "uiVeriBoyu", type: "u32", size: "4", note: "N — veri alanının boyu" },
-    { offset: "20", name: "veri", type: "u8[N]+pad4", size: "değişken", note: "N bayt veri, 4'e tamamlanır" },
-    { offset: "değişken", name: "uiMetinBoyu", type: "u32", size: "4", note: "M — 20+pad4(N) offsetinde" },
-    { offset: "değişken", name: "metin", type: "utf8[M]+pad4", size: "değişken", note: "tanı metni (cArrMessage)" },
-  ],
-  trace: [
-    { offset: "0", name: "uiSeviye", type: "u32", size: "4", note: "trace seviyesi" },
-    { offset: "4", name: "uiMetinBoyu", type: "u32", size: "4", note: "M" },
-    { offset: "8", name: "metin", type: "utf8[M]+pad4", size: "değişken", note: "log satırı, 4'e tamamlanır" },
-  ],
-  cit: [
-    { offset: "0", name: "uiIstekSayac", type: "u32", size: "4", note: "isteğin uiMesajSayac'ı" },
-    { offset: "4", name: "uiDurum", type: "u32", size: "4", note: "0 OK / hata tablosu" },
-    { offset: "8", name: "uiSayac", type: "u32", size: "4", note: "SBoardCit.uiSayac — koşu sayacı" },
-    { offset: "12", name: "uiZaman", type: "u32", size: "4", note: "SBoardCit.uiZaman — v1'de 0" },
-    { offset: "16", name: "bayrak_words", type: "u32[ceil(N/32)]", size: "değişken", note: "OK/NOK bit alanı; bit i = ölçüm i (LSB-first)" },
-    { offset: "değişken", name: "arrOlcum[N]", type: "SBoardCitOlcum[N]", size: "değişken", note: "her biri {iDeger i32, uiHam u32, uiDurum u32} = 12 bayt" },
-  ],
-};
+function formatSize(f: YattBodyField): string {
+  return f.size === null || f.size === undefined ? "değişken" : String(f.size);
+}
 
 const DIR_LABEL: Record<string, { label: string; tone: "accent" | "neutral" | "ok" }> = {
   req: { label: "istek/yanıt", tone: "accent" },
@@ -225,9 +190,10 @@ export default function YattPanel() {
               const dir = DIR_LABEL[message.dir] ?? { label: message.dir, tone: "neutral" as const };
               const isOpen = expanded === message.id;
               const responseBody = responseBodyName(message.body);
+              const bodyLayouts = catalog.body_layouts ?? {};
               const fields = [
-                ...(BODY_LAYOUTS[message.body] ?? []),
-                ...(responseBody !== message.body ? BODY_LAYOUTS[responseBody] ?? [] : []),
+                ...(bodyLayouts[message.body] ?? []),
+                ...(responseBody !== message.body ? bodyLayouts[responseBody] ?? [] : []),
               ];
               return (
                 <Fragment key={message.id}>
@@ -267,10 +233,10 @@ export default function YattPanel() {
                             <tbody className="divide-y divide-border/40">
                               {fields.map((f, i) => (
                                 <tr key={i}>
-                                  <td className="py-1 pr-3 font-mono text-muted">{f.offset}</td>
+                                  <td className="py-1 pr-3 font-mono text-muted">{formatOffset(f)}</td>
                                   <td className="py-1 pr-3 font-mono text-text">{f.name}</td>
                                   <td className="py-1 pr-3 font-mono text-muted">{f.type}</td>
-                                  <td className="py-1 pr-3 font-mono text-muted">{f.size}</td>
+                                  <td className="py-1 pr-3 font-mono text-muted">{formatSize(f)}</td>
                                   <td className="py-1 pr-3 text-faint">{f.note}</td>
                                 </tr>
                               ))}

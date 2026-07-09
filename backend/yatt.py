@@ -70,6 +70,18 @@ _BODY_LAYOUTS: dict[str, list[dict]] = {
     ],
 }
 
+def body_layouts_json() -> dict[str, list[dict]]:
+    """``_BODY_LAYOUTS``in JSON-dostu genel kopyasi (routes.py buradan okur).
+
+    Frontend'in govde sablon alan tablolarini backend'den tek kaynaktan
+    almasi icin: routes.py ozel `_BODY_LAYOUTS` adini degil bu fonksiyonu
+    kullanir. Sozluk/liste zaten JSON-serilestirilebilir (str/int/None) —
+    burada sadece sig (shallow) kopyalanir ki caginin _BODY_LAYOUTS'u yerinde
+    mutasyona ugratmasi bu modulun ic durumunu bozmasin.
+    """
+    return {name: [dict(field) for field in fields] for name, fields in _BODY_LAYOUTS.items()}
+
+
 #: SBoardCitOlcum tek elemaninin alt-alanlari (CIT olcum tablosu yerlesim
 #: satirlari icin; backend/cit.py _OLCUM_SIZE=12 ile birebir).
 _CIT_OLCUM_FIELDS = [

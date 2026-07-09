@@ -398,11 +398,20 @@ export interface YattMessage {
   aciklama: string;
 }
 
+export interface YattBodyField {
+  offset: number | null;
+  size: number | null;
+  name: string;
+  type: string;
+  note: string;
+}
+
 export interface YattCatalogResponse {
   messages: YattMessage[];
   header: YattHeaderField[];
   crc32: string;
   status_codes: Record<string, string>;
+  body_layouts?: Record<string, YattBodyField[]>;
 }
 
 export interface I2cScanResult {
