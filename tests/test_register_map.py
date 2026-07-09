@@ -119,6 +119,25 @@ class RegisterMapCodegenTests(unittest.TestCase):
         files = rm.generate_files(self._doc())
         self.assertEqual(set(files), {"pl_mix_regs.h", "pl_mix.c"})
 
+    def test_serve_command_handler_read_write_dump(self) -> None:
+        h = rm.generate_header(self._doc()["maps"][0])
+        c = rm.generate_source(self._doc()["maps"][0])
+        self.assertIn("void pl_mixServe(const char* cmd);", h)
+        self.assertIn("void pl_mixServe(const char* cmd)", c)
+        self.assertIn("#ifndef REGMAP_NO_SERVE", c)
+        # rd/wr/dump/help komutlari.
+        self.assertIn('strcmp(op, "dump")', c)
+        self.assertIn("pl_mixDump();", c)
+        self.assertIn('strcmp(op, "rd")', c)
+        self.assertIn('strcmp(op, "wr")', c)
+        # Register + bitfield okuma/yazma (bitfield alan uyesinden).
+        self.assertIn('strcmp(target, "CONFIG")', c)
+        self.assertIn('strcmp(field, "EN")', c)
+        self.assertIn("S_spPlMix->SCONFIG.EN = (unsigned short)wv;", c)
+        self.assertIn("S_spPlMix->SCONFIG.usValue = (unsigned short)wv;", c)
+        # Skaler yazma dogrudan degiskene.
+        self.assertIn("S_spPlMix->uiTemperature = (unsigned int)wv;", c)
+
     def test_dump_function_prints_registers_and_fields_by_name(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
         c = rm.generate_source(self._doc()["maps"][0])

@@ -3,6 +3,28 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.132 - 2026-07-09
+
+- REGISTER MAP CANLI SORGULAMA + UART1 KOMUT SUNUCUSU (kullanici istegi): hem
+  arayüzden hem de aktif uart1 uzerinden register/bitfield okuma-yazma ve Dump
+  tetikleme.
+  - HEDEF TARAF (uretilen .c): yeni `<map>Serve(const char* cmd)` komut sunucusu.
+    Satiri sen uart1 RX'ten okuyup verirsin; cevap REGMAP_PRINTF ile gider.
+    Komutlar: `rd <REG>[.<ALAN>]`, `wr <REG>[.<ALAN>] <deger>`, `dump`, `help`.
+    Register adi -> struct uyesi eslemesi codegen aninda strcmp zinciriyle;
+    bitfield oku/yaz dogrudan alan uyesinden, skaler dogrudan degiskenden.
+    Ayni text protokolu hem Spec2Code hem duz seri terminal kullanir.
+    -DREGMAP_NO_SERVE ile derleme disi. Gercek aarch64 gcc -Wall -Wextra
+    -Werror ile temiz derlendi (rd/wr/dump/help + bilinmeyen register/alan).
+  - ARAYUZ (Register Map -> "Canli Izleme" sekmesi): register map dokumanini
+    alir, paylasilan board baglantisi uzerinden (seri/UART1) rd/wr/dump gonderir,
+    `NAME=0x..` cevabini bit alanlarina COZEREK canli gosterir. Register basina
+    "oku" + alan/ham deger "yaz", "Hepsini oku", "Dump" ve ham komut kutusu +
+    UART gunlugu. Seri baglanti bu sekmeden de kurulabilir (COM + baud).
+  - Yerlesim karari (kullaniciyla): Test Bench'e degil, Register Map icine
+    kondu (bitfield'lari adiyla cozmek icin register map tanimi gerekiyor;
+    baglanti paylasilan altyapidan gelir). Kapsam: okuma + yazma.
+
 ## v0.1.131 - 2026-07-09
 
 - REGISTER MAP EXCEL ICE/DISA AKTAR (kullanici istegi, opsiyonel esneklik):

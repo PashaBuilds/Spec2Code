@@ -438,9 +438,10 @@ def generate_header(rmap: dict) -> str:
             f"\"{item['reg']['name']} offset kaymis\");")
     lines.append("")
 
-    # init + dump prototipleri.
+    # init + dump + serve prototipleri.
     lines.append(f"void {map_name}Init(void);")
     lines.append(f"void {map_name}Dump(void);")
+    lines.append(f"void {map_name}Serve(const char* cmd);")
     lines.append("")
     lines.append(f"#endif /* {guard} */")
     lines.append("")
@@ -499,6 +500,98 @@ def _dump_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[di
     return out
 
 
+def _serve_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[dict]) -> list[str]:
+    """Tek satırlık komut sunucusu `<map>Serve(const char* cmd)`. UART1 (ya da
+    herhangi bir hat) üzerinden gelen satırı işler; cevabı REGMAP_PRINTF ile
+    yazar. Komutlar: rd/wr <REG>[.<ALAN>] [değer] | dump | help. Register adı →
+    struct üyesi eşlemesi codegen anında strcmp zinciriyle üretilir; bitfield
+    okuma/yazma doğrudan alan üyesi üzerinden. -DREGMAP_NO_SERVE ile derleme
+    dışı. Aynı text protokolü hem Spec2Code hem düz seri terminal kullanır."""
+    out: list[str] = []
+    out.append("")
+    out.append("#ifndef REGMAP_NO_SERVE")
+    out.append("/* Tek satirlik komut sunucusu (UART1 vb. uzerinden). Satiri sen")
+    out.append(" * okuyup verirsin; cevap REGMAP_PRINTF ile gider.")
+    out.append(" *   rd <REG>[.<ALAN>]          oku")
+    out.append(" *   wr <REG>[.<ALAN>] <deger>  yaz (deger 0x.. ya da ondalik)")
+    out.append(" *   dump | help                tablo / komut listesi")
+    out.append(" * -DREGMAP_NO_SERVE ile derleme disi. */")
+    out.append("#include <string.h>")
+    out.append("#include <stdlib.h>")
+    out.append("")
+    out.append(f"void {map_name}Serve(const char* cmd)")
+    out.append("{")
+    out.append("    char buf[128];")
+    out.append("    size_t n = 0U;")
+    out.append("    while (cmd[n] != '\\0' && n < sizeof(buf) - 1U) { buf[n] = cmd[n]; n++; }")
+    out.append("    buf[n] = '\\0';")
+    out.append('    char* op = strtok(buf, " \\t\\r\\n");')
+    out.append("    if (op == NULL) { return; }")
+    out.append('    if (strcmp(op, "help") == 0)')
+    out.append('    {')
+    out.append('        REGMAP_PRINTF("komut: rd|wr <REG>[.<ALAN>] [deger] | dump | help\\r\\n");')
+    out.append("        return;")
+    out.append("    }")
+    out.append(f'    if (strcmp(op, "dump") == 0) {{ {map_name}Dump(); return; }}')
+    out.append('    int isRd = (strcmp(op, "rd") == 0);')
+    out.append('    int isWr = (strcmp(op, "wr") == 0);')
+    out.append('    char* target = strtok(NULL, " \\t\\r\\n");')
+    out.append('    char* valStr = strtok(NULL, " \\t\\r\\n");')
+    out.append("    if ((isRd == 0 && isWr == 0) || target == NULL || (isWr != 0 && valStr == NULL))")
+    out.append("    {")
+    out.append('        REGMAP_PRINTF("ERR kullanim: rd|wr <REG>[.<ALAN>] [deger] | dump | help\\r\\n");')
+    out.append("        return;")
+    out.append("    }")
+    out.append("    char* field = NULL;")
+    out.append("    char* dot = strchr(target, '.');")
+    out.append("    if (dot != NULL) { *dot = '\\0'; field = dot + 1; }")
+    out.append("    unsigned long long wv = (isWr != 0) ? strtoull(valStr, NULL, 0) : 0ULL;")
+    out.append("    (void)wv;")
+    for item in layout:
+        reg = item["reg"]
+        if reg.get("reserved"):
+            continue
+        width = item["width"]
+        member = item["member"]
+        name = reg["name"]
+        if width <= 4:
+            cast, rawfmt, fieldfmt = "unsigned int", f"0x%0{width * 2}X", "0x%X"
+        elif width == 8:
+            cast, rawfmt, fieldfmt = "unsigned long long", "0x%016llX", "0x%llX"
+        else:
+            continue  # standart olmayan genişlik (bayt dizisi): serve edilmez
+        wcast = (_raw_type(width) or ("unsigned int", "ui"))[0]
+        out.append(f'    if (strcmp(target, "{name}") == 0)')
+        out.append("    {")
+        if item["kind"] == "scalar":
+            out.append(f'        if (field != NULL) {{ REGMAP_PRINTF("ERR {name} skaler, alani yok\\r\\n"); return; }}')
+            out.append(f"        if (isWr != 0) {{ {ptr_name}->{member} = ({wcast})wv; }}")
+            out.append(f'        REGMAP_PRINTF("{name}={rawfmt}\\r\\n", ({cast})({ptr_name}->{member}));')
+            out.append("        return;")
+        else:
+            out.append("        if (field == NULL)")
+            out.append("        {")
+            out.append(f"            if (isWr != 0) {{ {ptr_name}->{member}.{item['raw']}Value = ({wcast})wv; }}")
+            out.append(f'            REGMAP_PRINTF("{name}={rawfmt}\\r\\n", ({cast})({ptr_name}->{member}.{item["raw"]}Value));')
+            out.append("            return;")
+            out.append("        }")
+            for field_def in sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1]):
+                fn = field_def["name"]
+                out.append(f'        if (strcmp(field, "{fn}") == 0)')
+                out.append("        {")
+                out.append(f"            if (isWr != 0) {{ {ptr_name}->{member}.{fn} = ({wcast})wv; }}")
+                out.append(f'            REGMAP_PRINTF("{name}.{fn}={fieldfmt}\\r\\n", ({cast})({ptr_name}->{member}.{fn}));')
+                out.append("            return;")
+                out.append("        }")
+            out.append('        REGMAP_PRINTF("ERR bilinmeyen alan: %s\\r\\n", field);')
+            out.append("        return;")
+        out.append("    }")
+    out.append('    REGMAP_PRINTF("ERR bilinmeyen register: %s\\r\\n", target);')
+    out.append("}")
+    out.append("#endif /* REGMAP_NO_SERVE */")
+    return out
+
+
 def generate_source(rmap: dict) -> str:
     """Bir register map için .c içeriği: base'e map'li static struct pointer +
     init (her register'i reset degerine esitler; skaler dogrudan, bitfield ham
@@ -536,6 +629,7 @@ def generate_source(rmap: dict) -> str:
             lines.append(f"    {ptr_name}->{item['member']}.{item['raw']}Value = {rhs};")
     lines.append("}")
     lines.extend(_dump_function_lines(map_name, MOD, ptr_name, layout))
+    lines.extend(_serve_function_lines(map_name, MOD, ptr_name, layout))
     lines.append("")
     return "\n".join(lines)
 
