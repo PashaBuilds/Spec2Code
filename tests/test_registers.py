@@ -1,11 +1,24 @@
-import re
+import struct
 import threading
 import time
 import unittest
 
 import backend.registers as registers_module
+from backend import s2cmsg
 from backend.registers import snapshot_registers
 from backend.testbench import TestbenchSessionManager
+
+
+def _pad4(data: bytes) -> bytes:
+    remainder = len(data) % 4
+    return data if remainder == 0 else data + b"\x00" * (4 - remainder)
+
+
+def _response_frame(op_name: str, counter: int, *, deger: int = 0, metin: bytes = b"ok") -> bytes:
+    body = (struct.pack("<IIiII", counter, 0, 0, deger, 0)
+            + struct.pack("<I", len(metin)) + _pad4(metin))
+    command_id = s2cmsg.message_id_for_op(op_name) | s2cmsg.RESPONSE_BIT
+    return s2cmsg.pack_frame(command_id, counter, body)
 
 
 class RegisterResponderSerial:
@@ -13,9 +26,10 @@ class RegisterResponderSerial:
 
     def __init__(self) -> None:
         self.rx = bytearray()
-        self.requests: list[str] = []
+        self.requests: list[bytes] = []
         self._lock = threading.Lock()
         self._closed = False
+        self._parser = s2cmsg.FrameParser()
 
     def read(self, size: int) -> bytes:
         with self._lock:
@@ -28,13 +42,13 @@ class RegisterResponderSerial:
         return chunk
 
     def write(self, data: bytes) -> int:
-        text = data.decode("ascii", errors="replace")
         with self._lock:
-            self.requests.append(text.strip())
-            request_id = (re.search(r"id=(\d+)", text) or [None, "0"])[1]
-            addr_match = re.search(r"reg_addr=0x([0-9A-Fa-f]+)", text)
-            value = (int(addr_match.group(1), 16) + 1) if addr_match else 0
-            self.rx += f"S2C|id={request_id}|ok=1|status=0|value=0x{value:02X}|message=ok\r\n".encode("ascii")
+            self.requests.append(bytes(data))
+            for command_id, counter, body in self._parser.feed(data):
+                entry = s2cmsg.load_catalog()["by_id"][command_id & ~s2cmsg.RESPONSE_BIT]
+                register_address = struct.unpack_from("<I", body, 4)[0]
+                value = (register_address + 1) & 0xFFFFFFFF
+                self.rx += _response_frame(entry["op"], counter, deger=value)
         return len(data)
 
     def flush(self) -> None:
@@ -65,10 +79,13 @@ class RegisterSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["total"], 3)
         self.assertEqual(snapshot["read_ok"], 3)
         values = {item["name"]: item["value"] for item in snapshot["registers"]}
-        self.assertEqual(values["STATUS_LOW"], "0x01")
-        self.assertEqual(values["CONTROL_V1V4"], "0x07")
-        self.assertEqual(values["PWM_T_INTERNAL_CONTROL"], "0x09")
-        self.assertTrue(all("op=register_read" in request for request in fake.requests))
+        self.assertEqual(values["STATUS_LOW"], "0x1")
+        self.assertEqual(values["CONTROL_V1V4"], "0x7")
+        self.assertEqual(values["PWM_T_INTERNAL_CONTROL"], "0x9")
+        register_read_id = s2cmsg.message_id_for_op("register_read")
+        for request in fake.requests:
+            command_id = struct.unpack_from("<I", request, 0)[0]
+            self.assertEqual(command_id, register_read_id)
 
     def test_snapshot_marks_remaining_registers_when_session_is_dead(self) -> None:
         sessions = TestbenchSessionManager()

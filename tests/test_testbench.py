@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import socketserver
+import struct
 import subprocess
 import sys
 import tempfile
@@ -11,16 +12,47 @@ import time
 import unittest
 from pathlib import Path
 
+from backend import s2cmsg
+from backend.s2cmsg import RESPONSE_BIT, FrameParser, pack_frame
 from backend.testbench import (
     TestbenchCommand as BenchCommand,
     TestbenchSessionError as SessionError,
     TestbenchSessionManager as SessionManager,
-    format_command,
-    parse_response,
     send_command,
 )
 from backend.vitis_errors import map_vitis_errors
 from orchestrator import codegen
+
+
+def _pad4(data: bytes) -> bytes:
+    remainder = len(data) % 4
+    return data if remainder == 0 else data + b"\x00" * (4 - remainder)
+
+
+def _yanit_govdesi(istek_sayac: int, durum: int = 0, cihaz_durum: int = 0,
+                    deger: int = 0, veri: bytes = b"", metin: bytes = b"") -> bytes:
+    """S2C-MSG yanit govdesi kurucusu (istek_sayac|durum|cihaz_durum|deger|veri_boyu + veri + metin_boyu + metin)."""
+    return (struct.pack("<IIiII", istek_sayac, durum, cihaz_durum, deger, len(veri))
+            + _pad4(veri) + struct.pack("<I", len(metin)) + _pad4(metin))
+
+
+def _ok_response_frame(op_name: str, istek_sayac: int, yanit_sayac: int, *,
+                        deger: int = 0, veri: bytes = b"", metin: bytes = b"") -> bytes:
+    """Basarili (durum=0) yanit cercevesi: verilen op icin RESPONSE_BIT'li id."""
+    command_id = s2cmsg.message_id_for_op(op_name) | RESPONSE_BIT
+    body = _yanit_govdesi(istek_sayac, deger=deger, veri=veri, metin=metin)
+    return pack_frame(command_id, yanit_sayac, body)
+
+
+def _request_op_and_counter(data: bytes) -> tuple[str | None, int | None]:
+    """Bir istek chunk'indaki ilk cercevenin op adini ve sayacini cozer (yoksa None)."""
+    frames = FrameParser().feed(data)
+    if not frames:
+        return None, None
+    command_id, counter, _body = frames[0]
+    entry = s2cmsg.load_catalog()["by_id"].get(command_id & ~RESPONSE_BIT)
+    op_name = entry["op"] if entry else None
+    return op_name, counter
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,27 +112,32 @@ def add_versal_ps_uart(spec: dict) -> None:
 
 
 class OneShotHandler(socketserver.BaseRequestHandler):
-    response = b"S2C|id=7|ok=1|status=0|value=0x12|data=AABB|message=ok\n"
-
     def handle(self) -> None:
-        self.request.recv(4096)
-        self.request.sendall(self.response)
+        data = self.request.recv(4096)
+        op_name, counter = _request_op_and_counter(data)
+        response = _ok_response_frame(op_name, counter, counter,
+                                       deger=0x12, veri=bytes.fromhex("AABB"), metin=b"ok")
+        self.request.sendall(response)
 
 
 class PersistentHandler(socketserver.BaseRequestHandler):
-    requests: list[str] = []
+    requests: list[bytes] = []
     responses = [
-        b"S2C|id=1|ok=1|status=0|value=0x11|message=first\n",
-        b"S2C|id=2|ok=1|status=0|value=0x22|message=second\n",
+        {"deger": 0x11, "metin": b"first"},
+        {"deger": 0x22, "metin": b"second"},
     ]
 
     def handle(self) -> None:
-        reader = self.request.makefile("rb")
-        for response in self.responses:
-            line = reader.readline()
-            if not line:
+        parser = FrameParser()
+        for spec in self.responses:
+            chunk = self.request.recv(4096)
+            if not chunk:
                 break
-            self.__class__.requests.append(line.decode("ascii", errors="replace").strip())
+            self.__class__.requests.append(chunk)
+            frames = parser.feed(chunk)
+            command_id, counter, _body = frames[0]
+            entry = s2cmsg.load_catalog()["by_id"][command_id & ~RESPONSE_BIT]
+            response = _ok_response_frame(entry["op"], counter, counter, **spec)
             self.request.sendall(response)
 
 
@@ -126,10 +163,24 @@ class FakeSerial:
     def write(self, data: bytes) -> int:
         with self._lock:
             self.written.append(bytes(data))
-            if b"op=voltage_read" in data:
-                # Console noise on a shared UART must be tolerated by the host.
+            op_name, counter = _request_op_and_counter(data)
+            if op_name == "voltage_read":
+                # Console noise on a shared UART must be tolerated by the
+                # host. The noise line and the binary response are queued as
+                # two separate arrivals (a real UART would not coalesce a
+                # completed boot-log line with a not-yet-computed response
+                # into one read() burst) so the per-chunk frame-signature
+                # heuristic in _reader_loop can route each independently.
                 self.rx += b"boot noise line\r\n"
-                self.rx += b"S2C|id=3|ok=1|status=0|value=0x1A2B|message=ok\r\n"
+
+            def _queue_response() -> None:
+                time.sleep(0.02)
+                with self._lock:
+                    self.rx += _ok_response_frame(op_name, counter, counter,
+                                                   deger=0x1A2B, metin=b"ok")
+
+            if op_name == "voltage_read":
+                threading.Thread(target=_queue_response, daemon=True).start()
         return len(data)
 
     def flush(self) -> None:
@@ -145,23 +196,34 @@ class StaleThenAnswerHandler(socketserver.BaseRequestHandler):
     gönderilince önce GEÇ kalan ilk cevap, sonra doğru cevap gelir."""
 
     def handle(self) -> None:
-        reader = self.request.makefile("rb")
-        if not reader.readline():
+        parser = FrameParser()
+        first = self.request.recv(4096)
+        if not first:
             return
-        if not reader.readline():
+        frames = parser.feed(first)
+        first_op = s2cmsg.load_catalog()["by_id"][frames[0][0] & ~RESPONSE_BIT]["op"]
+        first_counter = frames[0][1]
+        second = self.request.recv(4096)
+        if not second:
             return
-        self.request.sendall(b"S2C|id=1|ok=1|status=0|value=0x11|message=late\n")
-        self.request.sendall(b"S2C|id=2|ok=1|status=0|value=0x22|message=fresh\n")
+        frames = parser.feed(second)
+        second_op = s2cmsg.load_catalog()["by_id"][frames[0][0] & ~RESPONSE_BIT]["op"]
+        second_counter = frames[0][1]
+        self.request.sendall(_ok_response_frame(
+            first_op, first_counter, first_counter, deger=0x11, metin=b"late"))
+        self.request.sendall(_ok_response_frame(
+            second_op, second_counter, second_counter, deger=0x22, metin=b"fresh"))
 
 
 class StaleOnlyFakeSerial(FakeSerial):
-    """Komut id=4 gönderilince yalnız BAYAT (id=9) bir yanıt kuyruklar."""
+    """Komut sayac=4 gönderilince yalnız BAYAT (sayac=9) bir yanıt kuyruklar."""
 
     def write(self, data: bytes) -> int:
         with self._lock:
             self.written.append(bytes(data))
-            if b"id=4" in data:
-                self.rx += b"S2C|id=9|ok=1|status=0|value=0x99|message=stale\r\n"
+            op_name, counter = _request_op_and_counter(data)
+            if counter == 4:
+                self.rx += _ok_response_frame(op_name, 9, 9, deger=0x99, metin=b"stale")
         return len(data)
 
 
@@ -171,16 +233,22 @@ class CoresightEchoHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         self.wfile.write(b"Spec2Code test bench dev | transport: CoreSight DCC (psu_coresight_0)\r\n")
         self.wfile.flush()
+        parser = FrameParser()
         while True:
-            line = self.rfile.readline()
-            if not line:
+            chunk = self.rfile.read(1)
+            if not chunk:
                 return
-            text = line.strip()
-            if not text:
+            # A bare "Enter" (CR/LF, no S2C-MSG signature) is the console
+            # liveness prompt; any binary frame is fed to the parser instead.
+            if chunk in (b"\r", b"\n"):
                 self.wfile.write(b"> \r\n")
-            elif text.startswith(b"S2C|"):
-                self.wfile.write(b"S2C|id=5|ok=1|status=0|value=0x42|message=ok\n")
-            self.wfile.flush()
+                self.wfile.flush()
+                continue
+            frames = parser.feed(chunk)
+            for command_id, counter, _body in frames:
+                entry = s2cmsg.load_catalog()["by_id"][command_id & ~RESPONSE_BIT]
+                self.wfile.write(_ok_response_frame(entry["op"], counter, counter, deger=0x42, metin=b"ok"))
+                self.wfile.flush()
 
 
 class TestbenchTests(unittest.TestCase):
@@ -198,24 +266,28 @@ class TestbenchTests(unittest.TestCase):
             host="", port=0, device="u1_ltc2991", operation="voltage_read", command_id=3))
         self.assertEqual(result.parsed["ok"], "1")
         self.assertEqual(result.parsed["value"], "0x1A2B")
-        self.assertTrue(result.request_line.startswith("S2C|id=3|device=u1_ltc2991|op=voltage_read"))
+        self.assertIn("VOLTAGE_READ", result.request_line)
+        self.assertIn("sayac=3", result.request_line)
 
         _seq, entries = manager.console("ser1", 0)
         lines = [entry["line"] for entry in entries]
         self.assertIn("boot noise line", lines)
-        self.assertTrue(any(line.startswith("S2C|id=3") for line in lines))
+        # Frame'in kendisi console'a metin olarak DUSMEZ (binary comp gorunmesin diye).
+        self.assertFalse(any("boot noise" not in line and "VOLTAGE_READ" in line for line in lines))
 
         manager.write_raw("ser1", "hello")
         self.assertIn(b"hello\r\n", fake.written)
 
-        # Veri Akisi: giden istek tx, gelen her satir rx olarak kaydedilir.
+        # Veri Akisi: giden istek tx, gelen her cerceve/satir rx olarak kaydedilir.
         _tseq, traffic = manager.traffic("ser1", 0)
-        tx_lines = [entry["line"] for entry in traffic if entry["dir"] == "tx"]
-        rx_lines = [entry["line"] for entry in traffic if entry["dir"] == "rx"]
-        self.assertTrue(any(line.startswith("S2C|id=3") for line in tx_lines))
-        self.assertIn("hello", tx_lines)
-        self.assertIn("boot noise line", rx_lines)
-        self.assertTrue(any(line.startswith("S2C|id=3") and "|ok=" in line for line in rx_lines))
+        tx_entries = [entry for entry in traffic if entry["dir"] == "tx"]
+        rx_entries = [entry for entry in traffic if entry["dir"] == "rx"]
+        self.assertTrue(any("VOLTAGE_READ" in entry["ozet"] for entry in tx_entries))
+        self.assertTrue(any("hello" in entry.get("ozet", "") or "hello" in entry.get("hex", "")
+                             for entry in tx_entries))
+        self.assertTrue(any("boot noise line" in entry.get("ozet", "") for entry in rx_entries))
+        self.assertTrue(any("VOLTAGE_READ" in entry.get("ozet", "") and "yanit" in entry.get("ozet", "")
+                             for entry in rx_entries))
         manager.disconnect("ser1")
 
     def test_serial_session_times_out_without_response(self) -> None:
@@ -230,31 +302,37 @@ class TestbenchTests(unittest.TestCase):
                 host="", port=0, device="u1_ltc2991", operation="id_read", command_id=4))
         manager.disconnect("ser2")
     def test_command_formatter_and_response_parser(self) -> None:
-        line = format_command(BenchCommand(
-            host="127.0.0.1",
-            port=5000,
-            device="u1_ltc2991",
-            operation="register_read",
-            command_id=7,
-            register="STATUS_HIGH",
-            register_address=0x01,
-            data_hex="DE AD|BE EF",
-        ))
+        frame = s2cmsg.pack_request(
+            "register_read", 7, device_index=3, register_address=0x01,
+            data=bytes.fromhex("DEADBEEF"))
 
-        self.assertEqual(
-            line,
-            "S2C|id=7|device=u1_ltc2991|op=register_read|reg=STATUS_HIGH|reg_addr=0x1|data=DEADBEEF\n",
-        )
-        self.assertEqual(parse_response("S2C|id=7|ok=1|data=AABB\n")["data"], "AABB")
+        header = frame[:s2cmsg.HEADER_SIZE]
+        command_id, body_size, counter = struct.unpack("<III", header)
+        self.assertEqual(command_id, s2cmsg.message_id_for_op("register_read"))
+        self.assertEqual(counter, 7)
+        self.assertEqual(body_size, len(frame) - s2cmsg.HEADER_SIZE)
 
-        version_line = format_command(BenchCommand(
-            host="127.0.0.1",
-            port=5000,
-            device="spec2code",
-            operation="spec2code_version",
-            command_id=8,
-        ))
-        self.assertEqual(version_line, "S2C|id=8|device=spec2code|op=spec2code_version\n")
+        frames = FrameParser().feed(frame)
+        self.assertEqual(len(frames), 1)
+        parsed_id, parsed_counter, body = frames[0]
+        self.assertEqual(parsed_id, command_id)
+        self.assertEqual(parsed_counter, 7)
+        device_index, register_address = struct.unpack_from("<II", body, 0)
+        self.assertEqual(device_index, 3)
+        self.assertEqual(register_address, 0x01)
+        self.assertEqual(body[28:32], b"\xDE\xAD\xBE\xEF")
+
+        # unpack_response round-trip.
+        response_frame = _ok_response_frame(
+            "register_read", 7, 7, deger=0x1A, veri=b"\xAA\xBB")
+        response = s2cmsg.unpack_response(FrameParser().feed(response_frame)[0])
+        self.assertEqual(response["id"], "7")
+        self.assertEqual(response["ok"], "1")
+        self.assertEqual(response["data"], "AABB")
+
+        version_frame = s2cmsg.pack_request("version", 8)
+        version_command_id = struct.unpack_from("<I", version_frame, 0)[0]
+        self.assertEqual(version_command_id, s2cmsg.message_id_for_op("version"))
 
     def test_send_command_reads_one_line_response(self) -> None:
         with socketserver.TCPServer(("127.0.0.1", 0), OneShotHandler) as server:
@@ -301,8 +379,10 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(first.parsed["value"], "0x11")
         self.assertEqual(second.parsed["value"], "0x22")
         self.assertEqual(len(PersistentHandler.requests), 2)
-        self.assertIn("op=status_read", PersistentHandler.requests[0])
-        self.assertIn("op=voltage_read", PersistentHandler.requests[1])
+        first_op, _ = _request_op_and_counter(PersistentHandler.requests[0])
+        second_op, _ = _request_op_and_counter(PersistentHandler.requests[1])
+        self.assertEqual(first_op, "status_read")
+        self.assertEqual(second_op, "voltage_read")
 
     def test_tcp_timeout_keeps_session_and_stale_response_is_skipped(self) -> None:
         # Saha bulgusu (2026-07-05): ajan bir komutu uzun sürede işlerken
@@ -368,8 +448,13 @@ class TestbenchTests(unittest.TestCase):
 
         self.assertEqual(seq, 4)
         self.assertEqual([entry["dir"] for entry in entries], ["tx", "rx", "tx", "rx"])
-        self.assertIn("op=status_read", entries[0]["line"])
-        self.assertIn("message=first", entries[1]["line"])
+        for entry in entries:
+            self.assertIn("dir", entry)
+            self.assertIn("hex", entry)
+            self.assertIn("ozet", entry)
+        self.assertIn("STATUS_READ", entries[0]["ozet"])
+        self.assertIn("STATUS_READ", entries[1]["ozet"])
+        self.assertIn("yanit", entries[1]["ozet"])
         self.assertEqual(len(newer), 2)
 
     def test_coresight_session_bridges_over_fake_jtagterminal_socket(self) -> None:
@@ -985,13 +1070,17 @@ class TestbenchTests(unittest.TestCase):
         calls: list[tuple[str, int | None, int | None]] = []
         state = {"mask": 0}
 
+        def fake_parsed(command, *, value: int, data: str = "", message: str = "ok") -> dict:
+            return {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                    "value": f"0x{value:X}", "data": data, "message": message}
+
         def fake_send(session_id, command):
             calls.append((command.operation, command.address, command.value))
             if command.operation == "spec2code_version":
-                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x0|data=|message=Spec2Code v0.1.106"
+                parsed = fake_parsed(command, value=0, message="Spec2Code v0.1.106")
             elif command.operation == "i2c_mux_set":
                 state["mask"] = int(command.value or 0)
-                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x{state['mask']:X}|data=|message=ok"
+                parsed = fake_parsed(command, value=state["mask"])
             else:
                 found = [0x70, 0x4A]
                 if state["mask"] & 0x01:
@@ -999,8 +1088,8 @@ class TestbenchTests(unittest.TestCase):
                 if state["mask"] & 0x02:
                     found.extend([0x40, 0x4A])  # 0x4A dogrudan hatta da var (golge)
                 data = "".join(f"{a:02X}" for a in sorted(set(found)))
-                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x{len(found):X}|data={data}|message=ok"
-            return type("R", (), {"parsed": parse_response(line)})()
+                parsed = fake_parsed(command, value=len(found), data=data)
+            return type("R", (), {"parsed": parsed})()
 
         original = scan_mod.testbench_sessions.send
         scan_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
@@ -1048,11 +1137,13 @@ class TestbenchTests(unittest.TestCase):
 
         def fake_send(session_id, command):
             if command.operation == "spec2code_version":
-                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x0|data=|message=Spec2Code v0.1.104"
+                parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                          "value": "0x0", "data": "", "message": "Spec2Code v0.1.104"}
             else:
                 data = "".join(f"{a:02X}" for a in range(0x08, 0x78))
-                line = f"S2C|id={command.command_id}|ok=1|status=0|value=0x70|data={data}|message=i2c_scan ok"
-            return type("R", (), {"parsed": parse_response(line)})()
+                parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                          "value": "0x70", "data": data, "message": "i2c_scan ok"}
+            return type("R", (), {"parsed": parsed})()
 
         original = scan_mod.testbench_sessions.send
         scan_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
@@ -1807,14 +1898,15 @@ class TestbenchTests(unittest.TestCase):
     def test_serial_send_matches_response_by_command_id(self) -> None:
         # Paylasimli kanalda (konsol UART'i, ikinci jtagterminal istemcisi)
         # baska bir istemcinin yaniti kuyruga dusebilir; send() yalnizca
-        # istegin id'sine sahip yaniti kabul etmeli.
+        # istegin sayacina sahip yaniti kabul etmeli.
         class NoisyFakeSerial(FakeSerial):
             def write(self, data: bytes) -> int:
                 with self._lock:
                     self.written.append(bytes(data))
-                    if b"op=id_read" in data:
-                        self.rx += b"S2C|id=99|ok=1|status=0|value=0xBAD|message=stale\r\n"
-                        self.rx += b"S2C|id=7|ok=1|status=0|value=0x42|message=ok\r\n"
+                    op_name, counter = _request_op_and_counter(data)
+                    if op_name == "id_read":
+                        self.rx += _ok_response_frame(op_name, 99, 99, deger=0xBAD, metin=b"stale")
+                        self.rx += _ok_response_frame(op_name, counter, counter, deger=0x42, metin=b"ok")
                 return len(data)
 
         manager = SessionManager()
@@ -1827,14 +1919,17 @@ class TestbenchTests(unittest.TestCase):
         manager.disconnect("ser_id")
 
     def test_serial_send_falls_back_to_mismatched_response_on_timeout(self) -> None:
-        # Eski/parse-hatali agent yanitlari id=0 tasir; zaman asiminda bos
-        # hata yerine eldeki son yanit gosterilir (mesaji kaybettirme).
+        # Eski/parse-hatali agent yanitlari govde sayac=0 tasir; zaman
+        # asiminda bos hata yerine eldeki son yanit gosterilir (mesaji
+        # kaybettirme).
         class ParseFailFakeSerial(FakeSerial):
             def write(self, data: bytes) -> int:
                 with self._lock:
                     self.written.append(bytes(data))
-                    if b"op=id_read" in data:
-                        self.rx += b"S2C|id=0|ok=0|status=1|value=0x0|data=|message=request parse failed\r\n"
+                    op_name, _counter = _request_op_and_counter(data)
+                    if op_name == "id_read":
+                        self.rx += _ok_response_frame(
+                            op_name, 0, 0, deger=0, metin=b"request parse failed")
                 return len(data)
 
         manager = SessionManager()

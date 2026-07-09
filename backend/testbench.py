@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from backend import s2cmsg
+
 #: Ring size of the serial console line buffer kept per session.
 SERIAL_CONSOLE_MAX_LINES = 2000
 
@@ -30,6 +32,7 @@ class TestbenchCommand:
     device: str
     operation: str
     command_id: int = 1
+    device_index: int = 0xFFFFFFFF
     register: str = ""
     register_address: int | None = None
     address: int | None = None
@@ -71,70 +74,79 @@ def _clean_token(value: str) -> str:
     return "".join(ch for ch in value.strip() if ch not in "|\r\n")
 
 
-def _hex_data(value: str) -> str:
-    return "".join(ch for ch in value.strip() if ch in "0123456789abcdefABCDEF")
-
-
-def format_command(command: TestbenchCommand) -> str:
-    parts = [
-        "S2C",
-        f"id={int(command.command_id)}",
-        f"device={_clean_token(command.device)}",
-        f"op={_clean_token(command.operation)}",
-    ]
-    if command.register:
-        parts.append(f"reg={_clean_token(command.register)}")
-    if command.register_address is not None:
-        parts.append(f"reg_addr=0x{int(command.register_address) & 0xFFFFFFFF:X}")
-    if command.address is not None:
-        parts.append(f"address=0x{int(command.address) & 0xFFFFFFFF:X}")
-    if command.length is not None:
-        parts.append(f"length={max(0, int(command.length))}")
-    if command.value is not None:
-        parts.append(f"value=0x{int(command.value) & 0xFFFFFFFF:X}")
-    data = _hex_data(command.data_hex)
-    if data:
-        parts.append(f"data={data}")
-    return "|".join(parts) + "\n"
-
-
-def parse_response(line: str) -> dict[str, str]:
-    parsed: dict[str, str] = {}
-    for token in line.strip().split("|"):
-        if "=" not in token:
-            continue
-        key, value = token.split("=", 1)
-        parsed[key.strip()] = value.strip()
-    return parsed
-
-
-def _read_response_line(sock: socket.socket) -> str:
-    chunks: list[bytes] = []
-    while True:
-        chunk = sock.recv(4096)
-        if not chunk:
-            raise OSError("testbench tcp connection closed before response")
-        chunks.append(chunk)
-        if b"\n" in chunk:
-            break
-    return b"".join(chunks).decode("ascii", errors="replace").strip()
-
-
-def _send_over_socket(sock: socket.socket, command: TestbenchCommand) -> TestbenchResult:
-    request_line = format_command(command)
-    sock.sendall(request_line.encode("ascii"))
-    response_line = _read_response_line(sock)
-    return TestbenchResult(
-        request_line=request_line.strip(),
-        response_line=response_line,
-        parsed=parse_response(response_line),
+def _pack_command(command: TestbenchCommand) -> bytes:
+    """S2C-MSG istek cercevesi kur. Bilinmeyen op -> KeyError (yutulmaz)."""
+    return s2cmsg.pack_request(
+        command.operation,
+        int(command.command_id),
+        device_index=int(command.device_index) & 0xFFFFFFFF,
+        register_address=int(command.register_address or 0) & 0xFFFFFFFF,
+        address=int(command.address or 0) & 0xFFFFFFFF,
+        length=max(0, int(command.length or 0)),
+        value=command.value,
+        data=bytes.fromhex(command.data_hex or ""),
     )
+
+
+def _request_frame_summary(command: TestbenchCommand, request: bytes) -> str:
+    """Decode ``request`` (bytes just sent) back into a readable summary line."""
+    frame = s2cmsg.FrameParser().feed(request)[0]
+    return s2cmsg.decode_frame_summary(frame)
+
+
+def _split_console_and_frame_bytes(chunk: bytes) -> tuple[bytes, bytes]:
+    """Split ``chunk`` at the earliest S2C-MSG signature into (console, frame) bytes.
+
+    The serial reader must route boot-log/console noise (plain ASCII text
+    written by xil_printf on a shared UART) to the console ring, while binary
+    S2C-MSG frames must NOT appear there as garbled text. FrameParser does not
+    report which bytes it discarded while resyncing, so we cannot ask it "was
+    this chunk consumed as a frame". Instead we use a cheap heuristic: a
+    little-endian u32 command id always ends in the 2 signature bytes 0x43 0x53
+    (request) or 0x43 0xD3 (response, RESPONSE_BIT set) at byte offset 2-3 of
+    a 12B header. A single ``read()`` burst can legitimately contain BOTH a
+    completed console line and a frame (e.g. a boot-log line printed right
+    before the agent's first reply lands in the same OS-level read); treating
+    the whole chunk as one-or-the-other would silently drop whichever came
+    first. So we locate the earliest signature occurrence, step back 2 bytes
+    to the presumed header start, and split there: everything before is
+    console text, everything from the header start onward is handed to the
+    frame parser. If no signature is present the whole chunk is console text.
+    """
+    best = -1
+    for signature in (b"\x43\x53", b"\x43\xD3"):
+        index = chunk.find(signature)
+        if index >= 0 and (best < 0 or index < best):
+            best = index
+    if best < 0:
+        return chunk, b""
+    header_start = max(0, best - 2)
+    return chunk[:header_start], chunk[header_start:]
 
 
 def send_command(command: TestbenchCommand) -> TestbenchResult:
     with socket.create_connection((command.host, int(command.port)), timeout=max(0.2, command.timeout_s)) as sock:
         sock.settimeout(max(0.2, command.timeout_s))
-        return _send_over_socket(sock, command)
+        request = _pack_command(command)
+        sock.sendall(request)
+        parser = s2cmsg.FrameParser()
+        deadline = time.time() + max(0.2, command.timeout_s)
+        frames: list[tuple[int, int, bytes]] = []
+        while not frames:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise OSError("testbench tcp response timeout")
+            sock.settimeout(max(0.05, remaining))
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise OSError("testbench tcp connection closed before response")
+            frames = parser.feed(chunk)
+        frame = frames[0]
+        return TestbenchResult(
+            request_line=_request_frame_summary(command, request),
+            response_line=s2cmsg.decode_frame_summary(frame),
+            parsed=s2cmsg.unpack_response(frame),
+        )
 
 
 class _TrafficRing:
@@ -150,17 +162,34 @@ class _TrafficRing:
         self._traffic_seq = 0
         self._traffic_lock = threading.Lock()
 
-    def _traffic_push(self, direction: str, line: str) -> None:
-        text = line.rstrip("\r\n")
-        if not text:
+    def _traffic_push(self, direction: str, data: bytes) -> None:
+        """Record one TX/RX entry as ``{"dir","hex","ozet"}``.
+
+        ``data`` is either a raw S2C-MSG frame (protocol traffic) or a plain
+        byte string (e.g. a manual console write via ``write_raw`` that never
+        goes through the FrameParser). Frame bytes decode to a catalog-based
+        summary via ``decode_frame_summary``; anything else falls back to a
+        printable text summary so manual console input still shows up.
+        """
+        if not data:
             return
+        frames = s2cmsg.FrameParser().feed(data)
+        consumed = sum(s2cmsg.HEADER_SIZE + len(body) for _cid, _ctr, body in frames)
+        if frames and consumed == len(data):
+            # The whole payload parsed as one or more well-formed frames
+            # (the only bytes we ever push here are exact pack_frame() output
+            # or plain text) — no leftover/garbage bytes.
+            ozet = "; ".join(s2cmsg.decode_frame_summary(frame) for frame in frames)
+        else:
+            ozet = data.decode("ascii", errors="replace").strip() or "(bos)"
         with self._traffic_lock:
             self._traffic_seq += 1
             self._traffic.append({
                 "seq": self._traffic_seq,
                 "at": time.time(),
                 "dir": direction,
-                "line": text,
+                "hex": data[:64].hex().upper(),
+                "ozet": ozet,
             })
 
     def traffic_since(self, since_seq: int) -> tuple[int, list[dict]]:
@@ -181,10 +210,10 @@ class _TestbenchTcpSession(_TrafficRing):
         self.last_error = ""
         self._sock: socket.socket | None = None
         self._lock = threading.RLock()
-        # Kismi/gec gelen yanit baytlari (satir tamponu): timeout sonrasi
-        # gelen bayat yanitlar burada birikir ve bir sonraki gonderimde
-        # ayiklanir.
-        self._rxbuf = b""
+        # Kismi/gec gelen yanit cerceveleri: timeout sonrasi gelen bayat
+        # yanitlar burada birikir ve bir sonraki gonderimde ayiklanir.
+        self._parser = s2cmsg.FrameParser()
+        self._pending_frames: collections.deque[tuple[int, int, bytes]] = collections.deque()
 
     def status(self) -> TestbenchSessionStatus:
         with self._lock:
@@ -221,18 +250,26 @@ class _TestbenchTcpSession(_TrafficRing):
         sock = self._sock
         self._sock = None
         self.connected_at = None
-        self._rxbuf = b""
+        self._parser = s2cmsg.FrameParser()
+        self._pending_frames.clear()
         if sock is not None:
             try:
                 sock.close()
             except OSError:
                 pass
 
-    def _pop_line(self) -> str | None:
-        if b"\n" not in self._rxbuf:
+    def _pop_frame(self) -> tuple[int, int, bytes] | None:
+        if not self._pending_frames:
             return None
-        raw, self._rxbuf = self._rxbuf.split(b"\n", 1)
-        return raw.decode("ascii", errors="replace").strip()
+        return self._pending_frames.popleft()
+
+    def _handle_incoming(self, chunk: bytes) -> None:
+        """Feed ``chunk`` into the frame parser; route unsolicited traces to traffic."""
+        for frame in self._parser.feed(chunk):
+            self._traffic_push("rx", s2cmsg.pack_frame(frame[0], frame[1], frame[2]))
+            if s2cmsg.is_unsolicited(frame[0]):
+                continue  # TRACE_EVENT/BUS_TRACE_EVENT: traffic ring only (no response queue)
+            self._pending_frames.append(frame)
 
     def _drain_stale(self, sock: socket.socket) -> None:
         """Önceki timeout'lardan arta kalan geç yanıtları gönderim öncesi ayıkla."""
@@ -242,17 +279,11 @@ class _TestbenchTcpSession(_TrafficRing):
                 chunk = sock.recv(4096)
                 if not chunk:
                     break
-                self._rxbuf += chunk
+                self._handle_incoming(chunk)
         except (BlockingIOError, InterruptedError, socket.timeout):
             pass
         finally:
             sock.settimeout(self.timeout_s)
-        while True:
-            line = self._pop_line()
-            if line is None:
-                break
-            if line:
-                self._traffic_push("rx", line)
 
     def send(self, command: TestbenchCommand) -> TestbenchResult:
         with self._lock:
@@ -265,6 +296,7 @@ class _TestbenchTcpSession(_TrafficRing):
                 device=command.device,
                 operation=command.operation,
                 command_id=command.command_id,
+                device_index=command.device_index,
                 register=command.register,
                 register_address=command.register_address,
                 address=command.address,
@@ -273,39 +305,36 @@ class _TestbenchTcpSession(_TrafficRing):
                 data_hex=command.data_hex,
                 timeout_s=self.timeout_s,
             )
-            request_line = format_command(session_command)
-            expected_id = str(int(session_command.command_id))
+            request = _pack_command(session_command)
+            expected_counter = int(session_command.command_id)
             self._drain_stale(sock)
-            self._traffic_push("tx", request_line)
+            self._traffic_push("tx", request)
             try:
-                sock.sendall(request_line.encode("ascii"))
+                sock.sendall(request)
             except OSError as exc:
                 self.last_error = str(exc)
                 self.close()
                 raise
-            # Yaniti id ile eslestir: onceki, timeout'a ugramis bir komutun
+            # Yaniti sayac ile eslestir: onceki, timeout'a ugramis bir komutun
             # GEC gelen yaniti bu komutun sonucu sanilmamali. Sure dolunca
             # oturumu KAPATMADAN hata ver — ajan mesgulken baglanti kaybi
             # yasanmasin, gec yanit bir sonraki gonderimde ayiklanir.
             deadline = time.time() + self.timeout_s
-            fallback_line: str | None = None
-            response_line: str | None = None
+            fallback_frame: tuple[int, int, bytes] | None = None
+            response_frame: tuple[int, int, bytes] | None = None
             try:
-                while response_line is None:
-                    line = self._pop_line()
-                    if line is not None:
-                        if not line:
-                            continue
-                        self._traffic_push("rx", line)
-                        # Yalnız gerçek yanıt satırları aday olur: S2C-LOG /
-                        # TRACE satırları da "id=" taşır ama yanıt değildir.
-                        if not line.startswith("S2C|") or "ok=" not in line:
-                            continue
-                        candidate_id = parse_response(line).get("id")
-                        if candidate_id == expected_id:
-                            response_line = line
-                        elif candidate_id == "0":
-                            fallback_line = line
+                while response_frame is None:
+                    frame = self._pop_frame()
+                    if frame is not None:
+                        command_id, _counter, _body = frame
+                        if not s2cmsg.is_response(command_id):
+                            continue  # istek yansiması değil, gerçek yanıt bekleniyor
+                        parsed = s2cmsg.unpack_response(frame)
+                        candidate_counter = parsed["id"]
+                        if candidate_counter == str(expected_counter):
+                            response_frame = frame
+                        elif candidate_counter == "0":
+                            fallback_frame = frame
                         continue
                     remaining = deadline - time.time()
                     if remaining <= 0:
@@ -317,7 +346,7 @@ class _TestbenchTcpSession(_TrafficRing):
                         continue
                     if not chunk:
                         raise OSError("testbench tcp connection closed before response")
-                    self._rxbuf += chunk
+                    self._handle_incoming(chunk)
             except socket.timeout:
                 pass
             except OSError as exc:
@@ -329,9 +358,9 @@ class _TestbenchTcpSession(_TrafficRing):
                     sock.settimeout(self.timeout_s)
                 except OSError:
                     pass
-            if response_line is None:
-                response_line = fallback_line
-            if response_line is None:
+            if response_frame is None:
+                response_frame = fallback_frame
+            if response_frame is None:
                 self.last_error = f"no matching response within {self.timeout_s}s"
                 raise TestbenchSessionError(
                     f"testbench tcp response timeout after {self.timeout_s}s "
@@ -339,20 +368,22 @@ class _TestbenchTcpSession(_TrafficRing):
             self.last_used_at = time.time()
             self.last_error = ""
             return TestbenchResult(
-                request_line=request_line.strip(),
-                response_line=response_line,
-                parsed=parse_response(response_line),
+                request_line=_request_frame_summary(session_command, request),
+                response_line=s2cmsg.decode_frame_summary(response_frame),
+                parsed=s2cmsg.unpack_response(response_frame),
             )
 
 
 class _TestbenchSerialSession(_TrafficRing):
     """Persistent serial (COM) session for the UART test bench agent.
 
-    A reader thread splits incoming bytes into lines. Every line lands in a
-    bounded console ring (for the UART console UI); lines that look like
-    protocol responses ("S2C|...|ok=...") are additionally queued for
-    ``send()``. Console noise between responses is therefore harmless even
-    when the agent shares the console UART with xil_printf output.
+    A reader thread splits every incoming chunk at the first S2C-MSG frame
+    signature (see ``_split_console_and_frame_bytes``): plain text lands in a
+    bounded console ring (for the UART console UI) while binary S2C-MSG
+    frames are fed to a ``s2cmsg.FrameParser`` and, once decoded, response
+    frames are queued for ``send()``. Console noise between responses is
+    therefore harmless even when the agent shares the console UART with
+    xil_printf output.
     """
 
     def __init__(self, session_id: str) -> None:
@@ -368,9 +399,11 @@ class _TestbenchSerialSession(_TrafficRing):
         self._lock = threading.RLock()
         self._send_lock = threading.Lock()
         self._stop = threading.Event()
-        self._responses: "queue.Queue[str]" = queue.Queue()
+        self._responses: "queue.Queue[tuple[int, int, bytes]]" = queue.Queue()
         self._console: collections.deque[dict] = collections.deque(maxlen=SERIAL_CONSOLE_MAX_LINES)
         self._console_seq = 0
+        self._parser = s2cmsg.FrameParser()
+        self._console_buffer = bytearray()
 
     def status(self) -> TestbenchSessionStatus:
         with self._lock:
@@ -425,6 +458,8 @@ class _TestbenchSerialSession(_TrafficRing):
         handle = self._serial
         self._serial = None
         self.connected_at = None
+        self._parser = s2cmsg.FrameParser()
+        self._console_buffer = bytearray()
         if handle is not None:
             try:
                 handle.close()
@@ -436,8 +471,39 @@ class _TestbenchSerialSession(_TrafficRing):
             self._console_seq += 1
             self._console.append({"seq": self._console_seq, "at": time.time(), "line": line})
 
+    def _flush_console_lines(self, *, force: bool = False) -> None:
+        """Pop complete ``\\n``-terminated lines out of the console byte buffer.
+
+        ``force`` also flushes a trailing partial line (used when the reader
+        is about to hand the same bytes to the frame parser instead, so
+        nothing is silently dropped between the two paths).
+        """
+        while True:
+            index = self._console_buffer.find(b"\n")
+            if index < 0:
+                break
+            raw = bytes(self._console_buffer[:index])
+            del self._console_buffer[: index + 1]
+            line = raw.decode("ascii", errors="replace").rstrip("\r")
+            if line:
+                self._console_push(line)
+        if force and self._console_buffer:
+            line = bytes(self._console_buffer).decode("ascii", errors="replace").rstrip("\r")
+            self._console_buffer.clear()
+            if line:
+                self._console_push(line)
+
+    def _handle_frame(self, frame: tuple[int, int, bytes]) -> None:
+        command_id, _counter, _body = frame
+        self._traffic_push("rx", s2cmsg.pack_frame(*frame))
+        if s2cmsg.is_unsolicited(command_id):
+            trace = s2cmsg.unpack_trace(frame)
+            self._console_push(trace["text"])
+            return
+        if s2cmsg.is_response(command_id):
+            self._responses.put(frame)
+
     def _reader_loop(self) -> None:
-        buffer = bytearray()
         while not self._stop.is_set():
             handle = self._serial
             if handle is None:
@@ -451,20 +517,22 @@ class _TestbenchSerialSession(_TrafficRing):
                 return
             if not chunk:
                 continue
-            buffer.extend(chunk)
-            while True:
-                index = buffer.find(b"\n")
-                if index < 0:
-                    break
-                raw = bytes(buffer[:index])
-                del buffer[: index + 1]
-                line = raw.decode("ascii", errors="replace").rstrip("\r")
-                if not line:
-                    continue
-                self._console_push(line)
-                self._traffic_push("rx", line)
-                if line.startswith("S2C|") and "|ok=" in line:
-                    self._responses.put(line)
+            console_bytes, frame_bytes = _split_console_and_frame_bytes(chunk)
+            if console_bytes:
+                # Plain console/boot-log noise (xil_printf on a shared UART),
+                # possibly followed by a frame in the same read() burst.
+                # Still recorded on the Veri Akisi ring (text fallback ozet)
+                # so the live traffic view shows the full conversation.
+                self._console_buffer.extend(console_bytes)
+                self._flush_console_lines()
+                self._traffic_push("rx", console_bytes)
+            if frame_bytes:
+                # A frame signature starts here: flush any partial console
+                # line queued so far, then hand the rest to the binary parser
+                # only — frame bytes must never render as console text.
+                self._flush_console_lines(force=True)
+                for frame in self._parser.feed(frame_bytes):
+                    self._handle_frame(frame)
 
     def console_since(self, since_seq: int) -> tuple[int, list[dict]]:
         with self._lock:
@@ -477,19 +545,20 @@ class _TestbenchSerialSession(_TrafficRing):
             if handle is None:
                 raise TestbenchSessionError("testbench serial session is not connected")
             payload = text if text.endswith("\n") else text + "\r\n"
+            payload_bytes = payload.encode("ascii", errors="replace")
             try:
-                handle.write(payload.encode("ascii", errors="replace"))
+                handle.write(payload_bytes)
                 handle.flush()
             except OSError as exc:
                 self.last_error = str(exc)
                 self.close()
                 raise
-            self._traffic_push("tx", payload)
+            self._traffic_push("tx", payload_bytes)
             self.last_used_at = time.time()
 
     def send(self, command: TestbenchCommand) -> TestbenchResult:
-        request_line = format_command(command)
-        expected_id = str(int(command.command_id))
+        request = _pack_command(command)
+        expected_counter = int(command.command_id)
         with self._send_lock:
             with self._lock:
                 handle = self._serial
@@ -501,23 +570,24 @@ class _TestbenchSerialSession(_TrafficRing):
                     except queue.Empty:
                         break
                 try:
-                    handle.write(request_line.encode("ascii"))
+                    handle.write(request)
                     handle.flush()
                 except OSError as exc:
                     self.last_error = str(exc)
                     self.close()
                     raise
-                self._traffic_push("tx", request_line)
+                self._traffic_push("tx", request)
             # Wait outside the state lock so the reader thread and console
             # polling stay live while we block on the response. The channel
             # can be shared (console UART, a second jtagterminal client), so
-            # match the response by id; a non-matching response is kept as a
-            # fallback so agents that answer with id=0 (e.g. on parse errors)
-            # still surface their message instead of a bare timeout.
+            # match the response by counter; a non-matching response is kept
+            # as a fallback so agents that answer with counter=0 (e.g. on
+            # parse errors) still surface their message instead of a bare
+            # timeout.
             deadline = time.time() + self.timeout_s
-            fallback_line: str | None = None
-            response_line: str | None = None
-            while response_line is None:
+            fallback_frame: tuple[int, int, bytes] | None = None
+            response_frame: tuple[int, int, bytes] | None = None
+            while response_frame is None:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     break
@@ -525,20 +595,20 @@ class _TestbenchSerialSession(_TrafficRing):
                     candidate = self._responses.get(timeout=remaining)
                 except queue.Empty:
                     break
-                candidate_id = parse_response(candidate).get("id")
-                if candidate_id == expected_id:
-                    response_line = candidate
-                elif candidate_id == "0":
-                    # id=0 is the agent's parse-error convention; surface it
-                    # instead of a bare timeout.
-                    fallback_line = candidate
-                # Any other id is the LATE answer of an earlier, timed-out
-                # command. Returning it as this command's result was wrong
-                # (the UI showed command A's data under command B); drop it —
-                # the traffic ring already recorded the line.
-            if response_line is None:
-                response_line = fallback_line
-            if response_line is None:
+                candidate_counter = s2cmsg.unpack_response(candidate)["id"]
+                if candidate_counter == str(expected_counter):
+                    response_frame = candidate
+                elif candidate_counter == "0":
+                    # counter=0 is the agent's parse-error convention; surface
+                    # it instead of a bare timeout.
+                    fallback_frame = candidate
+                # Any other counter is the LATE answer of an earlier,
+                # timed-out command. Returning it as this command's result
+                # was wrong (the UI showed command A's data under command
+                # B); drop it — the traffic ring already recorded the frame.
+            if response_frame is None:
+                response_frame = fallback_frame
+            if response_frame is None:
                 with self._lock:
                     self.last_error = f"no response within {self.timeout_s}s"
                 raise TestbenchSessionError(
@@ -547,9 +617,9 @@ class _TestbenchSerialSession(_TrafficRing):
             self.last_used_at = time.time()
             self.last_error = ""
         return TestbenchResult(
-            request_line=request_line.strip(),
-            response_line=response_line,
-            parsed=parse_response(response_line),
+            request_line=_request_frame_summary(command, request),
+            response_line=s2cmsg.decode_frame_summary(response_frame),
+            parsed=s2cmsg.unpack_response(response_frame),
         )
 
 

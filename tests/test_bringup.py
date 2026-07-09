@@ -1,8 +1,9 @@
-import re
+import struct
 import threading
 import time
 import unittest
 
+from backend import s2cmsg
 from backend.bringup import (
     BringupConfig,
     BringupJob,
@@ -11,6 +12,18 @@ from backend.bringup import (
     render_certificate_html,
 )
 from backend.testbench import TestbenchSessionManager
+
+
+def _pad4(data: bytes) -> bytes:
+    remainder = len(data) % 4
+    return data if remainder == 0 else data + b"\x00" * (4 - remainder)
+
+
+def _ok_response_frame(op_name: str, counter: int, *, deger: int = 0x2991, metin: bytes = b"ok") -> bytes:
+    body = (struct.pack("<IIiII", counter, 0, 0, deger, 0)
+            + struct.pack("<I", len(metin)) + _pad4(metin))
+    command_id = s2cmsg.message_id_for_op(op_name) | s2cmsg.RESPONSE_BIT
+    return s2cmsg.pack_frame(command_id, counter, body)
 
 
 def sample_manifest() -> dict:
@@ -71,13 +84,14 @@ class BuildPlanTests(unittest.TestCase):
 
 
 class AutoResponderSerial:
-    """Fake serial that answers every S2C request with ok=1 and echoing id."""
+    """Fake serial that answers every S2C-MSG request with durum=0 (ok)."""
 
     def __init__(self) -> None:
         self.rx = bytearray()
-        self.requests: list[str] = []
+        self.requests: list[bytes] = []
         self._lock = threading.Lock()
         self._closed = False
+        self._parser = s2cmsg.FrameParser()
 
     def read(self, size: int) -> bytes:
         with self._lock:
@@ -90,12 +104,11 @@ class AutoResponderSerial:
         return chunk
 
     def write(self, data: bytes) -> int:
-        text = data.decode("ascii", errors="replace")
         with self._lock:
-            self.requests.append(text.strip())
-            match = re.search(r"id=(\d+)", text)
-            request_id = match.group(1) if match else "0"
-            self.rx += f"S2C|id={request_id}|ok=1|status=0|value=0x2991|message=ok\r\n".encode("ascii")
+            self.requests.append(bytes(data))
+            for command_id, counter, _body in self._parser.feed(data):
+                entry = s2cmsg.load_catalog()["by_id"][command_id & ~s2cmsg.RESPONSE_BIT]
+                self.rx += _ok_response_frame(entry["op"], counter)
         return len(data)
 
     def flush(self) -> None:
@@ -127,7 +140,10 @@ class BringupRunTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["passed"], result["total"])
-        self.assertTrue(any("op=id_read" in request for request in fake.requests))
+        id_read_command_id = s2cmsg.message_id_for_op("id_read")
+        self.assertTrue(any(
+            struct.unpack_from("<I", request, 0)[0] == id_read_command_id
+            for request in fake.requests))
 
         certificate = render_certificate_html(result)
         self.assertIn("bringup_unit", certificate)

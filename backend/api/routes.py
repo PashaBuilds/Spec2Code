@@ -120,6 +120,7 @@ class TestbenchCommandRequest(BaseModel):
     device: str
     operation: str
     command_id: int = 1
+    device_index: int = 0xFFFFFFFF
     session_id: str = ""
     register_name: str = Field("", alias="register")
     register_address: int | None = None
@@ -1197,6 +1198,7 @@ def testbench_command(req: TestbenchCommandRequest) -> dict:
             device=req.device,
             operation=req.operation,
             command_id=req.command_id,
+            device_index=req.device_index,
             register=req.register_name,
             register_address=req.register_address,
             address=req.address,
