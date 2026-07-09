@@ -210,6 +210,7 @@ export const api = {
     ddr_model: string;
     ddr_bus_width: string;
     ddr_speed_bin: string;
+    add_regmap_test_ip?: boolean;
     make_bitstream: boolean;
     timeout_s: number;
   }) =>
@@ -217,6 +218,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  registerMapTestIp: (baseAddress?: string) =>
+    req<{ document: unknown; valid: boolean }>(
+      "/api/register-map/test-ip" + (baseAddress ? `?base_address=${encodeURIComponent(baseAddress)}` : ""),
+    ),
 
   vivadoParts: (payload: { vivado_path: string; refresh?: boolean; cached_only?: boolean }) =>
     req<{
@@ -230,7 +236,7 @@ export const api = {
       vivado_job_id: string;
       status: string;
       error: string | null;
-      result: { successful?: boolean; xsa_path?: string; image_path?: string; xsa_bit_path?: string } | null;
+      result: { successful?: boolean; xsa_path?: string; image_path?: string; xsa_bit_path?: string; regmap_ip_base?: string } | null;
     }>(`/api/vivado/jobs/${encodeURIComponent(vivadoJobId)}/result`),
 
   mapVitisCompileErrors: (log: string) =>

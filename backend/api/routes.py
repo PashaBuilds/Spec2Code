@@ -950,6 +950,7 @@ class VivadoDesignRequest(BaseModel):
     ddr_model: str = ""
     ddr_bus_width: str = ""
     ddr_speed_bin: str = ""
+    add_regmap_test_ip: bool = False
     make_bitstream: bool = False
     timeout_s: int = 3600
 
@@ -972,6 +973,7 @@ def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
         ddr_model=req.ddr_model,
         ddr_bus_width=req.ddr_bus_width,
         ddr_speed_bin=req.ddr_speed_bin,
+        add_regmap_test_ip=req.add_regmap_test_ip,
         make_bitstream=req.make_bitstream,
         timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
     )
@@ -1074,6 +1076,15 @@ def register_map_import_xlsx(req: RegisterMapXlsxRequest) -> dict:
         raise HTTPException(422, f"XLSX okunamadı: {exc}") from exc
     errors = regmap.validate_register_document(document)
     return {"document": document, "valid": not errors, "errors": errors}
+
+
+@router.get("/register-map/test-ip")
+def register_map_test_ip(base_address: str = regmap.REGMAP_TEST_IP_DEFAULT_BASE) -> dict:
+    """Vivado "Register Map Test IP"nin haritası (RTL ile birebir). Vivado
+    tasarımında IP eklenip üretildiğinde atanan taban adresle Register Map'e
+    otomatik getirilir; base_address verilmezse ZynqMP HPM0 varsayılanı."""
+    doc = regmap.regmap_test_ip_document(base_address or regmap.REGMAP_TEST_IP_DEFAULT_BASE)
+    return {"document": doc, "valid": not regmap.validate_register_document(doc)}
 
 
 @router.get("/register-map/example")

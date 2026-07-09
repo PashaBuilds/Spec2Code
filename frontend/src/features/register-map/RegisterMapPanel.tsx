@@ -175,6 +175,19 @@ export default function RegisterMapPanel() {
     finally { setBusy(false); }
   };
 
+  // Vivado'da üretilen "Register Map Test IP"nin haritasını (adres + register +
+  // bitfield) getirir. Adres, Vivado üretimi atadıysa localStorage'dan gelir.
+  const loadTestIp = async () => {
+    setBusy(true); setErrors([]);
+    try {
+      const base = (localStorage.getItem("spec2code.regmap.testIpBase") || "").trim();
+      const r = await api.registerMapTestIp(base || undefined);
+      setDoc(r.document as RegDoc); setActiveMap(0);
+      setNotice(base ? `Test IP haritası yüklendi (Vivado'nun atadığı adres: ${base}).` : "Test IP haritası yüklendi (varsayılan adres — Vivado'da IP üretince gerçek adresle gelir).");
+    } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
+    finally { setBusy(false); }
+  };
+
   if (!doc) return <div className="p-6 text-sm text-muted">Yükleniyor…</div>;
 
   return (
@@ -198,6 +211,7 @@ export default function RegisterMapPanel() {
           <Button size="sm" variant="outline" onClick={() => void exportXlsx()} disabled={busy}><FileSpreadsheet className="h-4 w-4" /> Excel dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => doc && download((doc.maps[0]?.name || "register_map") + ".json", JSON.stringify(doc, null, 2), "application/json")}><Download className="h-4 w-4" /> JSON dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => void downloadExampleHtml()} disabled={busy}><FilePlus2 className="h-4 w-4" /> Örnek editör indir</Button>
+          <Button size="sm" variant="outline" onClick={() => void loadTestIp()} disabled={busy}><Cpu className="h-4 w-4" /> Test IP haritasını yükle</Button>
           <Button size="sm" onClick={() => void generateC()} disabled={busy || localErrors.length > 0} className="ml-auto">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />} C kodu üret
           </Button>

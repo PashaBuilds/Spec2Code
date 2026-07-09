@@ -67,6 +67,32 @@ class VivadoDesignTclTests(unittest.TestCase):
         self.assertIn("S2C-VIVADO|xsa_ready=", tcl)
         self.assertNotIn("launch_runs synth_1", tcl)
 
+    def test_regmap_test_ip_injects_axi_ip_and_address(self) -> None:
+        tcl = design_tcl(_zynqmp_cfg(add_regmap_test_ip=True), Path(r"D:\tmp\s2c"))
+        # PS master AXI + PL saati acilir.
+        self.assertIn("CONFIG.PSU__USE__M_AXI_GP0 {1}", tcl)
+        self.assertIn("CONFIG.PSU__FPGA_PL0_ENABLE {1}", tcl)
+        # Custom RTL BD'ye modul olarak konur, otomasyonla baglanir, adres atanir.
+        self.assertIn("spec2code_regmap_test.v", tcl)
+        self.assertIn("create_bd_cell -type module -reference spec2code_regmap_test regmap_test_0", tcl)
+        self.assertIn("apply_bd_automation -rule xilinx.com:bd_rule:axi4", tcl)
+        self.assertIn("M_AXI_HPM0_FPD", tcl)
+        self.assertIn("assign_bd_address", tcl)
+        self.assertIn("S2C-VIVADO|regmap_ip_base=", tcl)
+
+    def test_regmap_test_ip_absent_by_default(self) -> None:
+        tcl = design_tcl(_zynqmp_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertNotIn("spec2code_regmap_test", tcl)
+        self.assertNotIn("apply_bd_automation", tcl)
+
+    def test_regmap_test_ip_rejected_on_versal(self) -> None:
+        from backend.vivado_design import validate_design
+        cfg = VivadoDesignConfig(
+            vivado_path="C:/Xilinx", platform="versal", part="xcvc1902-vsva2197-2MP-e-S",
+            temp_path="D:/tmp", peripherals=[VivadoPeripheral(kind="uart0")], add_regmap_test_ip=True)
+        errs = validate_design(cfg)
+        self.assertTrue(any("add_regmap_test_ip" in e for e in errs))
+
     def test_zynqmp_bitstream_stage_appends_synth_impl_and_fixed_xsa(self) -> None:
         tcl = design_tcl(_zynqmp_cfg(make_bitstream=True), Path(r"D:\tmp\s2c"))
         self.assertIn("launch_runs synth_1", tcl)

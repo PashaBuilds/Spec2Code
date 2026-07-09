@@ -819,3 +819,48 @@ def blank_document() -> dict:
             }
         ],
     }
+
+
+#: Register Map Test IP'nin (backend/data/spec2code_regmap_test.v) Vivado'nun
+#: ZynqMP HPM0 üzerindeki ilk PL slave'ine atadığı varsayılan taban adres.
+REGMAP_TEST_IP_DEFAULT_BASE = "0xA0000000"
+
+
+def regmap_test_ip_document(base_address: str = REGMAP_TEST_IP_DEFAULT_BASE) -> dict:
+    """Register Map Test IP'sinin register haritası — Verilog (spec2code_regmap_test.v)
+    ile BİREBİR. Vivado sayfasında IP eklenip tasarım üretildiğinde bu doküman
+    (adres XSA'dan) Register Map ekranına otomatik gelir. RO/WO/RW ve sabit
+    değerler açıklamalarda; okuma/yazma yolunu bütün case'lerle doğrular."""
+    return {
+        "version": 1,
+        "maps": [
+            {
+                "name": "regmap_test",
+                "base_address": base_address,
+                "description": "Spec2Code Register Map Test IP - okuma/yazma yolunu butun case'lerle dogrular (RO sabit / RW / WO / yaz->degisen RO).",
+                "registers": [
+                    {"name": "ID", "offset": "0x00", "reset": "0x53504543", "description": "[RO] Kimlik/magic 'SPEC' (0x53504543) - dogru IP'ye/adrese eristigini kanitlar",
+                     "fields": [{"name": "MAGIC", "bits": "31:0", "description": "sabit 0x53504543"}]},
+                    {"name": "VERSION", "offset": "0x04", "reset": "0x00010000", "description": "[RO] Surum (sabit)",
+                     "fields": [{"name": "MINOR", "bits": "15:0", "description": "sabit 0x0000"},
+                                {"name": "MAJOR", "bits": "31:16", "description": "sabit 0x0001"}]},
+                    {"name": "SCRATCH", "offset": "0x08", "reset": "0x00000000", "description": "[RW] Ne yazarsan aynen okunur (birebir yaz-oku)",
+                     "fields": [{"name": "DATA", "bits": "31:0", "description": "serbest 32-bit"}]},
+                    {"name": "SCRATCH_MIRROR", "offset": "0x0C", "reset": "0xFFFFFFFF", "description": "[RO] = ~SCRATCH; SCRATCH'e yazinca degisir (yaz->oku ispati)",
+                     "fields": [{"name": "NOT_DATA", "bits": "31:0", "description": "SCRATCH'in bit-ters hali"}]},
+                    {"name": "CONTROL", "offset": "0x10", "reset": "0x00000000", "description": "[RW] Kontrol (bitfield)",
+                     "fields": [{"name": "EN", "bits": "0", "description": "etkin"},
+                                {"name": "MODE", "bits": "2:1", "description": "mod"},
+                                {"name": "SPEED", "bits": "7:4", "description": "hiz"}]},
+                    {"name": "STATUS", "offset": "0x14", "reset": "0x0000A501", "description": "[RO] Durum (sabit bitfield)",
+                     "fields": [{"name": "READY", "bits": "0", "description": "sabit 1"},
+                                {"name": "ERROR", "bits": "1", "description": "sabit 0"},
+                                {"name": "CODE", "bits": "15:8", "description": "sabit 0xA5"}]},
+                    {"name": "TRIGGER", "offset": "0x18", "reset": "0x00000000", "description": "[WO] Yazinca COUNTER +1; okuma 0 doner",
+                     "fields": [{"name": "GO", "bits": "0", "description": "yaz -> COUNTER artar"}]},
+                    {"name": "COUNTER", "offset": "0x1C", "reset": "0x00000000", "description": "[RO] TRIGGER'a her yazimda +1 (WO->RO etki ispati)",
+                     "fields": [{"name": "COUNT", "bits": "31:0", "description": "tetik sayaci"}]},
+                ],
+            }
+        ],
+    }

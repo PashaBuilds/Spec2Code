@@ -15,7 +15,7 @@ import type { PlatformId, XsaParseResult } from "@/lib/types";
 
 const VIVADO_JOB_KEY = "spec2code.vivadoDesignJobId";
 
-type VivadoEvent = { event: string; message?: string; line?: string; stage?: string; progress?: number; xsa_path?: string; image_path?: string; xsa_bit_path?: string; _seq?: number };
+type VivadoEvent = { event: string; message?: string; line?: string; stage?: string; progress?: number; xsa_path?: string; image_path?: string; xsa_bit_path?: string; regmap_ip_base?: string; _seq?: number };
 
 interface PeripheralRow {
   kind: string;
@@ -107,10 +107,11 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const [ddrModel, setDdrModel] = useState("");
   const [ddrBusWidth, setDdrBusWidth] = useState("32 Bit");
   const [makeBit, setMakeBit] = useState(false);
+  const [addTestIp, setAddTestIp] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [events, setEvents] = useState<VivadoEvent[]>([]);
-  const [result, setResult] = useState<{ xsa_path?: string; image_path?: string; xsa_bit_path?: string; successful?: boolean } | null>(null);
+  const [result, setResult] = useState<{ xsa_path?: string; image_path?: string; xsa_bit_path?: string; successful?: boolean; regmap_ip_base?: string } | null>(null);
   const [connectMsg, setConnectMsg] = useState("");
   // Parça kataloğu: kurulu Vivado'nun get_parts çıktısı (platform -> cihaz
   // -> tam parça). El ile parça listesi TAŞINMAZ — tek kaynak kullanıcının
@@ -282,6 +283,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         ddr_bus_width: ddrMode === "model" ? ddrBusWidth : "",
         // Hıza dokunulmaz (PCW 1600 varsayılanı) — bkz. backend notu.
         ddr_speed_bin: "",
+        add_regmap_test_ip: platform === "zynq_ultrascale" ? addTestIp : false,
         make_bitstream: makeBit,
         timeout_s: makeBit ? 3 * 3600 : 1800,
       });
@@ -321,6 +323,10 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
 
   const xsaReady = result?.xsa_path || events.find((e) => e.event === "vivado.xsa_ready")?.xsa_path;
   const imageReady = result?.image_path || events.find((e) => e.event === "vivado.bit_ready")?.image_path;
+  const regmapBase = result?.regmap_ip_base || events.find((e) => e.event === "vivado.regmap_ip")?.regmap_ip_base;
+  // Test IP adresi atandiginda Register Map ekrani "Test IP haritasini yukle"
+  // ile bu adresi kullanir (adres + register + bitfield otomatik gelir).
+  useEffect(() => { if (regmapBase) localStorage.setItem("spec2code.regmap.testIpBase", regmapBase); }, [regmapBase]);
   const lastStage = [...events].reverse().find((e) => e.event === "vivado.stage");
   const tempTooLong = tempPath.trim().length > 60;
   const canStart = Boolean(vivadoDir.trim() && part.trim() && tempPath.trim() && rows.some((r) => r.enabled)) && !running;
@@ -673,6 +679,18 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
       )}
 
       <Card className="p-4">
+        {platform === "zynq_ultrascale" ? (
+          <label className="mb-3 flex cursor-pointer items-start gap-2 border-b border-border pb-3 text-sm text-text">
+            <input type="checkbox" checked={addTestIp} onChange={(e) => setAddTestIp(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accent)]" />
+            <span>
+              <b>Register Map Test IP ekle</b> (opsiyonel) — AXI4-Lite custom IP; RO sabit (ID/VERSION/STATUS),
+              RW (SCRATCH/CONTROL), WO→sayaç (TRIGGER/COUNTER) ve yaz→değişen RO (SCRATCH_MIRROR) register'larıyla
+              okuma/yazma yolunu bütün case'lerle doğrular. PS M_AXI_HPM0'a bağlanıp adres atanır; adres+register+bitfield
+              bilgisi üretim sonrası <b>Register Map</b> ekranına otomatik gelir.
+              <span className="mt-0.5 block text-[11px] text-faint">Şimdilik yalnız ZynqMP. Kart yokken bile XSA/xparameters ve Register Map içe aktarma doğrulanabilir.</span>
+            </span>
+          </label>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-text">
             <input type="checkbox" checked={makeBit} onChange={(e) => setMakeBit(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
@@ -697,6 +715,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
               <p className="break-all font-mono text-[11px] text-muted">{xsaReady}</p>
               {imageReady ? <p className="break-all font-mono text-[11px] text-muted">imaj: {imageReady}</p> : null}
               {result?.xsa_bit_path ? <p className="break-all font-mono text-[11px] text-muted">bit&apos;li XSA: {result.xsa_bit_path}</p> : null}
+              {regmapBase ? <p className="font-mono text-[11px] text-accent">Register Map Test IP adresi: {regmapBase} — <b>Register Map → &quot;Test IP haritasını yükle&quot;</b> ile bu adresle otomatik gelir.</p> : null}
             </div>
             <Button onClick={() => void connectToSetup(String(xsaReady))}>
               <Wand2 className="h-4 w-4" /> Setup&apos;a bağla — şemayı kur

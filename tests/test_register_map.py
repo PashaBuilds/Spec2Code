@@ -159,6 +159,31 @@ class RegisterMapCodegenTests(unittest.TestCase):
         self.assertNotIn("ucReserved0", c)
 
 
+class RegisterMapTestIpTests(unittest.TestCase):
+    def test_test_ip_document_valid_and_covers_all_cases(self) -> None:
+        doc = rm.regmap_test_ip_document("0xA0010000")
+        self.assertEqual(rm.validate_register_document(doc), [])
+        regs = {r["name"]: r for r in doc["maps"][0]["registers"]}
+        # RO sabit / RW / WO / yaz->degisen RO hepsi var.
+        self.assertEqual(set(regs), {"ID", "VERSION", "SCRATCH", "SCRATCH_MIRROR",
+                                     "CONTROL", "STATUS", "TRIGGER", "COUNTER"})
+        self.assertEqual(regs["ID"]["reset"], "0x53504543")           # "SPEC" magic
+        self.assertEqual(doc["maps"][0]["base_address"], "0xA0010000")
+        self.assertIn("[RO]", regs["ID"]["description"])
+        self.assertIn("[RW]", regs["SCRATCH"]["description"])
+        self.assertIn("[WO]", regs["TRIGGER"]["description"])
+        # Bitfield anlamlari (CONTROL) tasiniyor.
+        self.assertEqual([f["name"] for f in regs["CONTROL"]["fields"]], ["EN", "MODE", "SPEED"])
+
+    def test_test_ip_document_generates_clean_c(self) -> None:
+        files = rm.generate_files(rm.regmap_test_ip_document())
+        self.assertEqual(set(files), {"regmap_test_regs.h", "regmap_test.c"})
+        h = files["regmap_test_regs.h"]
+        self.assertIn("#define REGMAP_TEST_ID_RESET 0x53504543", h)
+        self.assertIn("} __attribute__((packed)) SCONTROL;", h)  # bitfield register
+        self.assertIn("unsigned int uiSCRATCH;", h)               # skaler register
+
+
 class RegisterMapXlsxTests(unittest.TestCase):
     def _doc(self):
         return {"version": 1, "maps": [{

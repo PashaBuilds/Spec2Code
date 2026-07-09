@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -96,6 +97,7 @@ class VivadoDesignConfig:
     ddr_model: str = ""         # model modunda: zynqmp_ddr_parts.json id'si
     ddr_bus_width: str = ""     # model modunda: "16 Bit" | "32 Bit" | "64 Bit"
     ddr_speed_bin: str = ""     # model modunda boş = girdinin default_speed_bin'i
+    add_regmap_test_ip: bool = False  # opsiyonel: Register Map Test IP (AXI4-Lite)
     make_bitstream: bool = False
     timeout_s: int = 3600
 
@@ -154,6 +156,8 @@ def validate_design(cfg: VivadoDesignConfig) -> list[str]:
                     errors.append(
                         f"ddr_speed_bin: {entry['label']} için {cfg.ddr_speed_bin!r} desteklenmiyor "
                         f"(seçenekler: {', '.join(entry.get('speed_bins', []))})")
+    if cfg.add_regmap_test_ip and cfg.platform != "zynq_ultrascale":
+        errors.append("add_regmap_test_ip: Register Map Test IP şimdilik yalnız ZynqMP'de (Versal M_AXI/NoC sonraki fazda)")
     if cfg.ddr_mode == "custom":
         if cfg.platform != "zynq_ultrascale":
             errors.append("ddr_mode=custom: Faz A'da DDR yalnız ZynqMP'de; Versal DDR (NoC) sonraki fazda — ajan OCM'den koşar")
@@ -359,6 +363,38 @@ def _versal_cips_config_tcl(cfg: VivadoDesignConfig) -> str:
     )
 
 
+def _regmap_test_ip_tcl(staging: Path, ps_inst: str) -> list[str]:
+    """Register Map Test IP (AXI4-Lite) BD adımları — YALNIZ ZynqMP. PS'te bir
+    master AXI (M_AXI_HPM0_FPD) + PL fabrik saati (pl_clk0) açar; custom RTL'i
+    (spec2code_regmap_test.v, staging'e kopyalanır) BD'ye modül olarak koyar;
+    apply_bd_automation ile AXI'yi bağlar (SmartConnect + proc_sys_reset + saat);
+    adres atar ve atanan tabanı `regmap_ip_base=` işaretiyle bildirir."""
+    rtl = staging / "spec2code_regmap_test.v"
+    axi_cfg = (
+        "{ Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} "
+        f"Master {{/{ps_inst}/M_AXI_HPM0_FPD}} "
+        "Slave {/regmap_test_0/s_axi} intc_ip {New AXI SmartConnect} master_apm {0} }"
+    )
+    return [
+        _marker("stage=regmap_ip"),
+        # PS'te bir master AXI (HPM0 FPD) + PL saati (pl_clk0, 100 MHz).
+        "set_property -dict [list CONFIG.PSU__USE__M_AXI_GP0 {1} "
+        "CONFIG.PSU__FPGA_PL0_ENABLE {1} "
+        "CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100}] $spec2code_ps\n",
+        # Custom RTL'i projeye ekle, BD'ye modül referansı olarak koy.
+        f"add_files -norecurse {_tcl_path(rtl)}\n",
+        "update_compile_order -fileset sources_1\n",
+        "create_bd_cell -type module -reference spec2code_regmap_test regmap_test_0\n",
+        # AXI master -> slave otomasyonu (arayüz s_axi_* port adlarından çıkarılır).
+        f"apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {axi_cfg} "
+        "[get_bd_intf_pins regmap_test_0/s_axi]\n",
+        "assign_bd_address\n",
+        # Atanan taban adresi bildir (Register Map'e otomatik gelir).
+        "set spec2code_seg [lindex [get_bd_addr_segs -of_objects [get_bd_cells regmap_test_0]] 0]\n",
+        'puts "S2C-VIVADO|regmap_ip_base=[get_property offset $spec2code_seg]"\n',
+    ]
+
+
 def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
     """Deterministic batch-Tcl: proje → BD → PS → validate → wrapper →
     aşama 1 XSA → (istenirse) synth/impl → bit/pdi → bit'li XSA."""
@@ -382,6 +418,7 @@ def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
         f"set spec2code_ps [create_bd_cell -type ip -vlnv {ps_vlnv} {ps_inst}]\n",
         _marker("stage=ps_config"),
         ps_config,
+        *(_regmap_test_ip_tcl(staging, ps_inst) if cfg.add_regmap_test_ip else []),
         _marker("stage=validate"),
         "validate_bd_design\n",
         "save_bd_design\n",
@@ -472,6 +509,7 @@ _STAGE_PROGRESS = {
     "create_project": 10,
     "block_design": 20,
     "ps_config": 30,
+    "regmap_ip": 35,
     "validate": 40,
     "wrapper": 45,
     "generate_targets": 50,
@@ -486,6 +524,7 @@ _STAGE_LABELS = {
     "create_project": "Vivado projesi oluşturuluyor",
     "block_design": "Blok tasarım kuruluyor",
     "ps_config": "PS yapılandırılıyor",
+    "regmap_ip": "Register Map Test IP ekleniyor (AXI4-Lite + adres atama)",
     "validate": "Tasarım doğrulanıyor (validate_bd_design)",
     "wrapper": "HDL wrapper üretiliyor",
     "generate_targets": "Blok tasarım çıktı ürünleri üretiliyor",
@@ -561,6 +600,10 @@ class VivadoDesignJobManager:
                 "ağacı derin klasörler açar. Kısa bir Temp dizini verin "
                 "(örn. D:\\VivadoTemp).")
         staging.mkdir(parents=True, exist_ok=True)
+        # Register Map Test IP RTL'i staging'e kopyala (Tcl oradan add_files eder).
+        if cfg.add_regmap_test_ip:
+            src_v = Path(__file__).with_name("data") / "spec2code_regmap_test.v"
+            shutil.copy2(src_v, staging / "spec2code_regmap_test.v")
         tcl_path = staging / "spec2code_design.tcl"
         tcl_path.write_text(design_tcl(cfg, staging), encoding="utf-8")
         bat = vivado_bat(cfg.vivado_path)
@@ -641,6 +684,11 @@ class VivadoDesignJobManager:
             label, _, value = rest.partition("|")
             result.setdefault("io_assignments", {})[label] = value
             job.emit({"event": "vivado.log", "line": f"MIO atandı: {label} -> {value}"})
+        elif payload.startswith("regmap_ip_base="):
+            base = payload[len("regmap_ip_base="):].strip()
+            result["regmap_ip_base"] = base
+            job.emit({"event": "vivado.regmap_ip", "stage": "regmap_ip", "progress": 38,
+                      "message": f"Register Map Test IP adresi atandı: {base}", "regmap_ip_base": base})
         elif payload.startswith("xsa_ready="):
             path = payload[len("xsa_ready="):]
             result["xsa_path"] = path
