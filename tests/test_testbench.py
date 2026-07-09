@@ -2210,8 +2210,18 @@ class TestbenchTests(unittest.TestCase):
             for name in ("spec2code_mesaj.c", "spec2code_mesaj.h",
                          "spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
                 shutil.copy2(tests_dir / name, work / name)
+            # Olcumlu spec'te mesaj.c cit.h'ye baglanir (CIT_RUN/CIT_READ dallari);
+            # izolasyon testi cit dosyalarini da tasir + linkler (varsa).
+            extra_sources = []
+            if (tests_dir / "spec2code_cit.c").exists():
+                for name in ("spec2code_cit.c", "spec2code_cit.h"):
+                    shutil.copy2(tests_dir / name, work / name)
+                extra_sources.append(str(work / "spec2code_cit.c"))
+            # Gercek Vitis xil_types.h NULL'i saglar; host derlemesinde
+            # <stddef.h> ile ayni garantiyi veriyoruz (aksi halde katı gcc'de
+            # protocol.c'nin NULL kullanimi derlenmez).
             (work / "xstatus.h").write_text(
-                "#ifndef XSTATUS_H\n#define XSTATUS_H\n"
+                "#ifndef XSTATUS_H\n#define XSTATUS_H\n#include <stddef.h>\n"
                 "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
                 encoding="utf-8")
 
@@ -2279,7 +2289,7 @@ class TestbenchTests(unittest.TestCase):
             compile_run = subprocess.run(
                 [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
                  str(work / "main.c"), str(work / "spec2code_mesaj.c"),
-                 str(work / "spec2code_testbench_protocol.c")],
+                 str(work / "spec2code_testbench_protocol.c")] + extra_sources,
                 capture_output=True, text=True)
             self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
             output = subprocess.run([str(binary)], capture_output=True, text=True).stdout

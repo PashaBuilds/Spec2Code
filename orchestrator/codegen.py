@@ -345,12 +345,18 @@ def _testbench_protocol_source() -> str:
     )
 
 
-def _mesaj_header() -> str:
+def _mesaj_header(spec: dict | None = None,
+                  get_descriptor: Callable[[str], dict] | None = None) -> str:
     """Üretilen `spec2code_mesaj.h`: S2C-MSG binary çerçeve başlığı + parser API.
 
     Katalog (backend/data/message_catalog.json) tek doğruluk kaynağı; ID
     makroları (SPEC2CODE_MESAJ_*) buradan üretilir. Durum kodları 0..7. Yalnız
     unsigned int/int kullanılır (proje konvansiyonu — uint*_t / stdint.h yok).
+
+    CIT ölçümü varsa `CERCEVE_MAX`, CIT yanıt çerçevesini de kapsayacak şekilde
+    (standart yanıt ile CIT çerçevesinin büyüğü) genişletilir — transport çıktı
+    tamponları bu makroyla boyutlanır. Header cit.h'ye bağlanmaz (mesaj katmanı
+    tek başına derlenir kalır): CIT boyu spec'ten sayısal hesaplanır.
     """
     catalog = _load_message_catalog()
     id_lines = [
@@ -363,6 +369,25 @@ def _mesaj_header() -> str:
         f"#define SPEC2CODE_MESAJ_DURUM_{name} {index}U"
         for index, name in enumerate(durum_names)
     ]
+    # CIT cerceve boyu (yalniz olcum varsa CERCEVE_MAX'a katilir): baslik(12) +
+    # istekSayac(4) + durum(4) + sizeof(SBoardCit). SBoardCit = uiSayac(4) +
+    # uiZaman(4) + bayrak(((N+31)/32)*4) + N*12.
+    cit_lines = ""
+    if spec is not None and get_descriptor is not None:
+        sayi = len(_cit_measurements(spec, get_descriptor))
+        if sayi > 0:
+            board_cit_boy = 8 + ((sayi + 31) // 32) * 4 + sayi * 12
+            cit_frame = 12 + 8 + board_cit_boy
+            cit_lines = (
+                "/* CIT yanit cercevesi de cikti tamponuna sigmali: baslik + 8 (istekSayac+\n"
+                f" * durum) + sizeof(SBoardCit) = {cit_frame} bayt ({sayi} olcum). CERCEVE_MAX\n"
+                " * standart yanit ile CIT'in buyugu alinir (transport tamponu tek sabit). */\n"
+                f"#define SPEC2CODE_MESAJ_CIT_CERCEVE_MAX {cit_frame}U\n"
+                "#undef SPEC2CODE_MESAJ_CERCEVE_MAX\n"
+                "#define SPEC2CODE_MESAJ_CERCEVE_MAX \\\n"
+                "    ((SPEC2CODE_MESAJ_CERCEVE_STD >= SPEC2CODE_MESAJ_CIT_CERCEVE_MAX) ? \\\n"
+                "     SPEC2CODE_MESAJ_CERCEVE_STD : SPEC2CODE_MESAJ_CIT_CERCEVE_MAX)\n\n"
+            )
     return (
         "/**\n"
         " * @file spec2code_mesaj.h\n"
@@ -382,13 +407,15 @@ def _mesaj_header() -> str:
         "#define SPEC2CODE_MESAJ_YANIT_BIT 0x80000000U\n"
         "#define SPEC2CODE_MESAJ_IMZA 0x5343U\n"
         "#define SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY 28U\n"
-        "/* En buyuk yanit cercevesi: baslik(12) + yanit govdesi\n"
+        "/* En buyuk standart yanit cercevesi: baslik(12) + yanit govdesi\n"
         " * (20 sabit alan + pad4(veri 256) + 4 metinBoy + pad4(metin)). Ajan\n"
-        " * transportlari cikti tamponunu bu boyla ayirir; feed-forward recv\n"
+        " * transportlari cikti tamponunu CERCEVE_MAX ile ayirir; feed-forward recv\n"
         " * yolu 4096B govdeyi zaten parser tamponunda tutar. */\n"
-        "#define SPEC2CODE_MESAJ_CERCEVE_MAX (SPEC2CODE_MESAJ_BASLIK_BOY + 20U + \\\n"
+        "#define SPEC2CODE_MESAJ_CERCEVE_STD (SPEC2CODE_MESAJ_BASLIK_BOY + 20U + \\\n"
         "    (((SPEC2CODE_TESTBENCH_DATA_MAX + 3U) & ~3U) + 4U + \\\n"
-        "     ((SPEC2CODE_TESTBENCH_MESSAGE_MAX + 3U) & ~3U)))\n\n"
+        "     ((SPEC2CODE_TESTBENCH_MESSAGE_MAX + 3U) & ~3U)))\n"
+        "#define SPEC2CODE_MESAJ_CERCEVE_MAX SPEC2CODE_MESAJ_CERCEVE_STD\n\n"
+        + cit_lines +
         "/* Mesaj ID makrolari (katalogdan uretildi). */\n"
         + "\n".join(id_lines) + "\n\n"
         "/* Durum kodlari (yanit govdesi uiDurum). */\n"
@@ -491,6 +518,13 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     ) or '    ""'
     device_count = len(device_ids)
 
+    # CIT: yalniz olcum varsa cit.h include edilir ve CIT_RUN hedefi olan
+    # dosya-statigi (S_sMesajCit) + CIT_RUN/CIT_READ dallari uretilir.
+    cit_enabled = len(_cit_measurements(spec, get_descriptor)) > 0
+    cit_include = '#include "spec2code_cit.h"\n' if cit_enabled else ""
+    cit_static = ("/* CIT_RUN hedefi: koss ve bu kopyayi cerceve. */\n"
+                  "static SBoardCit S_sMesajCit;\n\n") if cit_enabled else ""
+
     return (
         "/**\n"
         " * @file spec2code_mesaj.c\n"
@@ -499,7 +533,8 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         " *        satir satir C ikizidir. Katalog tablolari otomatik uretildi.\n"
         " */\n"
         '#include "spec2code_mesaj.h"\n'
-        '#include "spec2code_testbench_protocol.h"\n\n'
+        '#include "spec2code_testbench_protocol.h"\n'
+        + cit_include + "\n"
         "/* ID -> op adi tablosu (katalogdan uretildi; kalici ID'ler). */\n"
         "typedef struct\n"
         "{\n"
@@ -520,12 +555,25 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "};\n\n"
         "/* Yanit sayaci: ajan tarafinda monoton, 1'den baslar. */\n"
         "static unsigned int S_uiYanitSayac = 0U;\n\n"
-        + _MESAJ_SOURCE_BODY
+        + cit_static
+        + _mesaj_source_body(cit_enabled)
     )
 
 
 # Sabit gövde: tablolardan bağımsız, tüm parser/köprü gerçeklemesi.
-_MESAJ_SOURCE_BODY = (
+def _mesaj_source_body(cit_enabled: bool) -> str:
+    """Parser + köprü gövdesi. `cit_enabled` ise CIT çerçeveleyici + CIT_RUN/
+    CIT_READ dalları da (cit.h'ye bağlı) üretilir; değilse dallar
+    DESTEKLENMIYOR döner ve cit.h include EDİLMEZ (mesaj katmanı tek başına derlenir).
+    """
+    cit_framer = _MESAJ_CIT_FRAMER if cit_enabled else ""
+    cit_branch = _MESAJ_CIT_BRANCH_ENABLED if cit_enabled else _MESAJ_CIT_BRANCH_DISABLED
+    return (_MESAJ_SOURCE_BODY_TEMPLATE
+            .replace("/*<<CIT_FRAMER>>*/\n", cit_framer)
+            .replace("/*<<CIT_BRANCH>>*/\n", cit_branch))
+
+
+_MESAJ_SOURCE_BODY_TEMPLATE = (
     "/* --- Little-endian yardimcilar (kontrat LE; hedef endian'dan bagimsiz). --- */\n"
     "static unsigned int spec2codeMesajOku32(const unsigned char* ucpVeri)\n"
     "{\n"
@@ -759,6 +807,7 @@ _MESAJ_SOURCE_BODY = (
     "    return spec2codeMesajYanitCerceveKur(uiIstekKomut, &sYanit, uiDurum, sYanit.iStatus,\n"
     "                                         ucpCikti, uiKapasite);\n"
     "}\n\n"
+    "/*<<CIT_FRAMER>>*/\n"
     "unsigned int spec2codeMesajIsle(const SMesajBaslik* spBaslik, const unsigned char* ucpGovde,\n"
     "                                unsigned char* ucpCikti, unsigned int uiCiktiKapasite)\n"
     "{\n"
@@ -779,6 +828,7 @@ _MESAJ_SOURCE_BODY = (
     "        return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
     "            SPEC2CODE_MESAJ_DURUM_GECERSIZ_MESAJ, ucpCikti, uiCiktiKapasite);\n"
     "    }\n"
+    "/*<<CIT_BRANCH>>*/\n"
     "    cpOp = spec2codeMesajOpAdi(spBaslik->uiMesajKomut);\n"
     "    if (cpOp == (const char*)0)\n"
     "    {\n"
@@ -874,6 +924,80 @@ _MESAJ_SOURCE_BODY = (
     "    }\n"
     "    return uiToplam;\n"
     "}\n"
+)
+
+
+# CIT çerçeveleyici: yalnız ölçüm varken üretilir (cit.h'ye bağlı). Gövde:
+# uiIstekSayac(4) + uiDurum(4) + SBoardCit paketlenmiş kopya. Yanıt ID = istek
+# ID | YANIT_BIT; sayaç monoton (mevcut S_uiYanitSayac paylaşılır).
+_MESAJ_CIT_FRAMER = (
+    "/* CIT yanit cercevesi: uiIstekSayac + uiDurum + SBoardCit (packed kopya). */\n"
+    "static unsigned int spec2codeMesajCitCerceveKur(unsigned int uiIstekKomut,\n"
+    "    unsigned int uiIstekSayac, unsigned int uiDurum, const SBoardCit* spCit,\n"
+    "    unsigned char* ucpCikti, unsigned int uiKapasite)\n"
+    "{\n"
+    "    unsigned int uiGovdeBoy;\n"
+    "    unsigned int uiToplam;\n"
+    "    unsigned int uiIndex;\n\n"
+    "    /* Govde: 4 (istekSayac) + 4 (durum) + sizeof(SBoardCit). SBoardCit 4B hizali. */\n"
+    "    uiGovdeBoy = 8U + (unsigned int)sizeof(SBoardCit);\n"
+    "    uiToplam = SPEC2CODE_MESAJ_BASLIK_BOY + uiGovdeBoy;\n"
+    "    if ((ucpCikti == (unsigned char*)0) || (uiToplam > uiKapasite))\n"
+    "    {\n"
+    "        return 0U;\n"
+    "    }\n"
+    "    for (uiIndex = 0U; uiIndex < uiToplam; uiIndex++)\n"
+    "    {\n"
+    "        ucpCikti[uiIndex] = 0U;\n"
+    "    }\n"
+    "    S_uiYanitSayac++;\n"
+    "    spec2codeMesajYaz32(&ucpCikti[0], uiIstekKomut | SPEC2CODE_MESAJ_YANIT_BIT);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[4], uiGovdeBoy);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[8], S_uiYanitSayac);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[SPEC2CODE_MESAJ_BASLIK_BOY], uiIstekSayac);\n"
+    "    spec2codeMesajYaz32(&ucpCikti[SPEC2CODE_MESAJ_BASLIK_BOY + 4U], uiDurum);\n"
+    "    if (spCit != (const SBoardCit*)0)\n"
+    "    {\n"
+    "        const unsigned char* ucpCit = (const unsigned char*)spCit;\n"
+    "        for (uiIndex = 0U; uiIndex < (unsigned int)sizeof(SBoardCit); uiIndex++)\n"
+    "        {\n"
+    "            ucpCikti[SPEC2CODE_MESAJ_BASLIK_BOY + 8U + uiIndex] = ucpCit[uiIndex];\n"
+    "        }\n"
+    "    }\n"
+    "    return uiToplam;\n"
+    "}\n\n"
+)
+
+# CIT_RUN / CIT_READ dallari (olcum varken): koss/oku, CIT cercevesi dondur.
+_MESAJ_CIT_BRANCH_ENABLED = (
+    "    /* CIT dallari (op koprusunden ONCE): CIT_RUN kosar, CIT_READ son kopyayi dondurur. */\n"
+    "    {\n"
+    "        unsigned int uiIstekId = spBaslik->uiMesajKomut & ~SPEC2CODE_MESAJ_YANIT_BIT;\n"
+    "        if (uiIstekId == SPEC2CODE_MESAJ_CIT_RUN)\n"
+    "        {\n"
+    "            boardCitRun(&S_sMesajCit);\n"
+    "            return spec2codeMesajCitCerceveKur(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                SPEC2CODE_MESAJ_DURUM_OK, &S_sMesajCit, ucpCikti, uiCiktiKapasite);\n"
+    "        }\n"
+    "        if (uiIstekId == SPEC2CODE_MESAJ_CIT_READ)\n"
+    "        {\n"
+    "            return spec2codeMesajCitCerceveKur(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                SPEC2CODE_MESAJ_DURUM_OK, boardCitSon(), ucpCikti, uiCiktiKapasite);\n"
+    "        }\n"
+    "    }\n"
+)
+
+# Olcumsuz spec: CIT dallari DESTEKLENMIYOR doner (cit.h include EDILMEZ).
+_MESAJ_CIT_BRANCH_DISABLED = (
+    "    /* CIT dallari: bu spec'te olcum yok -> DESTEKLENMIYOR (cit.h uretilmedi). */\n"
+    "    {\n"
+    "        unsigned int uiIstekId = spBaslik->uiMesajKomut & ~SPEC2CODE_MESAJ_YANIT_BIT;\n"
+    "        if ((uiIstekId == SPEC2CODE_MESAJ_CIT_RUN) || (uiIstekId == SPEC2CODE_MESAJ_CIT_READ))\n"
+    "        {\n"
+    "            return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR, ucpCikti, uiCiktiKapasite);\n"
+    "        }\n"
+    "    }\n"
 )
 
 
@@ -1537,68 +1661,14 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
     }
 
 
-def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
-    agent = _testbench_transport_agent(spec)
-    manifest = {
-        "schema_version": "1.0",
-        "project": spec.get("project", {}).get("name", ""),
-        "agent_version": _app_version(),
-        "protocol": "S2C line protocol v1",
-        # S2C-MSG binary katalog imzasi: uretilen mesaj katmani (spec2code_mesaj.c)
-        # ile backend s2cmsg ayni katalog baytlarindan uretilir; bu CRC32
-        # (Python zlib.crc32) ikisinin es oldugunu dogrular.
-        "message_catalog_crc32": _message_catalog_crc32(),
-        "line_format": ("S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; "
-                        "global: S2C|id=1|op=spec2code_version, S2C|id=1|op=log_level|value=1..5"),
-        "transport_agent": agent,
-        "log": {
-            "op": "log_level",
-            "levels": dict(_TESTBENCH_LOG_LEVELS),
-            "default": _TESTBENCH_LOG_LEVELS[_TESTBENCH_LOG_DEFAULT_LEVEL],
-            "line_prefix": "S2C-LOG|",
-        },
-        "devices": [],
-    }
-    # I2C hat taraması: UI hangi denetleyicilerin taranabileceğini ve mux
-    # topolojisini (kanal kanal harita için) buradan öğrenir.
-    if "XIicPs" in _testbench_used_handle_types(spec):
-        manifest["i2c_scan"] = {
-            "op": "i2c_scan",
-            "mux_op": "i2c_mux_set",
-            "range": [0x08, 0x77],
-            # Prob yazma: recv-polled sahada NACK'te de basari dondurdu.
-            "probe": "1-byte write 0x00 (register pointer reset)",
-            "skip_address_param": True,
-            "controllers": [
-                {"id": c.get("id", ""), "instance": c.get("instance", "")}
-                for c in spec.get("controllers", [])
-                if c.get("type") == "i2c"
-            ],
-            "muxes": [
-                {
-                    "id": m.get("id", ""),
-                    "part": m.get("part", ""),
-                    "controller_id": m.get("controller_id", ""),
-                    "address": int(str(m.get("i2c_address", "0x70")), 0),
-                    "channels": int(m.get("channels", 8)),
-                }
-                for m in spec.get("muxes", [])
-            ],
-        }
-    if agent == "uart":
-        uart = _testbench_uart_controller(spec) or {}
-        manifest["uart"] = {
-            "instance": uart.get("instance", ""),
-            "driver": _testbench_uart_driver(spec),
-            "baud": 115200,
-        }
-    if agent == "coresight":
-        manifest["coresight"] = {
-            "device": "psu_coresight_0",
-            "driver": "coresightps_dcc",
-            "processor": "psu_cortexa53_0",
-            "host_bridge": "xsdb jtagterminal -socket",
-        }
+def _testbench_manifest_devices(spec: dict, get_descriptor: Callable[[str], dict]) -> list[dict]:
+    """Manifest ``devices[]`` listesini kurar (tek doğruluk kaynağı).
+
+    Hem ``_testbench_manifest`` hem CIT üreteci (``_cit_measurements``) bu
+    fonksiyonu çağırır — böylece olçüm sırası (manifest devices[] → operations[])
+    tek yerden gelir ve CIT bit hizası bağımsız türetmeye kaymaz.
+    """
+    devices: list[dict] = []
     for device in spec.get("devices", []):
         descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
         operations = []
@@ -1718,7 +1788,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 "wire": [{"kind": "reg_write", "runtime": True}],
             })
         transport_type = descriptor.get("transport", {}).get("type", "")
-        manifest["devices"].append({
+        devices.append({
             "id": device.get("id", ""),
             "part": device.get("part", ""),
             "transport": transport_type,
@@ -1746,6 +1816,333 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             ),
             "operations": operations,
         })
+    return devices
+
+
+def _cit_measurements(spec: dict, get_descriptor: Callable[[str], dict]) -> list[dict]:
+    """CIT ölçüm listesi (manifest cit.olcumler ile birebir sıralı).
+
+    ``_testbench_manifest_devices`` + ``_testbench_cit_section`` üzerinden gelir;
+    böylece C üretimi ve manifest tek sıralama kaynağını paylaşır.
+    """
+    devices = _testbench_manifest_devices(spec, get_descriptor)
+    return _testbench_cit_section(spec, devices)["olcumler"]
+
+
+def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
+    """Üretilen `spec2code_cit.h`: SBoardCit + bayrak yapısı + koşu/oku API'si.
+
+    Bit sırası manifest cit.olcumler ile birebir (aynı `_cit_measurements`
+    kaynağından). Ölçüm yoksa çağıran (harness) bu dosyayı hiç üretmez.
+    """
+    olcumler = _cit_measurements(spec, get_descriptor)
+    sayi = len(olcumler)
+    bayrak_bayt = ((sayi + 31) // 32) * 4
+    bit_lines = [
+        f"    unsigned int ui{m['cname']}Ok : 1;   "
+        f"/* olcum {m['index']}: {m['name']}, {m['device']}/{m['op']} */"
+        for m in olcumler
+    ]
+    return (
+        "/**\n"
+        " * @file spec2code_cit.h\n"
+        " * @brief CIT (Card-In-Test) olcum toplama: SBoardCit paketlenmis kopya,\n"
+        " *        kullanici isimli gecti/kaldi bitleri + limit degerlendirmesi.\n"
+        " *\n"
+        " * Olcum sirasi manifest cit.olcumler ile birebir (uretim tek kaynaktan).\n"
+        " * El ile duzenlemeyin; spec'ten yeniden uretilir. Yalniz unsigned int/int.\n"
+        " */\n"
+        "#ifndef SPEC2CODE_CIT_H\n"
+        "#define SPEC2CODE_CIT_H\n\n"
+        f"#define BOARD_CIT_OLCUM_SAYISI {sayi}U\n\n"
+        "/**\n"
+        " * @brief Olcum basina gecti(1)/kaldi(0) biti (olcum sirasiyla, bit 0 = olcum 0).\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        + "\n".join(bit_lines) + "\n"
+        "} SBoardCitBayraklar;\n\n"
+        f"_Static_assert(sizeof(SBoardCitBayraklar) == {bayrak_bayt}U,\n"
+        f"               \"SBoardCitBayraklar {bayrak_bayt} bayt olmalidir\");\n\n"
+        "/**\n"
+        " * @brief Tek olcum sonucu.\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        "    int          iDeger;    /* islenmis deger (birim manifest cit.olcumler[i].unit) */\n"
+        "    unsigned int uiHam;     /* ham deger (yanit data'nin ilk 4B'i ya da uiValue)    */\n"
+        "    unsigned int uiDurum;   /* 0 OK; mesaj katmani durum kodlari (5 BUS, 7 DESTEKLENMIYOR) */\n"
+        "} SBoardCitOlcum;\n\n"
+        "/**\n"
+        " * @brief Bir CIT kosusunun tam sonucu (mesaj yanit govdesine paketlenir).\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        "    unsigned int       uiSayac;   /* kac kez kosuldu (her boardCitRun'da +1) */\n"
+        "    unsigned int       uiZaman;   /* ms tick (kaynak yoksa 0)                */\n"
+        "    SBoardCitBayraklar sBayraklar;\n"
+        "    SBoardCitOlcum     arrOlcum[BOARD_CIT_OLCUM_SAYISI];\n"
+        "} SBoardCit;\n\n"
+        "_Static_assert(sizeof(SBoardCit) % 4U == 0U, \"SBoardCit 4B hizali olmalidir\");\n\n"
+        "/**\n"
+        " * @brief CIT olcumlerini kostur; her olcum icin dispatch'i cagirir, limiti\n"
+        " *        degerlendirir, bayrak bitini ve sonucu doldurur. uiSayac +1.\n"
+        " */\n"
+        "void boardCitRun(SBoardCit* spCit);\n\n"
+        "/**\n"
+        " * @brief Son kosunun kopyasini dondurur (yeniden kosmadan). Hic kosulmadiysa\n"
+        " *        sifirlanmis struct (uiSayac 0).\n"
+        " */\n"
+        "const SBoardCit* boardCitSon(void);\n\n"
+        "#endif /* SPEC2CODE_CIT_H */\n"
+    )
+
+
+def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
+    """Üretilen `spec2code_cit.c`: limit tablosu + dispatch köprüsü + boardCitRun."""
+    olcumler = _cit_measurements(spec, get_descriptor)
+
+    # Sabit limit tablosu: enabled=false -> uiEtkin=0; min/max yoksa uiLimitVar=0.
+    limit_rows = []
+    for m in olcumler:
+        has_limit = (m["min"] is not None) and (m["max"] is not None)
+        i_min = int(m["min"]) if has_limit else 0
+        i_max = int(m["max"]) if has_limit else 0
+        ui_limit = 1 if has_limit else 0
+        ui_kritik = 1 if str(m["severity"]).lower() == "critical" else 0
+        ui_etkin = 1 if m["enabled"] else 0
+        limit_rows.append(
+            f"    {{ {i_min}, {i_max}, {ui_limit}U, {ui_kritik}U, {ui_etkin}U }}, "
+            f"/* olcum {m['index']}: {m['name']} */")
+    limit_table = "\n".join(limit_rows) if limit_rows else "    { 0, 0, 0U, 0U, 0U }"
+
+    # Cihaz id + op adi string tablolari (dispatch koprusu; MesajIsle ile ayni
+    # alanlar: cArrDevice = cihaz id string, cArrOperation = op adi string).
+    device_rows = "\n".join(
+        f'    "{_c_string_escape(m["device"])}",' for m in olcumler) or '    ""'
+    op_rows = "\n".join(
+        f'    "{_c_string_escape(m["op"])}",' for m in olcumler) or '    ""'
+
+    # Her olcum icin uye adiyla atama (switch): bit alani uyeleri adreslenemez,
+    # bit-index aritmetigi YOK — uye adiyla dogrudan atama.
+    bit_case_lines = "\n".join(
+        f"        case {m['index']}U: spCit->sBayraklar.ui{m['cname']}Ok = uiOk; break;"
+        for m in olcumler)
+
+    return (
+        "/**\n"
+        " * @file spec2code_cit.c\n"
+        " * @brief CIT olcum toplama gerceklemesi. Limit tablosu + cihaz/op string\n"
+        " *        tablolari otomatik uretildi (manifest cit.olcumler sirasiyla).\n"
+        " */\n"
+        '#include "spec2code_cit.h"\n'
+        '#include "spec2code_mesaj.h"\n'
+        '#include "spec2code_testbench_protocol.h"\n\n'
+        "/* Sabit limit tablosu (olcum sirasiyla). uiEtkin=0 -> olcum kapali;\n"
+        " * uiLimitVar=0 -> limit kontrolu yok (ham dispatch basarisi = gecti). */\n"
+        "static const struct\n"
+        "{\n"
+        "    int          iMin;\n"
+        "    int          iMax;\n"
+        "    unsigned int uiLimitVar;\n"
+        "    unsigned int uiKritik;\n"
+        "    unsigned int uiEtkin;\n"
+        "} S_sArrCitLimit[BOARD_CIT_OLCUM_SAYISI] =\n"
+        "{\n"
+        f"{limit_table}\n"
+        "};\n\n"
+        "/* Olcum -> cihaz id string (dispatch koprusu icin). */\n"
+        "static const char* const S_cpArrCitCihaz[BOARD_CIT_OLCUM_SAYISI] =\n"
+        "{\n"
+        f"{device_rows}\n"
+        "};\n\n"
+        "/* Olcum -> op adi string (dispatch koprusu icin). */\n"
+        "static const char* const S_cpArrCitOp[BOARD_CIT_OLCUM_SAYISI] =\n"
+        "{\n"
+        f"{op_rows}\n"
+        "};\n\n"
+        "/* Son kosu kopyasi (CIT_READ + boardCitSon dondurur). */\n"
+        "static SBoardCit S_sCitSonKopya;\n"
+        "static unsigned int S_uiCitKosuSayac = 0U;\n\n"
+        "static void spec2codeCitMetinKopya(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
+        "{\n"
+        "    unsigned int uiIndex;\n\n"
+        "    if ((cpDst == (char*)0) || (uiDstBoy == 0U))\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    for (uiIndex = 0U; uiIndex < (uiDstBoy - 1U); uiIndex++)\n"
+        "    {\n"
+        "        if ((cpSrc == (const char*)0) || (cpSrc[uiIndex] == '\\0'))\n"
+        "        {\n"
+        "            break;\n"
+        "        }\n"
+        "        cpDst[uiIndex] = cpSrc[uiIndex];\n"
+        "    }\n"
+        "    cpDst[uiIndex] = '\\0';\n"
+        "}\n\n"
+        "static void spec2codeCitBayrakYaz(SBoardCit* spCit, unsigned int uiOlcum, unsigned int uiOk)\n"
+        "{\n"
+        "    switch (uiOlcum)\n"
+        "    {\n"
+        f"{bit_case_lines}\n"
+        "        default: break;\n"
+        "    }\n"
+        "}\n\n"
+        "void boardCitRun(SBoardCit* spCit)\n"
+        "{\n"
+        "    SSpec2codeTestbenchRequest sIstek;\n"
+        "    SSpec2codeTestbenchResponse sYanit;\n"
+        "    unsigned int uiOlcum;\n"
+        "    unsigned int uiIndex;\n"
+        "    unsigned int uiHam;\n"
+        "    int iDeger;\n"
+        "    unsigned int uiOk;\n\n"
+        "    if (spCit == (SBoardCit*)0)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    /* Kopyayi sifirla; her alan ustune yazilir. */\n"
+        "    for (uiIndex = 0U; uiIndex < (unsigned int)sizeof(SBoardCit); uiIndex++)\n"
+        "    {\n"
+        "        ((unsigned char*)spCit)[uiIndex] = 0U;\n"
+        "    }\n"
+        "    S_uiCitKosuSayac++;\n"
+        "    spCit->uiSayac = S_uiCitKosuSayac;\n"
+        "    spCit->uiZaman = 0U;  /* ms tick kaynagi uretilen kodda yok (v1). */\n"
+        "    for (uiOlcum = 0U; uiOlcum < BOARD_CIT_OLCUM_SAYISI; uiOlcum++)\n"
+        "    {\n"
+        "        if (S_sArrCitLimit[uiOlcum].uiEtkin == 0U)\n"
+        "        {\n"
+        "            /* Kapali olcum: kosma, DESTEKLENMIYOR isaretle, bit 0. */\n"
+        "            spCit->arrOlcum[uiOlcum].iDeger = 0;\n"
+        "            spCit->arrOlcum[uiOlcum].uiHam = 0U;\n"
+        "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR;\n"
+        "            spec2codeCitBayrakYaz(spCit, uiOlcum, 0U);\n"
+        "            continue;\n"
+        "        }\n"
+        "        spec2codeTestbenchRequestClear(&sIstek);\n"
+        "        sIstek.uiId = uiOlcum;\n"
+        "        spec2codeCitMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+        "                               S_cpArrCitCihaz[uiOlcum]);\n"
+        "        spec2codeCitMetinKopya(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+        "                               S_cpArrCitOp[uiOlcum]);\n"
+        "        spec2codeTestbenchResponseClear(&sYanit);\n"
+        "        (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
+        "        /* Ham deger: yanit data'nin ilk 4B'i (>=4 ise LE) yoksa uiValue. */\n"
+        "        if (sYanit.uiDataLength >= 4U)\n"
+        "        {\n"
+        "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
+        "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
+        "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
+        "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            uiHam = sYanit.uiValue;\n"
+        "        }\n"
+        "        iDeger = (int)sYanit.uiValue;\n"
+        "        spCit->arrOlcum[uiOlcum].iDeger = iDeger;\n"
+        "        spCit->arrOlcum[uiOlcum].uiHam = uiHam;\n"
+        "        /* Durum eslemesi: uiOk==1 -> OK; aksi -> BUS_HATASI. */\n"
+        "        if (sYanit.uiOk == 1U)\n"
+        "        {\n"
+        "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
+        "            /* Gecti biti: dispatch basarili VE (limit yok VEYA aralikta). */\n"
+        "            if ((S_sArrCitLimit[uiOlcum].uiLimitVar == 0U) ||\n"
+        "                ((iDeger >= S_sArrCitLimit[uiOlcum].iMin) &&\n"
+        "                 (iDeger <= S_sArrCitLimit[uiOlcum].iMax)))\n"
+        "            {\n"
+        "                uiOk = 1U;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                uiOk = 0U;\n"
+        "            }\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_BUS_HATASI;\n"
+        "            uiOk = 0U;\n"
+        "        }\n"
+        "        spec2codeCitBayrakYaz(spCit, uiOlcum, uiOk);\n"
+        "    }\n"
+        "    /* Son kopyayi guncelle (CIT_READ icin). */\n"
+        "    for (uiIndex = 0U; uiIndex < (unsigned int)sizeof(SBoardCit); uiIndex++)\n"
+        "    {\n"
+        "        ((unsigned char*)&S_sCitSonKopya)[uiIndex] = ((const unsigned char*)spCit)[uiIndex];\n"
+        "    }\n"
+        "}\n\n"
+        "const SBoardCit* boardCitSon(void)\n"
+        "{\n"
+        "    return &S_sCitSonKopya;\n"
+        "}\n"
+    )
+
+
+def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
+    agent = _testbench_transport_agent(spec)
+    manifest = {
+        "schema_version": "1.0",
+        "project": spec.get("project", {}).get("name", ""),
+        "agent_version": _app_version(),
+        "protocol": "S2C line protocol v1",
+        # S2C-MSG binary katalog imzasi: uretilen mesaj katmani (spec2code_mesaj.c)
+        # ile backend s2cmsg ayni katalog baytlarindan uretilir; bu CRC32
+        # (Python zlib.crc32) ikisinin es oldugunu dogrular.
+        "message_catalog_crc32": _message_catalog_crc32(),
+        "line_format": ("S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; "
+                        "global: S2C|id=1|op=spec2code_version, S2C|id=1|op=log_level|value=1..5"),
+        "transport_agent": agent,
+        "log": {
+            "op": "log_level",
+            "levels": dict(_TESTBENCH_LOG_LEVELS),
+            "default": _TESTBENCH_LOG_LEVELS[_TESTBENCH_LOG_DEFAULT_LEVEL],
+            "line_prefix": "S2C-LOG|",
+        },
+        "devices": [],
+    }
+    # I2C hat taraması: UI hangi denetleyicilerin taranabileceğini ve mux
+    # topolojisini (kanal kanal harita için) buradan öğrenir.
+    if "XIicPs" in _testbench_used_handle_types(spec):
+        manifest["i2c_scan"] = {
+            "op": "i2c_scan",
+            "mux_op": "i2c_mux_set",
+            "range": [0x08, 0x77],
+            # Prob yazma: recv-polled sahada NACK'te de basari dondurdu.
+            "probe": "1-byte write 0x00 (register pointer reset)",
+            "skip_address_param": True,
+            "controllers": [
+                {"id": c.get("id", ""), "instance": c.get("instance", "")}
+                for c in spec.get("controllers", [])
+                if c.get("type") == "i2c"
+            ],
+            "muxes": [
+                {
+                    "id": m.get("id", ""),
+                    "part": m.get("part", ""),
+                    "controller_id": m.get("controller_id", ""),
+                    "address": int(str(m.get("i2c_address", "0x70")), 0),
+                    "channels": int(m.get("channels", 8)),
+                }
+                for m in spec.get("muxes", [])
+            ],
+        }
+    if agent == "uart":
+        uart = _testbench_uart_controller(spec) or {}
+        manifest["uart"] = {
+            "instance": uart.get("instance", ""),
+            "driver": _testbench_uart_driver(spec),
+            "baud": 115200,
+        }
+    if agent == "coresight":
+        manifest["coresight"] = {
+            "device": "psu_coresight_0",
+            "driver": "coresightps_dcc",
+            "processor": "psu_cortexa53_0",
+            "host_bridge": "xsdb jtagterminal -socket",
+        }
+    manifest["devices"] = _testbench_manifest_devices(spec, get_descriptor)
     # Hardening (Task 4 bulgusu): _testbench_device_entries denetleyicisi
     # olmayan cihazlari atlar, yukaridaki dongu atlamaz — bugun cmodel.build_units
     # daha erken dogruladigi icin ulasilamaz ama CIT bit hizasi bu esitlige
@@ -4510,7 +4907,12 @@ def _testbench_coresight_main_source(spec: dict) -> str:
     )
 
 
-def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
+def _testbench_cit_enabled(spec: dict, root: Path = _ROOT) -> bool:
+    """CIT dosyalari uretilir mi (en az bir olcum var mi)."""
+    return len(_cit_measurements(spec, make_descriptor_loader(root))) > 0
+
+
+def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[Path]:
     project_name = spec["project"]["name"]
     tests_dir = out_dir / "tests"
     paths = [
@@ -4526,6 +4928,13 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
         tests_dir / f"{project_name}_testbench_ops.c",
         tests_dir / "spec2code_testbench_manifest.json",
     ]
+    # CIT dosyalari yalniz olcum varsa (kosullu uretim) — mesaj katmani dallari
+    # da bu koska gore uretilir; ikisi zip'le birebir hizali kalmali.
+    if _testbench_cit_enabled(spec, root):
+        paths.extend([
+            tests_dir / "spec2code_cit.h",
+            tests_dir / "spec2code_cit.c",
+        ])
     if _testbench_lwip_enabled(spec):
         paths.extend([
             tests_dir / "spec2code_testbench_lwip.h",
@@ -4552,11 +4961,11 @@ def testbench_harness_paths(spec: dict, out_dir: Path) -> list[Path]:
 
 def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[str]:
     get_descriptor = make_descriptor_loader(root)
-    paths = testbench_harness_paths(spec, out_dir)
+    paths = testbench_harness_paths(spec, out_dir, root=root)
     contents = [
         _apply_default_identifier_style(_testbench_protocol_header()),
         _apply_default_identifier_style(_testbench_protocol_source()),
-        _apply_default_identifier_style(_mesaj_header()),
+        _apply_default_identifier_style(_mesaj_header(spec, get_descriptor)),
         _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source()),
@@ -4566,6 +4975,12 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
     ]
+    # CIT dosyalari (yalniz olcum varsa) — path listesiyle ayni sirada (manifest'ten sonra).
+    if _testbench_cit_enabled(spec, root):
+        contents.extend([
+            _apply_default_identifier_style(_cit_header(spec, get_descriptor)),
+            _apply_default_identifier_style(_cit_source(spec, get_descriptor)),
+        ])
     if _testbench_lwip_enabled(spec):
         contents.extend([
             _apply_default_identifier_style(_testbench_lwip_header(spec)),
