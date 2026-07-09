@@ -389,10 +389,39 @@ def _regmap_test_ip_tcl(staging: Path, ps_inst: str) -> list[str]:
         f"apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {axi_cfg} "
         "[get_bd_intf_pins regmap_test_0/s_axi]\n",
         "assign_bd_address\n",
-        # Atanan taban adresi bildir (Register Map'e otomatik gelir).
-        "set spec2code_seg [lindex [get_bd_addr_segs -of_objects [get_bd_cells regmap_test_0]] 0]\n",
-        'puts "S2C-VIVADO|regmap_ip_base=[get_property offset $spec2code_seg]"\n',
+        # Atanan taban adres XSA'nın hwh adres haritasından (BASEVALUE) okunur —
+        # sürümden bağımsız ve xparameters.h ile birebir. Tcl adres sorgusu
+        # sürüme göre kaygan olduğundan tercih edilmez.
     ]
+
+
+def _regmap_ip_base_from_xsa(xsa_path: str, instance: str = "regmap_test_0") -> str:
+    """XSA (zip) içindeki design hwh'sinden Register Map Test IP'nin atanmış taban
+    adresini (MEMRANGE BASEVALUE) okur. Bu değer Vitis'in xparameters.h'da
+    ``XPAR_<instance>_BASEADDR`` olarak yazdığı adresle birebir aynıdır."""
+    try:
+        import zipfile
+
+        with zipfile.ZipFile(xsa_path) as archive:
+            hwh_name = next(
+                (n for n in archive.namelist()
+                 if n.endswith(".hwh") and "smc" not in n.lower() and "smartconnect" not in n.lower()),
+                None,
+            )
+            if hwh_name is None:
+                return ""
+            text = archive.read(hwh_name).decode("utf-8", "replace")
+    except (OSError, KeyError):
+        return ""
+    inst = re.escape(instance)
+    for pattern in (
+        r'<MEMRANGE[^>]*INSTANCE="' + inst + r'"[^>]*BASEVALUE="(0x[0-9A-Fa-f]+)"',
+        r'<MEMRANGE[^>]*BASEVALUE="(0x[0-9A-Fa-f]+)"[^>]*INSTANCE="' + inst + r'"',
+    ):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    return ""
 
 
 def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
@@ -669,6 +698,15 @@ class VivadoDesignJobManager:
         if cfg.make_bitstream and not result["image_path"]:
             raise RuntimeError(
                 f"Aşama 2 istendi ama bit/pdi üretilmedi. Log: {log_path}")
+        # Register Map Test IP adresini XSA'dan (hwh BASEVALUE) oku — authoritative,
+        # xparameters.h ile birebir. UI Register Map'e bu adresle içe aktarır.
+        if cfg.add_regmap_test_ip and result["xsa_path"]:
+            base = _regmap_ip_base_from_xsa(result["xsa_path"])
+            if base:
+                result["regmap_ip_base"] = base
+                job.emit({"event": "vivado.regmap_ip", "stage": "xsa", "progress": 62,
+                          "message": f"Register Map Test IP adresi (XSA): {base}",
+                          "regmap_ip_base": base})
         result["successful"] = True
 
     def _handle_marker(self, job: VivadoDesignJob, result: dict, payload: str) -> None:

@@ -78,7 +78,27 @@ class VivadoDesignTclTests(unittest.TestCase):
         self.assertIn("apply_bd_automation -rule xilinx.com:bd_rule:axi4", tcl)
         self.assertIn("M_AXI_HPM0_FPD", tcl)
         self.assertIn("assign_bd_address", tcl)
-        self.assertIn("S2C-VIVADO|regmap_ip_base=", tcl)
+
+    def test_regmap_ip_base_extracted_from_xsa_hwh(self) -> None:
+        # Atanan taban adres XSA'nın hwh MEMRANGE BASEVALUE'sinden okunur (gerçek
+        # zcu102 E2E'sinde 0xA0000000 doğrulandı). Sürüm-bağımsız + xparameters
+        # ile birebir.
+        import io
+        import zipfile
+        from backend.vivado_design import _regmap_ip_base_from_xsa
+        hwh = (
+            '<EDKSYSTEM><MEMRANGE ADDRESSBLOCK="reg0" BASENAME="C_BASEADDR" '
+            'BASEVALUE="0xA0000000" HIGHNAME="C_HIGHADDR" HIGHVALUE="0xA0000FFF" '
+            'INSTANCE="regmap_test_0" MASTERBUSINTERFACE="M_AXI_HPM0_FPD" '
+            'SLAVEBUSINTERFACE="s_axi"/></EDKSYSTEM>'
+        )
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("design_1.hwh", hwh)
+        with tempfile.NamedTemporaryFile(suffix=".xsa", delete=False) as tf:
+            tf.write(buf.getvalue())
+            xsa = tf.name
+        self.assertEqual(_regmap_ip_base_from_xsa(xsa), "0xA0000000")
 
     def test_regmap_test_ip_absent_by_default(self) -> None:
         tcl = design_tcl(_zynqmp_cfg(), Path(r"D:\tmp\s2c"))

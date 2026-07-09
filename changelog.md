@@ -3,6 +3,31 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.135 - 2026-07-09
+
+- REGISTER MAP TEST IP — VIVADO'YA OPSIYONEL CUSTOM AXI IP (kullanici istegi,
+  UCTAN UCA GERCEK VIVADO+VITIS ILE DOGRULANDI): okuma/yazma yolunu butun
+  case'lerle dogrulayan AXI4-Lite custom IP.
+  - Verilog (backend/data/spec2code_regmap_test.v): AXI4-Lite slave. Register
+    haritasi: ID (RO sabit 0x53504543 'SPEC'), VERSION (RO sabit), SCRATCH (RW
+    birebir), SCRATCH_MIRROR (RO = ~SCRATCH -> yaz->degisen RO ispati), CONTROL
+    (RW bitfield EN/MODE/SPEED), STATUS (RO sabit bitfield), TRIGGER (WO) ->
+    COUNTER (RO +1). iverilog -Wall temiz.
+  - Vivado sayfasi: "Register Map Test IP ekle" tiki (opsiyonel, ZynqMP). PS
+    M_AXI_HPM0 + pl_clk0 acilir, RTL BD'ye modul olarak konur (arayuz s_axi_*
+    port adlarindan cikarilir), apply_bd_automation ile SmartConnect+reset+saat
+    baglanir, assign_bd_address ile adres atanir. Atanan taban adres XSA hwh
+    MEMRANGE BASEVALUE'sinden okunur (surum-bagimsiz, xparameters ile birebir).
+  - Register Map ekrani: "Test IP haritasini yukle" — adres (Vivado'nun
+    atadigi, localStorage'dan) + register + bitfield anlamlari otomatik gelir.
+    RO/WO/RW ve sabit degerler aciklamalarda; "Canli Izleme"den okuyup yazarak
+    dogrularsin.
+  - GERCEK E2E (zcu102/xczu9eg, Vivado+Vitis 2022.2): tasarim uretildi -> XSA
+    (regmap_test_0 BASEVALUE=0xA0000000) -> Vitis platform/BSP -> xparameters.h'da
+    `XPAR_REGMAP_TEST_0_BASEADDR 0xA0000000` DOGRULANDI. Kart olmadigi icin canli
+    okuma/yazma orada durur (register map+adres akisi tam dogrulandi). 202 test
+    gecti; Verilog iverilog -Wall temiz.
+
 ## v0.1.134 - 2026-07-09
 
 - REGISTER MAP CANLI IZLEME ARTIK TRANSPORT-AGNOSTIK (kullanici istegi): "Canlı
