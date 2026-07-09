@@ -196,7 +196,10 @@ def _testbench_protocol_header() -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_protocol.h\n"
-        " * @brief Line protocol for the Spec2Code TCP test bench agent.\n"
+        " * @brief Test bench istek/yanit veri yapilari + para birimi yardimcilari.\n"
+        " *\n"
+        " * S2C-MSG binary tel katmani (spec2code_mesaj.*) bu yapilari doldurur ve\n"
+        " * dispatch'e kopruler; metin satir protokolu (parse/format) yoktur.\n"
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_PROTOCOL_H\n"
         "#define SPEC2CODE_TESTBENCH_PROTOCOL_H\n\n"
@@ -229,10 +232,6 @@ def _testbench_protocol_header() -> str:
         "} SSpec2codeTestbenchResponse;\n\n"
         "void spec2codeTestbenchRequestClear(SSpec2codeTestbenchRequest* spRequest);\n"
         "void spec2codeTestbenchResponseClear(SSpec2codeTestbenchResponse* spResponse);\n"
-        "int spec2codeTestbenchRequestParse(const char* cpLine, SSpec2codeTestbenchRequest* spRequest);\n"
-        "int spec2codeTestbenchResponseFormat(const SSpec2codeTestbenchResponse* spResponse,\n"
-        "                                      char* cpLine,\n"
-        "                                      unsigned int uiLineLength);\n"
         "int spec2codeTestbenchStringEqual(const char* cpLeft, const char* cpRight);\n"
         "void spec2codeTestbenchMessageSet(SSpec2codeTestbenchResponse* spResponse, const char* cpMessage);\n"
         "int spec2codeTestbenchDataPush(SSpec2codeTestbenchResponse* spResponse, unsigned char ucValue);\n\n"
@@ -244,12 +243,10 @@ def _testbench_protocol_source() -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_protocol.c\n"
-        " * @brief Line protocol parser/formatter for the Spec2Code TCP test bench agent.\n"
+        " * @brief Test bench istek/yanit para birimi yardimcilari (binary katman kullanir).\n"
         " */\n"
         '#include "spec2code_testbench_protocol.h"\n'
         '#include "xstatus.h"\n\n'
-        "#include <stdio.h>\n"
-        "#include <string.h>\n\n"
         "static unsigned int spec2codeTestbenchTextCopy(char* cpDst, unsigned int uiDstLength, const char* cpSrc)\n"
         "{\n"
         "    unsigned int uiIndex;\n\n"
@@ -268,69 +265,6 @@ def _testbench_protocol_source() -> str:
         "    }\n"
         "    cpDst[uiIndex] = '\\0';\n"
         "    return uiIndex;\n"
-        "}\n\n"
-        "static int spec2codeTestbenchHexNibble(char cValue)\n"
-        "{\n"
-        "    if ((cValue >= '0') && (cValue <= '9'))\n"
-        "    {\n"
-        "        return (int)(cValue - '0');\n"
-        "    }\n"
-        "    if ((cValue >= 'A') && (cValue <= 'F'))\n"
-        "    {\n"
-        "        return (int)(cValue - 'A') + 10;\n"
-        "    }\n"
-        "    if ((cValue >= 'a') && (cValue <= 'f'))\n"
-        "    {\n"
-        "        return (int)(cValue - 'a') + 10;\n"
-        "    }\n"
-        "    return -1;\n"
-        "}\n\n"
-        "static unsigned int spec2codeTestbenchNumberParse(const char* cpText)\n"
-        "{\n"
-        "    unsigned int uiValue;\n"
-        "    unsigned int uiIndex;\n"
-        "    unsigned int uiBase;\n"
-        "    int iDigit;\n\n"
-        "    uiValue = 0U;\n"
-        "    uiIndex = 0U;\n"
-        "    uiBase = 10U;\n"
-        "    if ((cpText != NULL) && (cpText[0] == '0') && ((cpText[1] == 'x') || (cpText[1] == 'X')))\n"
-        "    {\n"
-        "        uiBase = 16U;\n"
-        "        uiIndex = 2U;\n"
-        "    }\n"
-        "    while ((cpText != NULL) && (cpText[uiIndex] != '\\0') && (cpText[uiIndex] != '|'))\n"
-        "    {\n"
-        "        iDigit = (uiBase == 16U) ? spec2codeTestbenchHexNibble(cpText[uiIndex]) : (int)(cpText[uiIndex] - '0');\n"
-        "        if ((iDigit < 0) || ((unsigned int)iDigit >= uiBase))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        uiValue = (uiValue * uiBase) + (unsigned int)iDigit;\n"
-        "        uiIndex++;\n"
-        "    }\n"
-        "    return uiValue;\n"
-        "}\n\n"
-        "static void spec2codeTestbenchDataParse(const char* cpText, SSpec2codeTestbenchRequest* spRequest)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n"
-        "    int iHigh;\n"
-        "    int iLow;\n\n"
-        "    uiIndex = 0U;\n"
-        "    spRequest->uiDataLength = 0U;\n"
-        "    while ((cpText != NULL) && (cpText[uiIndex] != '\\0') && (cpText[uiIndex + 1U] != '\\0') &&\n"
-        "           (spRequest->uiDataLength < SPEC2CODE_TESTBENCH_DATA_MAX))\n"
-        "    {\n"
-        "        iHigh = spec2codeTestbenchHexNibble(cpText[uiIndex]);\n"
-        "        iLow = spec2codeTestbenchHexNibble(cpText[uiIndex + 1U]);\n"
-        "        if ((iHigh < 0) || (iLow < 0))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        spRequest->ucArrData[spRequest->uiDataLength] = (unsigned char)(((unsigned int)iHigh << 4U) | (unsigned int)iLow);\n"
-        "        spRequest->uiDataLength++;\n"
-        "        uiIndex += 2U;\n"
-        "    }\n"
         "}\n\n"
         "int spec2codeTestbenchStringEqual(const char* cpLeft, const char* cpRight)\n"
         "{\n"
@@ -407,127 +341,6 @@ def _testbench_protocol_source() -> str:
         "    spResponse->ucArrData[spResponse->uiDataLength] = ucValue;\n"
         "    spResponse->uiDataLength++;\n"
         "    return XST_SUCCESS;\n"
-        "}\n\n"
-        "static void spec2codeTestbenchLineCopy(char* cpDst, unsigned int uiDstLength, const char* cpSrc)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n\n"
-        "    /* TextCopy'den farki: '|' ayraclarini KORUR - o yardimci tek alan\n"
-        "     * degeri kopyalamak icindir. Tum istek satiri burada kopyalanir;\n"
-        "     * yalnizca satir sonu/NUL'da durur. (Eski TextCopy kullanimi ilk\n"
-        "     * '|' karakterinde kesiyor ve her istegi 'S2C' govdesine\n"
-        "     * indirgedigi icin tum komutlar 'request parse failed' donuyordu.) */\n"
-        "    if ((cpDst == NULL) || (uiDstLength == 0U))\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    for (uiIndex = 0U; uiIndex < (uiDstLength - 1U); uiIndex++)\n"
-        "    {\n"
-        "        if ((cpSrc == NULL) || (cpSrc[uiIndex] == '\\0') ||\n"
-        "            (cpSrc[uiIndex] == '\\r') || (cpSrc[uiIndex] == '\\n'))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        cpDst[uiIndex] = cpSrc[uiIndex];\n"
-        "    }\n"
-        "    cpDst[uiIndex] = '\\0';\n"
-        "}\n\n"
-        "int spec2codeTestbenchRequestParse(const char* cpLine, SSpec2codeTestbenchRequest* spRequest)\n"
-        "{\n"
-        "    char cArrLocal[512];\n"
-        "    char* cpToken;\n"
-        "    char* cpValue;\n\n"
-        "    if ((cpLine == NULL) || (spRequest == NULL))\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    spec2codeTestbenchRequestClear(spRequest);\n"
-        "    spec2codeTestbenchLineCopy(cArrLocal, sizeof(cArrLocal), cpLine);\n"
-        "    cpToken = strtok(cArrLocal, \"|\");\n"
-        "    while (cpToken != NULL)\n"
-        "    {\n"
-        "        cpValue = strchr(cpToken, '=');\n"
-        "        if (cpValue != NULL)\n"
-        "        {\n"
-        "            *cpValue = '\\0';\n"
-        "            cpValue++;\n"
-        "            if (spec2codeTestbenchStringEqual(cpToken, \"id\") == 1)\n"
-        "            {\n"
-        "                spRequest->uiId = spec2codeTestbenchNumberParse(cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"device\") == 1)\n"
-        "            {\n"
-        "                (void)spec2codeTestbenchTextCopy(spRequest->cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX, cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"op\") == 1)\n"
-        "            {\n"
-        "                (void)spec2codeTestbenchTextCopy(spRequest->cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX, cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"reg\") == 1)\n"
-        "            {\n"
-        "                (void)spec2codeTestbenchTextCopy(spRequest->cArrRegister, SPEC2CODE_TESTBENCH_TEXT_MAX, cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"reg_addr\") == 1)\n"
-        "            {\n"
-        "                spRequest->uiRegister = spec2codeTestbenchNumberParse(cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"address\") == 1)\n"
-        "            {\n"
-        "                spRequest->uiAddress = spec2codeTestbenchNumberParse(cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"length\") == 1)\n"
-        "            {\n"
-        "                spRequest->uiLength = spec2codeTestbenchNumberParse(cpValue);\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"value\") == 1)\n"
-        "            {\n"
-        "                spRequest->uiValue = spec2codeTestbenchNumberParse(cpValue);\n"
-        "                spRequest->uiHasValue = 1U;\n"
-        "            }\n"
-        "            else if (spec2codeTestbenchStringEqual(cpToken, \"data\") == 1)\n"
-        "            {\n"
-        "                spec2codeTestbenchDataParse(cpValue, spRequest);\n"
-        "            }\n"
-        "        }\n"
-        "        cpToken = strtok(NULL, \"|\");\n"
-        "    }\n"
-        "    if (spRequest->cArrOperation[0] == '\\0')\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    return XST_SUCCESS;\n"
-        "}\n\n"
-        "int spec2codeTestbenchResponseFormat(const SSpec2codeTestbenchResponse* spResponse,\n"
-        "                                      char* cpLine,\n"
-        "                                      unsigned int uiLineLength)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n"
-        "    int iWritten;\n"
-        "    int iUsed;\n\n"
-        "    if ((spResponse == NULL) || (cpLine == NULL) || (uiLineLength == 0U))\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    iUsed = snprintf(cpLine, uiLineLength, \"S2C|id=%u|ok=%u|status=%d|value=0x%X|data=\",\n"
-        "                     spResponse->uiId, spResponse->uiOk, spResponse->iStatus, spResponse->uiValue);\n"
-        "    if ((iUsed < 0) || ((unsigned int)iUsed >= uiLineLength))\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    for (uiIndex = 0U; uiIndex < spResponse->uiDataLength; uiIndex++)\n"
-        "    {\n"
-        "        iWritten = snprintf(&cpLine[iUsed], uiLineLength - (unsigned int)iUsed, \"%02X\", spResponse->ucArrData[uiIndex]);\n"
-        "        if ((iWritten < 0) || ((unsigned int)(iUsed + iWritten) >= uiLineLength))\n"
-        "        {\n"
-        "            return XST_FAILURE;\n"
-        "        }\n"
-        "        iUsed += iWritten;\n"
-        "    }\n"
-        "    iWritten = snprintf(&cpLine[iUsed], uiLineLength - (unsigned int)iUsed, \"|message=%s\\r\\n\", spResponse->cArrMessage);\n"
-        "    if ((iWritten < 0) || ((unsigned int)(iUsed + iWritten) >= uiLineLength))\n"
-        "    {\n"
-        "        return XST_FAILURE;\n"
-        "    }\n"
-        "    return XST_SUCCESS;\n"
         "}\n"
     )
 
@@ -568,7 +381,14 @@ def _mesaj_header() -> str:
         "#define SPEC2CODE_MESAJ_GOVDE_MAX 4096U\n"
         "#define SPEC2CODE_MESAJ_YANIT_BIT 0x80000000U\n"
         "#define SPEC2CODE_MESAJ_IMZA 0x5343U\n"
-        "#define SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY 28U\n\n"
+        "#define SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY 28U\n"
+        "/* En buyuk yanit cercevesi: baslik(12) + yanit govdesi\n"
+        " * (20 sabit alan + pad4(veri 256) + 4 metinBoy + pad4(metin)). Ajan\n"
+        " * transportlari cikti tamponunu bu boyla ayirir; feed-forward recv\n"
+        " * yolu 4096B govdeyi zaten parser tamponunda tutar. */\n"
+        "#define SPEC2CODE_MESAJ_CERCEVE_MAX (SPEC2CODE_MESAJ_BASLIK_BOY + 20U + \\\n"
+        "    (((SPEC2CODE_TESTBENCH_DATA_MAX + 3U) & ~3U) + 4U + \\\n"
+        "     ((SPEC2CODE_TESTBENCH_MESSAGE_MAX + 3U) & ~3U)))\n\n"
         "/* Mesaj ID makrolari (katalogdan uretildi). */\n"
         + "\n".join(id_lines) + "\n\n"
         "/* Durum kodlari (yanit govdesi uiDurum). */\n"
@@ -582,7 +402,12 @@ def _mesaj_header() -> str:
         "    unsigned int uiMesajBoyu;\n"
         "    unsigned int uiMesajSayac;\n"
         "} SMesajBaslik;\n\n"
-        "_Static_assert(sizeof(SMesajBaslik) == 12U, \"SMesajBaslik 12 bayt olmalidir\");\n\n"
+        "_Static_assert(sizeof(SMesajBaslik) == 12U, \"SMesajBaslik 12 bayt olmalidir\");\n"
+        "/* En buyuk yanit cercevesi govde+baslik sinirlarina sigmali (transport\n"
+        " * cikti tamponu bu sabittir). 452 = 12 + 20 + 256 + 4 + 160. */\n"
+        "_Static_assert(SPEC2CODE_MESAJ_CERCEVE_MAX <=\n"
+        "               (SPEC2CODE_MESAJ_BASLIK_BOY + SPEC2CODE_MESAJ_GOVDE_MAX),\n"
+        "               \"cerceve kapasitesi govde sinirini asamaz\");\n\n"
         "/* Ic dispatch (metin protokolu para birimi olarak kalir): mesaj katmani\n"
         " * her istek cercevesini bu fonksiyona kopruler. Ayni prototip uretilen\n"
         " * spec2code_..._testbench_ops.h icinde de bulunur (uyumlu tekrar). */\n"
@@ -1887,10 +1712,7 @@ def _testbench_ops_header(project_name: str, handle_types: set[str]) -> str:
         + "unsigned int spec2codeTestbenchOperationCount(void);\n"
         "const SSpec2codeTestbenchOperation* spec2codeTestbenchOperationGet(unsigned int uiIndex);\n"
         "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n"
-        "                               SSpec2codeTestbenchResponse* spResponse);\n"
-        "int spec2codeTestbenchDispatchLine(const char* cpRequestLine,\n"
-        "                                   char* cpResponseLine,\n"
-        "                                   unsigned int uiResponseLength);\n\n"
+        "                               SSpec2codeTestbenchResponse* spResponse);\n\n"
         f"#endif /* {guard} */\n"
     )
 
@@ -2963,8 +2785,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    return &S_sArrSpec2codeTestbenchOperations[uiIndex];",
         "}",
         "",
-        "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,",
-        "                               SSpec2codeTestbenchResponse* spResponse)",
+        "static int spec2codeTestbenchDispatchCore(const SSpec2codeTestbenchRequest* spRequest,",
+        "                                          SSpec2codeTestbenchResponse* spResponse)",
         "{",
         "    if ((spRequest == NULL) || (spResponse == NULL))",
         "    {",
@@ -3081,50 +2903,35 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    return XST_FAILURE;",
         "}",
         "",
-        "int spec2codeTestbenchDispatchLine(const char* cpRequestLine,",
-        "                                   char* cpResponseLine,",
-        "                                   unsigned int uiResponseLength)",
+        "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,",
+        "                               SSpec2codeTestbenchResponse* spResponse)",
         "{",
-        "    SSpec2codeTestbenchRequest sRequest;",
-        "    SSpec2codeTestbenchResponse sResponse;",
         "    int iStatus;",
-        "    int iFormatStatus;",
         "",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"RX %s\", cpRequestLine);",
-        "    iStatus = spec2codeTestbenchRequestParse(cpRequestLine, &sRequest);",
-        "    if (iStatus != XST_SUCCESS)",
+        "    if ((spRequest == NULL) || (spResponse == NULL))",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"istek cozulmedi (parse failed): %s\", cpRequestLine);",
-        "        spec2codeTestbenchResponseClear(&sResponse);",
-        "        sResponse.iStatus = iStatus;",
-        "        spec2codeTestbenchMessageSet(&sResponse, \"request parse failed\");",
-        "        return spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
+        "        return XST_FAILURE;",
         "    }",
-        "    (void)spec2codeTestbenchDispatch(&sRequest, &sResponse);",
-        "    if (sResponse.uiOk == 1U)",
+        "    /* Gelen istek (binary cerceveden cozuldu): device/op MESSAGE seviyesi.",
+        "     * Metin satir protokolu yok; yapisal alanlardan loglanir. */",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"RX id=%u device=%s op=%s\",",
+        "                 spRequest->uiId, spRequest->cArrDevice, spRequest->cArrOperation);",
+        "    iStatus = spec2codeTestbenchDispatchCore(spRequest, spResponse);",
+        "    if (spResponse->uiOk == 1U)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op tamam: device=%s op=%s status=%d\",",
-        "                     sRequest.cArrDevice, sRequest.cArrOperation, sResponse.iStatus);",
+        "                     spRequest->cArrDevice, spRequest->cArrOperation, spResponse->iStatus);",
         "    }",
         "    else",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"op HATA: device=%s op=%s status=%d mesaj=%s\",",
-        "                     sRequest.cArrDevice, sRequest.cArrOperation, sResponse.iStatus, sResponse.cArrMessage);",
+        "                     spRequest->cArrDevice, spRequest->cArrOperation, spResponse->iStatus,",
+        "                     spResponse->cArrMessage);",
         "    }",
-        "    iFormatStatus = spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
-        "    if (iFormatStatus != XST_SUCCESS)",
-        "    {",
-        "        /* Cevap satira sigmadi: kirpik satir (\\n'siz) gondermek hostu",
-        "         * timeout'a surukler ve bir sonraki cevapla yapisir (SAHA",
-        "         * 2026-07-05, 256B flash okumasi). Data atilir ve durustce",
-        "         * kisa bir hata cevabi donulur. */",
-        "        sResponse.uiDataLength = 0U;",
-        "        sResponse.uiOk = 0U;",
-        "        spec2codeTestbenchMessageSet(&sResponse, \"response line overflow\");",
-        "        iFormatStatus = spec2codeTestbenchResponseFormat(&sResponse, cpResponseLine, uiResponseLength);",
-        "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"TX %s\", cpResponseLine);",
-        "    return iFormatStatus;",
+        "    /* Yanit (TX) MESSAGE seviyesi: cerceveleme mesaj katmaninda yapilir. */",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"TX id=%u ok=%u status=%d value=0x%X\",",
+        "                 spResponse->uiId, spResponse->uiOk, spResponse->iStatus, spResponse->uiValue);",
+        "    return iStatus;",
         "}",
         "",
     ])
@@ -3460,6 +3267,53 @@ def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: st
     return lines
 
 
+def _mesaj_trace_sink_lines(func_name: str, send_frame_call: str) -> list[str]:
+    """Generate a leveled-log/bus-trace sink that FRAMES the text line.
+
+    The line protocol is gone: the log core still builds the exact
+    ``S2C-LOG|...`` text (the UI's Seri Hat panel decodes that text), but it
+    can no longer ride the wire raw — it is wrapped in a TRACE_EVENT frame
+    (BUS_TRACE_EVENT when the body is an ``|TRACE`` bus-transfer line) and
+    the frame bytes are sent via ``send_frame_call`` (a "(ucpFrame, uiLen)"
+    style call). Text content is preserved byte-for-byte.
+    """
+    return [
+        f"static void {func_name}(const char* cpLine)",
+        "{",
+        "    unsigned char ucArrFrame[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    unsigned int uiFrameLength;",
+        "    unsigned int uiMesajId;",
+        "    unsigned int uiIndex;",
+        "",
+        "    if (cpLine == NULL)",
+        "    {",
+        "        return;",
+        "    }",
+        "    /* Bus izleri (S2C-LOG|D|TRACE|..., S2C-LOG|E|TRACEERR|...)",
+        "     * BUS_TRACE_EVENT; diger her satir TRACE_EVENT. Metin AYNEN korunur;",
+        "     * UI cerceve metin alanindan cozer. */",
+        "    uiMesajId = SPEC2CODE_MESAJ_TRACE_EVENT;",
+        "    for (uiIndex = 0U; cpLine[uiIndex] != '\\0'; uiIndex++)",
+        "    {",
+        "        if ((cpLine[uiIndex] == '|') && (cpLine[uiIndex + 1U] == 'T') &&",
+        "            (cpLine[uiIndex + 2U] == 'R') && (cpLine[uiIndex + 3U] == 'A') &&",
+        "            (cpLine[uiIndex + 4U] == 'C') && (cpLine[uiIndex + 5U] == 'E'))",
+        "        {",
+        "            uiMesajId = SPEC2CODE_MESAJ_BUS_TRACE_EVENT;",
+        "            break;",
+        "        }",
+        "    }",
+        "    uiFrameLength = spec2codeMesajTraceCerceveKur(uiMesajId, 0U, cpLine,",
+        "                                                  ucArrFrame, sizeof(ucArrFrame));",
+        "    if (uiFrameLength > 0U)",
+        "    {",
+        f"        {send_frame_call};",
+        "    }",
+        "}",
+        "",
+    ]
+
+
 def _testbench_lwip_source(spec: dict) -> str:
     """Runtime-matched lwIP agent.
 
@@ -3484,6 +3338,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
+        '#include "spec2code_mesaj.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -3509,15 +3364,14 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "/**",
         " * @file spec2code_testbench_lwip.c",
         " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent (FreeRTOS SOCKET_API).",
+        " *",
+        " * Recv baytlari S2C-MSG cozucusune (parser) feed-forward beslenir; her",
+        " * tam cercevede spec2codeMesajIsle yaniti cerceveler ve kismi-gonderim",
+        " * (short-write) dongusuyle TCP'ye yazar. Metin satir protokolu YOK.",
         " */",
         *headers,
         "",
-        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
-        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
-        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
-        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
-        "#define SPEC2CODE_TESTBENCH_RECV_CHUNK 64",
+        "#define SPEC2CODE_TESTBENCH_RECV_CHUNK 64U",
         "",
         "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
@@ -3535,8 +3389,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "#endif",
         "",
         "static struct netif S_sNetif;",
-        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
-        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static SMesajParser S_sMesajParser;",
         "static unsigned char S_ucArrMac[6] =",
         "{",
         "    SPEC2CODE_TESTBENCH_MAC0,",
@@ -3549,18 +3402,6 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
-        "{",
-        "    unsigned int uiLength;",
-        "",
-        "    uiLength = 0U;",
-        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
-        "    {",
-        "        uiLength++;",
-        "    }",
-        "    return uiLength;",
-        "}",
-        "",
         *_testbench_board_init_lines(entries),
         *[
             line
@@ -3568,54 +3409,65 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
             if any(entry["htype"] == htype for entry in entries)
             for line in _testbench_board_getter_lines(entries, htype, _testbench_getter(htype))
         ],
+        "static void spec2codeTestbenchClientSendFrame(int iClientSocket,",
+        "                                              const unsigned char* ucpFrame,",
+        "                                              unsigned int uiLength)",
+        "{",
+        "    unsigned int uiSent;",
+        "    int iWritten;",
+        "",
+        "    /* Kismi gonderim/short-write dongusu korunur: lwip_send kalan span'i",
+        "     * tamamlayana kadar ilerletilir. */",
+        "    uiSent = 0U;",
+        "    while (uiSent < uiLength)",
+        "    {",
+        "        iWritten = lwip_send(iClientSocket, &ucpFrame[uiSent], uiLength - uiSent, 0);",
+        "        if (iWritten <= 0)",
+        "        {",
+        "            return;",
+        "        }",
+        "        uiSent += (unsigned int)iWritten;",
+        "    }",
+        "}",
+        "",
         "static void spec2codeTestbenchClientServe(int iClientSocket)",
         "{",
-        "    char cArrChunk[SPEC2CODE_TESTBENCH_RECV_CHUNK];",
-        "    unsigned int uiLineLength;",
-        "    unsigned int uiResponseLength;",
+        "    unsigned char ucArrChunk[SPEC2CODE_TESTBENCH_RECV_CHUNK];",
+        "    unsigned char ucArrCikti[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    unsigned int uiOfset;",
+        "    unsigned int uiTuketilen;",
+        "    unsigned int uiCiktiBoy;",
         "    int iReceived;",
-        "    int iIndex;",
-        "    int iStatus;",
-        "    char cByte;",
         "",
-        "    uiLineLength = 0U;",
+        "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         "    for (;;)",
         "    {",
-        "        iReceived = lwip_recv(iClientSocket, cArrChunk, sizeof(cArrChunk), 0);",
+        "        iReceived = lwip_recv(iClientSocket, ucArrChunk, sizeof(ucArrChunk), 0);",
         "        if (iReceived <= 0)",
         "        {",
         "            return;",
         "        }",
-        "        for (iIndex = 0; iIndex < iReceived; iIndex++)",
+        "        /* Feed-forward: recv chunk'i bittigi ana kadar besle; her tam",
+        "         * cercevede isle+gonder. Tek-frame-per-recv varsayimi YOK. */",
+        "        uiOfset = 0U;",
+        "        while (uiOfset < (unsigned int)iReceived)",
         "        {",
-        "            cByte = cArrChunk[iIndex];",
-        "            if (cByte == '\\r')",
+        "            uiTuketilen = 0U;",
+        "            if (spec2codeMesajBesle(&S_sMesajParser, &ucArrChunk[uiOfset],",
+        "                                    (unsigned int)iReceived - uiOfset, &uiTuketilen) == 1)",
         "            {",
-        "                continue;",
-        "            }",
-        "            if (cByte == '\\n')",
-        "            {",
-        "                S_cArrRequestLine[uiLineLength] = '\\0';",
-        "                uiLineLength = 0U;",
-        "                iStatus = spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
-        "                                                         S_cArrResponseLine,",
-        "                                                         SPEC2CODE_TESTBENCH_LINE_MAX);",
-        "                uiResponseLength = spec2codeTestbenchStringLengthLocal(S_cArrResponseLine);",
-        "                if ((iStatus == XST_SUCCESS) && (uiResponseLength > 0U))",
+        "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
+        "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
+        "                if (uiCiktiBoy > 0U)",
         "                {",
-        "                    (void)lwip_send(iClientSocket, S_cArrResponseLine, uiResponseLength, 0);",
+        "                    spec2codeTestbenchClientSendFrame(iClientSocket, ucArrCikti, uiCiktiBoy);",
         "                }",
-        "                continue;",
         "            }",
-        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            if (uiTuketilen == 0U)",
         "            {",
-        "                S_cArrRequestLine[uiLineLength] = cByte;",
-        "                uiLineLength++;",
+        "                break;",
         "            }",
-        "            else",
-        "            {",
-        "                uiLineLength = 0U;",
-        "            }",
+        "            uiOfset += uiTuketilen;",
         "        }",
         "    }",
         "}",
@@ -3752,6 +3604,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
+        '#include "spec2code_mesaj.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -3774,14 +3627,13 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "/**",
         " * @file spec2code_testbench_lwip.c",
         " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent for Spec2Code test bench.",
+        " *",
+        " * RAW API callback'i pbuf baytlarini S2C-MSG cozucusune (parser)",
+        " * feed-forward besler; her tam cercevede spec2codeMesajIsle yaniti",
+        " * cerceveler ve mevcut tcp_write/tcp_output kalibiyla gonderir. Metin",
+        " * satir protokolu YOK.",
         " */",
         *headers,
-        "",
-        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
-        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
-        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
-        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
         "",
         "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
@@ -3801,8 +3653,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "static struct netif S_sNetif;",
         "static struct tcp_pcb* S_spServerPcb;",
         "static struct tcp_pcb* S_spClientPcb;",
-        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
-        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static SMesajParser S_sMesajParser;",
         "static unsigned char S_ucArrMac[6] =",
         "{",
         "    SPEC2CODE_TESTBENCH_MAC0,",
@@ -3812,76 +3663,28 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    SPEC2CODE_TESTBENCH_MAC4,",
         "    SPEC2CODE_TESTBENCH_MAC5",
         "};",
-        "static unsigned int S_uiRequestLength;",
         "static unsigned int S_uiBoardReady;",
         "static unsigned int S_uiNetworkReady;",
         "static unsigned int S_uiServerReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
-        "{",
-        "    unsigned int uiLength;",
-        "",
-        "    uiLength = 0U;",
-        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
-        "    {",
-        "        uiLength++;",
-        "    }",
-        "    return uiLength;",
-        "}",
-        "",
-        "static void spec2codeTestbenchLineReset(void)",
-        "{",
-        "    S_uiRequestLength = 0U;",
-        "    S_cArrRequestLine[0] = '\\0';",
-        "}",
-        "",
-        "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb)",
+        "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb,",
+        "                                            const unsigned char* ucpFrame,",
+        "                                            unsigned int uiLength)",
         "{",
         "    err_t enErr;",
-        "    unsigned int uiLength;",
         "",
-        "    uiLength = spec2codeTestbenchStringLengthLocal(S_cArrResponseLine);",
+        "    /* Mevcut tcp_write/tcp_output kalibi korunur (kopya bayrakli). */",
         "    if ((spTcpPcb == NULL) || (uiLength == 0U) || (uiLength > 0xFFFFU))",
         "    {",
         "        return ERR_VAL;",
         "    }",
-        "    enErr = tcp_write(spTcpPcb, S_cArrResponseLine, (unsigned short)uiLength, TCP_WRITE_FLAG_COPY);",
+        "    enErr = tcp_write(spTcpPcb, ucpFrame, (unsigned short)uiLength, TCP_WRITE_FLAG_COPY);",
         "    if (enErr == ERR_OK)",
         "    {",
         "        enErr = tcp_output(spTcpPcb);",
         "    }",
         "    return enErr;",
-        "}",
-        "",
-        "static void spec2codeTestbenchByteConsume(struct tcp_pcb* spTcpPcb, char cByte)",
-        "{",
-        "    int iStatus;",
-        "",
-        "    if (cByte == '\\r')",
-        "    {",
-        "        return;",
-        "    }",
-        "    if (cByte == '\\n')",
-        "    {",
-        "        S_cArrRequestLine[S_uiRequestLength] = '\\0';",
-        "        iStatus = spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
-        "                                                 S_cArrResponseLine,",
-        "                                                 SPEC2CODE_TESTBENCH_LINE_MAX);",
-        "        if (iStatus == XST_SUCCESS)",
-        "        {",
-        "            (void)spec2codeTestbenchResponseSend(spTcpPcb);",
-        "        }",
-        "        spec2codeTestbenchLineReset();",
-        "        return;",
-        "    }",
-        "    if (S_uiRequestLength >= (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
-        "    {",
-        "        spec2codeTestbenchLineReset();",
-        "        return;",
-        "    }",
-        "    S_cArrRequestLine[S_uiRequestLength] = cByte;",
-        "    S_uiRequestLength++;",
         "}",
         "",
         "static err_t spec2codeTestbenchTcpReceive(void* vpArg,",
@@ -3890,8 +3693,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "                                           err_t enErr)",
         "{",
         "    struct pbuf* spCurrent;",
-        "    char* cpPayload;",
-        "    unsigned int uiIndex;",
+        "    const unsigned char* ucpPayload;",
+        "    unsigned char ucArrCikti[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    unsigned int uiOfset;",
+        "    unsigned int uiTuketilen;",
+        "    unsigned int uiCiktiBoy;",
         "",
         "    (void)vpArg;",
         "    if ((enErr != ERR_OK) || (spTcpPcb == NULL))",
@@ -3902,16 +3708,34 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    {",
         "        (void)tcp_close(spTcpPcb);",
         "        S_spClientPcb = NULL;",
-        "        spec2codeTestbenchLineReset();",
+        "        spec2codeMesajParserSifirla(&S_sMesajParser);",
         "        return ERR_OK;",
         "    }",
         "    tcp_recved(spTcpPcb, spPbuf->tot_len);",
         "    for (spCurrent = spPbuf; spCurrent != NULL; spCurrent = spCurrent->next)",
         "    {",
-        "        cpPayload = (char*)spCurrent->payload;",
-        "        for (uiIndex = 0U; uiIndex < (unsigned int)spCurrent->len; uiIndex++)",
+        "        ucpPayload = (const unsigned char*)spCurrent->payload;",
+        "        /* Feed-forward: pbuf segmentini bittigi ana kadar besle; her tam",
+        "         * cercevede isle+gonder. Tek-frame-per-recv varsayimi YOK. */",
+        "        uiOfset = 0U;",
+        "        while (uiOfset < (unsigned int)spCurrent->len)",
         "        {",
-        "            spec2codeTestbenchByteConsume(spTcpPcb, cpPayload[uiIndex]);",
+        "            uiTuketilen = 0U;",
+        "            if (spec2codeMesajBesle(&S_sMesajParser, &ucpPayload[uiOfset],",
+        "                                    (unsigned int)spCurrent->len - uiOfset, &uiTuketilen) == 1)",
+        "            {",
+        "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
+        "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
+        "                if (uiCiktiBoy > 0U)",
+        "                {",
+        "                    (void)spec2codeTestbenchResponseSend(spTcpPcb, ucArrCikti, uiCiktiBoy);",
+        "                }",
+        "            }",
+        "            if (uiTuketilen == 0U)",
+        "            {",
+        "                break;",
+        "            }",
+        "            uiOfset += uiTuketilen;",
         "        }",
         "    }",
         "    pbuf_free(spPbuf);",
@@ -3923,7 +3747,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    (void)vpArg;",
         "    (void)enErr;",
         "    S_spClientPcb = NULL;",
-        "    spec2codeTestbenchLineReset();",
+        "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         "}",
         "",
         "static err_t spec2codeTestbenchTcpAccept(void* vpArg,",
@@ -3941,7 +3765,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "        return ERR_ABRT;",
         "    }",
         "    S_spClientPcb = spNewPcb;",
-        "    spec2codeTestbenchLineReset();",
+        "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         "    tcp_arg(spNewPcb, NULL);",
         "    tcp_recv(spNewPcb, spec2codeTestbenchTcpReceive);",
         "    tcp_err(spNewPcb, spec2codeTestbenchTcpError);",
@@ -4180,6 +4004,7 @@ def _testbench_uart_source(spec: dict) -> str:
         '#include "spec2code_testbench_uart.h"',
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
+        '#include "spec2code_mesaj.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xil_printf.h"',
@@ -4194,38 +4019,25 @@ def _testbench_uart_source(spec: dict) -> str:
     lines = [
         "/**",
         " * @file spec2code_testbench_uart.c",
-        f" * @brief PS UART ({uart_prefix}) polled line-protocol agent for the Spec2Code test bench.",
+        f" * @brief PS UART ({uart_prefix}) polled S2C-MSG binary agent for the Spec2Code test bench.",
         " *",
         " * Polled receive per the official polled UART example; needs no",
         " * interrupts and no scheduler, so the same agent runs on bare metal",
-        " * and on a FreeRTOS BSP alike.",
+        " * and on a FreeRTOS BSP alike. Recv baytlari S2C-MSG cozucusune (parser)",
+        " * feed-forward beslenir; her tam cercevede spec2codeMesajIsle yaniti",
+        " * cerceveler. Metin banner/enter-prompt YOK (binary kanal).",
         " */",
         *headers,
         "",
-        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
-        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
-        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
-        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
+        # Recv chunk: binary cerceve baytlari parca parca gelir; parser tam
+        # cerceveyi kendi 4096B govde tamponunda birlestirir.
+        "#define SPEC2CODE_TESTBENCH_RECV_CHUNK 64U",
         "",
         f"static {uart_prefix} S_sTestbenchUart;",
-        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
-        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static SMesajParser S_sMesajParser;",
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
-        "{",
-        "    unsigned int uiLength;",
-        "",
-        "    uiLength = 0U;",
-        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
-        "    {",
-        "        uiLength++;",
-        "    }",
-        "    return uiLength;",
-        "}",
-        "",
         *_testbench_board_init_lines(entries),
         *[
             line
@@ -4277,97 +4089,65 @@ def _testbench_uart_source(spec: dict) -> str:
             ]
         ),
         "",
-        "static void spec2codeTestbenchUartSendLine(const char* cpLine)",
+        "static void spec2codeTestbenchUartSendFrame(const unsigned char* ucpFrame, unsigned int uiLength)",
         "{",
-        "    unsigned int uiLength;",
         "    unsigned int uiSent;",
         "",
-        "    uiLength = spec2codeTestbenchStringLengthLocal(cpLine);",
         "    uiSent = 0U;",
         "    while (uiSent < uiLength)",
         "    {",
         f"        uiSent += {uart_prefix}_Send(&S_sTestbenchUart,",
-        "                               (u8*)&cpLine[uiSent],",
+        "                               (u8*)&ucpFrame[uiSent],",
         "                               uiLength - uiSent);",
         "    }",
         "}",
         "",
-        "static int spec2codeTestbenchUartLineIsRequest(const char* cpLine)",
-        "{",
-        "    /* Only \"S2C|...\" lines are protocol requests; terminal echo and",
-        "     * boot noise on a shared console UART are skipped. */",
-        "    if ((cpLine[0] == 'S') && (cpLine[1] == '2') && (cpLine[2] == 'C') && (cpLine[3] == '|'))",
-        "    {",
-        "        return 1;",
-        "    }",
-        "    return 0;",
-        "}",
-        "",
+        *_mesaj_trace_sink_lines(
+            "spec2codeTestbenchUartSendLine",
+            "spec2codeTestbenchUartSendFrame(ucArrFrame, uiFrameLength)"),
         "void spec2codeTestbenchUartRun(void)",
         "{",
-        "    unsigned int uiLineLength;",
-        "    unsigned int uiPrevWasCr;",
-        "    unsigned char ucByte;",
+        "    unsigned char ucArrChunk[SPEC2CODE_TESTBENCH_RECV_CHUNK];",
+        "    unsigned char ucArrCikti[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    unsigned int uiReceived;",
+        "    unsigned int uiOfset;",
+        "    unsigned int uiTuketilen;",
+        "    unsigned int uiCiktiBoy;",
         "",
-        "    /* Loglar S2C trafigiyle ayni UART'tan aksin. */",
+        "    /* Loglar/izler S2C trafigiyle ayni UART'tan cerceveli aksin. */",
         "    spec2codeLogSinkSet(spec2codeTestbenchUartSendLine);",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"UART agent dongusu basladi; log seviyesi=%s\",",
         "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
-        "    uiLineLength = 0U;",
-        "    uiPrevWasCr = 0U;",
+        "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         "    for (;;)",
         "    {",
-        f"        if ({uart_prefix}_Recv(&S_sTestbenchUart, &ucByte, 1U) == 0U)",
+        f"        uiReceived = {uart_prefix}_Recv(&S_sTestbenchUart, ucArrChunk, sizeof(ucArrChunk));",
+        "        if (uiReceived == 0U)",
         "        {",
         "            continue;",
         "        }",
-        "        if ((ucByte != (unsigned char)'\\r') && (ucByte != (unsigned char)'\\n'))",
+        "        /* Feed-forward: recv chunk'i bittigi ana kadar besle; her tam",
+        "         * cercevede isle+gonder. Tek-frame-per-recv varsayimi YOK. */",
+        "        uiOfset = 0U;",
+        "        while (uiOfset < uiReceived)",
         "        {",
-        "            uiPrevWasCr = 0U;",
-        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            uiTuketilen = 0U;",
+        "            if (spec2codeMesajBesle(&S_sMesajParser, &ucArrChunk[uiOfset],",
+        "                                    uiReceived - uiOfset, &uiTuketilen) == 1)",
         "            {",
-        "                S_cArrRequestLine[uiLineLength] = (char)ucByte;",
-        "                uiLineLength++;",
+        "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
+        "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
+        "                if (uiCiktiBoy > 0U)",
+        "                {",
+        "                    spec2codeTestbenchUartSendFrame(ucArrCikti, uiCiktiBoy);",
+        "                }",
         "            }",
-        "            else",
+        "            if (uiTuketilen == 0U)",
         "            {",
-        "                uiLineLength = 0U;",
+        "                break;",
         "            }",
-        "            continue;",
+        "            uiOfset += uiTuketilen;",
         "        }",
-        "        /* CR de LF de satiri bitirir: terminal Enter'i cogunlukla",
-        "         * yalniz CR gonderir. CRLF'nin LF'si yutulur ki bos satir",
-        "         * istemi iki kez basilmasin. */",
-        "        if ((ucByte == (unsigned char)'\\n') && (uiPrevWasCr == 1U))",
-        "        {",
-        "            uiPrevWasCr = 0U;",
-        "            continue;",
-        "        }",
-        "        if (ucByte == (unsigned char)'\\r')",
-        "        {",
-        "            uiPrevWasCr = 1U;",
-        "        }",
-        "        else",
-        "        {",
-        "            uiPrevWasCr = 0U;",
-        "        }",
-        "        S_cArrRequestLine[uiLineLength] = '\\0';",
-        "        if (uiLineLength == 0U)",
-        "        {",
-        "            /* Bos satir (Enter): canlilik istemi - agent yasiyorsa",
-        "             * konsola \"> \" duser, cakilma/takilma buradan anlasilir. */",
-        "            spec2codeTestbenchUartSendLine(\"> \\r\\n\");",
-        "            continue;",
-        "        }",
-        "        uiLineLength = 0U;",
-        "        if (spec2codeTestbenchUartLineIsRequest(S_cArrRequestLine) == 0)",
-        "        {",
-        "            continue;",
-        "        }",
-        "        (void)spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
-        "                                             S_cArrResponseLine,",
-        "                                             SPEC2CODE_TESTBENCH_LINE_MAX);",
-        "        spec2codeTestbenchUartSendLine(S_cArrResponseLine);",
         "    }",
         "}",
     ]
@@ -4393,7 +4173,6 @@ def _testbench_uart_main_source(spec: dict) -> str:
     banner = (
         f'    xil_printf("Spec2Code test bench {app_version} | proje: {project_name}'
         ' | transport: UART\\r\\n");\n'
-        '    xil_printf("Enter\'a basinca \\"> \\" istemi doner (canlilik kontrolu).\\r\\n");\n'
     )
     banner += (
         '    xil_printf("S2C-UART-AGENT-READY (uartlite, baud sabit donanimda)\\r\\n");\n'
@@ -4469,6 +4248,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         '#include "spec2code_testbench_coresight.h"',
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
+        '#include "spec2code_mesaj.h"',
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xcoresightpsdcc.h"',
@@ -4481,39 +4261,21 @@ def _testbench_coresight_source(spec: dict) -> str:
     lines = [
         "/**",
         " * @file spec2code_testbench_coresight.c",
-        " * @brief CoreSight DCC polled line-protocol agent for the Spec2Code test bench.",
+        " * @brief CoreSight DCC polled S2C-MSG binary agent for the Spec2Code test bench.",
         " *",
         " * Uses the standalone BSP coresightps_dcc driver",
         " * (XCoresightPs_DccSendByte/RecvByte). RecvByte blocks until the",
-        " * debugger side writes a byte, which is exactly the agent's job:",
-        " * wait for a request line, dispatch, answer. No interrupts, no",
-        " * scheduler - runs the same on bare metal and FreeRTOS BSPs.",
+        " * debugger side writes a byte; her bayt S2C-MSG cozucusune (parser)",
+        " * feed-forward beslenir ve tam cercevede spec2codeMesajIsle yaniti",
+        " * cerceveler. No interrupts, no scheduler - runs the same on bare",
+        " * metal and FreeRTOS BSPs. Metin banner/enter-prompt YOK (binary kanal).",
         " */",
         *headers,
         "",
-        # 1024: 256 baytlik data (512 hex) + prefix (~64) + message (160) satiri
-        # ~750 karakterdir; 512'lik tampon sahada 256B flash okumasinda satiri
-        # kirpti (\n'siz kirpik satir -> host timeout, sonraki cevapla yapisti).
-        # Istek tarafi da ayni tampon: 256B page_program payload'i ~590 karakter.
-        "#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U",
-        "",
-        "static char S_cArrRequestLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
-        "static char S_cArrResponseLine[SPEC2CODE_TESTBENCH_LINE_MAX];",
+        "static SMesajParser S_sMesajParser;",
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        "static unsigned int spec2codeTestbenchStringLengthLocal(const char* cpText)",
-        "{",
-        "    unsigned int uiLength;",
-        "",
-        "    uiLength = 0U;",
-        "    while ((cpText != NULL) && (cpText[uiLength] != '\\0'))",
-        "    {",
-        "        uiLength++;",
-        "    }",
-        "    return uiLength;",
-        "}",
-        "",
         *_testbench_board_init_lines(entries),
         *[
             line
@@ -4527,88 +4289,46 @@ def _testbench_coresight_source(spec: dict) -> str:
         "    return XST_SUCCESS;",
         "}",
         "",
-        "static void spec2codeTestbenchCoresightSendLine(const char* cpLine)",
+        "static void spec2codeTestbenchCoresightSendFrame(const unsigned char* ucpFrame, unsigned int uiLength)",
         "{",
-        "    unsigned int uiLength;",
         "    unsigned int uiSent;",
         "",
-        "    uiLength = spec2codeTestbenchStringLengthLocal(cpLine);",
         "    for (uiSent = 0U; uiSent < uiLength; uiSent++)",
         "    {",
-        "        XCoresightPs_DccSendByte(0U, (u8)cpLine[uiSent]);",
+        "        XCoresightPs_DccSendByte(0U, (u8)ucpFrame[uiSent]);",
         "    }",
         "}",
         "",
-        "static int spec2codeTestbenchCoresightLineIsRequest(const char* cpLine)",
-        "{",
-        "    if ((cpLine[0] == 'S') && (cpLine[1] == '2') && (cpLine[2] == 'C') && (cpLine[3] == '|'))",
-        "    {",
-        "        return 1;",
-        "    }",
-        "    return 0;",
-        "}",
-        "",
+        *_mesaj_trace_sink_lines(
+            "spec2codeTestbenchCoresightSendLine",
+            "spec2codeTestbenchCoresightSendFrame(ucArrFrame, uiFrameLength)"),
         "void spec2codeTestbenchCoresightRun(void)",
         "{",
-        "    unsigned int uiLineLength;",
-        "    unsigned int uiPrevWasCr;",
         "    unsigned char ucByte;",
+        "    unsigned char ucArrCikti[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    unsigned int uiTuketilen;",
+        "    unsigned int uiCiktiBoy;",
         "",
-        "    /* Loglar S2C trafigiyle ayni DCC kanalindan aksin (jtagterminal). */",
+        "    /* Loglar/izler S2C trafigiyle ayni DCC kanalindan cerceveli aksin. */",
         "    spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"CoreSight agent dongusu basladi; log seviyesi=%s\",",
         "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
-        "    uiLineLength = 0U;",
-        "    uiPrevWasCr = 0U;",
+        "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         "    for (;;)",
         "    {",
+        "        /* DCC byte koprusu birer bayt getirir; feed-forward tek bayt",
+        "         * uzerinde de cerceve tamamlaninca isle+gonder yapar. */",
         "        ucByte = (unsigned char)XCoresightPs_DccRecvByte(0U);",
-        "        if ((ucByte != (unsigned char)'\\r') && (ucByte != (unsigned char)'\\n'))",
+        "        uiTuketilen = 0U;",
+        "        if (spec2codeMesajBesle(&S_sMesajParser, &ucByte, 1U, &uiTuketilen) == 1)",
         "        {",
-        "            uiPrevWasCr = 0U;",
-        "            if (uiLineLength < (SPEC2CODE_TESTBENCH_LINE_MAX - 1U))",
+        "            uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
+        "                S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
+        "            if (uiCiktiBoy > 0U)",
         "            {",
-        "                S_cArrRequestLine[uiLineLength] = (char)ucByte;",
-        "                uiLineLength++;",
+        "                spec2codeTestbenchCoresightSendFrame(ucArrCikti, uiCiktiBoy);",
         "            }",
-        "            else",
-        "            {",
-        "                uiLineLength = 0U;",
-        "            }",
-        "            continue;",
         "        }",
-        "        /* CR de LF de satiri bitirir; CRLF'nin LF'si yutulur ki bos",
-        "         * satir istemi iki kez basilmasin. */",
-        "        if ((ucByte == (unsigned char)'\\n') && (uiPrevWasCr == 1U))",
-        "        {",
-        "            uiPrevWasCr = 0U;",
-        "            continue;",
-        "        }",
-        "        if (ucByte == (unsigned char)'\\r')",
-        "        {",
-        "            uiPrevWasCr = 1U;",
-        "        }",
-        "        else",
-        "        {",
-        "            uiPrevWasCr = 0U;",
-        "        }",
-        "        S_cArrRequestLine[uiLineLength] = '\\0';",
-        "        if (uiLineLength == 0U)",
-        "        {",
-        "            /* Bos satir (Enter): canlilik istemi - agent yasiyorsa",
-        "             * konsola \"> \" duser, cakilma/takilma buradan anlasilir. */",
-        "            spec2codeTestbenchCoresightSendLine(\"> \\r\\n\");",
-        "            continue;",
-        "        }",
-        "        uiLineLength = 0U;",
-        "        if (spec2codeTestbenchCoresightLineIsRequest(S_cArrRequestLine) == 0)",
-        "        {",
-        "            continue;",
-        "        }",
-        "        (void)spec2codeTestbenchDispatchLine(S_cArrRequestLine,",
-        "                                             S_cArrResponseLine,",
-        "                                             SPEC2CODE_TESTBENCH_LINE_MAX);",
-        "        spec2codeTestbenchCoresightSendLine(S_cArrResponseLine);",
         "    }",
         "}",
     ]
@@ -4648,24 +4368,16 @@ def _testbench_coresight_main_source(spec: dict) -> str:
         " *\n"
         " * BSP stdin/stdout stays on the console UART: xil_printf keeps\n"
         " * printing there, only the S2C protocol rides the DCC. The boot\n"
-        " * banner is printed on BOTH channels so the serial console shows\n"
-        " * life at power-up and the host's jtagterminal bridge sees the\n"
-        " * agent too.\n"
+        " * banner is printed ONLY on the serial console (xil_printf) so a\n"
+        " * human sees life at power-up; the DCC now carries binary S2C-MSG\n"
+        " * frames exclusively (no ASCII banner - it would corrupt the frame\n"
+        " * stream the host FrameParser reads).\n"
         + runtime_note +
         " */\n"
         '#include "spec2code_testbench_coresight_main.h"\n'
         '#include "spec2code_testbench_coresight.h"\n'
-        '#include "xcoresightpsdcc.h"\n'
         '#include "xil_printf.h"\n'
         '#include "xstatus.h"\n\n'
-        "static void spec2codeTestbenchCoresightBannerLine(const char* cpLine)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n\n"
-        "    for (uiIndex = 0U; cpLine[uiIndex] != '\\0'; uiIndex++)\n"
-        "    {\n"
-        "        XCoresightPs_DccSendByte(0U, (u8)cpLine[uiIndex]);\n"
-        "    }\n"
-        "}\n\n"
         "int main(void)\n"
         "{\n"
         "    int iStatus;\n\n"
@@ -4681,15 +4393,11 @@ def _testbench_coresight_main_source(spec: dict) -> str:
         '        xil_printf("Spec2Code CoreSight agent baslatilamadi: %d\\r\\n", iStatus);\n'
         "        return iStatus;\n"
         "    }\n"
-        "    /* Seri konsol (stdout=UART): acilis isareti. */\n"
+        "    /* Seri konsol (stdout=UART): acilis isareti. DCC'ye banner BASILMAZ\n"
+        "     * (binary S2C-MSG cerceve akisini bozar). */\n"
         f'    xil_printf("{banner_text}\\r\\n");\n'
-        '    xil_printf("S2C protokolu CoreSight DCC uzerinde; bu UART yalnizca konsol.\\r\\n");\n'
+        '    xil_printf("S2C protokolu CoreSight DCC uzerinde (binary S2C-MSG); bu UART yalnizca konsol.\\r\\n");\n'
         '    xil_printf("S2C-CORESIGHT-AGENT-READY\\r\\n");\n'
-        "    /* Host koprusu (jtagterminal): ayni banner DCC uzerinden. */\n"
-        f'    spec2codeTestbenchCoresightBannerLine("{banner_text}\\r\\n");\n'
-        '    spec2codeTestbenchCoresightBannerLine("Enter\'a basinca \\"> \\" istemi doner'
-        ' (canlilik kontrolu).\\r\\n");\n'
-        '    spec2codeTestbenchCoresightBannerLine("S2C-CORESIGHT-AGENT-READY\\r\\n");\n'
         "    spec2codeTestbenchCoresightRun();\n"
         "    return XST_SUCCESS;\n"
         "}\n"

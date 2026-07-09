@@ -714,7 +714,13 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("xemac_add", lwip_source)
         self.assertIn("lwip_socket(AF_INET, SOCK_STREAM, 0)", lwip_source)
         self.assertIn("xemacif_input_thread", lwip_source)
-        self.assertIn("spec2codeTestbenchDispatchLine", lwip_source)
+        # Binary S2C-MSG: satir tamponu/DispatchLine yerine parser feed-forward.
+        self.assertNotIn("spec2codeTestbenchDispatchLine", lwip_source)
+        self.assertNotIn("S_cArrRequestLine", lwip_source)
+        self.assertIn("spec2codeMesajBesle(&S_sMesajParser", lwip_source)
+        self.assertIn("spec2codeMesajIsle(&S_sMesajParser.sBaslik", lwip_source)
+        # Kismi-gonderim (short-write) dongusu korunur.
+        self.assertIn("lwip_send(iClientSocket, &ucpFrame[uiSent], uiLength - uiSent, 0)", lwip_source)
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", lwip_source)
         self.assertIn("XSpiPs* spec2codeTestbenchSpiPsHandleGet", lwip_source)
         # Raw-mode constructs must not leak into the socket-mode agent.
@@ -765,9 +771,12 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("SPEC2CODE_TESTBENCH_UART_BAUD 115200U", uart_header)
         self.assertIn("XUartPs_CfgInitialize", uart_source)
         self.assertIn("XUartPs_SetBaudRate", uart_source)
-        self.assertIn("XUartPs_Recv(&S_sTestbenchUart, &ucByte, 1U)", uart_source)
-        self.assertIn("spec2codeTestbenchDispatchLine", uart_source)
-        self.assertIn("spec2codeTestbenchUartLineIsRequest", uart_source)
+        # Binary S2C-MSG: chunk recv -> parser feed-forward; satir/DispatchLine yok.
+        self.assertIn("XUartPs_Recv(&S_sTestbenchUart, ucArrChunk, sizeof(ucArrChunk))", uart_source)
+        self.assertNotIn("spec2codeTestbenchDispatchLine", uart_source)
+        self.assertNotIn("spec2codeTestbenchUartLineIsRequest", uart_source)
+        self.assertIn("spec2codeMesajBesle(&S_sMesajParser", uart_source)
+        self.assertIn("spec2codeMesajIsle(&S_sMesajParser.sBaslik", uart_source)
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", uart_source)
         self.assertIn("spec2codeTestbenchBoardInit();", main_source)
         self.assertIn("S2C-UART-AGENT-READY", main_source)
@@ -796,7 +805,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('#include "xuartpsv.h"', uart_source)
         self.assertIn("XUartPsv_CfgInitialize", uart_source)
         self.assertIn("XUartPsv_SetBaudRate", uart_source)
-        self.assertIn("XUartPsv_Recv(&S_sTestbenchUart, &ucByte, 1U)", uart_source)
+        self.assertIn("XUartPsv_Recv(&S_sTestbenchUart, ucArrChunk, sizeof(ucArrChunk))", uart_source)
         self.assertNotIn("xuartps.h", uart_source.replace("xuartpsv.h", ""))
         self.assertNotIn("XUartPs_", uart_source.replace("XUartPsv_", ""))
         self.assertEqual(manifest["transport_agent"], "uart")
@@ -1383,18 +1392,21 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('#include "xcoresightpsdcc.h"', cs_source)
         self.assertIn("XCoresightPs_DccRecvByte(0U)", cs_source)
         self.assertIn("XCoresightPs_DccSendByte(0U,", cs_source)
-        self.assertIn("spec2codeTestbenchDispatchLine", cs_source)
+        # Binary S2C-MSG: DCC byte koprusu parser'a feed-forward; DispatchLine yok.
+        self.assertNotIn("spec2codeTestbenchDispatchLine", cs_source)
+        self.assertIn("spec2codeMesajBesle(&S_sMesajParser", cs_source)
+        self.assertIn("spec2codeMesajIsle(&S_sMesajParser.sBaslik", cs_source)
         self.assertIn("XIicPs* spec2codeTestbenchIicPsHandleGet", cs_source)
-        # Bos satir (Enter) canlilik istemi agent dongusunde olmali.
-        self.assertIn('spec2codeTestbenchCoresightSendLine("> \\r\\n");', cs_source)
+        # Binary kanalda satir/enter-prompt YOK.
+        self.assertNotIn('"> \\r\\n"', cs_source)
         version = current_app_version()
         self.assertIn(f"Spec2Code test bench {version}", main_source)
         self.assertIn("proje: unit_coresight_agent", main_source)
         self.assertIn("S2C-CORESIGHT-AGENT-READY", main_source)
-        # Banner iki kanala da basilmali: seri konsol (xil_printf/stdout=UART)
-        # ve DCC (jtagterminal koprusu). BSP stdout ayarina dokunulmaz.
+        # Banner YALNIZ seri konsola (xil_printf/stdout=UART) basilir; DCC artik
+        # binary S2C-MSG cerceve tasir, ASCII banner cerceve akisini bozardi.
         self.assertIn(f'xil_printf("Spec2Code test bench {version}', main_source)
-        self.assertIn(f'spec2codeTestbenchCoresightBannerLine("Spec2Code test bench {version}', main_source)
+        self.assertNotIn("spec2codeTestbenchCoresightBannerLine", main_source)
         self.assertIn('xil_printf("S2C-CORESIGHT-AGENT-READY', main_source)
         self.assertFalse(lwip_generated)
         self.assertFalse(uart_generated)
@@ -1414,9 +1426,11 @@ class TestbenchTests(unittest.TestCase):
                 codegen.generate(spec, Path(tmp) / "out")
         self.assertIn("psu_coresight_0", str(ctx.exception))
 
-    def test_uart_agent_banner_and_enter_prompt(self) -> None:
-        # Acilista surum/proje banner'i; Enter'a (bos satir) "> " istemi -
-        # cakilma/takilma kontrolu seri konsoldan yapilabilsin.
+    def test_uart_agent_feeds_bytes_into_mesaj_parser(self) -> None:
+        # Binary S2C-MSG: UART agent dongusu recv baytlarini SMesajParser'a
+        # feed-forward besler (satir/newline tetigi, karsilama banner'i ve
+        # enter-prompt YOK). Konsol (stdout=UART) acilis banner'i insan icin
+        # kalir. Feed-forward: her cagride tuketilen span kadar ilerlenir.
         spec = load_sample_spec("unit_uart_banner")
         add_zynqmp_ps_uart(spec)
         spec["project"]["testbench_transport"] = "uart"
@@ -1427,12 +1441,20 @@ class TestbenchTests(unittest.TestCase):
             main_source = (out_dir / "tests" / "spec2code_testbench_uart_main.c").read_text(encoding="utf-8")
 
         version = current_app_version()
+        # Konsol banner'i (transport-disi stdout) korunur.
         self.assertIn(f"Spec2Code test bench {version}", main_source)
         self.assertIn("proje: unit_uart_banner", main_source)
         self.assertIn("transport: UART", main_source)
-        self.assertIn('spec2codeTestbenchUartSendLine("> \\r\\n");', uart_source)
-        # CR tek basina da satiri bitirmeli (PuTTY Enter'i yalniz CR gonderir).
-        self.assertIn("uiPrevWasCr", uart_source)
+        # Enter-prompt/banner satirlari ve satir tamponu tamamen kalkti.
+        self.assertNotIn('"> \\r\\n"', uart_source)
+        self.assertNotIn("uiPrevWasCr", uart_source)
+        self.assertNotIn("S_cArrRequestLine", uart_source)
+        # Parser + feed-forward dongusu.
+        self.assertIn("static SMesajParser S_sMesajParser;", uart_source)
+        self.assertIn("spec2codeMesajParserSifirla(&S_sMesajParser);", uart_source)
+        self.assertIn("spec2codeMesajBesle(&S_sMesajParser", uart_source)
+        self.assertIn("uiOfset += uiTuketilen;", uart_source)
+        self.assertIn("spec2codeMesajIsle(&S_sMesajParser.sBaslik", uart_source)
 
     def test_testbench_transport_auto_prefers_eth_and_falls_back_to_uart(self) -> None:
         spec = load_sample_spec("unit_transport_auto")
@@ -1739,16 +1761,12 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(offsets[0], 0x000)
         self.assertEqual(offsets[1], 0x002)
 
-    def test_agent_line_buffer_fits_full_data_payload_and_guards_overflow(self) -> None:
-        # SAHA BULGUSU (2026-07-05): 256 baytlik flash okumasi timeout'a
-        # dustu. Cevap satiri ~750 karakterdir (prefix ~64 + 512 hex data +
-        # message 160) ama LINE_MAX 512 idi: ResponseFormat kirpip FAILURE
-        # dondu, UART/CoreSight ajani kirpik satiri \n'siz gonderdi -> host
-        # satiri tamamlayamayip timeout; kirpik govde bir SONRAKI cevapla
-        # yapisti (id=47+id=48 tek satir olarak gorunduler). Beklenen:
-        # 1024'luk tampon (istek tarafi da 256B page_program payload'i
-        # icin gerekli) + tasma bekcisi (kirpik satir yerine data'siz
-        # "response line overflow" cevabi).
+    def test_agent_frame_buffer_fits_full_data_payload_and_is_sealed(self) -> None:
+        # Binary S2C-MSG gecisi: eski satir tamponu (LINE_MAX) yerine cikti
+        # tamponu en buyuk yanit cercevesine gore boyutlanir ve _Static_assert
+        # ile muhurlenir. En buyuk cerceve = 12 (baslik) + 20 (5*4 sabit alan)
+        # + pad4(256 veri) + 4 (metinBoy) + pad4(160 metin) = 452B. Govde girisi
+        # parser'in 4096B govde tamponunda tutulur (feed-forward).
         spec = load_sample_spec("unit_no_spi_testbench")
         add_zynqmp_ps_ethernet(spec)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1758,11 +1776,26 @@ class TestbenchTests(unittest.TestCase):
             agent_sources = "\n".join(
                 p.read_text(encoding="utf-8")
                 for p in tests_dir.glob("spec2code_testbench_*.c"))
-            ops_source = (tests_dir / "unit_no_spi_testbench_testbench_ops.c").read_text(encoding="utf-8")
+            mesaj_header = (tests_dir / "spec2code_mesaj.h").read_text(encoding="utf-8")
 
-        self.assertIn("#define SPEC2CODE_TESTBENCH_LINE_MAX 1024U", agent_sources)
-        self.assertNotIn("SPEC2CODE_TESTBENCH_LINE_MAX 512U", agent_sources)
-        self.assertIn('spec2codeTestbenchMessageSet(&sResponse, "response line overflow");', ops_source)
+        # Eski satir tamponu tamamen kalkti.
+        self.assertNotIn("SPEC2CODE_TESTBENCH_LINE_MAX", agent_sources)
+        self.assertNotIn("S_cArrRequestLine", agent_sources)
+        # Cerceve kapasitesi: 12+20+pad4(256)+4+pad4(160) formulu ve 4096 govde.
+        self.assertIn("#define SPEC2CODE_MESAJ_CERCEVE_MAX", mesaj_header)
+        self.assertIn("SPEC2CODE_TESTBENCH_DATA_MAX + 3U) & ~3U", mesaj_header)
+        self.assertIn("SPEC2CODE_TESTBENCH_MESSAGE_MAX + 3U) & ~3U", mesaj_header)
+        self.assertIn("#define SPEC2CODE_MESAJ_GOVDE_MAX 4096U", mesaj_header)
+        # Uretilen C'de kapasite _Static_assert ile muhurlu.
+        self.assertIn("_Static_assert(SPEC2CODE_MESAJ_CERCEVE_MAX <=", mesaj_header)
+        # Ajan cikti tamponu bu sabitle ayrilir.
+        self.assertIn("ucArrCikti[SPEC2CODE_MESAJ_CERCEVE_MAX]", agent_sources)
+
+        # 452 sayisal degeri de dogrula (host'ta derlenemedigi ortamlarda bile
+        # formulun bekleneni verdigini gosterir).
+        data_pad = (256 + 3) & ~3
+        msg_pad = (160 + 3) & ~3
+        self.assertEqual(12 + 20 + data_pad + 4 + msg_pad, 452)
 
     def test_qspi_flash_command_read_splits_tx_and_rx_messages(self) -> None:
         # SAHA BULGUSU (2026-07-05): mt25qu02g data_read (address=0x0
@@ -1855,87 +1888,11 @@ class TestbenchTests(unittest.TestCase):
         idx = driver.find("CommandSend")
         # Stripe yalniz iki veri fazinda; ID/komut fazinda gecmez (sayi 2).
 
-    @unittest.skipUnless(shutil.which("gcc") or shutil.which("cc"), "host C compiler required")
-    def test_generated_request_parser_round_trips_on_host_compiler(self) -> None:
-        # Regresyon (sahada bulundu): satir kopyalama TextCopy ile yapilinca
-        # ilk '|' karakterinde kesiliyor, tampon "S2C"ye dusuyor ve HER istek
-        # "request parse failed" (id=0) donuyordu. Uretilen parser'i gercek
-        # bir derleyiciyle derleyip ayni istegi uctan uca cozuyoruz.
-        compiler = shutil.which("gcc") or shutil.which("cc")
-        spec = load_sample_spec("unit_parse_roundtrip")
-        with tempfile.TemporaryDirectory() as tmp:
-            out_dir = Path(tmp) / spec["project"]["name"]
-            codegen.generate(spec, out_dir)
-            tests_dir = out_dir / "tests"
-            work = Path(tmp) / "host"
-            work.mkdir()
-            for name in ("spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h",
-                         "spec2code_testbench_log.c", "spec2code_testbench_log.h"):
-                shutil.copy2(tests_dir / name, work / name)
-            (work / "xstatus.h").write_text(
-                "#ifndef XSTATUS_H\n#define XSTATUS_H\n"
-                "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
-                encoding="utf-8")
-            (work / "xil_printf.h").write_text(
-                "#ifndef XIL_PRINTF_H\n#define XIL_PRINTF_H\n"
-                "#include <stdio.h>\n#define xil_printf printf\n#endif\n",
-                encoding="utf-8")
-            (work / "main.c").write_text(
-                '#include <stdio.h>\n'
-                '#include <string.h>\n'
-                '#include "spec2code_testbench_protocol.h"\n'
-                '#include "spec2code_testbench_log.h"\n'
-                'static char S_cArrLastLog[256];\n'
-                'static void logSink(const char* cpLine)\n'
-                '{\n'
-                '    snprintf(S_cArrLastLog, sizeof(S_cArrLastLog), "%s", cpLine);\n'
-                '}\n'
-                'static void try_line(const char* cpLine)\n'
-                '{\n'
-                '    SSpec2codeTestbenchRequest sRequest;\n'
-                '    int iStatus = spec2codeTestbenchRequestParse(cpLine, &sRequest);\n'
-                '    printf("status=%d id=%u device=[%s] op=[%s] hasval=%u val=%u\\n",\n'
-                '           iStatus, sRequest.uiId, sRequest.cArrDevice, sRequest.cArrOperation,\n'
-                '           sRequest.uiHasValue, sRequest.uiValue);\n'
-                '}\n'
-                'int main(void)\n'
-                '{\n'
-                '    try_line("S2C|id=2|device=spec2code|op=spec2code_version");\n'
-                '    try_line("S2C|id=7|device=u12_ltc2991|op=register_read|reg=STATUS|reg_addr=0x1");\n'
-                '    try_line("S2C|id=3|device=spec2code|op=log_level|value=4");\n'
-                '    try_line("S2C|");\n'
-                '    spec2codeLogSinkSet(logSink);\n'
-                '    S_cArrLastLog[0] = 0;\n'
-                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "gizli");\n'
-                '    printf("debug_at_default=[%s]\\n", S_cArrLastLog);\n'
-                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "hata kodu=%d", -7);\n'
-                '    printf("error_at_default=[%s]", S_cArrLastLog);\n'
-                '    printf("set_debug=%u\\n", spec2codeLogLevelSet(SPEC2CODE_LOG_LEVEL_DEBUG));\n'
-                '    S_cArrLastLog[0] = 0;\n'
-                '    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "artik acik");\n'
-                '    printf("debug_at_debug=[%s]", S_cArrLastLog);\n'
-                '    return 0;\n'
-                '}\n',
-                encoding="utf-8")
-            binary = work / "parse_roundtrip"
-            compile_run = subprocess.run(
-                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
-                 str(work / "main.c"), str(work / "spec2code_testbench_protocol.c"),
-                 str(work / "spec2code_testbench_log.c")],
-                capture_output=True, text=True)
-            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
-            output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
-        lines = output.strip().splitlines()
-        self.assertEqual(lines[0], "status=0 id=2 device=[spec2code] op=[spec2code_version] hasval=0 val=0")
-        self.assertEqual(lines[1], "status=0 id=7 device=[u12_ltc2991] op=[register_read] hasval=0 val=0")
-        self.assertEqual(lines[2], "status=0 id=3 device=[spec2code] op=[log_level] hasval=1 val=4")
-        self.assertTrue(lines[3].startswith("status=1"))
-        # Log cekirdegi: varsayilan warning'de debug bastirilir, error basilir;
-        # seviye debug'a cekilince debug da akar. Satir onek formati sabittir.
-        self.assertEqual(lines[4], "debug_at_default=[]")
-        self.assertEqual(lines[5], "error_at_default=[S2C-LOG|E|hata kodu=-7")
-        self.assertEqual(lines[6], "]set_debug=5")
-        self.assertEqual(lines[7], "debug_at_debug=[S2C-LOG|D|artik acik")
+    # NOT: test_generated_request_parser_round_trips_on_host_compiler SILINDI
+    # (Task 5). Metin satir parser'i (spec2codeTestbenchRequestParse/
+    # ResponseFormat) kaldirildigi icin bu test anlamsizlasti; binary tel
+    # katmaninin uctan uca host-derleme dogrulamasini Task 4'un
+    # test_generated_mesaj_layer_round_trips_on_host_compiler testi devraldi.
 
     def test_leveled_logging_is_generated_across_the_architecture(self) -> None:
         # Log cekirdegi her transport'ta uretilir; dispatch RX/TX (message),
@@ -1961,14 +1918,23 @@ class TestbenchTests(unittest.TestCase):
         # Esik kurali: printin seviyesi ayarlanandan buyukse bastirilir.
         self.assertIn("if ((uiLevel > S_uiLogLevel) || (cpFormat == NULL))", log_source)
         # Runtime seviye degisimi + gelen/giden mesaj loglari + op sonucu.
+        # DispatchLine silindi: RX/TX loglari artik binary Dispatch sarmalayicisinda
+        # yapisal alanlardan uretilir (metin satir yok).
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "log_level")', ops_source)
         self.assertIn("spRequest->uiHasValue == 1U", ops_source)
-        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "RX %s", cpRequestLine);', ops_source)
-        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "TX %s", cpResponseLine);', ops_source)
+        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "RX id=%u device=%s op=%s"', ops_source)
+        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "TX id=%u ok=%u status=%d value=0x%X"', ops_source)
         self.assertIn('"op HATA: device=%s op=%s status=%d mesaj=%s"', ops_source)
         self.assertIn('"i2c reg read: addr=0x%02X reg=0x%02X"', ops_source)
-        # Agent dongusu loglari kendi kanalina baglar.
+        # Log METIN formati (S2C-LOG|...) binary gecisle DEGISMEDI: UI SerialLinePanel
+        # bu metni cerceve metin alanindan cozer.
+        self.assertIn('"S2C-LOG|%s|%s\\r\\n"', log_source)
+        # Agent dongusu sink'i kendi hattina baglar; sink artik satiri
+        # TRACE_EVENT/BUS_TRACE_EVENT cercevesine sarar (metin ayni kalir).
         self.assertIn("spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);", cs_source)
+        self.assertIn("spec2codeMesajTraceCerceveKur(uiMesajId, 0U, cpLine,", cs_source)
+        self.assertIn("uiMesajId = SPEC2CODE_MESAJ_TRACE_EVENT;", cs_source)
+        self.assertIn("uiMesajId = SPEC2CODE_MESAJ_BUS_TRACE_EVENT;", cs_source)
         self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam', cs_source)
         self.assertEqual(manifest["log"]["op"], "log_level")
         self.assertEqual(manifest["log"]["default"], 2)
@@ -2039,7 +2005,11 @@ class TestbenchTests(unittest.TestCase):
         # surum ASCII baytlari olarak data'da da doner ve UI yesil rozette cozer.
         self.assertIn("const char* pcVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;", ops_source)
         self.assertIn("spec2codeTestbenchDataPush(spResponse, (unsigned char)pcVersion[uiVersionIndex]);", ops_source)
-        self.assertIn("if (spRequest->cArrOperation[0] == '\\0')", protocol_source)
+        # Metin satir protokolu silindi: protocol.c artik yalniz para birimi
+        # yardimcilarini (Clear/StringEqual/MessageSet/DataPush) tasir.
+        self.assertNotIn("spec2codeTestbenchRequestParse", protocol_source)
+        self.assertNotIn("spec2codeTestbenchResponseFormat", protocol_source)
+        self.assertIn("void spec2codeTestbenchMessageSet(", protocol_source)
 
     def test_app_version_can_be_read_from_packaged_metadata_without_frontend_source(self) -> None:
         version_file = ROOT / "spec2code_version.txt"
