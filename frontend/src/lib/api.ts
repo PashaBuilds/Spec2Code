@@ -344,6 +344,25 @@ export const api = {
   testbenchSessions: () =>
     req<{ sessions: import("./types").TestbenchSessionStatus[] }>("/api/testbench/sessions").then((r) => r.sessions),
 
+  telnetLogConnect: (host: string, port = 23, timeoutS = 5.0) =>
+    req<{ session_id: string; status: import("./types").TelnetLogStatus }>("/api/telnet-log/connect", {
+      method: "POST",
+      body: JSON.stringify({ host, port, timeout_s: timeoutS }),
+    }),
+
+  telnetLogRead: (sessionId: string, since: number) =>
+    req<{ seq: number; entries: import("./types").TelnetLogEntry[] }>(
+      `/api/telnet-log/${encodeURIComponent(sessionId)}/read?since=${since}`,
+    ),
+
+  telnetLogDisconnect: (sessionId: string) =>
+    req<import("./types").TelnetLogStatus>(`/api/telnet-log/${encodeURIComponent(sessionId)}/disconnect`, {
+      method: "POST",
+    }),
+
+  telnetLogStatus: (sessionId: string) =>
+    req<import("./types").TelnetLogStatus>(`/api/telnet-log/${encodeURIComponent(sessionId)}/status`),
+
   runOnBoard: (payload: import("./types").RunOnBoardRequest) =>
     req<{ runboard_job_id: string }>("/api/vitis/run-on-board", {
       method: "POST",

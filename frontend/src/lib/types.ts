@@ -332,6 +332,10 @@ export interface TestbenchManifest {
   /** CIT (cihaz ici test) duz olcum listesi (Task 6); bit i == olcumler[i]
    * (Task 7 codegen + Task 8 decode ayni sirayi kullanir). */
   cit?: TestbenchCitSection;
+  /** Telnet log sunucusu (port 23): PS Ethernet varsa uretilir (bkz.
+   * orchestrator/codegen.py `_telnet_log_enabled`). Host tarafi bu alandan
+   * IP/port okuyup Akış ekranındaki Telnet log kartını önceden doldurur. */
+  telnet_log?: { port: number; ip: string };
 }
 
 export interface TestbenchCitMeasurement {
@@ -517,6 +521,21 @@ export interface SerialPortInfo {
 }
 
 export interface SerialConsoleEntry {
+  seq: number;
+  at: number;
+  line: string;
+}
+
+export interface TelnetLogStatus {
+  session_id: string;
+  host: string;
+  port: number;
+  connected: boolean;
+  connected_at?: number | null;
+  last_error?: string;
+}
+
+export interface TelnetLogEntry {
   seq: number;
   at: number;
   line: string;

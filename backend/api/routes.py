@@ -26,6 +26,7 @@ from backend.parsers.xparameters import parse_xparameters
 from backend import register_map as regmap
 from backend.parsers.xsa import XsaParseError, parse_xsa, safe_xsa_filename
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
+from backend.telnet_log import TelnetLogError, telnet_log_sessions
 from backend.testbench import (
     TestbenchCommand,
     TestbenchSessionError,
@@ -166,6 +167,12 @@ class TestbenchConsoleReadRequest(BaseModel):
 class TestbenchConsoleWriteRequest(BaseModel):
     session_id: str
     text: str
+
+
+class TelnetLogConnectRequest(BaseModel):
+    host: str
+    port: int = 23
+    timeout_s: float = 5.0
 
 
 # --- helpers ----------------------------------------------------------------------------
@@ -1294,6 +1301,41 @@ def testbench_session_disconnect(req: TestbenchSessionRequest) -> dict:
         return testbench_sessions.disconnect(req.session_id).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench tcp session is invalid", "error": str(exc)}) from exc
+
+
+# --- telnet log (port 23 print/trace izleme; S2C-MSG'den bagimsiz) -----------------------
+
+@router.post("/telnet-log/connect")
+def telnet_log_connect(req: TelnetLogConnectRequest) -> dict:
+    try:
+        return telnet_log_sessions.connect(req.host, req.port, req.timeout_s)
+    except TelnetLogError as exc:
+        raise HTTPException(502, {"message": "telnet log baglantisi kurulamadi", "error": str(exc)}) from exc
+
+
+@router.get("/telnet-log/{session_id}/read")
+def telnet_log_read(session_id: str, since: int = 0) -> dict:
+    try:
+        seq, entries = telnet_log_sessions.read(session_id, since)
+    except TelnetLogError as exc:
+        raise HTTPException(404, {"message": "telnet log oturumu bulunamadi", "error": str(exc)}) from exc
+    return {"seq": seq, "entries": entries}
+
+
+@router.post("/telnet-log/{session_id}/disconnect")
+def telnet_log_disconnect(session_id: str) -> dict:
+    try:
+        return telnet_log_sessions.disconnect(session_id)
+    except TelnetLogError as exc:
+        raise HTTPException(404, {"message": "telnet log oturumu bulunamadi", "error": str(exc)}) from exc
+
+
+@router.get("/telnet-log/{session_id}/status")
+def telnet_log_status(session_id: str) -> dict:
+    try:
+        return telnet_log_sessions.status(session_id)
+    except TelnetLogError as exc:
+        raise HTTPException(404, {"message": "telnet log oturumu bulunamadi", "error": str(exc)}) from exc
 
 
 class I2cScanRequest(BaseModel):
