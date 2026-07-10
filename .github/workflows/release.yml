@@ -16,10 +16,37 @@ permissions:
 
 env:
   RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+# NOT (2026-07-10): actions/upload-artifact tamamen kaldirildi. Repo private
+# olunca artefakt depolamasi hesap kotasina sayilmaya basladi ve kota dolunca
+# CreateArtifact reddedilip release kirildi (v0.1.140 ilk denemesi). Artefaktlar
+# zaten yalniz job'lar arasi tasima icindi; simdi her job kendi dosyasini
+# dogrudan GitHub Release'e yukluyor (draft olustur -> paralel upload ->
+# publish). Kalici kopyalar Release'te; Actions depolama kotasi artik
+# release akisini etkileyemez.
 
 jobs:
+  create:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release if missing
+        run: |
+          if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $RELEASE_VERSION zaten var"
+          else
+            gh release create "$RELEASE_VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_VERSION" \
+              --draft \
+              --generate-notes
+          fi
+
   source:
     name: Source archives
+    needs: create
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,17 +57,12 @@ jobs:
           python-version: "3.12"
       - name: Build source archives
         run: python scripts/package_release.py --version "$RELEASE_VERSION"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: spec2code-source
-          path: release-assets/*
-          # Artefaktlar yalniz publish job'ina tasima icindir; kalici kopya
-          # GitHub Release'tedir. Varsayilan 90 gun saklama, depolama
-          # kotasini doldurup release'leri kirmisti (2026-07-06).
-          retention-days: 1
+      - name: Upload assets to release
+        run: gh release upload "$RELEASE_VERSION" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
 
   macos:
     name: macOS executable
+    needs: create
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -63,14 +85,12 @@ jobs:
         run: npm ci && npm run build
       - name: Build executable bundle
         run: python scripts/build_executable.py --version "$RELEASE_VERSION"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: spec2code-macos
-          path: release-assets/*.zip
-          retention-days: 1
+      - name: Upload assets to release
+        run: gh release upload "$RELEASE_VERSION" release-assets/*.zip --repo "$GITHUB_REPOSITORY" --clobber
 
   windows:
     name: Windows executable
+    needs: create
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,25 +113,16 @@ jobs:
         run: npm ci && npm run build
       - name: Build executable bundle
         run: python scripts/build_executable.py --version "${env:RELEASE_VERSION}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: spec2code-windows
-          path: release-assets/*.zip
-          retention-days: 1
+      - name: Upload assets to release
+        shell: bash
+        run: gh release upload "$RELEASE_VERSION" release-assets/*.zip --repo "$GITHUB_REPOSITORY" --clobber
 
   publish:
     name: Publish GitHub Release
     needs: [source, macos, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          merge-multiple: true
       - name: List release assets
-        run: find release-assets -maxdepth 1 -type f -print | sort
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_VERSION }}
-          files: release-assets/*
-          generate_release_notes: true
+        run: gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort
+      - name: Undraft release
+        run: gh release edit "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
