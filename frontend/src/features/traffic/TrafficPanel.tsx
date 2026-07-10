@@ -117,6 +117,10 @@ function TelnetLogCard() {
         if (!status.connected) {
           setConnected(false);
           setError(status.last_error || "telnet log bağlantısı koptu");
+          // Backend oturumu server-drop sonrası hâlâ haritada duruyor (status
+          // "disconnected" ama disconnect() hiç çağrılmadı) — sızıntıyı önlemek
+          // için burada da yıkıyoruz; hata yutulur (zaten kopuk sayılır).
+          void api.telnetLogDisconnect(sessionId).catch(() => {});
         }
       } catch (err) {
         if (cancelled) return;

@@ -32,6 +32,12 @@ def _strip_telnet_iac(data: bytes) -> bytes:
     istemci savunmaci davranir: IAC + (WILL/WONT/DO/DONT) + secenek (3 bayt)
     ve cift IAC (0xFF 0xFF -> literal 0xFF) kaliplarini tanir. Taninmayan tek
     basina IAC baytı da atlanir (guvenli varsayilan: 1 bayt ayikla).
+
+    Not: kacis sonrasi literal 0xFF, cagiran `_flush_lines`/`_flush_partial_line`
+    icinde `decode("ascii", errors="replace")` asamasindan gectigi icin
+    U+FFFD (replacement char) olarak gorunur — 0xFF gecerli ASCII degildir.
+    Board hicbir zaman IAC uretmedigi icin bu pratikte hic tetiklenmez;
+    bilinen ve kabul edilen bir sinirlama.
     """
     IAC = 0xFF
     SB, SE = 0xFA, 0xF0
@@ -143,6 +149,23 @@ class _TelnetLogSession:
             if line:
                 self._push_line(line)
 
+    def _flush_partial_line(self) -> None:
+        """Bufferda kalan (LF ile bitmeyen) son kismi satiri ring'e yaz.
+
+        Sunucu baglantiyi kapattiginda son satir LF ile gelmemis olabilir;
+        bu veri aksi halde sessizce kaybolurdu.
+        """
+        if not self._buffer:
+            return
+        raw = bytes(self._buffer)
+        self._buffer.clear()
+        if raw.endswith(b"\r"):
+            raw = raw[:-1]
+        clean = _strip_telnet_iac(raw)
+        line = clean.decode("ascii", errors="replace")
+        if line:
+            self._push_line(line)
+
     def _reader_loop(self) -> None:
         while not self._stop.is_set():
             sock = self._sock
@@ -155,16 +178,26 @@ class _TelnetLogSession:
             except OSError as exc:
                 with self._lock:
                     if not self._stop.is_set():
+                        self._flush_partial_line()
                         self.last_error = str(exc)
                         self._sock = None
                         self.connected_at = None
+                try:
+                    sock.close()
+                except OSError:
+                    pass
                 return
             if not chunk:
                 # Sunucu baglantiyi kapatti (auto-reconnect YOK; kullanici tekrar baglanir).
                 with self._lock:
-                    self.last_error = "telnet log sunucusu baglantiyi kapatti"
+                    self._flush_partial_line()
+                    self.last_error = "karsi taraf baglantiyi kapatti"
                     self._sock = None
                     self.connected_at = None
+                try:
+                    sock.close()
+                except OSError:
+                    pass
                 return
             with self._lock:
                 self._buffer.extend(chunk)
@@ -183,7 +216,22 @@ class TelnetLogManager:
         self._sessions: dict[str, _TelnetLogSession] = {}
         self._lock = threading.RLock()
 
+    def _prune_disconnected(self) -> None:
+        """Kopuk oturumlari haritadan cikar (TTL thread'i olmadan sinirli tutar).
+
+        Auto-reconnect kasitli olarak yok; board reboot'lari normal akis oldugu
+        icin kopuk oturumlar surekli birikebilir. Her yeni connect() cagrisinda
+        bir onceki calisin biraktigi kopuk oturumlari temizleriz.
+        """
+        with self._lock:
+            stale_ids = [sid for sid, session in self._sessions.items() if not session.status()["connected"]]
+            for sid in stale_ids:
+                session = self._sessions.pop(sid, None)
+                if session is not None:
+                    session.close()  # savunmaci: zaten kapali olsa da tekrar close() guvenli
+
     def connect(self, host: str, port: int, timeout_s: float = 5.0) -> dict:
+        self._prune_disconnected()
         session_id = f"telnet_{uuid.uuid4().hex[:12]}"
         session = _TelnetLogSession(session_id)
         with self._lock:

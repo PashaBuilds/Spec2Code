@@ -10,11 +10,13 @@ modul S2C-MSG transportu DEGILDIR (bagimsiz).
 """
 from __future__ import annotations
 
+import gc
 import socket
 import socketserver
 import threading
 import time
 import unittest
+import warnings
 
 from fastapi.testclient import TestClient
 
@@ -161,6 +163,110 @@ class TelnetLogManagerTests(unittest.TestCase):
             disconnected_status = manager.disconnect(session_id)
             self.assertFalse(disconnected_status["connected"])
             thread.join(timeout=2)
+
+    def test_iac_iac_escape_produces_line_without_crash(self) -> None:
+        # 0xFF 0xFF (IAC IAC kacisi) -> literal 0xFF; ardindan ASCII decode
+        # asamasinda replacement char'a duser (board bunu hic uretmez ama
+        # istemci savunmaci: crash olmamali, satir gene de gelmeli).
+        LineDumpHandler.lines = [b"before\xff\xffafter\r\n"]
+        LineDumpHandler.hold_open_s = 0.3
+        with socketserver.TCPServer(("127.0.0.1", 0), LineDumpHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager = TelnetLogManager()
+            result = manager.connect("127.0.0.1", server.server_address[1], 2.0)
+            session_id = result["session_id"]
+
+            deadline = time.time() + 2.0
+            entries: list[dict] = []
+            seq = 0
+            while time.time() < deadline and not entries:
+                seq, fresh = manager.read(session_id, seq)
+                entries.extend(fresh)
+                if not entries:
+                    time.sleep(0.05)
+            thread.join(timeout=2)
+            manager.disconnect(session_id)
+
+        self.assertEqual(len(entries), 1)
+        # Literal 0xFF ASCII decode'da replacement char'a duser; crash yok,
+        # satir once/sonra kismi metniyle birlikte gelir.
+        self.assertIn("before", entries[0]["line"])
+        self.assertIn("after", entries[0]["line"])
+
+    def test_server_drop_flushes_partial_line_and_closes_socket_without_leak(self) -> None:
+        # Son satir LF olmadan gelir; sunucu sonra baglantiyi kapatir.
+        # Beklenen: (1) kismi satir ring'e flush edilir, (2) status disconnected
+        # olur, (3) soket gercekten kapanir (ResourceWarning yok).
+        LineDumpHandler.lines = [b"complete line\r\n", b"partial-no-newline"]
+        LineDumpHandler.hold_open_s = 0.0
+        with socketserver.TCPServer(("127.0.0.1", 0), LineDumpHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            manager = TelnetLogManager()
+            status = manager.connect("127.0.0.1", server.server_address[1], 2.0)
+            session_id = status["session_id"]
+            session = manager._session(session_id)
+            thread.join(timeout=2)
+
+            deadline = time.time() + 2.0
+            disconnected = False
+            while time.time() < deadline:
+                current = manager.status(session_id)
+                if not current["connected"]:
+                    disconnected = True
+                    break
+                time.sleep(0.05)
+            self.assertTrue(disconnected)
+
+            deadline = time.time() + 2.0
+            entries: list[dict] = []
+            while time.time() < deadline and len(entries) < 2:
+                _, fresh = manager.read(session_id, 0)
+                entries = fresh
+                if len(entries) < 2:
+                    time.sleep(0.05)
+            self.assertEqual(len(entries), 2)
+            self.assertEqual(entries[0]["line"], "complete line")
+            self.assertEqual(entries[1]["line"], "partial-no-newline")
+
+            closed_sock = session._sock
+            self.assertIsNone(closed_sock)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ResourceWarning)
+                del session
+                gc.collect()
+                gc.collect()
+            resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+            self.assertEqual(resource_warnings, [])
+
+            manager.disconnect(session_id)
+
+    def test_connect_prunes_disconnected_sessions_after_repeated_drops(self) -> None:
+        # 3 kez connect/drop dongusu sonrasi manager'da disconnected oturum
+        # birikmemeli (prune-on-connect, TTL thread'i olmadan).
+        manager = TelnetLogManager()
+        for _ in range(3):
+            LineDumpHandler.lines = [b"line\r\n"]
+            LineDumpHandler.hold_open_s = 0.0
+            with socketserver.TCPServer(("127.0.0.1", 0), LineDumpHandler) as server:
+                thread = threading.Thread(target=server.handle_request, daemon=True)
+                thread.start()
+                status = manager.connect("127.0.0.1", server.server_address[1], 2.0)
+                session_id = status["session_id"]
+                thread.join(timeout=2)
+
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                if not manager.status(session_id)["connected"]:
+                    break
+                time.sleep(0.05)
+
+        # Son connect() cagrisi onceki iki kopuk oturumu budamis olmali;
+        # haritada en fazla 1 (en son eklenen, henuz kopuk olarak yakalanmis
+        # olabilir) oturum kalmali.
+        self.assertLessEqual(len(manager._sessions), 1)
 
 
 def _build_test_client():
