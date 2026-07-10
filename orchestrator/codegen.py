@@ -1329,7 +1329,8 @@ def _testbench_log_header() -> str:
     )
 
 
-def _testbench_log_source() -> str:
+def _testbench_log_source(telnet: bool = False) -> str:
+    telnet_include = '#include "spec2code_telnet_log.h"\n' if telnet else ""
     return (
         "/**\n"
         " * @file spec2code_testbench_log.c\n"
@@ -1338,9 +1339,16 @@ def _testbench_log_source() -> str:
         " * Sink kaydedilmemisse xil_printf (stdout) kullanilir; agent\n"
         " * transportlari kendi hat fonksiyonlarini sink olarak kaydeder ki\n"
         " * loglar S2C trafigiyle ayni kanaldan (CoreSight DCC / UART) aksin.\n"
-        " */\n"
+        + (" *\n"
+           " * Telnet log sunucusu uretildiyse (PS Ethernet var) her satir AYRICA\n"
+           " * telnet feed'ine (port 23) non-blocking kuyruklanir; sink ya da\n"
+           " * transporttan bagimsizdir (uretim kosuluyla derlenir).\n"
+           if telnet else "")
+        + " */\n"
         '#include "spec2code_testbench_log.h"\n'
-        '#include "xil_printf.h"\n\n'
+        '#include "xil_printf.h"\n'
+        + telnet_include
+        + "\n"
         "#include <stdarg.h>\n"
         "#include <stdio.h>\n\n"
         "#define SPEC2CODE_LOG_BODY_MAX 160U\n"
@@ -1415,7 +1423,11 @@ def _testbench_log_source() -> str:
         "    {\n"
         "        return;\n"
         "    }\n"
-        "    if (S_fpLogSink != NULL)\n"
+        + ("    /* Telnet feed (port 23): AYNI satir non-blocking kuyruklanir; sink\n"
+           "     * ya da transporttan bagimsiz, uretim kosuluyla derlenir. */\n"
+           "    spec2codeTelnetLogYaz(cArrLine);\n"
+           if telnet else "")
+        + "    if (S_fpLogSink != NULL)\n"
         "    {\n"
         "        S_fpLogSink(cArrLine);\n"
         "    }\n"
@@ -2109,6 +2121,13 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "driver": "coresightps_dcc",
             "processor": "psu_cortexa53_0",
             "host_bridge": "xsdb jtagterminal -socket",
+        }
+    # Telnet log sunucusu: PS Ethernet varsa her transportta uretilir; UI Task
+    # bu alandan port/IP'yi okuyup telnet baglantisini kurar.
+    if _telnet_log_enabled(spec):
+        manifest["telnet_log"] = {
+            "port": _TELNET_LOG_PORT,
+            "ip": _testbench_static_ip_string(),
         }
     manifest["devices"] = _testbench_manifest_devices(spec, get_descriptor)
     # Hardening (Task 4 bulgusu): _testbench_device_entries denetleyicisi
@@ -3539,6 +3558,79 @@ def _testbench_runtime_is_freertos(spec: dict) -> bool:
     return spec.get("project", {}).get("runtime") == "freertos"
 
 
+#: SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):
+#: IP 18.2.75.121, netmask 255.255.255.0 (/24), gateway 18.2.75.1.
+#: Bu octet'ler HEM eth agent header'i HEM de (uart/coresight transportunda)
+#: telnet standalone bring-up'i tek kaynaktan uretir; literal cogaltilmaz.
+_TESTBENCH_STATIC_IP: tuple[int, int, int, int] = (18, 2, 75, 121)
+_TESTBENCH_STATIC_NETMASK: tuple[int, int, int, int] = (255, 255, 255, 0)
+_TESTBENCH_STATIC_GATEWAY: tuple[int, int, int, int] = (18, 2, 75, 1)
+
+
+def _testbench_static_ip_string() -> str:
+    return ".".join(str(octet) for octet in _TESTBENCH_STATIC_IP)
+
+
+def _testbench_net_config_defines() -> str:
+    """Statik IP/netmask/gateway makro blogu (tek kaynak).
+
+    Eth agent header'inda ve telnet net bring-up dosyasinda AYNI octet'lerle
+    uretilir; #ifndef ile korunur ki iki dosya ayni ceviri biriminde bulussa
+    bile yeniden tanim hatasi olmaz.
+    """
+    ip = _TESTBENCH_STATIC_IP
+    netmask = _TESTBENCH_STATIC_NETMASK
+    gateway = _TESTBENCH_STATIC_GATEWAY
+    return (
+        "/* SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):\n"
+        f" * IP {_testbench_static_ip_string()}, netmask "
+        f"{'.'.join(str(o) for o in netmask)} (/24), "
+        f"gateway {'.'.join(str(o) for o in gateway)}.\n"
+        " * DHCP YOK; netif dogrudan bu adreslerle eklenir. */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_IP_ADDR0\n"
+        f"#define SPEC2CODE_TESTBENCH_IP_ADDR0 {ip[0]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_IP_ADDR1 {ip[1]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_IP_ADDR2 {ip[2]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_IP_ADDR3 {ip[3]}U\n"
+        "#endif\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_NETMASK_ADDR0\n"
+        f"#define SPEC2CODE_TESTBENCH_NETMASK_ADDR0 {netmask[0]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_NETMASK_ADDR1 {netmask[1]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_NETMASK_ADDR2 {netmask[2]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_NETMASK_ADDR3 {netmask[3]}U\n"
+        "#endif\n\n"
+        "#ifndef SPEC2CODE_TESTBENCH_GATEWAY_ADDR0\n"
+        f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR0 {gateway[0]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 {gateway[1]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 {gateway[2]}U\n"
+        f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 {gateway[3]}U\n"
+        "#endif\n\n"
+    )
+
+
+def _telnet_log_enabled(spec: dict) -> bool:
+    """Telnet log sunucusu uretilir mi.
+
+    Kullanici karari: tasarimda PS Ethernet (ZynqMP PS GEM / XEmacPs) VARSA,
+    agent transportundan bagimsiz olarak (CoreSight/UART agent'lari dahil)
+    uretilir. Ana senaryo: CoreSight agent + prints'in telnet uzerinden
+    izlenmesi. lwIP eth generatorleri bugun ZynqMP'e ozgu oldugu icin v1
+    kapsami ZynqMP-only; _zynqmp_lwip_eth_controller None degilse acilir.
+    """
+    return _zynqmp_lwip_eth_controller(spec) is not None
+
+
+def _telnet_needs_standalone_net(spec: dict) -> bool:
+    """Telnet icin ayri (standalone) lwIP netif bring-up gerekir mi.
+
+    Eth transport secilirse lwIP agent'i (socket/raw) zaten netif'i kurar;
+    telnet o netif uzerinde baslar, ikinci bir bring-up URETILMEZ. UART veya
+    CoreSight transportunda lwIP agent'i yoktur, bu yuzden telnet kendi
+    netif'ini spec2code_testbench_lwip_net.c ile kurar.
+    """
+    return _telnet_log_enabled(spec) and not _testbench_lwip_enabled(spec)
+
+
 def _testbench_lwip_header(spec: dict) -> str:
     if _testbench_runtime_is_freertos(spec):
         api_decls = (
@@ -3565,27 +3657,7 @@ def _testbench_lwip_header(spec: dict) -> str:
         "#ifndef SPEC2CODE_TESTBENCH_LWIP_H\n"
         "#define SPEC2CODE_TESTBENCH_LWIP_H\n\n"
         "#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U\n\n"
-        "/* SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):\n"
-        " * IP 18.2.75.121, netmask 255.255.255.0 (/24), gateway 18.2.75.1.\n"
-        " * DHCP YOK; netif dogrudan bu adreslerle eklenir. */\n"
-        "#ifndef SPEC2CODE_TESTBENCH_IP_ADDR0\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR0 18U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR1 2U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR2 75U\n"
-        "#define SPEC2CODE_TESTBENCH_IP_ADDR3 121U\n"
-        "#endif\n\n"
-        "#ifndef SPEC2CODE_TESTBENCH_NETMASK_ADDR0\n"
-        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR0 255U\n"
-        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR1 255U\n"
-        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR2 255U\n"
-        "#define SPEC2CODE_TESTBENCH_NETMASK_ADDR3 0U\n"
-        "#endif\n\n"
-        "#ifndef SPEC2CODE_TESTBENCH_GATEWAY_ADDR0\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR0 18U\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 2U\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 75U\n"
-        "#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 1U\n"
-        "#endif\n\n"
+        + _testbench_net_config_defines()
         + api_decls +
         "#endif /* SPEC2CODE_TESTBENCH_LWIP_H */\n"
     )
@@ -3805,6 +3877,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
+    telnet = _telnet_log_enabled(spec)
     headers = [
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
@@ -3824,6 +3897,10 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         '#include <stddef.h>',
         '#include <string.h>',
     ]
+    if telnet:
+        headers.append('#include "spec2code_telnet_log.h"')
+        headers.append('#include "lwip/tcpip.h"')
+        headers.append('#include "lwip/timeouts.h"')
     if any(entry["htype"] == "XIicPs" for entry in entries):
         headers.append('#include "xiicps.h"')
     if any(entry["htype"] == "XSpiPs" for entry in entries):
@@ -4000,6 +4077,34 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "    }",
         "}",
         "",
+        *([
+            "#define SPEC2CODE_TELNET_DRAIN_MS 10U",
+            "",
+            "/* OS (SOCKET_API) modu: raw-API telnet cagrilari lwIP tcpip",
+            " * thread'inde kosmali. Xilinx lwIP OS portu mesaj tabanlidir; dogru",
+            " * cross-thread ilkel tcpip_callback'tir. Bu drain kendini periyodik",
+            " * yeniden zamanlar (sys_timeout) ve HER ZAMAN tcpip thread'inde",
+            " * kosar; boylece Pompala icindeki tcp_write guvenlidir. Uretici",
+            " * (log) baglami yalnizca kilitli kuyruga yazar (spec2codeTelnetLogYaz),",
+            " * bu drain ise kuyrugu tcp'ye bosaltir (SERT KURAL: enqueue asla",
+            " * bloke etmez, dolu ise dusurur). */",
+            "static void spec2codeTelnetDrainTimer(void* vpArg)",
+            "{",
+            "    (void)vpArg;",
+            "    spec2codeTelnetLogPompala();",
+            "    sys_timeout(SPEC2CODE_TELNET_DRAIN_MS, spec2codeTelnetDrainTimer, NULL);",
+            "}",
+            "",
+            "/* tcpip thread'inde bir kez kosar: telnet sunucusunu baslatir ve",
+            " * periyodik drain'i kurar (ikisi de tcpip baglaminda). */",
+            "static void spec2codeTelnetTcpipBaslat(void* vpArg)",
+            "{",
+            "    (void)vpArg;",
+            "    spec2codeTelnetLogBaslat();",
+            "    sys_timeout(SPEC2CODE_TELNET_DRAIN_MS, spec2codeTelnetDrainTimer, NULL);",
+            "}",
+            "",
+        ] if telnet else []),
         "static void spec2codeTestbenchNetworkThread(void* vpArg)",
         "{",
         "    ip_addr_t sIpAddr;",
@@ -4035,6 +4140,13 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "    }",
         "    netif_set_default(&S_sNetif);",
         "    netif_set_up(&S_sNetif);",
+        *([
+            "    /* netif up: telnet log sunucusunu (port 23) baslat + periyodik",
+            "     * drain'i kur. Raw-API cagrilari tcpip thread'inde kosmali;",
+            "     * tcpip_callback ile o baglamda marshallenir (Xilinx lwIP OS",
+            "     * portu mesaj tabanli - dogru cross-thread ilkel budur). */",
+            "    (void)tcpip_callback(spec2codeTelnetTcpipBaslat, NULL);",
+        ] if telnet else []),
         '    sys_thread_new("s2c_in",',
         "                   (void (*)(void*))xemacif_input_thread,",
         "                   &S_sNetif,",
@@ -4071,6 +4183,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
+    telnet = _telnet_log_enabled(spec)
     headers = [
         '#include "spec2code_testbench_lwip.h"',
         f'#include "{project_name}_testbench_ops.h"',
@@ -4084,9 +4197,12 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         '#include "lwip/ip_addr.h"',
         '#include "lwip/pbuf.h"',
         '#include "lwip/tcp.h"',
+        '#include "lwip/timeouts.h"',
         '#include "netif/xadapter.h"',
         '#include <stddef.h>',
     ]
+    if telnet:
+        headers.append('#include "spec2code_telnet_log.h"')
     if any(entry["htype"] == "XIicPs" for entry in entries):
         headers.append('#include "xiicps.h"')
     if any(entry["htype"] == "XSpiPs" for entry in entries):
@@ -4289,6 +4405,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    netif_set_default(&S_sNetif);",
         "    netif_set_up(&S_sNetif);",
         "    S_uiNetworkReady = 1U;",
+        *([
+            "    /* netif up: telnet log sunucusunu (port 23) ayni netif uzerinde",
+            "     * baslat. RAW/bare-metal: tek is parcacigi, kilit gerekmez. */",
+            "    spec2codeTelnetLogBaslat();",
+        ] if telnet else []),
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -4344,11 +4465,445 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    if (S_uiNetworkReady == 1U)",
         "    {",
         "        xemacif_input(&S_sNetif);",
+        *([
+            "        /* RAW/bare-metal: telnet zamanlayicilarini isle ve kuyrugu",
+            "         * bosalt. Tek is parcacigi oldugundan lwIP-core baglami budur;",
+            "         * kilit gerekmez. */",
+            "        sys_check_timeouts();",
+            "        spec2codeTelnetLogPompala();",
+        ] if telnet else []),
         "    }",
         "}",
         "",
     ]
     return "\n".join(lines)
+
+
+#: Telnet log sunucusu sabitleri (kullanici karari - esneklik yok):
+#: port 23, en fazla 4 istemci, ham metin satirlari CRLF ile. Send-only;
+#: gelen baytlar (temel IAC dahil) yutulur, opsiyon muzakeresi YOK.
+_TELNET_LOG_PORT = 23
+_TELNET_LOG_MAX_CLIENTS = 4
+
+
+def _telnet_log_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_telnet_log.h\n"
+        " * @brief Telnet (port 23) log sunucusu: firmware print/trace satirlarini\n"
+        " *        herhangi bir telnet istemcisiyle (PuTTY) Ethernet uzerinden izlet.\n"
+        " *\n"
+        " * Ayni metin satirlari agent transportuna (CoreSight DCC / UART / eth)\n"
+        " * TRACE_EVENT olarak cerceveletirken, telnet feed'i AYNI satirlari ham\n"
+        " * metin (CRLF) olarak yayar. Send-only: gelen baytlar yutulur (temel\n"
+        " * IAC dahil), opsiyon muzakeresi yok.\n"
+        " *\n"
+        " * SERT KURAL: log akisi dispatch/CIT/agent'i ASLA blokelemez. Bir\n"
+        " * istemcinin gonderme tamponu doluysa o satir DUSURULUR (drop).\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TELNET_LOG_H\n"
+        "#define SPEC2CODE_TELNET_LOG_H\n\n"
+        f"#define SPEC2CODE_TELNET_LOG_PORT {_TELNET_LOG_PORT}U\n"
+        f"#define SPEC2CODE_TELNET_LOG_MAX_CLIENTS {_TELNET_LOG_MAX_CLIENTS}U\n\n"
+        "/* tcp_new/bind(23)/listen/accept; en fazla 4 istemci (statik pcb\n"
+        " * tablosu). Dolu iken yeni baglanti EN ESKI slotu degistirir. RAW_API\n"
+        " * cagrilaridir: lwIP-core baglaminda (bare-metal poll dongusu ya da OS\n"
+        " * modunda tcpip-core kilidi altinda) cagrilmalidir. */\n"
+        "void spec2codeTelnetLogBaslat(void);\n\n"
+        "/* Metin satirini tum bagli istemcilere kuyruklar (kilitsiz, non-blocking):\n"
+        " * kuyruk doluysa DUSURUR. Herhangi bir task/baglamdan guvenle cagrilir. */\n"
+        "void spec2codeTelnetLogYaz(const char* cpMetin);\n\n"
+        "/* Kuyrugu bosaltip bagli istemcilere yazar (tcp_sndbuf yeterliyse\n"
+        " * tcp_write+CRLF+tcp_output; degilse DROP). lwIP-core baglaminda\n"
+        " * cagrilmalidir: RAW poll dongusu dogrudan, OS modunda tcpip-core\n"
+        " * kilidi altinda. */\n"
+        "void spec2codeTelnetLogPompala(void);\n\n"
+        "/* Simdiye kadar dusurulen satir sayisi (teshis). */\n"
+        "unsigned int spec2codeTelnetLogDropSayisi(void);\n\n"
+        "#endif /* SPEC2CODE_TELNET_LOG_H */\n"
+    )
+
+
+def _telnet_log_source() -> str:
+    """RAW_API telnet log sunucusu (bare-metal ve FreeRTOS altinda calisir).
+
+    Uretici (log) baglami ile lwIP baglami ayrilir: ``Yaz`` satiri kilitli
+    statik bir halka tampona KOPYALAR (dolu ise dusurur, asla bloke etmez);
+    ``Pompala`` lwIP baglaminda halkayi bosaltip tcp_write eder. Boylece log
+    hangi task'tan gelirse gelsin tcp_* cagrilari yalnizca lwIP-core
+    baglaminda kosar (RAW poll dongusu ya da OS modunda tcpip-core kilidi).
+    """
+    max_clients = _TELNET_LOG_MAX_CLIENTS
+    return "\n".join([
+        "/**",
+        " * @file spec2code_telnet_log.c",
+        " * @brief Telnet (port 23) log sunucusu (RAW_API); non-blocking, drop-on-full.",
+        " */",
+        '#include "spec2code_telnet_log.h"',
+        '#include "lwip/err.h"',
+        '#include "lwip/tcp.h"',
+        '#include "lwip/sys.h"',
+        '#include <stddef.h>',
+        '#include <string.h>',
+        "",
+        "/* Halka tampon: uretici (log) baglami satirlari buraya kopyalar, lwIP",
+        " * baglami (Pompala) bosaltir. Satir uzunlugu log hattiyla ayni tavan. */",
+        "#define SPEC2CODE_TELNET_LOG_LINE_MAX 192U",
+        "#define SPEC2CODE_TELNET_LOG_RING 16U",
+        "",
+        "static struct tcp_pcb* S_spListenPcb;",
+        f"static struct tcp_pcb* S_spClients[SPEC2CODE_TELNET_LOG_MAX_CLIENTS];",
+        "static char S_cArrRing[SPEC2CODE_TELNET_LOG_RING][SPEC2CODE_TELNET_LOG_LINE_MAX];",
+        "static unsigned int S_uiRingHead;",
+        "static unsigned int S_uiRingTail;",
+        "static unsigned int S_uiDropCount;",
+        "",
+        "unsigned int spec2codeTelnetLogDropSayisi(void)",
+        "{",
+        "    return S_uiDropCount;",
+        "}",
+        "",
+        "static void spec2codeTelnetLogSlotTemizle(struct tcp_pcb* spPcb)",
+        "{",
+        "    unsigned int uiIndex;",
+        "",
+        "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
+        "    {",
+        "        if (S_spClients[uiIndex] == spPcb)",
+        "        {",
+        "            S_spClients[uiIndex] = NULL;",
+        "        }",
+        "    }",
+        "}",
+        "",
+        "/* Gelen bayt: send-only sunucu; icerigi yut (tcp_recved ile pencereyi",
+        " * geri ac, pbuf'i serbest birak). Opsiyon muzakeresi YOK; temel IAC",
+        " * baytlari da sessizce atilir. Baglanti kapaninca slotu temizle. */",
+        "static err_t spec2codeTelnetLogRecv(void* vpArg, struct tcp_pcb* spPcb,",
+        "                                    struct pbuf* spPbuf, err_t enErr)",
+        "{",
+        "    (void)vpArg;",
+        "    if (spPbuf == NULL)",
+        "    {",
+        "        spec2codeTelnetLogSlotTemizle(spPcb);",
+        "        (void)tcp_close(spPcb);",
+        "        return ERR_OK;",
+        "    }",
+        "    if (enErr == ERR_OK)",
+        "    {",
+        "        tcp_recved(spPcb, spPbuf->tot_len);",
+        "    }",
+        "    pbuf_free(spPbuf);",
+        "    return ERR_OK;",
+        "}",
+        "",
+        "static void spec2codeTelnetLogErr(void* vpArg, err_t enErr)",
+        "{",
+        "    (void)enErr;",
+        "    /* err callback'te pcb zaten serbest; arg ile slotu temizle. */",
+        "    spec2codeTelnetLogSlotTemizle((struct tcp_pcb*)vpArg);",
+        "}",
+        "",
+        "static err_t spec2codeTelnetLogAccept(void* vpArg, struct tcp_pcb* spNewPcb,",
+        "                                      err_t enErr)",
+        "{",
+        "    unsigned int uiIndex;",
+        "    unsigned int uiOldest;",
+        "",
+        "    (void)vpArg;",
+        "    if ((enErr != ERR_OK) || (spNewPcb == NULL))",
+        "    {",
+        "        return ERR_VAL;",
+        "    }",
+        "    /* Bos slot ara; yoksa en eski (slot 0) baglantiyi degistir. */",
+        "    uiOldest = 0U;",
+        "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
+        "    {",
+        "        if (S_spClients[uiIndex] == NULL)",
+        "        {",
+        "            break;",
+        "        }",
+        "    }",
+        "    if (uiIndex == SPEC2CODE_TELNET_LOG_MAX_CLIENTS)",
+        "    {",
+        "        /* Tablo dolu: en eski slotu kapat, yerine yeni istemciyi koy. */",
+        "        if (S_spClients[uiOldest] != NULL)",
+        "        {",
+        "            tcp_recv(S_spClients[uiOldest], NULL);",
+        "            tcp_err(S_spClients[uiOldest], NULL);",
+        "            (void)tcp_close(S_spClients[uiOldest]);",
+        "        }",
+        "        uiIndex = uiOldest;",
+        "    }",
+        "    S_spClients[uiIndex] = spNewPcb;",
+        "    tcp_arg(spNewPcb, spNewPcb);",
+        "    tcp_recv(spNewPcb, spec2codeTelnetLogRecv);",
+        "    tcp_err(spNewPcb, spec2codeTelnetLogErr);",
+        "    /* Gonderme yolu Pompala'da; alma yolunda ek bir sey gerekmez. */",
+        "    return ERR_OK;",
+        "}",
+        "",
+        "void spec2codeTelnetLogBaslat(void)",
+        "{",
+        "    struct tcp_pcb* spPcb;",
+        "",
+        "    if (S_spListenPcb != NULL)",
+        "    {",
+        "        return;",
+        "    }",
+        "    spPcb = tcp_new();",
+        "    if (spPcb == NULL)",
+        "    {",
+        "        return;",
+        "    }",
+        "    if (tcp_bind(spPcb, IP_ADDR_ANY, SPEC2CODE_TELNET_LOG_PORT) != ERR_OK)",
+        "    {",
+        "        (void)tcp_close(spPcb);",
+        "        return;",
+        "    }",
+        "    spPcb = tcp_listen(spPcb);",
+        "    if (spPcb == NULL)",
+        "    {",
+        "        return;",
+        "    }",
+        "    S_spListenPcb = spPcb;",
+        "    tcp_accept(spPcb, spec2codeTelnetLogAccept);",
+        "}",
+        "",
+        "void spec2codeTelnetLogYaz(const char* cpMetin)",
+        "{",
+        "    unsigned int uiNext;",
+        "    SYS_ARCH_DECL_PROTECT(lev);",
+        "",
+        "    if (cpMetin == NULL)",
+        "    {",
+        "        return;",
+        "    }",
+        "    /* Kilitli, non-blocking enqueue: halka doluysa DUSUR (SERT KURAL:",
+        "     * uretici baglamini asla blokeleme). Kopya statik slota alinir ki",
+        "     * cagiranin stack tamponu Pompala'ya kadar yasamak zorunda kalmasin. */",
+        "    SYS_ARCH_PROTECT(lev);",
+        "    uiNext = (S_uiRingHead + 1U) % SPEC2CODE_TELNET_LOG_RING;",
+        "    if (uiNext == S_uiRingTail)",
+        "    {",
+        "        S_uiDropCount++;",
+        "        SYS_ARCH_UNPROTECT(lev);",
+        "        return;",
+        "    }",
+        "    (void)strncpy(S_cArrRing[S_uiRingHead], cpMetin,",
+        "                  SPEC2CODE_TELNET_LOG_LINE_MAX - 1U);",
+        "    S_cArrRing[S_uiRingHead][SPEC2CODE_TELNET_LOG_LINE_MAX - 1U] = '\\0';",
+        "    S_uiRingHead = uiNext;",
+        "    SYS_ARCH_UNPROTECT(lev);",
+        "}",
+        "",
+        "static void spec2codeTelnetLogGonder(const char* cpMetin, unsigned int uiLen)",
+        "{",
+        "    unsigned int uiIndex;",
+        "    struct tcp_pcb* spPcb;",
+        "    static const char cArrCrlf[2] = { '\\r', '\\n' };",
+        "",
+        "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
+        "    {",
+        "        spPcb = S_spClients[uiIndex];",
+        "        if (spPcb == NULL)",
+        "        {",
+        "            continue;",
+        "        }",
+        "        /* SERT KURAL: sndbuf yetmiyorsa bu istemci icin satiri DUSUR;",
+        "         * asla bloke etme, asla parcali yazma. */",
+        "        if ((unsigned int)tcp_sndbuf(spPcb) < (uiLen + 2U))",
+        "        {",
+        "            S_uiDropCount++;",
+        "            continue;",
+        "        }",
+        "        if (tcp_write(spPcb, cpMetin, (unsigned short)uiLen,",
+        "                      TCP_WRITE_FLAG_COPY) != ERR_OK)",
+        "        {",
+        "            S_uiDropCount++;",
+        "            continue;",
+        "        }",
+        "        if (tcp_write(spPcb, cArrCrlf, 2U, TCP_WRITE_FLAG_COPY) != ERR_OK)",
+        "        {",
+        "            S_uiDropCount++;",
+        "            continue;",
+        "        }",
+        "        (void)tcp_output(spPcb);",
+        "    }",
+        "}",
+        "",
+        "void spec2codeTelnetLogPompala(void)",
+        "{",
+        "    char cArrLine[SPEC2CODE_TELNET_LOG_LINE_MAX];",
+        "    unsigned int uiHazir;",
+        "    SYS_ARCH_DECL_PROTECT(lev);",
+        "",
+        "    for (;;)",
+        "    {",
+        "        SYS_ARCH_PROTECT(lev);",
+        "        uiHazir = (S_uiRingTail != S_uiRingHead) ? 1U : 0U;",
+        "        if (uiHazir == 1U)",
+        "        {",
+        "            (void)strncpy(cArrLine, S_cArrRing[S_uiRingTail],",
+        "                          SPEC2CODE_TELNET_LOG_LINE_MAX);",
+        "            S_uiRingTail = (S_uiRingTail + 1U) % SPEC2CODE_TELNET_LOG_RING;",
+        "        }",
+        "        SYS_ARCH_UNPROTECT(lev);",
+        "        if (uiHazir == 0U)",
+        "        {",
+        "            return;",
+        "        }",
+        "        /* Log satiri zaten CRLF ile biter (S2C-LOG|...\\r\\n); telnet icin",
+        "         * satir sonu newline'larini kirp, ham govde + tek CRLF gonder. */",
+        "        {",
+        "            unsigned int uiLen;",
+        "",
+        "            uiLen = (unsigned int)strlen(cArrLine);",
+        "            while ((uiLen > 0U) &&",
+        "                   ((cArrLine[uiLen - 1U] == '\\r') || (cArrLine[uiLen - 1U] == '\\n')))",
+        "            {",
+        "                uiLen--;",
+        "            }",
+        "            spec2codeTelnetLogGonder(cArrLine, uiLen);",
+        "        }",
+        "    }",
+        "}",
+        "",
+    ])
+
+
+def _telnet_net_source(spec: dict) -> str:
+    """UART/CoreSight transportunda telnet icin standalone lwIP netif bring-up.
+
+    Eth agent'i URETILMEDIGINDEN (transport uart/coresight) netif'i burada
+    RAW_API ile kurar; AYNI statik IP/MAC ve XEmacPs baseaddr'i eth agent'iyle
+    tek kaynaktan (net config makrolari) paylasir. Ayrica telnet log
+    sunucusunu baslatan ve poll dongusunden cagrilacak yardimcilar saglar.
+    """
+    eth = _zynqmp_lwip_eth_controller(spec)
+    if eth is None:
+        raise cmodel.CodegenError("telnet standalone net bring-up requested without a ZynqMP PS Ethernet controller")
+    return "\n".join([
+        "/**",
+        " * @file spec2code_testbench_lwip_net.c",
+        " * @brief Telnet icin standalone lwIP netif bring-up (uart/coresight transport).",
+        " *",
+        " * Bu dosya ADI bilerek spec2code_testbench_lwip* onekiyle uretilir:",
+        " * Vitis akisi (backend/vitis_workspace.py) lwIP BSP kutuphanesini bu",
+        " * onekli staged dosya varliginda etkinlestirir; boylece coresight/uart",
+        " * transportunda da telnet icin lwIP BSP kitapligi acilir.",
+        " */",
+        '#include "spec2code_testbench_lwip_net.h"',
+        '#include "spec2code_telnet_log.h"',
+        '#include "xparameters.h"',
+        '#include "xstatus.h"',
+        '#include "xil_printf.h"',
+        '#include "lwip/init.h"',
+        '#include "lwip/ip_addr.h"',
+        '#include "lwip/tcp.h"',
+        '#include "lwip/timeouts.h"',
+        '#include "netif/xadapter.h"',
+        '#include <stddef.h>',
+        "",
+        "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
+        f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
+        "#endif",
+        "",
+        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
+        " * (00:0A:35 = Xilinx OUI). Eth agent'iyle ayni MAC. */",
+        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
+        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
+        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
+        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
+        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
+        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
+        "#endif",
+        "",
+        "static struct netif S_sTelnetNetif;",
+        "static unsigned char S_ucArrTelnetMac[6] =",
+        "{",
+        "    SPEC2CODE_TESTBENCH_MAC0,",
+        "    SPEC2CODE_TESTBENCH_MAC1,",
+        "    SPEC2CODE_TESTBENCH_MAC2,",
+        "    SPEC2CODE_TESTBENCH_MAC3,",
+        "    SPEC2CODE_TESTBENCH_MAC4,",
+        "    SPEC2CODE_TESTBENCH_MAC5",
+        "};",
+        "static unsigned int S_uiTelnetNetReady;",
+        "",
+        "int spec2codeTelnetNetBaslat(void)",
+        "{",
+        "    ip_addr_t sIpAddr;",
+        "    ip_addr_t sNetmask;",
+        "    ip_addr_t sGateway;",
+        "",
+        "    if (S_uiTelnetNetReady == 1U)",
+        "    {",
+        "        return XST_SUCCESS;",
+        "    }",
+        "    lwip_init();",
+        "    IP4_ADDR(&sIpAddr,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_IP_ADDR3);",
+        "    IP4_ADDR(&sNetmask,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_NETMASK_ADDR3);",
+        "    IP4_ADDR(&sGateway,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR0,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR1,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR2,",
+        "             SPEC2CODE_TESTBENCH_GATEWAY_ADDR3);",
+        "    if (xemac_add(&S_sTelnetNetif,",
+        "                  &sIpAddr,",
+        "                  &sNetmask,",
+        "                  &sGateway,",
+        "                  S_ucArrTelnetMac,",
+        "                  SPEC2CODE_TESTBENCH_ETH_BASEADDR) == NULL)",
+        "    {",
+        '        xil_printf("Spec2Code telnet lwIP PS Ethernet init failed\\r\\n");',
+        "        return XST_FAILURE;",
+        "    }",
+        "    netif_set_default(&S_sTelnetNetif);",
+        "    netif_set_up(&S_sTelnetNetif);",
+        "    S_uiTelnetNetReady = 1U;",
+        "    spec2codeTelnetLogBaslat();",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "void spec2codeTelnetNetPoll(void)",
+        "{",
+        "    if (S_uiTelnetNetReady == 1U)",
+        "    {",
+        "        xemacif_input(&S_sTelnetNetif);",
+        "        sys_check_timeouts();",
+        "        spec2codeTelnetLogPompala();",
+        "    }",
+        "}",
+        "",
+    ])
+
+
+def _telnet_net_header() -> str:
+    return (
+        "/**\n"
+        " * @file spec2code_testbench_lwip_net.h\n"
+        " * @brief Telnet icin standalone lwIP netif bring-up (uart/coresight transport).\n"
+        " */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_LWIP_NET_H\n"
+        "#define SPEC2CODE_TESTBENCH_LWIP_NET_H\n\n"
+        "/* netif'i statik IP ile kurar, lwIP'i init eder ve telnet log\n"
+        " * sunucusunu baslatir. Basari XST_SUCCESS. */\n"
+        "int spec2codeTelnetNetBaslat(void);\n\n"
+        "/* Poll dongusunden cagrilir: xemacif_input + sys_check_timeouts +\n"
+        " * telnet kuyrugu bosaltma (non-blocking). */\n"
+        "void spec2codeTelnetNetPoll(void);\n\n"
+        "#endif /* SPEC2CODE_TESTBENCH_LWIP_NET_H */\n"
+    )
 
 
 def _testbench_lwip_main_header(spec: dict) -> str:
@@ -4472,6 +5027,7 @@ def _testbench_uart_source(spec: dict) -> str:
         raise cmodel.CodegenError("UART test bench requested without a PS UART controller")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
+    telnet = _telnet_log_enabled(spec)
     headers = [
         '#include "spec2code_testbench_uart.h"',
         f'#include "{project_name}_testbench_ops.h"',
@@ -4483,6 +5039,8 @@ def _testbench_uart_source(spec: dict) -> str:
         f'#include "{_TESTBENCH_UART_DRIVERS[_testbench_uart_driver(spec)]}"',
         '#include <stddef.h>',
     ]
+    if telnet:
+        headers.append('#include "spec2code_testbench_lwip_net.h"')
     uart_prefix = _testbench_uart_driver(spec)
     for htype, header in _TESTBENCH_HANDLE_HEADERS:
         if any(entry["htype"] == htype for entry in entries):
@@ -4591,8 +5149,15 @@ def _testbench_uart_source(spec: dict) -> str:
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"UART agent dongusu basladi; log seviyesi=%s\",",
         "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
         "    spec2codeMesajParserSifirla(&S_sMesajParser);",
+        *([
+            "    /* Telnet log sunucusu (port 23): PS Ethernet ile ayaga kalkar;",
+            "     * UART recv non-blocking oldugundan poll her iterasyonda arayla",
+            "     * calisir, transportu bloketmeden telnet feed'i akar. */",
+            "    (void)spec2codeTelnetNetBaslat();",
+        ] if telnet else []),
         "    for (;;)",
         "    {",
+        *(["        spec2codeTelnetNetPoll();"] if telnet else []),
         f"        uiReceived = {uart_prefix}_Recv(&S_sTestbenchUart, ucArrChunk, sizeof(ucArrChunk));",
         "        if (uiReceived == 0U)",
         "        {",
@@ -4716,6 +5281,7 @@ def _testbench_coresight_source(spec: dict) -> str:
             "platformunda dogrulandi")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
+    telnet = _telnet_log_enabled(spec)
     headers = [
         '#include "spec2code_testbench_coresight.h"',
         f'#include "{project_name}_testbench_ops.h"',
@@ -4726,6 +5292,8 @@ def _testbench_coresight_source(spec: dict) -> str:
         '#include "xcoresightpsdcc.h"',
         '#include <stddef.h>',
     ]
+    if telnet:
+        headers.append('#include "spec2code_testbench_lwip_net.h"')
     for htype, header in _TESTBENCH_HANDLE_HEADERS:
         if any(entry["htype"] == htype for entry in entries):
             headers.append(f'#include "{header}"')
@@ -4741,6 +5309,14 @@ def _testbench_coresight_source(spec: dict) -> str:
         " * feed-forward beslenir ve tam cercevede spec2codeMesajIsle yaniti",
         " * cerceveler. No interrupts, no scheduler - runs the same on bare",
         " * metal and FreeRTOS BSPs. Metin banner/enter-prompt YOK (binary kanal).",
+        *([
+            " *",
+            " * Telnet log sunucusu uretildiyse (PS Ethernet var) DCC alma yolu",
+            " * NON-BLOCKING'e cevrilir: XCoresightPs_DccGetStatus ile bayt",
+            " * bekliyor mu bakilir, yoksa telnet netif poll'u (xemacif_input +",
+            " * sys_check_timeouts + telnet drain) calisir. Boylece bloke eden",
+            " * RecvByte telnet feed'ini durdurmaz.",
+        ] if telnet else []),
         " */",
         *headers,
         "",
@@ -4774,6 +5350,20 @@ def _testbench_coresight_source(spec: dict) -> str:
         *_mesaj_trace_sink_lines(
             "spec2codeTestbenchCoresightSendLine",
             "spec2codeTestbenchCoresightSendFrame(ucArrFrame, uiFrameLength)"),
+        *([
+            "/* DCC alma-hazir mi (non-blocking): telnet feed'i bloke eden",
+            " * RecvByte'a takilmasin diye status bitine bakilir. DccGetStatus",
+            " * coresightps_dcc surucusunun public yardimcisidir; A53'te RX-full",
+            " * biti (1U<<30) veri hazir demektir. */",
+            "#ifndef SPEC2CODE_CORESIGHT_DCC_RX_MASK",
+            "#define SPEC2CODE_CORESIGHT_DCC_RX_MASK (1U << 30)",
+            "#endif",
+            "static unsigned int spec2codeTestbenchCoresightRxHazir(void)",
+            "{",
+            "    return ((XCoresightPs_DccGetStatus() & SPEC2CODE_CORESIGHT_DCC_RX_MASK) != 0U) ? 1U : 0U;",
+            "}",
+            "",
+        ] if telnet else []),
         "void spec2codeTestbenchCoresightRun(void)",
         "{",
         "    unsigned char ucByte;",
@@ -4786,8 +5376,21 @@ def _testbench_coresight_source(spec: dict) -> str:
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"CoreSight agent dongusu basladi; log seviyesi=%s\",",
         "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
         "    spec2codeMesajParserSifirla(&S_sMesajParser);",
+        *([
+            "    /* Telnet log sunucusu (port 23): PS Ethernet ile ayaga kalkar. */",
+            "    (void)spec2codeTelnetNetBaslat();",
+        ] if telnet else []),
         "    for (;;)",
         "    {",
+        *([
+            "        /* Non-blocking: bayt yoksa telnet netif'ini poll et (bloke eden",
+            "         * RecvByte'a takilma), sonra tekrar dene. */",
+            "        spec2codeTelnetNetPoll();",
+            "        if (spec2codeTestbenchCoresightRxHazir() == 0U)",
+            "        {",
+            "            continue;",
+            "        }",
+        ] if telnet else []),
         "        /* DCC byte koprusu birer bayt getirir; feed-forward tek bayt",
         "         * uzerinde de cerceve tamamlaninca isle+gonder yapar. */",
         "        ucByte = (unsigned char)XCoresightPs_DccRecvByte(0U);",
@@ -4925,6 +5528,18 @@ def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             tests_dir / "spec2code_testbench_coresight_main.h",
             tests_dir / "spec2code_testbench_coresight_main.c",
         ])
+    if _telnet_log_enabled(spec):
+        paths.extend([
+            tests_dir / "spec2code_telnet_log.h",
+            tests_dir / "spec2code_telnet_log.c",
+        ])
+        # UART/CoreSight transportunda lwIP agent'i yok; telnet kendi netif'ini
+        # kurar. Eth transportunda agent netif'i zaten kurar, ikinci bring-up yok.
+        if _telnet_needs_standalone_net(spec):
+            paths.extend([
+                tests_dir / "spec2code_testbench_lwip_net.h",
+                tests_dir / "spec2code_testbench_lwip_net.c",
+            ])
     return paths
 
 
@@ -4937,7 +5552,7 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_mesaj_header(spec, get_descriptor)),
         _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
         _apply_default_identifier_style(_testbench_log_header()),
-        _apply_default_identifier_style(_testbench_log_source()),
+        _apply_default_identifier_style(_testbench_log_source(_telnet_log_enabled(spec))),
         _apply_default_identifier_style(_testbench_trace_header()),
         _apply_default_identifier_style(_testbench_trace_source()),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
@@ -4971,6 +5586,16 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             _apply_default_identifier_style(_testbench_coresight_main_header()),
             _apply_default_identifier_style(_testbench_coresight_main_source(spec)),
         ])
+    if _telnet_log_enabled(spec):
+        contents.extend([
+            _apply_default_identifier_style(_telnet_log_header()),
+            _apply_default_identifier_style(_telnet_log_source()),
+        ])
+        if _telnet_needs_standalone_net(spec):
+            contents.extend([
+                _apply_default_identifier_style(_telnet_net_header()),
+                _apply_default_identifier_style(_telnet_net_source(spec)),
+            ])
     return [str(hio.write_output(path, content)) for path, content in zip(paths, contents)]
 
 

@@ -2150,6 +2150,137 @@ class TestbenchTests(unittest.TestCase):
             self.assertFalse((out_dir / "tests" / "spec2code_testbench_lwip.c").exists())
             self.assertFalse((out_dir / "tests" / "spec2code_testbench_lwip_main.c").exists())
 
+    # ------------------------------------------------------------------
+    # Telnet log sunucusu (port 23) — PS Ethernet varsa her transportta
+    # ------------------------------------------------------------------
+    def test_telnet_log_generated_with_coresight_transport_and_ps_ethernet(self) -> None:
+        # Kullanicinin ana senaryosu: CoreSight (DCC) agent + PS Ethernet.
+        # S2C protokolu DCC uzerinden akarken, prints/loglar port 23'te telnet
+        # (PuTTY) ile de izlenebilir. lwIP eth agent'i URETILMEZ ama telnet
+        # icin standalone bir netif bring-up (spec2code_testbench_lwip_net.c)
+        # + RAW_API telnet sunucusu (spec2code_telnet_log.c) uretilir.
+        spec = load_sample_spec("unit_telnet_coresight")
+        add_zynqmp_ps_ethernet(spec)
+        spec["project"]["testbench_transport"] = "coresight"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+
+            telnet_header = (tests_dir / "spec2code_telnet_log.h").read_text(encoding="utf-8")
+            telnet_source = (tests_dir / "spec2code_telnet_log.c").read_text(encoding="utf-8")
+            net_source = (tests_dir / "spec2code_testbench_lwip_net.c").read_text(encoding="utf-8")
+            cs_main = (tests_dir / "spec2code_testbench_coresight_main.c").read_text(encoding="utf-8")
+            cs_source = (tests_dir / "spec2code_testbench_coresight.c").read_text(encoding="utf-8")
+            log_source = (tests_dir / "spec2code_testbench_log.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            # Eth transport agent'i URETILMEZ (coresight secili).
+            lwip_agent_generated = (tests_dir / "spec2code_testbench_lwip.c").exists()
+
+        self.assertFalse(lwip_agent_generated)
+        # Telnet baslik/kaynak prototipleri.
+        self.assertIn("void spec2codeTelnetLogBaslat(void);", telnet_header)
+        self.assertIn("void spec2codeTelnetLogYaz(const char* cpMetin);", telnet_header)
+        # Port 23, RAW_API.
+        self.assertIn("23", telnet_header)
+        self.assertIn("tcp_new", telnet_source)
+        self.assertIn("tcp_listen", telnet_source)
+        # Standalone netif bring-up telnet icin uretildi; ayni statik IP.
+        self.assertIn("xemac_add", net_source)
+        self.assertIn("SPEC2CODE_TESTBENCH_IP_ADDR0", net_source)
+        # Net poll: xemacif_input + sys_check_timeouts + telnet drain non-blocking.
+        self.assertIn("xemacif_input", net_source)
+        self.assertIn("sys_check_timeouts", net_source)
+        self.assertIn("spec2codeTelnetLogBaslat", net_source)
+        # CoreSight run dongusu: Baslat (net) + her iterasyonda net poll; DCC
+        # alma yolu non-blocking'e cevrilir (status bit).
+        self.assertIn("spec2codeTelnetNetBaslat", cs_source)
+        self.assertIn("spec2codeTelnetNetPoll", cs_source)
+        self.assertIn("XCoresightPs_DccGetStatus", cs_source)
+        # Log tap: telnet uretildiyse log satiri telnet'e de gider.
+        self.assertIn("spec2codeTelnetLogYaz", log_source)
+        _ = cs_main  # main degismedi; run loop wiring source'ta
+        # Manifest.
+        self.assertEqual(manifest["telnet_log"]["port"], 23)
+        self.assertEqual(manifest["telnet_log"]["ip"], "18.2.75.121")
+
+    def test_telnet_log_generated_with_eth_raw_transport_no_duplicate_bringup(self) -> None:
+        # Eth transport (bare-metal RAW): lwIP zaten ayakta; telnet ayni netif
+        # uzerinde baslar, IKINCI bir bring-up (spec2code_testbench_lwip_net.c)
+        # URETILMEZ. Baslat netif up'tan sonra cagrilir.
+        spec = load_sample_spec("unit_telnet_eth_raw")
+        spec["project"]["runtime"] = "bare_metal"
+        add_zynqmp_ps_ethernet(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+
+            telnet_source = (tests_dir / "spec2code_telnet_log.c").read_text(encoding="utf-8")
+            lwip_source = (tests_dir / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+            net_generated = (tests_dir / "spec2code_testbench_lwip_net.c").exists()
+
+        self.assertFalse(net_generated)  # eth agent zaten netif kuruyor
+        # Baslat netif up'tan sonra (agent NetworkInit icinde) cagrilir; RAW
+        # poll draini (Pompala) InputPoll icinde. Ikinci bir bring-up yok.
+        self.assertIn("spec2codeTelnetLogBaslat", lwip_source)
+        self.assertIn("spec2codeTelnetLogPompala", lwip_source)
+        self.assertIn("netif_set_up(&S_sNetif);", lwip_source)
+        # Non-blocking drop kalibi (sndbuf guard + drop sayaci).
+        self.assertIn("tcp_sndbuf", telnet_source)
+        self.assertIn("S_uiDropCount", telnet_source)
+
+    def test_telnet_log_socket_mode_uses_tcpip_locked_drain_task(self) -> None:
+        # Eth transport (FreeRTOS SOCKET): raw-API telnet cagrilari tcpip
+        # thread'inde kosmali. Baslat/Pompala LOCK_TCPIP_CORE ile korunur ya da
+        # tcpip_callback ile marshallenir; Yaz her zaman kilitsiz enqueue eder
+        # (dolu ise DROP — asla bloke etmez).
+        spec = load_sample_spec("unit_telnet_eth_socket")
+        add_zynqmp_ps_ethernet(spec)
+        self.assertEqual(spec["project"]["runtime"], "freertos")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+
+            telnet_source = (tests_dir / "spec2code_telnet_log.c").read_text(encoding="utf-8")
+            lwip_source = (tests_dir / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+
+        # OS (SOCKET_API) modu: raw-API telnet cagrilari tcpip thread'inde
+        # kosmali. Xilinx lwIP OS portu mesaj tabanli; dogru cross-thread ilkel
+        # tcpip_callback + tcpip thread'inde sys_timeout ile periyodik drain.
+        self.assertIn("tcpip_callback", lwip_source)
+        self.assertIn("sys_timeout", lwip_source)
+        self.assertIn("spec2codeTelnetDrainTimer", lwip_source)
+        # Baslat eth agent'inin netif-up asamasindan sonra (tcpip baglaminda).
+        self.assertIn("spec2codeTelnetLogBaslat", lwip_source)
+        self.assertIn("netif_set_up(&S_sNetif);", lwip_source)
+        # Yaz kilitsiz enqueue eder; dolu ise DROP (asla bloke etmez).
+        self.assertIn("S_uiDropCount", telnet_source)
+
+    def test_telnet_log_not_generated_without_ethernet(self) -> None:
+        # PS Ethernet yoksa telnet URETILMEZ; hicbir dosyada TelnetLog referansi
+        # bulunmaz.
+        spec = load_sample_spec("unit_telnet_none")
+        add_zynqmp_ps_uart(spec)
+        spec["project"]["testbench_transport"] = "uart"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            tests_dir = out_dir / "tests"
+
+            self.assertFalse((tests_dir / "spec2code_telnet_log.c").exists())
+            self.assertFalse((tests_dir / "spec2code_telnet_log.h").exists())
+            self.assertFalse((tests_dir / "spec2code_testbench_lwip_net.c").exists())
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("telnet_log", manifest)
+            # Uretilen hicbir dosyada TelnetLog gecmesin.
+            for path in tests_dir.glob("*.[ch]"):
+                self.assertNotIn("TelnetLog", path.read_text(encoding="utf-8"),
+                                 f"{path.name} icinde beklenmeyen TelnetLog referansi")
+
     def test_vitis_error_mapper_classifies_common_build_failures(self) -> None:
         issues = map_vitis_errors(
             "drivers/foo.c:12:10: fatal error: xiicps.h: No such file or directory\n"
