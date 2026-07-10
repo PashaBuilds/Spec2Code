@@ -3565,6 +3565,7 @@ def _testbench_runtime_is_freertos(spec: dict) -> bool:
 _TESTBENCH_STATIC_IP: tuple[int, int, int, int] = (18, 2, 75, 121)
 _TESTBENCH_STATIC_NETMASK: tuple[int, int, int, int] = (255, 255, 255, 0)
 _TESTBENCH_STATIC_GATEWAY: tuple[int, int, int, int] = (18, 2, 75, 1)
+_TESTBENCH_STATIC_MAC: tuple[int, int, int, int, int, int] = (0x00, 0x0A, 0x35, 0x00, 0x01, 0x02)
 
 
 def _testbench_static_ip_string() -> str:
@@ -3604,6 +3605,30 @@ def _testbench_net_config_defines() -> str:
         f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR1 {gateway[1]}U\n"
         f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR2 {gateway[2]}U\n"
         f"#define SPEC2CODE_TESTBENCH_GATEWAY_ADDR3 {gateway[3]}U\n"
+        "#endif\n\n"
+    )
+
+
+def _testbench_mac_defines() -> str:
+    """Sabit MAC adresi makro blogu (tek kaynak).
+
+    Eth agent header'inda (socket/raw), telnet net bring-up dosyasinda ve
+    testbench lwip header'inda AYNI octet'lerle uretilir; #ifndef ile korunur
+    ki birden cok dosya ayni ceviri biriminde bulussa bile yeniden tanim hatasi
+    olmaz. MAC: 00-0A-35-00-01-02 (00:0A:35 = Xilinx OUI).
+    """
+    mac = _TESTBENCH_STATIC_MAC
+    mac_str = ":".join(f"{o:02X}" for o in mac)
+    return (
+        f"/* SABIT MAC adresi (kullanici karari - esneklik yok): {mac_str}\n"
+        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */\n"
+        "#ifndef SPEC2CODE_TESTBENCH_MAC0\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC0 0x{mac[0]:02X}U\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC1 0x{mac[1]:02X}U\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC2 0x{mac[2]:02X}U\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC3 0x{mac[3]:02X}U\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC4 0x{mac[4]:02X}U\n"
+        f"#define SPEC2CODE_TESTBENCH_MAC5 0x{mac[5]:02X}U\n"
         "#endif\n\n"
     )
 
@@ -3658,6 +3683,7 @@ def _testbench_lwip_header(spec: dict) -> str:
         "#define SPEC2CODE_TESTBENCH_LWIP_H\n\n"
         "#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U\n\n"
         + _testbench_net_config_defines()
+        + _testbench_mac_defines()
         + api_decls +
         "#endif /* SPEC2CODE_TESTBENCH_LWIP_H */\n"
     )
@@ -3925,16 +3951,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
-        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */",
-        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
-        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
-        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
-        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
-        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
-        "#endif",
+        _testbench_mac_defines().rstrip('\n'),
         "",
         "static struct netif S_sNetif;",
         "static SMesajParser S_sMesajParser;",
@@ -4226,16 +4243,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
-        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */",
-        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
-        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
-        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
-        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
-        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
-        "#endif",
+        _testbench_mac_defines().rstrip('\n'),
         "",
         "static struct netif S_sNetif;",
         "static struct tcp_pcb* S_spServerPcb;",
@@ -4809,16 +4817,7 @@ def _telnet_net_source(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        "/* SABIT MAC adresi (kullanici karari - esneklik yok): 00-0A-35-00-01-02",
-        " * (00:0A:35 = Xilinx OUI). Eth agent'iyle ayni MAC. */",
-        "#ifndef SPEC2CODE_TESTBENCH_MAC0",
-        "#define SPEC2CODE_TESTBENCH_MAC0 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC1 0x0AU",
-        "#define SPEC2CODE_TESTBENCH_MAC2 0x35U",
-        "#define SPEC2CODE_TESTBENCH_MAC3 0x00U",
-        "#define SPEC2CODE_TESTBENCH_MAC4 0x01U",
-        "#define SPEC2CODE_TESTBENCH_MAC5 0x02U",
-        "#endif",
+        _testbench_mac_defines().rstrip('\n'),
         "",
         "static struct netif S_sTelnetNetif;",
         "static unsigned char S_ucArrTelnetMac[6] =",
