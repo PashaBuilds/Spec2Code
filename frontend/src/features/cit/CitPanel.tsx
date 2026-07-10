@@ -37,6 +37,7 @@ function hex(value: number): string {
 }
 
 function badgeTone(measurement: CitDecodeMeasurement): "danger" | "warn" | "ok" | "neutral" {
+  if (measurement.durum === 7) return "neutral";
   if (measurement.durum !== 0) return "danger";
   if (measurement.ok) return "ok";
   return measurement.severity === "critical" ? "danger" : "warn";
@@ -218,9 +219,17 @@ export default function CitPanel() {
   }
 
   const measurements = result?.olcumler ?? [];
-  const criticalNok = measurements.filter((m) => !m.ok && m.severity === "critical").length;
-  const warningNok = measurements.filter((m) => !m.ok && m.severity !== "critical").length;
-  const okCount = measurements.filter((m) => m.ok).length;
+  const isDisabled = (m: CitDecodeMeasurement) => {
+    const device = deviceForMeasurement(m);
+    const override = storeOverride(device?.config?.cit?.measurements, m.op);
+    const enabled = override?.enabled ?? m.enabled;
+    return m.durum === 7 || !enabled;
+  };
+  const activeMeasurements = measurements.filter((m) => !isDisabled(m));
+  const disabledCount = measurements.length - activeMeasurements.length;
+  const criticalNok = activeMeasurements.filter((m) => !m.ok && m.severity === "critical").length;
+  const warningNok = activeMeasurements.filter((m) => !m.ok && m.severity !== "critical").length;
+  const okCount = activeMeasurements.filter((m) => m.ok).length;
   const anyContractChanged = measurements.some((m) => {
     const device = deviceForMeasurement(m);
     return contractChanged(m, storeOverride(device?.config?.cit?.measurements, m.op));
@@ -239,6 +248,7 @@ export default function CitPanel() {
           <Badge tone={criticalNok > 0 ? "danger" : "neutral"}>kritik NOK {criticalNok}</Badge>
           <Badge tone={warningNok > 0 ? "warn" : "neutral"}>uyarı NOK {warningNok}</Badge>
           <Badge tone="ok">OK {okCount}</Badge>
+          {disabledCount > 0 ? <Badge tone="neutral">kapalı: {disabledCount}</Badge> : null}
           {result?.desteklenmiyor ? <Badge tone="warn">DESTEKLENMIYOR</Badge> : null}
           {anyContractChanged ? (
             <Badge tone="warn" title="Manifest ile store'daki limit/isim/önem farklı">

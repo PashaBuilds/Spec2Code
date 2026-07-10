@@ -1,10 +1,13 @@
 """S2C-MSG binary mesaj katmani (tek dogruluk kaynagi: message_catalog.json).
 
 12B baslik (uiMesajKomut, uiMesajBoyu, uiMesajSayac) + 4B hizali govde, LE.
-Yanit ID = istek ID | RESPONSE_BIT. Resync: bayt akisinda ID'nin ust iki
-byte'inin (0x5343 / 0xD343) LE yazimdaki `.. .. 43 53` / `.. .. 43 D3`
-imzasi aranir; uiMesajBoyu > MAX_BODY veya 4'e bolunmezse senkron kaybi
-sayilir ve 1 bayt kaydirilarak devam edilir.
+Yanit ID = istek ID | RESPONSE_BIT. Resync iki farkli mekanizmayla yapilir:
+FrameParser.feed baslik alanlarini sayisal olarak dogrular (komut kelimesinin
+ust iki byte'i (command_id & ~RESPONSE_BIT) >> 16 == 0x5343 mi, uiMesajBoyu
+MAX_BODY altinda ve 4'e bolunuyor mu); uyusmazlikta 1 bayt kaydirip yeniden
+dener. ConsoleFrameSplitter._find_header_start ise console metniyle karisik
+akislarda `.. .. 43 53` / `.. .. 43 D3` bayt imzasini dogrudan tarayarak
+cerceve baslangicini bulur.
 """
 from __future__ import annotations
 
@@ -17,7 +20,6 @@ from pathlib import Path
 RESPONSE_BIT = 0x80000000
 HEADER_SIZE = 12
 MAX_BODY = 4096
-FIXED_REQUEST_SIZE = 28  # cihazIndeks..uiVeriBoyu sabit alanlari
 NO_DEVICE = 0xFFFFFFFF
 
 STATUS_LABELS = {0: "OK", 1: "GENEL_HATA", 2: "GECERSIZ_MESAJ",
