@@ -1307,9 +1307,9 @@ def _testbench_log_header() -> str:
         " * Seviyeler artan detayla siralidir; bir print ancak seviyesi o an\n"
         " * ayarli esikten KUCUK veya ESITSE basilir. Varsayilan: warning.\n"
         ' * Cikti "S2C-LOG|<TAG>|..." satirlaridir: host tarafi bunlari yanit\n'
-        " * sanmaz (yanitlar \"S2C|\" ile baslar), konsol ve Veri Akisi\n"
-        " * ekranlarinda gorunur. Esik calisma zamaninda S2C komutuyla\n"
-        ' * degistirilir: S2C|id=1|op=log_level|value=4\n'
+        " * sanmaz (yanitlar S2C-MSG ikili cercevesiyle gelir), konsol ve Veri\n"
+        " * Akisi ekranlarinda gorunur. Esik calisma zamaninda log_level\n"
+        ' * komutunu tasiyan bir S2C-MSG cercevesiyle degistirilir.\n'
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_LOG_H\n"
         "#define SPEC2CODE_TESTBENCH_LOG_H\n\n"
@@ -2086,13 +2086,12 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
         "schema_version": "1.0",
         "project": spec.get("project", {}).get("name", ""),
         "agent_version": _app_version(),
-        "protocol": "S2C line protocol v1",
+        "protocol": "S2C-MSG binary: 12B baslik (komut/boy/sayac) + 4B hizali govde; katalog CRC manifest'te ayri alanda",
         # S2C-MSG binary katalog imzasi: uretilen mesaj katmani (spec2code_mesaj.c)
         # ile backend s2cmsg ayni katalog baytlarindan uretilir; bu CRC32
         # (Python zlib.crc32) ikisinin es oldugunu dogrular.
         "message_catalog_crc32": _message_catalog_crc32(),
-        "line_format": ("S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB; "
-                        "global: S2C|id=1|op=spec2code_version, S2C|id=1|op=log_level|value=1..5"),
+        "line_format": "S2C-MSG binary cerceve: 12B baslik (uiKomut/uiBoy/uiMesajSayac) + 4B hizali govde; metin satir formati yok",
         "transport_agent": agent,
         "log": {
             "op": "log_level",
@@ -3499,7 +3498,7 @@ def _testbench_coresight_supported(spec: dict) -> bool:
 
 
 def _testbench_transport_agent(spec: dict) -> str | None:
-    """Which on-target agent carries the S2C line protocol.
+    """Which on-target agent carries the S2C-MSG binary protocol.
 
     ``project.testbench_transport``: "auto" (default) | "eth" | "uart" |
     "coresight". auto prefers Ethernet and falls back to the PS UART so
@@ -4476,11 +4475,12 @@ def _testbench_uart_header(spec: dict) -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_uart.h\n"
-        f" * @brief PS UART ({driver}) line-protocol agent for the Spec2Code test bench.\n"
+        f" * @brief PS UART ({driver}) S2C-MSG binary agent for the Spec2Code test bench.\n"
         " *\n"
-        " * Carries the same S2C line protocol as the TCP agent over the PS UART.\n"
-        ' * Lines that do not start with "S2C|" are ignored, so the agent can\n'
-        " * share the console UART with xil_printf output.\n"
+        " * Carries the same S2C-MSG binary framing as the TCP agent over the PS\n"
+        " * UART. Bytes that do not match the frame signature are skipped while\n"
+        " * the parser resyncs, so the agent can share the console UART with\n"
+        " * xil_printf output.\n"
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_UART_H\n"
         "#define SPEC2CODE_TESTBENCH_UART_H\n\n"
@@ -4724,10 +4724,10 @@ def _testbench_coresight_header() -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_coresight.h\n"
-        " * @brief CoreSight DCC (psu_coresight_0) line-protocol agent for the Spec2Code test bench.\n"
+        " * @brief CoreSight DCC (psu_coresight_0) S2C-MSG binary agent for the Spec2Code test bench.\n"
         " *\n"
-        " * Carries the same S2C line protocol as the TCP/UART agents over the\n"
-        " * Arm Debug Communication Channel: no cable beyond JTAG, no PHY, no\n"
+        " * Carries the same S2C-MSG binary framing as the TCP/UART agents over\n"
+        " * the Arm Debug Communication Channel: no cable beyond JTAG, no PHY, no\n"
         " * UART pin needed. The host bridges the channel with xsdb\n"
         ' * "jtagterminal -socket" (works over SmartLynq too).\n'
         " */\n"

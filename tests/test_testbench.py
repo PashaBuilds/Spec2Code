@@ -822,7 +822,7 @@ class TestbenchTests(unittest.TestCase):
 
     def test_uart_agent_generated_when_transport_is_uart(self) -> None:
         # Polled XUartPs agent per the official xuartps polled example; shares
-        # the S2C line protocol and ignores non-"S2C|" console noise.
+        # the S2C-MSG binary framing and resyncs past console noise on the UART.
         spec = load_sample_spec("unit_uart_agent")
         add_zynqmp_ps_ethernet(spec)
         add_zynqmp_ps_uart(spec)
