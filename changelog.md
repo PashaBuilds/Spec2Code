@@ -3,6 +3,53 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.140 - 2026-07-10
+
+- S2C-MSG BINARY GECIS (TAM): karttaki agent ile Windows UI arasindaki eski
+  metin satir protokolu (`S2C|id=..|op=..|...`) TAMAMEN KALKTI. Uc tasiyicinin
+  (PS UART, TCP/lwIP, CoreSight DCC) ucu de artik ayni 12 baytlik little-endian
+  binary cerceveyi (`uiMesajKomut`/`uiMesajBoyu`/`uiMesajSayac` basligi) tasiyor.
+  Tum mesajlar tek bir katalogda (`backend/data/message_catalog.json`, 42 mesaj)
+  tanimli; codegen (uretilen `spec2code_mesaj.c/.h`), backend (`s2cmsg.py`
+  kodek) ve YATT dokumantasyonu HEPSI bu tek dosyadan besleniyor. Yanit
+  eslemesi artik komut-ID + sayac ciftiyle yapiliyor (sayac uzayi cakismasi
+  yok); trace/log satirlari (`S2C-LOG|...`) TRACE_EVENT/BUS_TRACE_EVENT
+  cercevesi icinde METIN OLARAK AYNEN korunuyor. Flash/register/i2c gibi
+  cok-parcali islemler 256 baytlik parcalara bolunuyor.
+  - **ESKI AJANLA UYUMSUZ**: karttaki mevcut (onceki surumle uretilmis)
+    yazilim bu surumle KONUSAMAZ. Karti guncellemeden once Generate + Vitis
+    workspace ile YENIDEN DERLENIP karta YENIDEN YUKLENMELIDIR; aksi halde ilk
+    komutta timeout/GECERSIZ_MESAJ alinir.
+  - Yeni katalog girdisi: `I2C_MUX_SET` (tarama oncesi mux kanal secimi).
+- CIT ALTYAPISI + SAYFASI (Cihaz Ici Test): semantige bagli tum birimli
+  okumalardan (mV, °C, mA, VCC...) tek atimda ham+islenmis deger ve limit
+  bazli OK/NOK toplayan uretilmis `boardCitRun`/`SBoardCit` + yeni CIT
+  mesajlari (`CIT_RUN`/`CIT_READ`). Yeni **CIT sayfasi**: kostur/oku,
+  periyodik oto-yenile, satir bazinda isim/min/max/onem duzenleme (persist),
+  "kontrat degisti - kodu yeniden uret" rozeti (store'daki limit ile uretilmis
+  koddaki limit farklilastiginda). Backend: `POST /api/testbench/cit/run` ve
+  `/read`.
+- YATT v1 (Yazilim Arayuz Tasarim Tanimi): tum tanimli mesajlardan otomatik
+  turetilen protokol dokumani + yeni **Arayuz/YATT sayfasi** (baslik formati,
+  hata kodlari, mesaj/govde alan tablolari) ve self-contained HTML/MD disa
+  aktarma. CIT offset'leri ve govde sablonlari backend'den tek kaynaktan
+  gelir (kod-dokuman kaymasi yapisal olarak imkansiz).
+- KONTRAT HASH: uretilen manifest `message_catalog_crc32` alani backend
+  `s2cmsg.catalog_crc32()` ile birebir; YATT sayfasinda `kontrat CRC32 {hash}`
+  rozeti olarak gorunur - uretilen ajanin kullandigi katalogla backend
+  katalogunun senkron oldugunun kaniti.
+- Dokumantasyon: uygulama ici Kullanim Kilavuzu'nda (Test Bench bolumu) ve
+  `userguide.md`'de kalan eski "S2C| satir protokolu" anlatimlari yeni binary
+  S2C-MSG cercevesini ve YATT sayfasina yonlendirmeyi anlatacak sekilde
+  guncellendi.
+- **GERCEK KART DOGRULAMASI BEKLIYOR**: bu surumun binary transport katmani,
+  CIT ve YATT'i host round-trip testleri + gercek `gcc`/aarch64 derleme
+  testleriyle dogrulandi, ama canli TCP/UART/DCC round-trip ve gercek
+  firmware trace davranisi HENUZ sahada dogrulanmadi. Kontrol listesi:
+  `docs/s2cmsg_parite_listesi.md` (uc tasiyicinin ucunde de tekrarlanacak
+  adimlar + bilinen v1 kisitlari: `uiZaman`=0, CIT'te devre disi olcumde ham
+  durum tasinmaz, bit-alani GCC/ARM-EABI varsayimi). 266 test gecti.
+
 ## v0.1.139 - 2026-07-09
 
 - SAHA KOK NEDEN (kullanici): Vivado'da bit uretilse bile board'da "PL bitstream:

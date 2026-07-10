@@ -232,18 +232,42 @@ Test Bench sayfasi, generate sonucu uretilen su manifest dosyasindan beslenir:
 tests/spec2code_testbench_manifest.json
 ```
 
-Generate sonucu ayrica hedef uygulamaya eklenebilecek agent kaynaklari uretir:
+Generate sonucu ayrica hedef uygulamaya eklenebilecek **S2C-MSG binary mesaj
+katmani** kaynaklarini uretir:
 
 ```text
+tests/spec2code_mesaj.c/.h                 (kodek: parser + dispatch koprusu)
 tests/spec2code_testbench_protocol.c/.h
+tests/spec2code_testbench_log.c/.h
+tests/spec2code_testbench_trace.c/.h
 tests/<project>_testbench_ops.c/.h
 ```
 
-Bu agent dosyalari kart tarafinda `spec2codeTestbenchDispatchLine()` fonksiyonunu
-sunar. Windows UI dogrudan donanim bus'ina dokunmaz; TCP uzerinden karta baglanir
-ve komut satirlarini bu baglanti uzerinden gonderir. Kart tarafindaki TCP server
-kodu gelen her satiri `spec2codeTestbenchDispatchLine()` fonksiyonuna vermeli ve
-olusan response satirini ayni TCP baglantisi uzerinden geri dondurmelidir.
+Platforma gore ayrica UART, lwIP (TCP) veya CoreSight DCC tasiyici uretilir
+(asagida). Metin satir protokolu (eski `S2C|id=..|op=..`) TAMAMEN KALKMISTIR;
+uc tasiyicinin ucu de ayni **12 baytli little-endian binary cerceveyi** tasir:
+
+```c
+typedef struct
+{
+    unsigned int uiMesajKomut;  /* mesaja ozgu ID           */
+    unsigned int uiMesajBoyu;   /* govde boyu (byte), 4 katı */
+    unsigned int uiMesajSayac;  /* yon basina artan sayac    */
+} SMesajBaslik;
+```
+
+Her mesaj kataloglanmistir (`backend/data/message_catalog.json`); tam ID/govde
+tablosu ve hata kodlari uygulamadaki **Arayuz/YATT** sayfasindan (self-contained
+HTML/MD olarak da) indirilebilir — bu userguide kod uretecinin sozlesmesini
+tekrar etmez, tek dogruluk kaynagi YATT sayfasidir.
+
+Bu agent dosyalari kart tarafinda `spec2codeMesajBesle()` / `spec2codeMesajIsle()`
+fonksiyonlarini sunar (eski `spec2codeTestbenchDispatchLine()` SILINDI). Windows
+UI dogrudan donanim bus'ina dokunmaz; secilen tasiyici (TCP, seri UART veya
+CoreSight DCC) uzerinden karta baglanir ve binary cerceveleri bu baglanti
+uzerinden gonderir. Kart tarafi gelen her bayt/chunk/segment'i parser'a
+besleyip (`spec2codeMesajBesle`) tamamlanan cerceveyi isler (`spec2codeMesajIsle`)
+ve yanit cercevesini ayni baglanti uzerinden geri dondurur.
 
 Platform `zynq_ultrascale` ise ve `xparameters.h` icinden PS Ethernet controller'i
 (`XEmacPs`) yakalandiysa Spec2Code ek olarak hazir lwIP TCP agent uretir:
@@ -267,42 +291,61 @@ SPEC2CODE_TESTBENCH_GATEWAY_ADDR0..3
 SPEC2CODE_TESTBENCH_MAC0..5
 ```
 
-Generated lwIP agent ayni zamanda schematic'te kullanilan `XIicPs`, `XSpiPs` ve
-`XQspiPsu` controller handle'larini initialize eder. Test bench dispatch icindeki
-weak hook'lar bu dosyada strong olarak override edilir; yani UI'dan gelen operasyon
-dogrudan generated driver fonksiyonuna gider.
-
-Komut formati:
+PS UART veya CoreSight DCC uzerinden baglanmak istersen (Ethernet yoksa/JTAG
+disinda erisim yoksa) generate ayrica su dosyalari uretir:
 
 ```text
-S2C|id=1|device=<id>|op=<operation>|reg=<name>|reg_addr=0x00|address=0x0|length=16|value=0x00|data=AABB
+tests/spec2code_testbench_uart.c/.h + _main.c/.h
+tests/spec2code_testbench_coresight.c/.h + _main.c/.h
 ```
+
+Generated lwIP/UART agent ayni zamanda schematic'te kullanilan `XIicPs`, `XSpiPs`
+ve `XQspiPsu` controller handle'larini initialize eder. Test bench dispatch
+icindeki weak hook'lar bu dosyada strong olarak override edilir; yani UI'dan
+gelen operasyon dogrudan generated driver fonksiyonuna gider.
 
 Test Bench sayfasinda:
 
-- Host, port ve timeout girilir.
-- **Baglan** ile kart tarafindaki TCP agent'a tek session acilir.
+- Baglanti tipi secilir: **TCP**, **Seri** (UART/COM portu + baud) veya
+  **CoreSight** (Vitis kurulum yolu + JTAG cekirdek); host/port yalniz TCP'de,
+  timeout hepsinde girilir.
+- **Baglan** ile kart tarafindaki agent'a tek session acilir; bu session Test
+  Bench, UART konsolu, Bring-up, Registers ve telemetri ekranlari arasinda
+  ORTAKTIR (bir kez baglanmak yeter).
 - Generate edilmis manifest icindeki entegre secilir.
 - Entegre icin gercekten uretilmis operasyonlar listelenir.
 - Register read/write icin register adi veya manuel register address verilebilir.
-- Flash/EEPROM gibi adresli islemlerde address, length ve data hex alanlari kullanilir.
+- Flash/EEPROM gibi adresli islemlerde address, length ve data hex alanlari
+  kullanilir; flash cihazlarinda ayrica "Dosya transferi" modu 256 baytlik
+  komutlara bolunmus toplu okuma (.bin indirme) ve sayfa hizali yazma (.bin'den
+  page_program + istege bagli geri-okuma dogrulamasi) sunar.
 - Riskli islemler (`init`, `write`, `program`, `erase`) gonderilmeden once onay ister.
-- **Gonder** ile komutlar mevcut TCP session uzerinden gider; her komutta yeni
+- **Gonder** ile komutlar mevcut session uzerinden gider; her komutta yeni
   baglanti acilmaz.
 - Baglanti koparsa UI bunu hata olarak gosterir ve tekrar **Baglan** gerekir.
-- Response icindeki `ok`, `status`, `value`, `data` ve `message` alanlari okunabilir sekilde gosterilir.
+- Response icindeki `ok`, `status`, `value`, `data` ve `message` alanlari
+  (binary cerceveden cozulmus) okunabilir sekilde gosterilir; ham istek/yanit
+  kutulari artik cerceve ozeti + hex gosterir (eski ham `S2C|...` metin satiri
+  DEGIL).
+- Agent trace/log seviyesi (error..debug) baglanti kartindan canli
+  degistirilir (`log_level` komutu); Akis ve Seri Hat ekranlarindaki TRACE
+  metinleri bu esige gore artar/azalir.
 
 LTC2991 icin test bench uzerinden tipik faydali operasyonlar:
 
-- `voltage_read`: 8 kanal raw voltage code okur.
+- `voltage_read`: 8 kanal, milivolt cinsinden donusturulmus deger (LSB 305.18 µV).
 - `current_read`: current-shunt veya differential kullanilan pair'ler icin raw channel code okur.
-- `temperature_read`: internal temperature raw code okur.
-- `vcc_read`: VCC raw code okur.
+- `temperature_read`: internal temperature, 0.01 °C cozunurlukte donusturulmus deger.
+- `vcc_read`: VCC, milivolt cinsinden donusturulmus deger.
 - `register_read` / `register_write`: 8-bit register seviyesinde tek byte okuma/yazma yapar.
 
 `current_read` dogrudan amper hesaplamasi yapmaz. LTC2991'de akim, shunt uzerindeki
 differential raw code ve board tarafinda bilinen shunt milliohm degeriyle application
 katmaninda hesaplanmalidir.
+
+Karti test etmeden once tum akislarin gercek donanimda dogrulanmasi icin
+`docs/s2cmsg_parite_listesi.md` kontrol listesini kullan (uc tasiyicinin
+ucunde de tekrarlanmasi gereken adimlar + bilinen v1 kisitlari orada).
 
 ## 12. Vitis Workspace Uretimi
 
@@ -558,10 +601,17 @@ deterministik descriptor/codegen destegi yoktur.
 
 **Test Bench karta baglanmiyor**
 
-- Kart tarafinda TCP server'in calistigindan emin ol.
-- Host/port alanlari Windows makineden ulasilabilir olmalidir.
-- Firewall veya air-gap ag kurallarini kontrol et.
-- Kart server'i gelen satirlari `spec2codeTestbenchDispatchLine()` fonksiyonuna iletmeli ve response satirlarini ayni TCP baglantisindan geri yazmalidir.
+- TCP: kart tarafinda agent'in (lwIP TCP server) calistigindan, host/port
+  alanlarinin Windows makineden ulasilabilir oldugundan ve firewall/air-gap ag
+  kurallarinin engellemedigi emin ol. Seri: dogru COM portu/baud secildiginden
+  emin ol. CoreSight: Vitis kurulum yolunun/JTAG baglantisinin dogru oldugundan
+  emin ol (ilk baglanti xsdb acilisi nedeniyle 10-30 sn surebilir).
+- Kart tarafi gelen bayt/chunk/segment'leri `spec2codeMesajBesle()` fonksiyonuna
+  besleyip tamamlanan cerceveyi `spec2codeMesajIsle()` ile islemeli ve yanit
+  cercevesini ayni baglanti uzerinden geri yazmalidir (eski
+  `spec2codeTestbenchDispatchLine()` artik yok — karttaki firmware bu arktan
+  ONCEKI bir surumse ilk komutta timeout/GECERSIZ_MESAJ alinir; Generate +
+  Vitis workspace ile yeniden derleyip YUKLEMEK gerekir).
 - UI once **Baglan** demeden **Gonder** komutunu aktif etmez; baglanti durumu kopuksa yeniden baglan.
 
 ## 18. Release Dosyalari
