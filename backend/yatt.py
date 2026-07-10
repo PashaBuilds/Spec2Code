@@ -64,7 +64,7 @@ _BODY_LAYOUTS: dict[str, list[dict]] = {
         {"offset": 12, "size": 4, "name": "uiZaman", "type": "u32",
          "note": "SBoardCit.uiZaman — v1'de 0 (ms-tick kaynagi yok)"},
         {"offset": 16, "size": None, "name": "bayrak_words", "type": "u32[ceil(N/32)]",
-         "note": "OK/NOK bit alani; bit i = olcum i (LSB-first); ((N+31)/32)*4 bayt"},
+         "note": "OKUMA-BASARILI bit alani (limit DEGIL); bit i = olcum i (LSB-first); ((N+31)/32)*4 bayt"},
         {"offset": None, "size": None, "name": "arrOlcum[N]", "type": "SBoardCitOlcum[N]",
          "note": "her biri {iDeger i32, uiHam u32, uiDurum u32} = 12 bayt/olcum"},
     ],
@@ -86,7 +86,7 @@ def body_layouts_json() -> dict[str, list[dict]]:
 #: satirlari icin; backend/cit.py _OLCUM_SIZE=12 ile birebir).
 _CIT_OLCUM_FIELDS = [
     {"name": "iDeger", "type": "i32", "size": 4, "note": "islenmis/birimli deger (int32)"},
-    {"name": "uiHam", "type": "u32", "size": 4, "note": "ham okuma; devre disi olcumde 0"},
+    {"name": "uiHam", "type": "u32", "size": 4, "note": "ham okuma (yanit data ilk 4B / uiValue)"},
     {"name": "uiDurum", "type": "u32", "size": 4, "note": "0 OK / hata tablosu (asagida)"},
 ]
 
@@ -106,7 +106,10 @@ _NOTES_MD = """## Notlar / Kısıtlar (v1)
 - **`uiZaman` (CIT):** v1'de her zaman 0 — kartta ms-tick kaynağı yok.
 - **`BUS_HATASI` (uiDurum=5):** ham cihaz `iStatus` CIT ölçümünde TAŞINMAZ;
   yalnızca standart yanıtın `iCihazDurum` alanında görülür.
-- **Devre dışı (disabled) ölçüm:** `uiHam=0` — CIT bayrak biti de kapalı kalır.
+- **Limit / OK-NOK HOST'ta:** kart CIT'te limit GÖMMEZ — her ölçümü okur, `iDeger`
+  + `uiHam` + `uiDurum` (okuma başarısı) döner; bayrak biti = okuma başarısı. Min/max
+  limitini, önem ve aç/kapa kararını CIT ekranı canlı uygular; limit değiştirmek için
+  kod üretmek/yeniden yüklemek GEREKMEZ.
 - **CRC/magic:** v1'de mesaj çerçevesinde CRC ya da magic YOK; dayanıklılık
   resync deseniyle sağlanır (imza + boy doğrulaması, 1 bayt kaydırmalı arama).
 """

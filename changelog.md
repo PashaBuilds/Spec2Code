@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.141 - 2026-07-10
+
+- CIT LIMITLERI ARTIK CANLI (koda gomulmez): kullanici istegi — "limitleri
+  koda gommeden dogrudan CIT ekranindan guncelle". Kart CIT'te LIMIT/ONEM/ENABLED
+  GOMMEZ; her olcumu okuyup ham + islenmis deger + okuma-durumu doner (bayrak biti
+  = OKUMA BASARISI, limit gecti/kaldi DEGIL). Limit/OK-NOK/onem/ac-kapa karari
+  HOST'ta (CIT ekrani) store'daki guncel degerlerle CANLI yapilir.
+  - CIT ekraninda limit/isim/onem/ac-kapa degisikligi ANINDA uygulanir — kod
+    uretmeye ya da karta yeniden yuklemeye gerek YOK. "kontrat degisti — kodu
+    yeniden uret" rozeti kaldirildi (limitler artik canli).
+  - CIT ekranindaki baglanti karti (BoardConnectionCard) kaldirildi: baglanti
+    Test Bench'ten ORTAK olarak kullaniliyor; ust seritteki bagli/kopuk rozeti kalir.
+  - Uretilen firmware (spec2code_cit.c): sabit limit tablosu (S_sArrCitLimit)
+    silindi; boardCitRun her olcumu okur (enabled-atlama yok), bayrak = okuma
+    basarisi. decode read_ok doner; manifest min/max/severity yalniz UI varsayilani.
+  - YATT notlari guncellendi: bayrak = okuma basarisi; limit/OK-NOK host'ta.
+  - 266 test gecti (gercek gcc ile CIT host round-trip dahil); firmware limit
+    gommedigini dogrulayan yeni test.
+
 ## v0.1.140 - 2026-07-10
 
 - S2C-MSG BINARY GECIS (TAM): karttaki agent ile Windows UI arasindaki eski

@@ -1840,14 +1840,18 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     bayrak_bayt = ((sayi + 31) // 32) * 4
     bit_lines = [
         f"    unsigned int ui{m['cname']}Ok : 1;   "
-        f"/* olcum {m['index']}: {m['name']}, {m['device']}/{m['op']} */"
+        f"/* olcum {m['index']}: {m['name']}, {m['device']}/{m['op']} (okuma basarili mi) */"
         for m in olcumler
     ]
     return (
         "/**\n"
         " * @file spec2code_cit.h\n"
         " * @brief CIT (Card-In-Test) olcum toplama: SBoardCit paketlenmis kopya,\n"
-        " *        kullanici isimli gecti/kaldi bitleri + limit degerlendirmesi.\n"
+        " *        kullanici isimli OKUMA-BASARILI bitleri + ham/islenmis deger.\n"
+        " *\n"
+        " * Kart yalniz OLCER; limit/OK-NOK karari HOST tarafinda (CIT ekrani) canli\n"
+        " * yapilir — limitler koda GOMULMEZ, ekrandan degistirilir. Bayrak biti =\n"
+        " * okuma basarisi (dispatch uiOk==1), limit gecti/kaldi DEGIL.\n"
         " *\n"
         " * Olcum sirasi manifest cit.olcumler ile birebir (uretim tek kaynaktan).\n"
         " * El ile duzenlemeyin; spec'ten yeniden uretilir. Yalniz unsigned int/int.\n"
@@ -1856,7 +1860,8 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "#define SPEC2CODE_CIT_H\n\n"
         f"#define BOARD_CIT_OLCUM_SAYISI {sayi}U\n\n"
         "/**\n"
-        " * @brief Olcum basina gecti(1)/kaldi(0) biti (olcum sirasiyla, bit 0 = olcum 0).\n"
+        " * @brief Olcum basina OKUMA-BASARILI(1)/HATA(0) biti (olcum sirasiyla, bit 0 = olcum 0).\n"
+        " *        Limit degerlendirmesi kartta YAPILMAZ; host bunu iDeger + canli limitle yapar.\n"
         " */\n"
         "typedef struct\n"
         "{\n"
@@ -1885,8 +1890,9 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "} SBoardCit;\n\n"
         "_Static_assert(sizeof(SBoardCit) % 4U == 0U, \"SBoardCit 4B hizali olmalidir\");\n\n"
         "/**\n"
-        " * @brief CIT olcumlerini kostur; her olcum icin dispatch'i cagirir, limiti\n"
-        " *        degerlendirir, bayrak bitini ve sonucu doldurur. uiSayac +1.\n"
+        " * @brief CIT olcumlerini kostur; her olcum icin dispatch'i cagirir, ham +\n"
+        " *        islenmis degeri ve okuma-basarili bitini doldurur. LIMIT DEGERLENDIRMEZ\n"
+        " *        (o host tarafinda). uiSayac +1.\n"
         " */\n"
         "void boardCitRun(SBoardCit* spCit);\n\n"
         "/**\n"
@@ -1899,22 +1905,13 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
 
 
 def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
-    """Üretilen `spec2code_cit.c`: limit tablosu + dispatch köprüsü + boardCitRun."""
-    olcumler = _cit_measurements(spec, get_descriptor)
+    """Üretilen `spec2code_cit.c`: dispatch köprüsü + boardCitRun (saf sensör).
 
-    # Sabit limit tablosu: enabled=false -> uiEtkin=0; min/max yoksa uiLimitVar=0.
-    limit_rows = []
-    for m in olcumler:
-        has_limit = (m["min"] is not None) and (m["max"] is not None)
-        i_min = int(m["min"]) if has_limit else 0
-        i_max = int(m["max"]) if has_limit else 0
-        ui_limit = 1 if has_limit else 0
-        ui_kritik = 1 if str(m["severity"]).lower() == "critical" else 0
-        ui_etkin = 1 if m["enabled"] else 0
-        limit_rows.append(
-            f"    {{ {i_min}, {i_max}, {ui_limit}U, {ui_kritik}U, {ui_etkin}U }}, "
-            f"/* olcum {m['index']}: {m['name']} */")
-    limit_table = "\n".join(limit_rows) if limit_rows else "    { 0, 0, 0U, 0U, 0U }"
+    Kart LIMIT GÖMMEZ: her ölçümü okuyup ham + işlenmiş değeri ve okuma-başarılı
+    bitini doldurur. Limit/OK-NOK/önem/enabled kararı host (CIT ekranı) tarafında
+    canlı yapılır — kullanıcı limitleri kod üretmeden ekrandan değiştirir.
+    """
+    olcumler = _cit_measurements(spec, get_descriptor)
 
     # Cihaz id + op adi string tablolari (dispatch koprusu; MesajIsle ile ayni
     # alanlar: cArrDevice = cihaz id string, cArrOperation = op adi string).
@@ -1932,25 +1929,13 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     return (
         "/**\n"
         " * @file spec2code_cit.c\n"
-        " * @brief CIT olcum toplama gerceklemesi. Limit tablosu + cihaz/op string\n"
+        " * @brief CIT olcum toplama gerceklemesi (saf sensor). Cihaz/op string\n"
         " *        tablolari otomatik uretildi (manifest cit.olcumler sirasiyla).\n"
+        " *        LIMIT GOMULMEZ: kart her olcumu okur, host limitle degerlendirir.\n"
         " */\n"
         '#include "spec2code_cit.h"\n'
         '#include "spec2code_mesaj.h"\n'
         '#include "spec2code_testbench_protocol.h"\n\n'
-        "/* Sabit limit tablosu (olcum sirasiyla). uiEtkin=0 -> olcum kapali;\n"
-        " * uiLimitVar=0 -> limit kontrolu yok (ham dispatch basarisi = gecti). */\n"
-        "static const struct\n"
-        "{\n"
-        "    int          iMin;\n"
-        "    int          iMax;\n"
-        "    unsigned int uiLimitVar;\n"
-        "    unsigned int uiKritik;\n"
-        "    unsigned int uiEtkin;\n"
-        "} S_sArrCitLimit[BOARD_CIT_OLCUM_SAYISI] =\n"
-        "{\n"
-        f"{limit_table}\n"
-        "};\n\n"
         "/* Olcum -> cihaz id string (dispatch koprusu icin). */\n"
         "static const char* const S_cpArrCitCihaz[BOARD_CIT_OLCUM_SAYISI] =\n"
         "{\n"
@@ -2010,17 +1995,10 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "    S_uiCitKosuSayac++;\n"
         "    spCit->uiSayac = S_uiCitKosuSayac;\n"
         "    spCit->uiZaman = 0U;  /* ms tick kaynagi uretilen kodda yok (v1). */\n"
+        "    /* Kart LIMIT/ENABLED GOMMEZ: her olcumu okur; host (CIT ekrani) hangi\n"
+        "     * olcumu gosterecegine ve limit gecti/kaldi'ya CANLI karar verir. */\n"
         "    for (uiOlcum = 0U; uiOlcum < BOARD_CIT_OLCUM_SAYISI; uiOlcum++)\n"
         "    {\n"
-        "        if (S_sArrCitLimit[uiOlcum].uiEtkin == 0U)\n"
-        "        {\n"
-        "            /* Kapali olcum: kosma, DESTEKLENMIYOR isaretle, bit 0. */\n"
-        "            spCit->arrOlcum[uiOlcum].iDeger = 0;\n"
-        "            spCit->arrOlcum[uiOlcum].uiHam = 0U;\n"
-        "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR;\n"
-        "            spec2codeCitBayrakYaz(spCit, uiOlcum, 0U);\n"
-        "            continue;\n"
-        "        }\n"
         "        spec2codeTestbenchRequestClear(&sIstek);\n"
         "        sIstek.uiId = uiOlcum;\n"
         "        spec2codeCitMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
@@ -2044,21 +2022,12 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "        iDeger = (int)sYanit.uiValue;\n"
         "        spCit->arrOlcum[uiOlcum].iDeger = iDeger;\n"
         "        spCit->arrOlcum[uiOlcum].uiHam = uiHam;\n"
-        "        /* Durum eslemesi: uiOk==1 -> OK; aksi -> BUS_HATASI. */\n"
+        "        /* Bayrak biti = OKUMA BASARISI (limit DEGERLENDIRMESI YOK — o host'ta).\n"
+        "         * uiOk==1 -> uiDurum OK, bit 1; aksi -> BUS_HATASI, bit 0. */\n"
         "        if (sYanit.uiOk == 1U)\n"
         "        {\n"
         "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
-        "            /* Gecti biti: dispatch basarili VE (limit yok VEYA aralikta). */\n"
-        "            if ((S_sArrCitLimit[uiOlcum].uiLimitVar == 0U) ||\n"
-        "                ((iDeger >= S_sArrCitLimit[uiOlcum].iMin) &&\n"
-        "                 (iDeger <= S_sArrCitLimit[uiOlcum].iMax)))\n"
-        "            {\n"
-        "                uiOk = 1U;\n"
-        "            }\n"
-        "            else\n"
-        "            {\n"
-        "                uiOk = 0U;\n"
-        "            }\n"
+        "            uiOk = 1U;\n"
         "        }\n"
         "        else\n"
         "        {\n"

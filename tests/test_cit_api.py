@@ -66,14 +66,16 @@ def _fake_manifest_cit(n: int = 2) -> dict:
 
 class DecodeBoardCitTests(unittest.TestCase):
     def test_decode_ok_and_nok_measurements(self) -> None:
+        # Bayrak biti = OKUMA BASARISI (limit degil). Limit/OK-NOK karari host'ta;
+        # decode yalniz read_ok + ham/deger + manifest varsayilan limitlerini tasir.
         manifest = _fake_manifest_cit(2)
         cit_bytes = _sboard_cit_bytes(
             sayac=7, zaman=123456,
             olcumler=[
-                {"iDeger": 3300, "uiHam": 0xABCD, "uiDurum": 0},  # in-range -> ok
-                {"iDeger": 9999, "uiHam": 0x1234, "uiDurum": 0},  # out-of-range -> nok
+                {"iDeger": 3300, "uiHam": 0xABCD, "uiDurum": 0},  # okuma basarili
+                {"iDeger": 9999, "uiHam": 0x1234, "uiDurum": 0},  # okuma bayragi set degil
             ],
-            flag_bits=[0],  # yalniz olcum 0 ok biti set
+            flag_bits=[0],  # yalniz olcum 0 okuma-basarili biti set
         )
         body = _cit_response_body(istek_sayac=42, durum=0, cit_bytes=cit_bytes)
 
@@ -94,9 +96,9 @@ class DecodeBoardCitTests(unittest.TestCase):
         self.assertEqual(first["unit"], "mV")
         self.assertEqual(first["raw"], 0xABCD)
         self.assertEqual(first["value"], 3300)
-        self.assertTrue(first["ok"])
+        self.assertTrue(first["read_ok"])
         self.assertEqual(first["durum"], 0)
-        self.assertEqual(first["min"], 3135)
+        self.assertEqual(first["min"], 3135)  # manifest varsayilani (host store ile override edilir)
         self.assertEqual(first["max"], 3465)
         self.assertEqual(first["severity"], "critical")
         self.assertTrue(first["enabled"])
@@ -104,7 +106,7 @@ class DecodeBoardCitTests(unittest.TestCase):
         second = result["olcumler"][1]
         self.assertEqual(second["value"], 9999)
         self.assertEqual(second["raw"], 0x1234)
-        self.assertFalse(second["ok"])  # bit not set
+        self.assertFalse(second["read_ok"])  # okuma-basarili biti set degil
         self.assertEqual(second["severity"], "warning")
 
     def test_decode_multiword_flags_bit_i_word_i_div_32(self) -> None:
@@ -127,11 +129,11 @@ class DecodeBoardCitTests(unittest.TestCase):
 
         for item in result["olcumler"]:
             if item["index"] == 33:
-                self.assertTrue(item["ok"])
+                self.assertTrue(item["read_ok"])
             else:
-                self.assertFalse(item["ok"])
+                self.assertFalse(item["read_ok"])
 
-    def test_decode_unlimited_measurement_is_ok_when_read_succeeds(self) -> None:
+    def test_decode_read_ok_flag_reflects_board_read_success(self) -> None:
         manifest = {
             "cit": {
                 "olcumler": [{
@@ -145,7 +147,7 @@ class DecodeBoardCitTests(unittest.TestCase):
         cit_bytes = _sboard_cit_bytes(sayac=1, zaman=1, olcumler=[{"iDeger": 5000, "uiHam": 5000, "uiDurum": 0}], flag_bits=[0])
         body = _cit_response_body(istek_sayac=1, durum=0, cit_bytes=cit_bytes)
         result = decode_board_cit(body, manifest)
-        self.assertTrue(result["olcumler"][0]["ok"])
+        self.assertTrue(result["olcumler"][0]["read_ok"])
 
     def test_decode_short_body_raises_clear_error(self) -> None:
         manifest = _fake_manifest_cit(2)

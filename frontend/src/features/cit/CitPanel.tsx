@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, HeartPulse, Loader2, Pause, Play, RefreshCw } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
-import BoardConnectionCard from "@/components/BoardConnectionCard";
 import { useBoardConnection } from "@/store/connection";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
-import type { CitDecodeMeasurement, CitDecodeResult, DeviceCitMeasurement, TestbenchManifest } from "@/lib/types";
+import type { CitDecodeMeasurement, CitDecodeResult, Device, DeviceCitMeasurement, TestbenchManifest } from "@/lib/types";
 
 const AUTO_REFRESH_MS = 5000;
 
@@ -36,18 +35,6 @@ function hex(value: number): string {
   return `0x${(value >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
 }
 
-function badgeTone(measurement: CitDecodeMeasurement): "danger" | "warn" | "ok" | "neutral" {
-  if (measurement.durum === 7) return "neutral";
-  if (measurement.durum !== 0) return "danger";
-  if (measurement.ok) return "ok";
-  return measurement.severity === "critical" ? "danger" : "warn";
-}
-
-function badgeLabel(measurement: CitDecodeMeasurement): string {
-  if (measurement.durum !== 0) return statusLabel(measurement.durum);
-  return measurement.ok ? "OK" : "NOK";
-}
-
 /** Bu ölçüme ait store override'ı (device.config.cit.measurements[]), op ile eşlenir. */
 function storeOverride(
   measurements: DeviceCitMeasurement[] | undefined,
@@ -56,20 +43,46 @@ function storeOverride(
   return measurements?.find((m) => m.op === op);
 }
 
-/** Manifest limitiyle store'daki (henüz kod üretimine yansımamış) limit farklı mı. */
-function contractChanged(measurement: CitDecodeMeasurement, override: DeviceCitMeasurement | undefined): boolean {
-  if (!override) return false;
-  const fields: Array<keyof DeviceCitMeasurement> = ["name", "min", "max", "severity", "enabled"];
-  return fields.some((field) => {
-    const overrideValue = override[field];
-    if (overrideValue === undefined) return false;
-    const current = field === "name" ? measurement.name
-      : field === "min" ? measurement.min
-      : field === "max" ? measurement.max
-      : field === "severity" ? measurement.severity
-      : measurement.enabled;
-    return overrideValue !== current;
-  });
+/**
+ * Ölçümün CANLI (efektif) politikası: store override (varsa) > manifest varsayılanı.
+ * Kart yalnız ham+değer+okuma-durumu döner; limit/OK-NOK/önem/enabled kararı HOST'ta,
+ * store'daki güncel değerlerle burada hesaplanır (koda gömülü değil, ekrandan canlı).
+ */
+type Effective = {
+  name: string;
+  min: number | null;
+  max: number | null;
+  severity: "critical" | "warning";
+  enabled: boolean;
+  readOk: boolean; // kart okuma başarısı (durum === 0)
+  limitOk: boolean; // limit yok VEYA değer aralıkta
+  ok: boolean; // readOk && limitOk — ekranda gösterilen verdict
+};
+
+function effectiveOf(measurement: CitDecodeMeasurement, device: Device | undefined): Effective {
+  const override = storeOverride(device?.config?.cit?.measurements, measurement.op);
+  const name = override?.name ?? measurement.name;
+  // Override VARSA değerleri olduğu gibi kullan (kullanıcı limiti bilerek boşalttıysa null = limitsiz).
+  const min = override ? (override.min ?? null) : (measurement.min ?? null);
+  const max = override ? (override.max ?? null) : (measurement.max ?? null);
+  const severityRaw = override?.severity ?? measurement.severity;
+  const severity = severityRaw === "critical" ? "critical" : "warning";
+  const enabled = override?.enabled ?? measurement.enabled;
+  const readOk = measurement.durum === 0;
+  const limitOk = min === null || max === null ? true : measurement.value >= min && measurement.value <= max;
+  return { name, min, max, severity, enabled, readOk, limitOk, ok: readOk && limitOk };
+}
+
+function badgeTone(measurement: CitDecodeMeasurement, eff: Effective): "danger" | "warn" | "ok" | "neutral" {
+  if (measurement.durum === 7) return "neutral"; // eski firmware / desteklenmiyor
+  if (measurement.durum !== 0) return "danger";
+  if (eff.ok) return "ok";
+  return eff.severity === "critical" ? "danger" : "warn";
+}
+
+function badgeLabel(measurement: CitDecodeMeasurement, eff: Effective): string {
+  if (measurement.durum !== 0) return statusLabel(measurement.durum);
+  return eff.ok ? "OK" : "NOK";
 }
 
 export default function CitPanel() {
@@ -142,17 +155,13 @@ export default function CitPanel() {
   }
 
   function startEdit(measurement: CitDecodeMeasurement) {
-    const device = deviceForMeasurement(measurement);
-    const override = storeOverride(device?.config?.cit?.measurements, measurement.op);
-    const min = override?.min ?? measurement.min;
-    const max = override?.max ?? measurement.max;
+    const eff = effectiveOf(measurement, deviceForMeasurement(measurement));
     setEditingOp(measurement.op + "|" + measurement.device);
-    const severitySource = override?.severity ?? measurement.severity;
     setEditDraft({
-      name: override?.name ?? measurement.name,
-      min: min === null || min === undefined ? "" : String(min),
-      max: max === null || max === undefined ? "" : String(max),
-      severity: severitySource === "critical" ? "critical" : "warning",
+      name: eff.name,
+      min: eff.min === null ? "" : String(eff.min),
+      max: eff.max === null ? "" : String(eff.max),
+      severity: eff.severity,
     });
   }
 
@@ -160,28 +169,8 @@ export default function CitPanel() {
     setEditingOp("");
   }
 
-  function saveEdit(measurement: CitDecodeMeasurement) {
-    const device = deviceForMeasurement(measurement);
-    if (!device) return;
-    const existing = device.config?.cit?.measurements ?? [];
-    const min = editDraft.min.trim() === "" ? undefined : Number(editDraft.min);
-    const max = editDraft.max.trim() === "" ? undefined : Number(editDraft.max);
-    const next: DeviceCitMeasurement = {
-      op: measurement.op,
-      name: editDraft.name.trim() || undefined,
-      min: Number.isFinite(min as number) ? min : undefined,
-      max: Number.isFinite(max as number) ? max : undefined,
-      severity: editDraft.severity,
-      enabled: storeOverride(existing, measurement.op)?.enabled ?? true,
-    };
-    const filtered = existing.filter((m) => m.op !== measurement.op);
-    updateDevice(device.id, {
-      config: { ...device.config, cit: { measurements: [...filtered, next] } },
-    });
-    setEditingOp("");
-  }
-
-  function toggleEnabled(measurement: CitDecodeMeasurement) {
+  /** Bir ölçümün store override'ını (op ile) günceller/ekler — anında canlı yansır. */
+  function writeOverride(measurement: CitDecodeMeasurement, patch: Partial<DeviceCitMeasurement>) {
     const device = deviceForMeasurement(measurement);
     if (!device) return;
     const existing = device.config?.cit?.measurements ?? [];
@@ -192,12 +181,30 @@ export default function CitPanel() {
       min: current?.min,
       max: current?.max,
       severity: current?.severity ?? (measurement.severity === "critical" ? "critical" : "warning"),
-      enabled: !(current?.enabled ?? measurement.enabled),
+      enabled: current?.enabled ?? measurement.enabled,
+      ...patch,
     };
     const filtered = existing.filter((m) => m.op !== measurement.op);
     updateDevice(device.id, {
       config: { ...device.config, cit: { measurements: [...filtered, next] } },
     });
+  }
+
+  function saveEdit(measurement: CitDecodeMeasurement) {
+    const min = editDraft.min.trim() === "" ? undefined : Number(editDraft.min);
+    const max = editDraft.max.trim() === "" ? undefined : Number(editDraft.max);
+    writeOverride(measurement, {
+      name: editDraft.name.trim() || undefined,
+      min: Number.isFinite(min as number) ? min : undefined,
+      max: Number.isFinite(max as number) ? max : undefined,
+      severity: editDraft.severity,
+    });
+    setEditingOp("");
+  }
+
+  function toggleEnabled(measurement: CitDecodeMeasurement) {
+    const eff = effectiveOf(measurement, deviceForMeasurement(measurement));
+    writeOverride(measurement, { enabled: !eff.enabled });
   }
 
   if (!manifest || !hasCit) {
@@ -210,7 +217,7 @@ export default function CitPanel() {
             <p className="mt-2 text-sm leading-relaxed text-muted">
               {!manifest
                 ? "Bu ekran, kartı tek atımda test eden CİT (Cihaz İçi Test) koşusunun ham + işlenmiş ölçümlerini ve OK/NOK durumunu gösterir. Önce Generate çalıştır."
-                : "Bu üretimde CİT olcumu yok: hiçbir cihazda birimli okuma (voltage_read/temperature_read gibi) op'u seçilmemiş ya da hepsi devre dışı. Şematik ekranından cihaz operasyonlarını gözden geçir."}
+                : "Bu üretimde CİT olcumu yok: hiçbir cihazda birimli okuma (voltage_read/temperature_read gibi) op'u seçilmemiş. Şematik ekranından cihaz operasyonlarını gözden geçir."}
             </p>
           </div>
         </div>
@@ -219,21 +226,12 @@ export default function CitPanel() {
   }
 
   const measurements = result?.olcumler ?? [];
-  const isDisabled = (m: CitDecodeMeasurement) => {
-    const device = deviceForMeasurement(m);
-    const override = storeOverride(device?.config?.cit?.measurements, m.op);
-    const enabled = override?.enabled ?? m.enabled;
-    return m.durum === 7 || !enabled;
-  };
-  const activeMeasurements = measurements.filter((m) => !isDisabled(m));
-  const disabledCount = measurements.length - activeMeasurements.length;
-  const criticalNok = activeMeasurements.filter((m) => !m.ok && m.severity === "critical").length;
-  const warningNok = activeMeasurements.filter((m) => !m.ok && m.severity !== "critical").length;
-  const okCount = activeMeasurements.filter((m) => m.ok).length;
-  const anyContractChanged = measurements.some((m) => {
-    const device = deviceForMeasurement(m);
-    return contractChanged(m, storeOverride(device?.config?.cit?.measurements, m.op));
-  });
+  const rows = measurements.map((m) => ({ m, eff: effectiveOf(m, deviceForMeasurement(m)) }));
+  const activeRows = rows.filter((r) => r.eff.enabled);
+  const disabledCount = rows.length - activeRows.length;
+  const criticalNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity === "critical").length;
+  const warningNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity !== "critical").length;
+  const okCount = activeRows.filter((r) => r.eff.ok).length;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -250,11 +248,6 @@ export default function CitPanel() {
           <Badge tone="ok">OK {okCount}</Badge>
           {disabledCount > 0 ? <Badge tone="neutral">kapalı: {disabledCount}</Badge> : null}
           {result?.desteklenmiyor ? <Badge tone="warn">DESTEKLENMIYOR</Badge> : null}
-          {anyContractChanged ? (
-            <Badge tone="warn" title="Manifest ile store'daki limit/isim/önem farklı">
-              kontrat değişti — kodu yeniden üret
-            </Badge>
-          ) : null}
 
           <span className="text-[11px] text-faint">
             {lastRunAt ? `son koşu ${timeLabel(lastRunAt)}` : "henüz koşulmadı"}
@@ -280,9 +273,10 @@ export default function CitPanel() {
             </Button>
           </span>
         </div>
-        <div className="mt-2">
-          <BoardConnectionCard compact />
-        </div>
+        <p className="mt-1.5 text-[11px] text-faint">
+          Limit / önem / aç-kapa değişiklikleri <b className="text-muted">anında</b> uygulanır — kod üretmeye ya da
+          karta yeniden yüklemeye gerek yok. Bağlantı üstteki ortak karttan (Test Bench) gelir.
+        </p>
         {error ? (
           <p className="mt-2 rounded border border-danger/30 bg-danger/10 p-2 font-mono text-[11px] text-danger">{error}</p>
         ) : null}
@@ -310,19 +304,13 @@ export default function CitPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {measurements.map((measurement) => {
+              {rows.map(({ m: measurement, eff }) => {
                 const device = deviceForMeasurement(measurement);
-                const override = storeOverride(device?.config?.cit?.measurements, measurement.op);
-                const changed = contractChanged(measurement, override);
                 const editKey = measurement.op + "|" + measurement.device;
                 const editing = editingOp === editKey;
-                const enabled = override?.enabled ?? measurement.enabled;
                 return (
-                  <tr key={editKey} className={cn(!enabled && "opacity-50")}>
-                    <td className="px-3 py-1.5 font-mono text-text">
-                      {measurement.name}
-                      {changed ? <Badge tone="warn" className="ml-2">değişti</Badge> : null}
-                    </td>
+                  <tr key={editKey} className={cn(!eff.enabled && "opacity-50")}>
+                    <td className="px-3 py-1.5 font-mono text-text">{eff.name}</td>
                     <td className="px-3 py-1.5 font-mono text-faint">
                       {measurement.part} · {measurement.device}
                     </td>
@@ -348,8 +336,8 @@ export default function CitPanel() {
                             className="h-6 w-16 px-1 text-[11px]"
                           />
                         </div>
-                      ) : measurement.min !== null && measurement.max !== null ? (
-                        `${measurement.min}..${measurement.max}`
+                      ) : eff.min !== null && eff.max !== null ? (
+                        `${eff.min}..${eff.max}`
                       ) : (
                         "limitsiz"
                       )}
@@ -365,11 +353,11 @@ export default function CitPanel() {
                           <option value="critical">critical</option>
                         </select>
                       ) : (
-                        <Badge tone={measurement.severity === "critical" ? "danger" : "neutral"}>{measurement.severity}</Badge>
+                        <Badge tone={eff.severity === "critical" ? "danger" : "neutral"}>{eff.severity}</Badge>
                       )}
                     </td>
                     <td className="px-3 py-1.5">
-                      <Badge tone={badgeTone(measurement)}>{badgeLabel(measurement)}</Badge>
+                      <Badge tone={badgeTone(measurement, eff)}>{badgeLabel(measurement, eff)}</Badge>
                     </td>
                     <td className="px-3 py-1.5">
                       {editing ? (
@@ -395,7 +383,7 @@ export default function CitPanel() {
                             className="h-6 px-2 text-muted hover:text-accent"
                             onClick={() => startEdit(measurement)}
                             disabled={!device}
-                            title={device ? "isim/limit/önem düzenle" : "cihaz spec'te bulunamadı"}
+                            title={device ? "isim/limit/önem düzenle (anında uygulanır)" : "cihaz spec'te bulunamadı"}
                           >
                             düzenle
                           </Button>
@@ -405,9 +393,9 @@ export default function CitPanel() {
                             className="h-6 px-2 text-faint"
                             onClick={() => toggleEnabled(measurement)}
                             disabled={!device}
-                            title={enabled ? "devre dışı bırak" : "etkinleştir"}
+                            title={eff.enabled ? "devre dışı bırak" : "etkinleştir"}
                           >
-                            {enabled ? "kapat" : "aç"}
+                            {eff.enabled ? "kapat" : "aç"}
                           </Button>
                         </div>
                       )}

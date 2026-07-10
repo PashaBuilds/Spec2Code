@@ -366,12 +366,12 @@ export interface CitDecodeMeasurement {
   unit: string | null;
   raw: number;
   value: number;
-  ok: boolean;
+  read_ok: boolean; // kartin bayrak biti: okuma basarisi (limit degil). OK/NOK host'ta hesaplanir.
   durum: number;
-  min: number | null;
+  min: number | null; // manifest VARSAYILANI; canli limit store'dan gelir
   max: number | null;
-  severity: "critical" | "warning" | string;
-  enabled: boolean;
+  severity: "critical" | "warning" | string; // manifest varsayilani; canli deger store'dan
+  enabled: boolean; // manifest varsayilani; canli deger store'dan
 }
 
 export interface CitDecodeResult {

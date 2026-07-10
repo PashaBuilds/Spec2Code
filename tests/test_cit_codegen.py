@@ -147,24 +147,29 @@ class CitHeaderTest(unittest.TestCase):
         self.assertNotIn("uint32_t", header)
         self.assertNotIn("uint8_t", header)
 
-    def test_limit_table_matches_config(self) -> None:
+    def test_no_limit_embedded_in_firmware(self) -> None:
+        # KOK KARAR: kart LIMIT GOMMEZ — limit/OK-NOK/onem/enabled karari host'ta
+        # (CIT ekrani) canli yapilir. Uretilen .c'de limit tablosu ve config'ten
+        # gelen limit sayilari BULUNMAMALI; kart yalniz okur (bayrak = okuma basarisi).
         spec = _cit_spec("unit_cit_limits")
         with tempfile.TemporaryDirectory() as tmp:
             tests_dir = self._generate(spec, tmp)
             source = (tests_dir / "spec2code_cit.c").read_text(encoding="utf-8")
 
-        # Olcum 0: VCC_3V3_RF, min 3135, max 3465, critical (uiKritik=1), enabled.
-        self.assertRegex(
-            source,
-            r"\{\s*3135,\s*3465,\s*1U,\s*1U,\s*1U\s*\}")
-        # Olcum 2: AD_TEMP, min 2000, max 3000, warning (uiKritik=0), enabled.
-        self.assertRegex(
-            source,
-            r"\{\s*2000,\s*3000,\s*1U,\s*0U,\s*1U\s*\}")
-        # Olcum 1: limitsiz (uiLimitVar=0), enabled.
-        self.assertRegex(
-            source,
-            r"\{\s*0,\s*0,\s*0U,\s*0U,\s*1U\s*\}")
+        # Limit tablosu ve alanlari uretilmemeli.
+        self.assertNotIn("S_sArrCitLimit", source)
+        self.assertNotIn("uiLimitVar", source)
+        self.assertNotIn("uiKritik", source)
+        self.assertNotIn("uiEtkin", source)
+        # Config'ten gelen limit sayilari koda gomulmemeli.
+        for limit in ("3135", "3465", "2000", "3000"):
+            self.assertNotIn(limit, source)
+        # Bayrak biti = okuma basarisi; enabled-atlama (DESTEKLENMIYOR) yok — kart hepsini okur.
+        self.assertIn("OKUMA BASARISI", source)
+        self.assertNotIn("SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR", source)
+        # Dispatch koprusu (cihaz/op tablolari) yerinde.
+        self.assertIn("S_cpArrCitCihaz", source)
+        self.assertIn("S_cpArrCitOp", source)
 
     def test_measureless_spec_omits_cit_files(self) -> None:
         spec = _measureless_spec("unit_cit_none")
@@ -212,10 +217,10 @@ class CitHostRoundTripTest(unittest.TestCase):
             self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
             return subprocess.run([str(binary)], capture_output=True, text=True).stdout
 
-    # Dispatch stub: olcum 0 (voltage_read) -> 3300 (limit ici), olcum 1
-    # (temperature_read, LTC2991) -> 5000 (limitsiz, hep OK), olcum 2
-    # (temperature_read, AD7414) -> 9999 (limit disi -> ok bit 0). Cihaza gore
-    # ayrilir cunku iki temperature_read var.
+    # Dispatch stub: olcum 0 (voltage_read) -> 3300, olcum 1 (temperature_read,
+    # LTC2991) -> 5000, olcum 2 (temperature_read, AD7414) -> 9999. Kart LIMIT
+    # DEGERLENDIRMEZ: uc okuma da basarili -> uc bayrak biti de 1 (okuma basarisi).
+    # Limit gecti/kaldi karari host'ta. Cihaza gore ayrilir cunku iki temperature_read var.
     _STUB = (
         'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
         '                               SSpec2codeTestbenchResponse* spResponse)\n'
@@ -255,7 +260,7 @@ class CitHostRoundTripTest(unittest.TestCase):
         for i in range(olcum_sayisi):
             iDeger, uiHam, uiDurum = struct.unpack_from("<iII", cit, olcum_off + i * 12)
             olcumler.append({"iDeger": iDeger, "uiHam": uiHam, "uiDurum": uiDurum,
-                             "ok": bool(flags & (1 << i))})
+                             "read_ok": bool(flags & (1 << i))})
         return {"istek_sayac": istek_sayac, "durum": durum, "uiSayac": uiSayac,
                 "uiZaman": uiZaman, "flags": flags, "olcumler": olcumler}
 
@@ -320,14 +325,14 @@ class CitHostRoundTripTest(unittest.TestCase):
         self.assertEqual(run["istek_sayac"], 101)
         self.assertEqual(run["durum"], 0)  # OK genel kosu
         self.assertEqual(run["uiSayac"], 1)
-        # Olcum 0: 3300 in [3135,3465] -> ok=1.
-        self.assertTrue(run["olcumler"][0]["ok"])
+        # Kart limit degerlendirmez: uc okuma da basarili -> uc bayrak biti de 1.
+        self.assertTrue(run["olcumler"][0]["read_ok"])
         self.assertEqual(run["olcumler"][0]["iDeger"], 3300)
         self.assertEqual(run["olcumler"][0]["uiDurum"], 0)
-        # Olcum 1: limitsiz, deger 5000 -> ok=1.
-        self.assertTrue(run["olcumler"][1]["ok"])
-        # Olcum 2: 9999 not in [2000,3000] -> ok=0, ama uiDurum OK (dispatch basarili).
-        self.assertFalse(run["olcumler"][2]["ok"])
+        self.assertTrue(run["olcumler"][1]["read_ok"])
+        self.assertEqual(run["olcumler"][1]["iDeger"], 5000)
+        # Olcum 2: 9999 (host'ta limit disi olabilir) ama KART icin okuma basarili -> bit 1.
+        self.assertTrue(run["olcumler"][2]["read_ok"])
         self.assertEqual(run["olcumler"][2]["iDeger"], 9999)
         self.assertEqual(run["olcumler"][2]["uiDurum"], 0)
 
@@ -338,9 +343,10 @@ class CitHostRoundTripTest(unittest.TestCase):
         self.assertEqual(read["olcumler"][0]["iDeger"], 3300)
         self.assertEqual(read["olcumler"][2]["iDeger"], 9999)
 
-    def test_disabled_measurement_reports_desteklenmiyor(self) -> None:
+    def test_disabled_measurement_still_read_by_board(self) -> None:
+        # enabled artik HOST tarafinda (CIT ekrani gizler); kart config'teki
+        # enabled=false'a bakmadan HER olcumu okur (limit/enabled koda gomulmez).
         spec = _cit_spec("unit_cit_disabled_rt")
-        # Olcum 1'i (LTC2991 temperature_read) disable et — slot kalir, bit 0.
         spec["devices"][0]["config"]["cit"] = {
             "measurements": [
                 {"op": "voltage_read", "name": "VCC_3V3_RF", "min": 3135, "max": 3465,
@@ -358,11 +364,12 @@ class CitHostRoundTripTest(unittest.TestCase):
         lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
         self.assertEqual(len(lines), 1, output)
         run = self._decode_cit_response(lines[0], 3)
-        # Olcum 1 disabled -> uiDurum DESTEKLENMIYOR (7), ok bit 0.
-        self.assertEqual(run["olcumler"][1]["uiDurum"], 7)
-        self.assertFalse(run["olcumler"][1]["ok"])
-        # Genel kosu devam etti: olcum 0 ve 2 hala dispatch edildi.
-        self.assertTrue(run["olcumler"][0]["ok"])
+        # Olcum 1 config'te disabled ama kart yine de OKUDU (DESTEKLENMIYOR degil).
+        self.assertEqual(run["olcumler"][1]["uiDurum"], 0)
+        self.assertTrue(run["olcumler"][1]["read_ok"])
+        # Digerleri de okundu.
+        self.assertTrue(run["olcumler"][0]["read_ok"])
+        self.assertTrue(run["olcumler"][2]["read_ok"])
 
     def test_measureless_spec_cit_run_returns_desteklenmiyor(self) -> None:
         spec = _measureless_spec("unit_cit_none_rt")
