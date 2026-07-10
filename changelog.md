@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.142 - 2026-07-11
+
+- TELNET LOG SUNUCUSU (kullanici istegi: "printleri telnet uzerinden aktarma"):
+  tasarimda PS Ethernet varsa HER transportta (CoreSight/UART ajanlarinda da)
+  uretilen koda port 23'te ham-metin telnet log sunucusu eklenir — PuTTY ile
+  18.2.75.121:23'e baglanip S2C-LOG satirlarini canli izleyebilirsiniz.
+  - ASLA bloklamaz: istemci tamponu doluysa satir dusurulur (drop sayaci);
+    dispatch/CIT/ajan akisi etkilenmez. <=4 istemci; gelen baytlar yutulur.
+  - CoreSight/UART transportunda lwIP ajan transportundan BAGIMSIZ ayaga
+    kalkar (ayni sabit IP/MAC tek kaynaktan); ana donguye xemacif_input +
+    sys_check_timeouts enjekte edilir. FreeRTOS/eth modda tcpip_callback +
+    ring tamponla lwIP thread disiplinine uyar.
+  - DIKKAT (parite listesine eklendi): CoreSight DCC alimi telnet ac kalmasin
+    diye non-blocking'e cevrildi; RX-hazir maskesi (SPEC2CODE_CORESIGHT_DCC_RX_MASK,
+    varsayilan 1U<<30) gercek BSP'de dogrulanmali — yanlissa kart ASILMAZ
+    (yalniz telnet YA DA ajan aksar), override makrosu mevcut.
+  - HOST tarafi: Akis sekmesine "Telnet log" karti — manifest'ten IP on-dolu,
+    baglan/kopar, 1 sn poll ile canli satir akisi. Kopusta soket kapatilir,
+    olu oturumlar budanir (sizinti yok — incelemede ampirik dogrulandi).
+- YATT HTML GORSEL YENILEME (kullanici istegi): dokuman "gece yarisi PCB'si"
+  temasiyla bastan tasarlandi — datasheet tarzi BAYT-YERLESIM DIYAGRAMLARI
+  (baslik + tum govde sablonlari + SBoardCit), sticky icindekiler, hex ID
+  cipleri, yon/onem rozetleri, hata-kodu cip izgarasi, kontrat CRC rozeti,
+  print CSS (PDF'e resmi görünüm). Self-contained + deterministik korundu.
+- 288 test gecti; canli tarayici dogrulamasi yapildi (yatay tasma yok,
+  6 bayt seridi, TOC sticky).
+
 ## v0.1.141 - 2026-07-10
 
 - CIT LIMITLERI ARTIK CANLI (koda gomulmez): kullanici istegi — "limitleri
