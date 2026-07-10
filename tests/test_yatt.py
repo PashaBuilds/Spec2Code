@@ -106,6 +106,23 @@ class YattContentTests(unittest.TestCase):
         first_n = found_ids[: len(ids_in_catalog_order)]
         self.assertEqual([x.upper() for x in first_n], [i.upper() for i in ids_in_catalog_order])
 
+    def test_html_has_byte_diagram_for_header_and_all_templates(self) -> None:
+        # Bayt-yerlesim diyagrami (yatt-bayt-serit) baslik + kullanilan tum
+        # govde sablonlari icin bulunmali. Baslik(1) + kullanilan sablonlar.
+        used_bodies = {m["body"] for m in self.catalog["messages"]}
+        response_bodies = set()
+        for m in self.catalog["messages"]:
+            body = m["body"]
+            response_bodies.add(body if body in ("trace", "cit") else "response_std")
+        template_count = len(used_bodies | response_bodies)
+        serit_count = self.html.count('class="yatt-bayt-serit"')
+        # Baslik seridi + her sablon icin bir serit.
+        self.assertGreaterEqual(serit_count, 1 + template_count)
+        self.assertIn("yatt-bayt-serit", self.html)
+
+    def test_html_has_print_media_block(self) -> None:
+        self.assertIn("@media print", self.html)
+
     def test_html_contains_notes_constraints_section(self) -> None:
         # v1 notlari: bit-alani LSB-first, uiZaman v1'de 0, BUS_HATASI,
         # disabled olcum uiHam=0, CRC/magic yok, little-endian.

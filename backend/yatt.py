@@ -164,6 +164,40 @@ def _esc(value) -> str:
     return html_mod.escape(str(value))
 
 
+def _status_chip_class(code) -> str:
+    """Hata kodu cipi ton sinifi: 0 -> ok (yesil), 5/6 -> hata (kirmizi), digeri notr."""
+    try:
+        c = int(code)
+    except (TypeError, ValueError):
+        return "chip-notr"
+    if c == 0:
+        return "chip-ok"
+    if c in (5, 6):
+        return "chip-hata"
+    return "chip-notr"
+
+
+def _dir_badge_html(direction: str) -> str:
+    """Mesaj yonu rozeti: istek/yanit (amber) veya kendiliginden (teal)."""
+    if direction == "unsolicited":
+        return '<span class="dir-badge dir-unsolicited">kendiliğinden</span>'
+    if direction == "req":
+        return '<span class="dir-badge dir-req">istek/yanıt</span>'
+    return f'<span class="dir-badge">{_esc(direction)}</span>'
+
+
+def _severity_badge_html(severity: str) -> str:
+    """CIT onem rozeti: critical (kirmizi-ton), warning (amber), digeri notr."""
+    sev = (severity or "").lower()
+    if sev == "critical":
+        return '<span class="sev-badge sev-critical">critical</span>'
+    if sev == "warning":
+        return '<span class="sev-badge sev-warning">warning</span>'
+    if severity:
+        return f'<span class="sev-badge">{_esc(severity)}</span>'
+    return '<span class="sev-badge sev-yok">—</span>'
+
+
 def _html_table(headers: list[str], rows: list[list[str]]) -> str:
     head = "".join(f"<th>{_esc(h)}</th>" for h in headers)
     body_rows = "\n".join(
@@ -173,6 +207,44 @@ def _html_table(headers: list[str], rows: list[list[str]]) -> str:
     return f'<table>\n<thead><tr>{head}</tr></thead>\n<tbody>\n{body_rows}\n</tbody>\n</table>'
 
 
+#: Bayt-serit segmentleri icin donen renk sirasi (bakir / teal / arduvaz).
+_SERIT_TONLARI = ["ton-bakir", "ton-teal", "ton-arduvaz"]
+
+
+def _bayt_serit_html(fields: list[dict]) -> str:
+    """Datasheet tarzi yatay bayt-yerlesim diyagrami (saf HTML/CSS, deterministik).
+
+    Her alan bir renkli segment: sabit-boy alanlar bayt sayisina orantili
+    flex-grow ile; degisken alanlar (size=None) sabit-esli hatch'li 'N bayt'
+    segmenti. Segment ustunde baslangic offset'i, icinde alan adi + boyu.
+    Ofset None (degiskene bagli) ise '·' gosterilir. Tablonun gorsel ozeti;
+    print'te de calisir (flex).
+    """
+    segs: list[str] = []
+    for i, f in enumerate(fields):
+        ton = _SERIT_TONLARI[i % len(_SERIT_TONLARI)]
+        size = f.get("size")
+        degisken = size is None
+        # flex-grow: sabit alanlar bayt oranli; degisken alan sabit genis pay.
+        grow = size if (size is not None and size > 0) else 4
+        off = f.get("offset")
+        off_txt = str(off) if off is not None else "·"
+        if degisken:
+            boy_txt = "N bayt · pad4"
+            ekstra = " serit-degisken"
+        else:
+            boy_txt = f"{size} B"
+            ekstra = ""
+        segs.append(
+            f'<div class="serit-seg {ton}{ekstra}" style="flex-grow:{grow}">'
+            f'<span class="serit-off">{_esc(off_txt)}</span>'
+            f'<span class="serit-ad mono">{_esc(f["name"])}</span>'
+            f'<span class="serit-boy">{_esc(boy_txt)}</span>'
+            f'</div>'
+        )
+    return f'<div class="yatt-bayt-serit">\n' + "\n".join(segs) + '\n</div>'
+
+
 def _body_layout_table_html(body_name: str, layout: list[dict]) -> str:
     rows = [
         [_esc(_format_field_offset(f)), f'<span class="mono">{_esc(f["name"])}</span>',
@@ -180,7 +252,11 @@ def _body_layout_table_html(body_name: str, layout: list[dict]) -> str:
         for f in layout
     ]
     table = _html_table(["offset", "alan", "tip", "boy", "açıklama"], rows)
-    return f'<div class="body-layout" id="govde-{_esc(body_name)}">\n<h4 class="mono">{_esc(body_name)}</h4>\n{table}\n</div>'
+    serit = _bayt_serit_html(layout)
+    return (
+        f'<div class="body-layout" id="govde-{_esc(body_name)}">\n'
+        f'<h4 class="mono">{_esc(body_name)}</h4>\n{serit}\n<div class="tablo-sar">{table}</div>\n</div>'
+    )
 
 
 def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
@@ -190,7 +266,10 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
     status_codes = catalog.get("status_codes") or {str(k): v for k, v in STATUS_LABELS.items()}
     crc = catalog_crc32()
 
-    # Baslik formati tablosu
+    # Baslik formati: bayt-serit diyagrami + tablo
+    header_serit = _bayt_serit_html(
+        [{"offset": i * 4, "size": 4, "name": f["name"]} for i, f in enumerate(header_fields)]
+    )
     header_rows = [
         [f'<span class="mono">{_esc(f["name"])}</span>', _esc(f["type"]),
          _esc(_HEADER_FIELD_NOTES.get(f["name"], ""))]
@@ -198,24 +277,26 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
     ]
     header_table = _html_table(["alan", "tip", "not"], header_rows)
 
-    # Hata kodu tablosu
-    status_rows = [
-        [f'<span class="mono">{_esc(code)}</span>', _esc(label)]
+    # Hata kodu cip izgarasi (kod + etiket; 0 yesil-ton, 5/6 kirmizi-ton)
+    status_chips = "\n".join(
+        f'<div class="status-chip {_status_chip_class(code)}">'
+        f'<span class="mono status-kod">{_esc(code)}</span>'
+        f'<span class="status-ad">{_esc(label)}</span></div>'
         for code, label in sorted(status_codes.items(), key=lambda kv: int(kv[0]))
-    ]
-    status_table = _html_table(["kod", "etiket"], status_rows)
+    )
+    status_html = f'<div class="chip-izgara">\n{status_chips}\n</div>'
 
     # Mesaj tablosu
     message_rows = []
     for m in messages:
-        dir_label = _DIR_LABELS.get(m.get("dir", ""), _esc(m.get("dir", "")))
+        direction = m.get("dir", "")
         response_body = _response_body_name(m["body"])
         body_desc = m["body"] if m["body"] == response_body else f'{m["body"]} → {response_body}'
         message_rows.append([
-            f'<span class="mono">{_esc(m["id"])}</span>',
+            f'<span class="mono id-cip">{_esc(m["id"])}</span>',
             f'<span class="mono">{_esc(m["name"])}</span>',
-            _esc(dir_label),
-            f'<a class="mono" href="#govde-{_esc(m["body"])}">{_esc(body_desc)}</a>',
+            _dir_badge_html(direction),
+            f'<a class="mono govde-link" href="#govde-{_esc(m["body"])}">{_esc(body_desc)}</a>',
             _esc(m.get("aciklama", "")),
         ])
     message_table = _html_table(["ID", "ad", "yön", "gövde şablonu", "açıklama"], message_rows)
@@ -237,32 +318,39 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
                 for i, d in enumerate(devices)
             ]
             device_table = _html_table(["indeks", "id", "part"], device_rows)
-            manifest_html += f'<section>\n<h3>Cihaz tablosu (manifest devices[])</h3>\n{device_table}\n</section>\n'
+            manifest_html += f'<section id="cihaz-tablosu">\n<h3>Cihaz tablosu (manifest devices[])</h3>\n<div class="tablo-sar">{device_table}</div>\n</section>\n'
 
         cit_section = manifest.get("cit") or {}
         olcumler = cit_section.get("olcumler") or []
         if olcumler:
+            def _limit_cell(v) -> str:
+                return f'<span class="mono">{_esc(v)}</span>' if v is not None else '<span class="limitsiz">—</span>'
             cit_rows = [
-                [_esc(o.get("index", i)), f'<span class="mono">{_esc(o.get("cname", ""))}</span>',
-                 _esc(o.get("name", "")), _esc(o.get("unit") or "-"),
-                 _esc(o.get("min") if o.get("min") is not None else "-"),
-                 _esc(o.get("max") if o.get("max") is not None else "-"),
-                 _esc(o.get("severity", ""))]
+                [f'<span class="mono bit-cip">{_esc(o.get("index", i))}</span>',
+                 f'<span class="mono">{_esc(o.get("cname", ""))}</span>',
+                 _esc(o.get("name", "")),
+                 _esc(o.get("unit") or "—"),
+                 _limit_cell(o.get("min")),
+                 _limit_cell(o.get("max")),
+                 _severity_badge_html(o.get("severity", ""))]
                 for i, o in enumerate(olcumler)
             ]
             cit_table = _html_table(["bit i", "cname", "ad", "birim", "min", "max", "önem"], cit_rows)
 
             n = len(olcumler)
+            layout_fields = _cit_layout_rows(n)
+            cit_serit = _bayt_serit_html(layout_fields)
             layout_rows = [
                 [_esc(_format_field_offset(f)), f'<span class="mono">{_esc(f["name"])}</span>',
                  _esc(f["type"]), _esc(_format_field_size(f)), _esc(f.get("note", ""))]
-                for f in _cit_layout_rows(n)
+                for f in layout_fields
             ]
             layout_table = _html_table(["offset", "alan", "tip", "boy", "açıklama"], layout_rows)
 
             manifest_html += (
-                f'<section>\n<h3>CİT ölçüm tablosu (N={_esc(n)})</h3>\n{cit_table}\n'
-                f'<h4>SBoardCit yerleşimi (hesaplanmış offset)</h4>\n{layout_table}\n</section>\n'
+                f'<section id="cihazlar-cit">\n<h3>CİT ölçüm tablosu (N={_esc(n)})</h3>\n<div class="tablo-sar">{cit_table}</div>\n'
+                f'<h4>SBoardCit yerleşimi (hesaplanmış offset)</h4>\n'
+                f'<div class="body-layout">\n{cit_serit}\n<div class="tablo-sar">{layout_table}</div>\n</div>\n</section>\n'
             )
 
         manifest_crc = manifest.get("message_catalog_crc32")
@@ -274,70 +362,293 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
 
     contract_crc_hex = f"0x{crc:08X}"
 
-    # Basit ve deterministik MD->HTML: not listesini elle kur (dis kutuphane yok).
-    notes_items = "\n".join(
-        f"<li>{_esc(line.lstrip('- ').strip())}</li>"
+    # Proje adi (manifest'ten, varsa) — hero altbasligi.
+    project_name = ""
+    if manifest:
+        project_name = (
+            manifest.get("project_name") or manifest.get("proje_adi")
+            or manifest.get("name") or manifest.get("project") or ""
+        )
+
+    # Notlar: her maddeyi inceltilmis bakir sol-cizgili callout kart yap.
+    # **kalin** vurgular <strong>'a cevrilir (deterministik, dis kutuphane yok).
+    def _md_inline(text: str) -> str:
+        parts = text.split("**")
+        out = []
+        for i, p in enumerate(parts):
+            out.append(f"<strong>{_esc(p)}</strong>" if i % 2 == 1 else _esc(p))
+        return "".join(out)
+
+    note_cards = "\n".join(
+        f'<div class="callout">{_md_inline(line.lstrip("- ").strip())}</div>'
         for line in _NOTES_MD.splitlines()
         if line.startswith("- ")
     )
-    notes_html = f'<h3>Notlar / Kısıtlar (v1)</h3>\n<ul>\n{notes_items}\n</ul>'
+    notes_html = f'<div class="callout-list">\n{note_cards}\n</div>'
+
+    # Sol TOC (Bolumler). Manifest yoksa Cihazlar/CIT baglantisi gizlenir.
+    notes_no = "6" if manifest_html else "5"
+    toc_items = [
+        ("#genel-kurallar", "1", "Genel Kurallar"),
+        ("#baslik", "2", "Başlık formatı"),
+        ("#hata-kodlari", "3", "Hata kodları"),
+        ("#mesaj-katalogu", "4", "Mesaj kataloğu"),
+        ("#govde-yerlesimleri", "4·b", "Gövde yerleşimleri"),
+    ]
+    if manifest_html:
+        toc_items.append(("#cihazlar-cit-kok", "5", "Cihazlar / CİT"))
+    toc_items.append(("#notlar", notes_no, "Notlar / Kısıtlar"))
+    toc_html = "\n".join(
+        f'<a class="toc-link" href="{href}"><span class="toc-no mono">{_esc(no)}</span>{_esc(label)}</a>'
+        for href, no, label in toc_items
+    )
+
+    project_badge = (
+        f'<span class="hero-badge badge-proje">{_esc(project_name)}</span>' if project_name else ""
+    )
+
+    manifest_section = (
+        f'<section id="cihazlar-cit-kok"><h2>5. Manifest zenginleştirmesi</h2>{manifest_html}</section>'
+        if manifest_html else ''
+    )
 
     return f"""<!doctype html>
 <html lang="tr">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YATT — S2C-MSG Yazılım Arayüzü Tanımlama Tablosu</title>
 <style>
-  :root {{ color-scheme: dark; }}
-  body {{ font-family: 'Segoe UI', system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 32px 24px 64px;
-          background: #0f1216; color: #d6dde3; line-height: 1.5; }}
-  h1 {{ font-size: 22px; margin-bottom: 4px; }}
-  h2 {{ font-size: 16px; margin-top: 40px; border-bottom: 1px solid #2a323b; padding-bottom: 6px; }}
-  h3 {{ font-size: 14px; margin-top: 24px; color: #9fb3c8; }}
-  h4 {{ font-size: 12px; margin-top: 18px; color: #8494a3; text-transform: uppercase; letter-spacing: 0.04em; }}
-  .sub {{ color: #8494a3; font-size: 13px; margin-bottom: 20px; }}
-  .badge {{ display: inline-block; padding: 3px 10px; border-radius: 999px; background: #16211a; color: #6fd88a;
-            font-family: Consolas, monospace; font-size: 12px; border: 1px solid #234032; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0 4px; }}
-  th, td {{ border-bottom: 1px solid #232a31; padding: 6px 8px; text-align: left; vertical-align: top; }}
-  th {{ background: #171c22; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #8494a3; }}
-  .mono {{ font-family: Consolas, monospace; }}
-  a {{ color: #6fb0e0; }}
-  a.mono {{ color: #d6dde3; text-decoration: none; border-bottom: 1px dotted #445; }}
-  a.mono:hover {{ color: #6fb0e0; }}
-  .body-layout {{ margin: 18px 0 30px; padding: 10px 14px; border: 1px solid #232a31; border-radius: 8px; background: #12161b; }}
-  ul {{ font-size: 13px; }}
-  section {{ margin-top: 18px; }}
-  footer {{ margin-top: 40px; font-size: 11px; color: #62707d; border-top: 1px solid #232a31; padding-top: 12px; }}
-  @media print {{ body {{ background: white; color: black; }} }}
+  :root {{
+    color-scheme: dark;
+    --bg: #0b1216; --bg-2: #0e161b; --panel: #101a20; --panel-2: #0d151a;
+    --hair: #1c2a31; --hair-2: #24343c;
+    --ink: #cdd8de; --ink-dim: #7f929e; --ink-faint: #5d6f7a;
+    --copper: #d08c3c; --copper-dim: #a97431; --copper-bg: #251a0e; --copper-line: #4a3316;
+    --teal: #3fb4a8; --teal-bg: #0e2320; --teal-line: #1c453f;
+    --slate: #5a7686; --slate-bg: #131e25;
+    --ok: #5cc98a; --ok-bg: #0f231a; --ok-line: #1f4531;
+    --err: #e0736a; --err-bg: #2a1413; --err-line: #4d201d;
+    --amber: #e0a24a; --amber-bg: #271c0c; --amber-line: #4a3517;
+    --mono: 'Cascadia Mono', 'Consolas', ui-monospace, 'SFMono-Regular', monospace;
+    --sans: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+  }}
+  * {{ box-sizing: border-box; }}
+  html {{ scroll-behavior: smooth; }}
+  body {{ font-family: var(--sans); margin: 0; background: var(--bg); color: var(--ink);
+          line-height: 1.55; font-size: 14px;
+          background-image: radial-gradient(1100px 500px at 80% -10%, #0f1c22 0%, transparent 60%); }}
+  .shell {{ display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 40px;
+            max-width: 1180px; margin: 0 auto; padding: 0 28px 96px; align-items: start; }}
+  main {{ min-width: 0; max-width: 1100px; padding-top: 34px; }}
+
+  /* --- Sol TOC --- */
+  nav.toc {{ position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+             padding: 34px 0 24px; }}
+  .toc-baslik {{ font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+                 color: var(--copper-dim); font-weight: 600; padding: 0 10px 10px;
+                 border-bottom: 1px solid var(--hair); margin-bottom: 8px; }}
+  .toc-link {{ display: flex; align-items: baseline; gap: 9px; padding: 7px 10px; border-radius: 7px;
+              color: var(--ink-dim); text-decoration: none; font-size: 13px; border-left: 2px solid transparent; }}
+  .toc-link:hover {{ background: var(--panel); color: var(--ink); border-left-color: var(--copper); }}
+  .toc-no {{ font-size: 10.5px; color: var(--copper-dim); min-width: 26px; }}
+
+  /* --- Hero --- */
+  .hero {{ border: 1px solid var(--hair-2); border-radius: 14px; padding: 26px 28px;
+           background: linear-gradient(150deg, #101c22 0%, #0c151a 60%);
+           position: relative; overflow: hidden; }}
+  .hero::before {{ content: ""; position: absolute; inset: 0;
+                   background-image:
+                     linear-gradient(var(--hair) 1px, transparent 1px),
+                     linear-gradient(90deg, var(--hair) 1px, transparent 1px);
+                   background-size: 26px 26px; opacity: 0.28;
+                   -webkit-mask-image: radial-gradient(420px 200px at 88% 12%, #000 0%, transparent 72%);
+                           mask-image: radial-gradient(420px 200px at 88% 12%, #000 0%, transparent 72%); }}
+  .hero > * {{ position: relative; }}
+  .hero .kicker {{ font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+                   text-transform: uppercase; color: var(--copper); margin-bottom: 8px; }}
+  h1 {{ font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; font-weight: 650; color: #eaf1f5; }}
+  h1 .h1-mono {{ font-family: var(--mono); color: var(--copper); font-weight: 600; }}
+  .hero .sub {{ color: var(--ink-dim); font-size: 13.5px; margin: 0 0 16px; max-width: 62ch; }}
+  .hero-badges {{ display: flex; flex-wrap: wrap; gap: 9px; }}
+  .hero-badge {{ display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 8px;
+                 font-family: var(--mono); font-size: 12px; border: 1px solid var(--hair-2); background: var(--panel-2); color: var(--ink-dim); }}
+  .badge-crc {{ border-color: var(--copper-line); background: var(--copper-bg); color: #e8b878; }}
+  .badge-crc::before {{ content: "▮"; color: var(--copper); font-size: 10px; }}
+  .badge-say {{ border-color: var(--teal-line); background: var(--teal-bg); color: #8fd8ce; }}
+  .badge-proje {{ border-color: var(--hair-2); color: var(--ink); }}
+
+  /* --- Basliklar --- */
+  h2 {{ font-size: 17px; margin: 46px 0 4px; padding-bottom: 8px; font-weight: 620; color: #e6eef2;
+        border-bottom: 1px solid var(--hair); position: relative; }}
+  h2::before {{ content: ""; position: absolute; left: 0; bottom: -1px; width: 46px; height: 2px; background: var(--copper); }}
+  h3 {{ font-size: 14px; margin: 26px 0 6px; color: #a9bccb; font-weight: 600; }}
+  h4 {{ font-size: 11px; margin: 20px 0 8px; color: var(--ink-dim); text-transform: uppercase;
+        letter-spacing: 0.07em; font-weight: 600; }}
+  p {{ font-size: 13.5px; color: #b7c4cd; }}
+
+  .mono {{ font-family: var(--mono); }}
+  a {{ color: var(--teal); }}
+
+  /* --- Tablolar --- */
+  .tablo-sar {{ overflow-x: auto; border: 1px solid var(--hair); border-radius: 10px; margin: 12px 0 6px; background: var(--panel-2); }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; }}
+  thead th {{ position: sticky; top: 0; background: #0f1a20; z-index: 1; }}
+  th, td {{ border-bottom: 1px solid var(--hair); padding: 8px 12px; text-align: left; vertical-align: top; }}
+  th {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim);
+        font-weight: 600; border-bottom: 1px solid var(--hair-2); }}
+  tbody tr:last-child td {{ border-bottom: none; }}
+  tbody tr:nth-child(even) {{ background: rgba(255,255,255,0.014); }}
+  tbody tr:hover {{ background: rgba(208,140,60,0.06); }}
+
+  .id-cip {{ display: inline-block; padding: 2px 7px; border-radius: 5px; background: #0c1519;
+             border: 1px solid var(--hair-2); color: #e8b878; font-size: 12px; }}
+  .bit-cip {{ display: inline-block; min-width: 22px; text-align: center; padding: 1px 6px; border-radius: 5px;
+              background: #0c1519; border: 1px solid var(--hair-2); color: var(--teal); }}
+  a.govde-link {{ color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--slate); }}
+  a.govde-link:hover {{ color: var(--teal); border-bottom-color: var(--teal); }}
+  .limitsiz {{ color: var(--ink-faint); }}
+
+  /* --- Yon / onem rozetleri --- */
+  .dir-badge, .sev-badge {{ display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
+                            font-weight: 600; border: 1px solid var(--hair-2); white-space: nowrap; }}
+  .dir-req {{ color: #e8b878; background: var(--copper-bg); border-color: var(--copper-line); }}
+  .dir-unsolicited {{ color: #8fd8ce; background: var(--teal-bg); border-color: var(--teal-line); }}
+  .sev-critical {{ color: #eea099; background: var(--err-bg); border-color: var(--err-line); }}
+  .sev-warning {{ color: #e6b877; background: var(--amber-bg); border-color: var(--amber-line); }}
+  .sev-yok {{ color: var(--ink-faint); border-color: var(--hair); background: transparent; }}
+
+  /* --- Hata kodu cip izgarasi --- */
+  .chip-izgara {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 14px 0 6px; }}
+  .status-chip {{ display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px;
+                  border: 1px solid var(--hair-2); background: var(--panel-2); }}
+  .status-kod {{ min-width: 20px; text-align: center; font-weight: 700; font-size: 13px; }}
+  .status-ad {{ font-size: 12.5px; color: var(--ink); }}
+  .chip-ok {{ border-color: var(--ok-line); background: var(--ok-bg); }}
+  .chip-ok .status-kod {{ color: var(--ok); }}
+  .chip-hata {{ border-color: var(--err-line); background: var(--err-bg); }}
+  .chip-hata .status-kod {{ color: var(--err); }}
+  .chip-notr .status-kod {{ color: var(--copper); }}
+
+  /* --- Bayt-yerlesim seridi (datasheet ruler) --- */
+  .body-layout {{ margin: 16px 0 34px; padding: 16px 18px; border: 1px solid var(--hair-2);
+                  border-radius: 12px; background: var(--panel); }}
+  .body-layout > h4 {{ margin-top: 0; color: #e8b878; letter-spacing: 0.02em; text-transform: none; font-size: 12.5px; }}
+  .yatt-bayt-serit {{ display: flex; align-items: stretch; gap: 3px; margin: 6px 0 16px;
+                      padding: 22px 0 4px; min-height: 76px; }}
+  .serit-seg {{ position: relative; flex-basis: 0; min-width: 62px; border-radius: 6px; padding: 8px 8px 7px;
+                display: flex; flex-direction: column; justify-content: center; gap: 3px;
+                border: 1px solid var(--hair-2); overflow: hidden; }}
+  .serit-off {{ position: absolute; top: -18px; left: 0; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }}
+  .serit-ad {{ font-size: 11.5px; color: var(--ink); word-break: break-word; line-height: 1.25; }}
+  .serit-boy {{ font-size: 9.5px; color: var(--ink-dim); font-family: var(--mono); letter-spacing: 0.02em; }}
+  .ton-bakir {{ background: linear-gradient(180deg, #2a1d0d, #1c1409); border-color: var(--copper-line); }}
+  .ton-bakir .serit-ad {{ color: #f0c384; }}
+  .ton-teal {{ background: linear-gradient(180deg, #10241f, #0c1a17); border-color: var(--teal-line); }}
+  .ton-teal .serit-ad {{ color: #9adcd1; }}
+  .ton-arduvaz {{ background: linear-gradient(180deg, #15222a, #0f1a20); border-color: var(--hair-2); }}
+  .ton-arduvaz .serit-ad {{ color: #bcccd6; }}
+  .serit-degisken {{ flex-grow: 4; min-width: 96px;
+    background-image: repeating-linear-gradient(45deg, rgba(208,140,60,0.16) 0 7px, rgba(0,0,0,0) 7px 14px);
+    border-style: dashed; }}
+
+  /* --- Callout notlar --- */
+  .callout-list {{ display: flex; flex-direction: column; gap: 10px; margin: 14px 0 6px; }}
+  .callout {{ padding: 11px 15px; border-left: 3px solid var(--copper); border-radius: 0 8px 8px 0;
+              background: var(--panel-2); font-size: 13px; color: #bcc8d0; }}
+  .callout strong {{ color: #e8b878; font-weight: 650; }}
+
+  footer {{ margin-top: 52px; font-size: 11.5px; color: var(--ink-faint); border-top: 1px solid var(--hair);
+            padding-top: 16px; }}
+  footer .mono {{ color: var(--ink-dim); }}
+
+  @media (max-width: 860px) {{
+    .shell {{ grid-template-columns: 1fr; gap: 0; padding: 0 18px 64px; }}
+    nav.toc {{ position: static; height: auto; padding: 20px 0 4px; }}
+  }}
+
+  /* --- Print: acik tema, formal PDF --- */
+  @media print {{
+    body {{ background: #fff; color: #16202a; background-image: none; }}
+    .shell {{ display: block; max-width: none; padding: 0; }}
+    nav.toc {{ display: none; }}
+    main {{ max-width: none; padding-top: 0; }}
+    .hero {{ background: #fff; border-color: #c9d3da; }}
+    .hero::before {{ display: none; }}
+    .hero .kicker, h2::before {{ color: #9a6a24; }}
+    h1, h2, h3, h4 {{ color: #10202c; }}
+    h1 .h1-mono {{ color: #9a6a24; }}
+    .sub, p, .serit-boy, .toc-no {{ color: #4a5560; }}
+    .tablo-sar, .body-layout, .status-chip, .hero-badge {{ background: #fff; border-color: #c9d3da; }}
+    th, td {{ border-color: #d6dee4; color: #1a2732; }}
+    th {{ color: #55636e; }}
+    tbody tr:hover, tbody tr:nth-child(even) {{ background: #f4f6f8; }}
+    .id-cip, .bit-cip {{ background: #f2f5f7; border-color: #cdd7dd; color: #7a4f16; }}
+    .serit-ad, .ton-bakir .serit-ad, .ton-teal .serit-ad, .ton-arduvaz .serit-ad {{ color: #16202a; }}
+    .ton-bakir {{ background: #f7edda; }} .ton-teal {{ background: #e2f2ef; }} .ton-arduvaz {{ background: #eef2f5; }}
+    .callout {{ background: #faf7f1; color: #2a3641; border-left-color: #b8842f; }}
+    .callout strong {{ color: #8a5a1c; }}
+    .body-layout, .tablo-sar, .yatt-bayt-serit, .chip-izgara, section {{ page-break-inside: avoid; break-inside: avoid; }}
+    h2, h3, h4 {{ page-break-after: avoid; }}
+  }}
 </style>
 </head>
 <body>
-<h1>YATT — S2C-MSG Yazılım Arayüzü Tanımlama Tablosu</h1>
-<div class="sub">Spec2Code binary mesaj protokolü (S2C-MSG) — kataloğun {_esc(len(messages))} mesajından üretildi.</div>
-<span class="badge">kontrat CRC32: {_esc(contract_crc_hex)}</span>
+<div class="shell">
+<nav class="toc" aria-label="Bölümler">
+<div class="toc-baslik">Bölümler</div>
+{toc_html}
+</nav>
+<main>
+<header class="hero">
+  <div class="kicker">Yazılım Arayüz Tasarım Tanımı · S2C-MSG</div>
+  <h1>YATT — <span class="h1-mono">S2C-MSG</span> Arayüzü</h1>
+  <p class="sub">Spec2Code binary mesaj protokolü — kataloğun {_esc(len(messages))} mesajından deterministik üretildi. Bu doküman air-gapped, kendi kendine yeterlidir (harici kaynak yok).</p>
+  <div class="hero-badges">
+    {project_badge}
+    <span class="hero-badge badge-crc">kontrat CRC32 · {_esc(contract_crc_hex)}</span>
+    <span class="hero-badge badge-say">{_esc(len(messages))} mesaj</span>
+  </div>
+</header>
 
-<h2>1. Başlık formatı (12 bayt, little-endian)</h2>
-{header_table}
-<p>Yanıt ID = istek ID | 0x80000000 (RESPONSE_BIT, bit31). Resync: bayt akışında imza aranır
+<section id="genel-kurallar">
+<h2>1. Genel kurallar (çerçeveleme)</h2>
+<p>Tüm alanlar <strong>little-endian</strong>. Yanıt ID = istek ID | 0x80000000 (RESPONSE_BIT, bit31). Resync: bayt akışında imza aranır
 (<span class="mono">.. .. 43 53</span> istek / <span class="mono">.. .. 43 D3</span> yanıt, LE yazımda üst 2 bayt = 0x5343);
 <span class="mono">uiMesajBoyu</span> &gt; {_esc(MAX_BODY)} ya da 4'e bölünmezse senkron kaybı sayılır, 1 bayt kaydırılıp arama sürer.</p>
+</section>
 
-<h2>2. Hata kodları</h2>
-{status_table}
+<section id="baslik">
+<h2>2. Başlık formatı (12 bayt, little-endian)</h2>
+{header_serit}
+<div class="tablo-sar">{header_table}</div>
+</section>
 
-<h2>3. Mesaj tablosu ({_esc(len(messages))} mesaj, ID'ye göre sıralı)</h2>
-{message_table}
+<section id="hata-kodlari">
+<h2>3. Hata kodları</h2>
+{status_html}
+</section>
 
-<h2>4. Gövde şablonları</h2>
+<section id="mesaj-katalogu">
+<h2>4. Mesaj kataloğu ({_esc(len(messages))} mesaj, ID'ye göre sıralı)</h2>
+<div class="tablo-sar">{message_table}</div>
+</section>
+
+<section id="govde-yerlesimleri">
+<h2>4·b. Gövde yerleşimleri</h2>
 {body_layout_sections}
+</section>
 
-{f'<h2>5. Manifest zenginleştirmesi</h2>{manifest_html}' if manifest_html else ''}
+{manifest_section}
 
-<h2>{'6' if manifest_html else '5'}. Notlar / Kısıtlar</h2>
+<section id="notlar">
+<h2>{'6' if manifest_html else '5'}. Notlar / Kısıtlar (v1)</h2>
 {notes_html}
+</section>
 
-<footer>Spec2Code YATT v1 — backend/data/message_catalog.json kaynağından deterministik üretildi (üretim tarihi yok; sürüm = kontrat CRC32).</footer>
+<footer>Bu doküman <span class="mono">message_catalog.json</span> + manifest'ten otomatik üretilmiştir — elle düzenlemeyin. Sürüm = kontrat CRC32 <span class="mono">{_esc(contract_crc_hex)}</span> (üretim tarihi yok, deterministik).</footer>
+</main>
+</div>
 </body>
 </html>
 """
