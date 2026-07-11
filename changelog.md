@@ -3,6 +3,23 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.145 - 2026-07-11
+
+- LMK TICS PRO DIZISI 3-BAYT DUZENI (kullanici istegi, fotograf referansli):
+  uretilen kodda LMK04832 TICS Pro konfig dizisi artik `unsigned char` olarak,
+  SATIR BASINA BIR MESAJ (3 bayt: Address High / Address Low / Data) ve ustunde
+  ayni format aciklama blogu ile yazilir:
+  `Format: 3 bytes per message. / Byte 0: Address High (bit 7 = R/W) /
+   Byte 1: Address Low / Byte 2: Data`.
+  - TEL DAVRANISI AYNI: gercek gcc harness'iyla kanitlandi — ayni konfig
+    ayni SPI baytlarini uretiyor (bayt-bayt karsilastirma).
+  - Kapsam: adres 15-bit + veri 8-bit register modeli (LMK04832 ve ayni
+    cerceveli ADAR1000). LMX'ler (16-bit veri) eski duzeninde kaldi.
+  - Isimlendirme: dizi dosya-ici oldugundan repo kuralina gore
+    `S_ucArr<Modul>ConfigFile` (static); istenirse G_ global'e cevrilebilir.
+  - 292 test gecti (metin beklentileri yeni duzene guncellendi; davranissal
+    assertion'lar aynen).
+
 ## v0.1.144 - 2026-07-11
 
 - TEST BENCH: "BUTUN CIHAZLARI ILKLENDIR" (kullanici istegi): CIT vb. kosmadan
