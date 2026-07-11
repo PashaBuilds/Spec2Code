@@ -48,14 +48,26 @@ class I2cScanError(RuntimeError):
     """Tarama sırasında ajan hatası (hangi adımda olduğu mesajdadır)."""
 
 
-def _send(session_id: str, operation: str, controller_id: str, *, command_id: int,
-          address: int | None = None, value: int | None = None,
+#: "Denetleyici yok" (0xFFFFFFFF): denetleyici-adresli op'larda denetleyici
+#: indeksi cozulemediginde tel bu degeri tasir (bkz. s2cmsg.NO_DEVICE).
+_NO_CONTROLLER = 0xFFFFFFFF
+
+
+def _send(session_id: str, operation: str, controller_id: str, controller_index: int,
+          *, command_id: int, address: int | None = None, value: int | None = None,
           timeout_s: float) -> dict:
+    # S2C-MSG tel cercevesi hedefi uiCihazIndeks ile tasir. DENETLEYICI-adresli
+    # op'larda (i2c_scan/i2c_mux_set) bu indeks manifest i2c_scan.controllers
+    # sirasindaki DENETLEYICI indeksidir; uretilen kopru bu indeksten
+    # cArrRegister'i cozer. controller_id (string) tel'e ULASMAZ, yalniz
+    # trafik/gunluk okunurlugu icin taşınır. spec2code_version gibi hedefsiz
+    # op'lar controller_index=_NO_CONTROLLER ile gonderilir.
     result = testbench_sessions.send(session_id, TestbenchCommand(
         host="", port=0,
         device="spec2code",
         operation=operation,
         command_id=command_id,
+        device_index=controller_index,
         register=controller_id,
         address=address,
         value=value,
@@ -70,6 +82,7 @@ def _addresses_from_data(data_hex: str) -> list[int]:
 
 
 def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
+             controller_index: int = _NO_CONTROLLER,
              timeout_s: float = 10.0) -> dict:
     started_at = time.time()
     command_id = _SCAN_COMMAND_ID_BASE
@@ -80,7 +93,7 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
         return command_id
 
     def mux_set(mux: dict, control: int, step: str) -> None:
-        parsed = _send(session_id, "i2c_mux_set", controller_id,
+        parsed = _send(session_id, "i2c_mux_set", controller_id, controller_index,
                        command_id=next_id(), address=int(mux["address"]),
                        value=control, timeout_s=timeout_s)
         if parsed.get("ok") != "1":
@@ -89,7 +102,7 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
                 f"({parsed.get('message', 'yanıt yok')})")
 
     def scan_once(step: str, skip_address: int | None = None) -> list[int]:
-        parsed = _send(session_id, "i2c_scan", controller_id,
+        parsed = _send(session_id, "i2c_scan", controller_id, controller_index,
                        command_id=next_id(), address=skip_address,
                        timeout_s=timeout_s)
         if parsed.get("ok") != "1":
@@ -103,8 +116,8 @@ def scan_bus(session_id: str, controller_id: str, muxes: list[dict], *,
     # sürümle birlikte döner ve UI eski ELF'i açıkça işaretler.
     agent_version: str | None = None
     try:
-        version_parsed = _send(session_id, "spec2code_version", "", command_id=next_id(),
-                               timeout_s=timeout_s)
+        version_parsed = _send(session_id, "spec2code_version", "", _NO_CONTROLLER,
+                               command_id=next_id(), timeout_s=timeout_s)
         version_match = _parse_version(version_parsed.get("message", ""))
         if version_match is not None:
             agent_version = f"v{version_match[0]}.{version_match[1]}.{version_match[2]}"

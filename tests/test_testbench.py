@@ -1220,6 +1220,55 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("ps_i2c_0", controller_ids)
         self.assertTrue(all("address" in m and "channels" in m for m in scan["muxes"]))
 
+    def test_mesaj_bridge_resolves_controller_ops_from_controller_table(self) -> None:
+        # SAHA REGRESYONU (v0.1.142): denetleyici-adresli op'lar (i2c_scan/
+        # i2c_mux_set) hedefi denetleyici indeksiyle tasir; uretilen kopru
+        # cArrRegister'i AYRI bir denetleyici-id tablosundan (manifest
+        # i2c_scan.controllers sirasi) cozmeli — cihaz tablosundan degil.
+        spec = load_sample_spec("unit_mesaj_ctrl")
+        get_descriptor = codegen.make_descriptor_loader(codegen._ROOT)
+        source = codegen._mesaj_source(spec, get_descriptor)
+        manifest = json.loads(codegen._testbench_manifest(spec, get_descriptor))
+
+        # Denetleyici-id tablosu uretilir ve sirasi manifest ile birebir.
+        scan_controller_ids = [c["id"] for c in manifest["i2c_scan"]["controllers"]]
+        self.assertIn("static const char* const S_cpArrDenetleyiciTablosu[]", source)
+        for controller_id in scan_controller_ids:
+            self.assertIn(f'    "{controller_id}",', source)
+        # Denetleyici-adresli op ID tablosu i2c_scan/i2c_mux_set ID'lerini icerir.
+        self.assertIn("static const unsigned int S_uiArrDenetleyiciOpTablosu[]", source)
+        self.assertIn(f"    0x{s2cmsg.message_id_for_op('i2c_scan'):08X}U,", source)
+        self.assertIn(f"    0x{s2cmsg.message_id_for_op('i2c_mux_set'):08X}U,", source)
+        # Kopru denetleyici-adresli op'ta cArrRegister'i denetleyici tablosundan
+        # cozer (cArrDevice'i degil).
+        self.assertIn("spec2codeMesajDenetleyiciOpMu(spBaslik->uiMesajKomut)", source)
+        self.assertIn("sIstek.cArrRegister, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+                      "                                     S_cpArrDenetleyiciTablosu[uiCihazIndeks]", source)
+
+    def test_manifest_rejects_scan_controller_board_getter_cannot_resolve(self) -> None:
+        # Hardening (denetleyici-indeks kontrati): manifest bir tarama
+        # denetleyicisi bildirir ama board getter onu COZEMEZSE (hicbir
+        # mux/cihaz o denetleyiciye bagli degil) -> backend gecerli bir indeks
+        # gonderir ama getter cArrRegister'i eslestiremez -> "unknown i2c
+        # controller". Uretim bunu CodegenError ile YAKALAMALI.
+        from orchestrator import cmodel
+
+        spec = load_sample_spec("unit_mesaj_ctrl_bad")
+        # HAYALET i2c denetleyicisi: type==i2c oldugu icin
+        # _testbench_i2c_scan_controllers listeler; ama hicbir mux/cihaz ona
+        # bagli olmadigindan board getter (_testbench_board_controller_entries)
+        # onu URETMEZ. Gercek ps_i2c_0 mux/cihazlariyla kalir ki i2c_scan blogu
+        # (XIicPs) uretilsin ve manifest hardening'i calissin.
+        spec["controllers"].append({
+            "id": "phantom_i2c", "type": "i2c", "instance": "XPAR_PHANTOM",
+            "base_address": "0xFF030000", "device_id": 9, "driver": "XIicPs",
+            "source": "xparameters", "zone": "ps",
+        })
+        get_descriptor = codegen.make_descriptor_loader(codegen._ROOT)
+        with self.assertRaises(cmodel.CodegenError) as ctx:
+            codegen._testbench_manifest(spec, get_descriptor)
+        self.assertIn("phantom_i2c", str(ctx.exception))
+
     def test_i2c_scan_orchestration_builds_channel_map(self) -> None:
         # Orkestrasyon: switch'ler kapatılır -> doğrudan tarama -> her kanal
         # sırayla seçilip taranır -> switch kapatılır. Kanal içeriği, doğrudan
@@ -1286,6 +1335,79 @@ class TestbenchTests(unittest.TestCase):
         self.assertIsNone(calls[2][1])
         self.assertEqual(calls[4][1], 0x70)
         self.assertEqual(calls[6][1], 0x70)
+
+    def test_i2c_scan_carries_controller_index_on_wire(self) -> None:
+        # SAHA REGRESYONU (v0.1.142): denetleyici-adresli op'lar (i2c_scan/
+        # i2c_mux_set) hedefi eskiden device=<controller_id> STRING'iyle
+        # tasiyordu; S2C-MSG binary goc'unde bu string tel'e ULASMIYOR ->
+        # ajan bos cArrDevice/cArrRegister aliyor -> "unknown i2c controller".
+        # Dogru davranis: hedef uiCihazIndeks = denetleyici indeksi (manifest
+        # i2c_scan.controllers sirasi) olarak tasinmali. Gercek tx cercevesini
+        # s2cmsg ile acip uiCihazIndeks'i dogrula.
+        from backend import i2c_scan as scan_mod
+        from backend.testbench import _pack_command
+
+        mux = {"id": "u1_tca9548a", "part": "TCA9548A", "address": 0x70, "channels": 1}
+        wire_indices: dict[str, list[int]] = {}
+
+        def fake_send(session_id, command):
+            request, _msg_id = _pack_command(command)
+            frame = s2cmsg.FrameParser().feed(request)[0]
+            device_index = struct.unpack_from("<I", frame[2], 0)[0]
+            wire_indices.setdefault(command.operation, []).append(device_index)
+            if command.operation == "spec2code_version":
+                parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                          "value": "0x0", "data": "", "message": "Spec2Code v0.1.142"}
+            elif command.operation == "i2c_mux_set":
+                parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                          "value": f"0x{int(command.value or 0):X}", "data": "", "message": "i2c_mux_set ok"}
+            else:
+                parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                          "value": "0x0", "data": "", "message": "i2c_scan ok"}
+            return type("R", (), {"parsed": parsed})()
+
+        original = scan_mod.testbench_sessions.send
+        scan_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
+        try:
+            scan_mod.scan_bus("s1", "ps_i2c_1", [mux], controller_index=1, timeout_s=1.0)
+        finally:
+            scan_mod.testbench_sessions.send = original  # type: ignore[assignment]
+
+        # Denetleyici-adresli op'lar denetleyici indeksini (1) tasir.
+        self.assertTrue(wire_indices["i2c_scan"])
+        self.assertTrue(all(idx == 1 for idx in wire_indices["i2c_scan"]), wire_indices["i2c_scan"])
+        self.assertTrue(all(idx == 1 for idx in wire_indices["i2c_mux_set"]), wire_indices["i2c_mux_set"])
+        # Hedefsiz op (surum sorgusu) NO_DEVICE (0xFFFFFFFF) tasir.
+        self.assertEqual(wire_indices["spec2code_version"], [0xFFFFFFFF])
+
+    def test_registers_snapshot_carries_device_index_on_wire(self) -> None:
+        # register_read CIHAZ-adreslidir: hedef tel'de uiCihazIndeks ile
+        # tasinir (device string tel'e ULASMAZ). Snapshot device_index'i
+        # her cerceveye damgalamali.
+        from backend import registers as reg_mod
+        from backend.testbench import _pack_command
+
+        wire_indices: list[int] = []
+
+        def fake_send(session_id, command):
+            request, _msg_id = _pack_command(command)
+            frame = s2cmsg.FrameParser().feed(request)[0]
+            wire_indices.append(struct.unpack_from("<I", frame[2], 0)[0])
+            parsed = {"id": str(command.command_id), "ok": "1", "durum": 0, "status": "0",
+                      "value": "0x1234", "data": "", "message": ""}
+            return type("R", (), {"parsed": parsed})()
+
+        original = reg_mod.testbench_sessions.send
+        reg_mod.testbench_sessions.send = fake_send  # type: ignore[assignment]
+        try:
+            reg_mod.snapshot_registers(
+                "s1", "u12_ltc2991",
+                [{"name": "STATUS", "offset": 0}, {"name": "CTRL", "offset": 4}],
+                device_index=2, timeout_s=1.0)
+        finally:
+            reg_mod.testbench_sessions.send = original  # type: ignore[assignment]
+
+        self.assertEqual(wire_indices, [2, 2])
 
     def test_i2c_scan_flags_stale_agent_and_implausible_all_ack_map(self) -> None:
         # SAHA BULGUSU (2026-07-05): eski ELF (okuma probu) 0x08-0x77'nin

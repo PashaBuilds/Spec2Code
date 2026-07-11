@@ -195,9 +195,15 @@ export default function RegistersPanel() {
     setTaking(true);
     setError("");
     try {
+      // register_read CIHAZ-adreslidir: hedef tel'de uiCihazIndeks ile taşınır
+      // (device string tel'e ULAŞMAZ). İndeks manifest devices[] (FİLTRESİZ)
+      // sırasındaki cihaz indeksidir — yukarıdaki `devices` filtreli olduğundan
+      // indeks oradan alınmaz.
+      const deviceIndex = (manifest?.devices ?? []).findIndex((d) => d.id === selectedDevice.id);
       const result = await api.registerSnapshot({
         session_id: sessionId,
         device_id: selectedDevice.id,
+        device_index: deviceIndex >= 0 ? deviceIndex : 0xffffffff,
         registers: selectedDevice.registers
           .filter((reg) => !isWriteOnly(reg))
           .map((reg) => ({ name: reg.name, offset: reg.offset })),

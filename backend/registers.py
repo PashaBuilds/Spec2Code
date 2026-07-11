@@ -13,11 +13,18 @@ import time
 from backend.testbench import TestbenchCommand, TestbenchSessionError, testbench_sessions
 
 
+#: "Cihaz yok" (0xFFFFFFFF): device_index cozulemediginde tel bu degeri
+#: tasir (bkz. s2cmsg.NO_DEVICE). Cihaz-adresli op'lar bunu CIHAZ_YOK olarak
+#: yanitlar.
+_NO_DEVICE = 0xFFFFFFFF
+
+
 def snapshot_registers(
     session_id: str,
     device_id: str,
     registers: list[dict],
     *,
+    device_index: int = _NO_DEVICE,
     timeout_s: float = 5.0,
 ) -> dict:
     started_at = time.time()
@@ -38,6 +45,10 @@ def snapshot_registers(
                 device=device_id,
                 operation="register_read",
                 command_id=index + 1,
+                # register_read CIHAZ-adreslidir: hedef tel'de uiCihazIndeks
+                # ile tasinir (device string tel'e ulasmaz). Indeks manifest
+                # devices[] sirasindaki cihaz indeksidir; frontend hesaplar.
+                device_index=device_index,
                 register=name,
                 register_address=int(offset) if offset is not None else None,
                 timeout_s=timeout_s,

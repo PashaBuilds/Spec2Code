@@ -55,6 +55,10 @@ class BringupStep:
     label: str
     category: str
     risk: str
+    # Cihaz-adresli op'lar (descriptor op'lari) hedefi tel'de uiCihazIndeks ile
+    # tasir (device string tel'e ULASMAZ). Bu indeks manifest devices[]
+    # sirasindaki cihaz indeksidir (build_plan bu sirayla gezer).
+    device_index: int = 0xFFFFFFFF
 
 
 @dataclass
@@ -97,7 +101,7 @@ def _step_sort_key(op_name: str) -> tuple[int, str]:
 
 def build_plan(manifest: dict, *, include_init: bool = True) -> list[BringupStep]:
     steps: list[BringupStep] = []
-    for device in manifest.get("devices", []):
+    for device_index, device in enumerate(manifest.get("devices", [])):
         operations = device.get("operations", [])
         chosen: list[dict] = []
         if include_init:
@@ -116,6 +120,7 @@ def build_plan(manifest: dict, *, include_init: bool = True) -> list[BringupStep
                 label=str(op.get("label", "")),
                 category=part_category(str(device.get("part", ""))),
                 risk=str(op.get("risk", "safe")),
+                device_index=device_index,
             ))
     steps.sort(key=lambda step: CATEGORY_ORDER.index(step.category))  # stable within category
     return steps
@@ -211,6 +216,7 @@ class BringupJobManager:
                     device=step.device_id,
                     operation=step.operation,
                     command_id=index + 1,
+                    device_index=step.device_index,
                     timeout_s=config.timeout_s,
                 ))
                 parsed = result.parsed

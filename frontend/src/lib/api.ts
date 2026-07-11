@@ -383,13 +383,13 @@ export const api = {
 
   bringupCertificateUrl: (jobId: string) => `/api/bringup/${encodeURIComponent(jobId)}/certificate`,
 
-  registerSnapshot: (payload: { session_id: string; device_id: string; registers: Array<{ name: string; offset: number }>; timeout_s?: number }) =>
+  registerSnapshot: (payload: { session_id: string; device_id: string; device_index: number; registers: Array<{ name: string; offset: number }>; timeout_s?: number }) =>
     req<import("./types").RegisterSnapshot>("/api/registers/snapshot", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
-  i2cScan: (payload: { session_id: string; controller_id: string; muxes: Array<{ id: string; part?: string; address: number; channels: number }>; timeout_s?: number }) =>
+  i2cScan: (payload: { session_id: string; controller_id: string; controller_index: number; muxes: Array<{ id: string; part?: string; address: number; channels: number }>; timeout_s?: number }) =>
     req<import("./types").I2cScanResult>("/api/testbench/i2c-scan", {
       method: "POST",
       body: JSON.stringify(payload),

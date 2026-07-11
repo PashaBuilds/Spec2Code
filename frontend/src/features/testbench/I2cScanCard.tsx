@@ -131,9 +131,15 @@ export default function I2cScanCard({
     setScanning(true);
     setError("");
     try {
+      // Denetleyici-adresli op'lar (i2c_scan/i2c_mux_set) hedefi tel'de
+      // uiCihazIndeks ile taşır. Bu indeks manifest i2c_scan.controllers
+      // sırasındaki DENETLEYİCİ indeksidir — üretilen köprü bu indeksten
+      // cArrRegister'i çözer. controller_id (string) tel'e ULAŞMAZ.
+      const controllerIndex = controllers.findIndex((c) => c.id === activeController);
       const scan = await api.i2cScan({
         session_id: sessionId,
         controller_id: activeController,
+        controller_index: controllerIndex >= 0 ? controllerIndex : 0xffffffff,
         muxes: muxes.map((mux) => ({ id: mux.id, part: mux.part, address: mux.address, channels: mux.channels })),
         // Tek tarama ~112 yoklama; switch başına kanal sayısı kadar tarama
         // daha koşar — komut başına zaman aşımı yeterli genişlikte olsun.

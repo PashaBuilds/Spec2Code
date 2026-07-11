@@ -1341,6 +1341,12 @@ def telnet_log_status(session_id: str) -> dict:
 class I2cScanRequest(BaseModel):
     session_id: str
     controller_id: str
+    # Denetleyici-adresli op'lar (i2c_scan/i2c_mux_set) hedefi tel'de
+    # uiCihazIndeks ile tasir; bu indeks manifest i2c_scan.controllers
+    # sirasindaki DENETLEYICI indeksidir. Frontend (Hat Tarama sayfasi)
+    # manifest'ten hesaplar. 0xFFFFFFFF = cozulemedi (board getter cArrRegister'i
+    # eslestiremez -> "unknown i2c controller").
+    controller_index: int = 0xFFFFFFFF
     muxes: list[dict] = []
     timeout_s: float = 10.0
 
@@ -1350,7 +1356,8 @@ def testbench_i2c_scan(req: I2cScanRequest) -> dict:
     from backend.i2c_scan import I2cScanError, scan_bus
 
     try:
-        return scan_bus(req.session_id, req.controller_id, req.muxes, timeout_s=req.timeout_s)
+        return scan_bus(req.session_id, req.controller_id, req.muxes,
+                        controller_index=req.controller_index, timeout_s=req.timeout_s)
     except I2cScanError as exc:
         raise HTTPException(502, {"message": "i2c taramasi basarisiz", "error": str(exc)}) from exc
     except TestbenchSessionError as exc:
@@ -1362,6 +1369,10 @@ def testbench_i2c_scan(req: I2cScanRequest) -> dict:
 class RegisterSnapshotRequest(BaseModel):
     session_id: str
     device_id: str
+    # register_read CIHAZ-adreslidir: hedef tel'de uiCihazIndeks ile tasinir
+    # (device string tel'e ulasmaz). Indeks manifest devices[] sirasindaki
+    # cihaz indeksidir; frontend hesaplar. 0xFFFFFFFF = cozulemedi -> CIHAZ_YOK.
+    device_index: int = 0xFFFFFFFF
     registers: list[dict]
     timeout_s: float = 5.0
 
@@ -1371,7 +1382,8 @@ def registers_snapshot(req: RegisterSnapshotRequest) -> dict:
     if not req.registers:
         raise HTTPException(400, "registers list is empty")
     return snapshot_registers(
-        req.session_id, req.device_id, req.registers, timeout_s=req.timeout_s)
+        req.session_id, req.device_id, req.registers,
+        device_index=req.device_index, timeout_s=req.timeout_s)
 
 
 _DURUM_DESTEKLENMIYOR = 7  # bkz. backend/s2cmsg.py STATUS_LABELS

@@ -488,6 +488,32 @@ def _mesaj_header(spec: dict | None = None,
     )
 
 
+#: Denetleyici-adresli op'lar: hedef bir CIHAZ degil, bir DENETLEYICIdir
+#: (ps_i2c_0 gibi). S2C-MSG tel cercevesi hedefi ``uiCihazIndeks`` ile tasir;
+#: bu op'lar icin indeks manifest ``i2c_scan.controllers`` sirasindaki
+#: DENETLEYICI indeksidir (cihaz tablosu degil). Uretilen kopru bu op'larda
+#: cArrRegister'i ayri bir denetleyici-id tablosundan cozer (bkz.
+#: S_cpArrDenetleyiciTablosu). Cihaz-adresli op'lar (register_read/write,
+#: descriptor op'lari) indeksi cihaz tablosunda kullanmaya devam eder.
+_CONTROLLER_ADDRESSED_OPS: frozenset[str] = frozenset({"i2c_scan", "i2c_mux_set"})
+
+
+def _testbench_i2c_scan_controllers(spec: dict) -> list[dict]:
+    """Hat taramasi icin taranabilir I2C denetleyicileri (tek siralama kaynagi).
+
+    HEM manifest ``i2c_scan.controllers`` HEM de uretilen mesaj katmanindaki
+    denetleyici-id tablosu (S_cpArrDenetleyiciTablosu) bu SIRAYI kullanir;
+    backend ``i2c_scan.py`` denetleyici indeksini bu liste uzerinden hesaplar.
+    Ikisinin ayni fonksiyondan gelmesi indeks <-> id eslemesini garanti eder
+    (cihaz-indeks kontratinin ikizi).
+    """
+    return [
+        {"id": c.get("id", ""), "instance": c.get("instance", "")}
+        for c in spec.get("controllers", [])
+        if c.get("type") == "i2c"
+    ]
+
+
 def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     """Üretilen `spec2code_mesaj.c`: cozucu + dispatch koprusu + katalog tablolari.
 
@@ -517,6 +543,30 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         f'    "{_c_string_escape(device_id)}",' for device_id in device_ids
     ) or '    ""'
     device_count = len(device_ids)
+
+    # Denetleyici indeks -> id tablosu: DENETLEYICI-adresli op'lar (i2c_scan/
+    # i2c_mux_set) hedefi cihaz degil denetleyici olarak tasir. Siralama
+    # manifest i2c_scan.controllers ile AYNI (tek kaynak: _testbench_i2c_scan_
+    # controllers) -> backend i2c_scan.py bu listeden denetleyici indeksini
+    # hesaplayip uiCihazIndeks olarak gonderir; kopru bu tablodan cArrRegister'i
+    # cozer (dispatch getter'i cArrRegister ile denetleyiciyi bulur).
+    controller_ids = [c["id"] for c in _testbench_i2c_scan_controllers(spec)]
+    controller_rows = "\n".join(
+        f'    "{_c_string_escape(controller_id)}",' for controller_id in controller_ids
+    ) or '    ""'
+    controller_count = len(controller_ids)
+
+    # Denetleyici-adresli op ID tablosu (katalogdan; kalici ID'ler). Kopru bir
+    # istegin denetleyici mi yoksa cihaz mi hedefledigini bu tablodan anlar.
+    controller_op_ids = [
+        message["id"]
+        for message in catalog["messages"]
+        if message.get("op") in _CONTROLLER_ADDRESSED_OPS
+    ]
+    controller_op_rows = "\n".join(
+        f"    {op_id}U," for op_id in controller_op_ids
+    ) or "    0U"
+    controller_op_count = len(controller_op_ids)
 
     # CIT: yalniz olcum varsa cit.h include edilir ve CIT_RUN hedefi olan
     # dosya-statigi (S_sMesajCit) + CIT_RUN/CIT_READ dallari uretilir.
@@ -552,6 +602,20 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "static const char* const S_cpArrCihazTablosu[] =\n"
         "{\n"
         f"{device_rows}\n"
+        "};\n\n"
+        "/* Denetleyici indeks -> id tablosu (manifest i2c_scan.controllers\n"
+        " * sirasiyla ayni). DENETLEYICI-adresli op'lar hedefi bu tablodan cozer. */\n"
+        f"#define SPEC2CODE_MESAJ_DENETLEYICI_SAYISI {controller_count}U\n"
+        "static const char* const S_cpArrDenetleyiciTablosu[] =\n"
+        "{\n"
+        f"{controller_rows}\n"
+        "};\n\n"
+        "/* Denetleyici-adresli op ID'leri (katalogdan; kalici ID'ler). Bu\n"
+        " * ID'lerde uiCihazIndeks bir DENETLEYICI indeksidir (cihaz degil). */\n"
+        f"#define SPEC2CODE_MESAJ_DENETLEYICI_OP_SAYISI {controller_op_count}U\n"
+        "static const unsigned int S_uiArrDenetleyiciOpTablosu[] =\n"
+        "{\n"
+        f"{controller_op_rows}\n"
         "};\n\n"
         "/* Yanit sayaci: ajan tarafinda monoton, 1'den baslar. */\n"
         "static unsigned int S_uiYanitSayac = 0U;\n\n"
@@ -601,6 +665,21 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "        }\n"
     "    }\n"
     "    return (const char*)0;\n"
+    "}\n\n"
+    "/* Op DENETLEYICI-adresli mi? (i2c_scan/i2c_mux_set: hedef bir denetleyici,\n"
+    " * cihaz degil). Boyle op'larda uiCihazIndeks = denetleyici indeksidir. */\n"
+    "static int spec2codeMesajDenetleyiciOpMu(unsigned int uiKomut)\n"
+    "{\n"
+    "    unsigned int uiIndex;\n"
+    "    unsigned int uiIstekId = uiKomut & ~SPEC2CODE_MESAJ_YANIT_BIT;\n\n"
+    "    for (uiIndex = 0U; uiIndex < SPEC2CODE_MESAJ_DENETLEYICI_OP_SAYISI; uiIndex++)\n"
+    "    {\n"
+    "        if (S_uiArrDenetleyiciOpTablosu[uiIndex] == uiIstekId)\n"
+    "        {\n"
+    "            return 1;\n"
+    "        }\n"
+    "    }\n"
+    "    return 0;\n"
     "}\n\n"
     "static void spec2codeMesajMetinKopya(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
     "{\n"
@@ -862,17 +941,35 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "        sIstek.ucArrData[uiIndex] = ucpGovde[SPEC2CODE_MESAJ_ISTEK_GOVDE_BOY + uiIndex];\n"
     "    }\n"
     "    sIstek.uiDataLength = uiVeriBoyu;\n"
-    "    /* Cihaz indeks -> id string (0xFFFFFFFF = cihazsiz global op). */\n"
+    "    /* Hedef cozumu (0xFFFFFFFF = hedefsiz global op). Denetleyici-adresli\n"
+    "     * op'larda (i2c_scan/i2c_mux_set) uiCihazIndeks bir DENETLEYICI\n"
+    "     * indeksidir: cArrRegister denetleyici tablosundan cozulur (dispatch\n"
+    "     * getter'i cArrRegister ile denetleyiciyi bulur). Diger op'larda\n"
+    "     * uiCihazIndeks cihaz tablosuna girer ve cArrDevice'i cozer. */\n"
     "    if (uiCihazIndeks != 0xFFFFFFFFU)\n"
     "    {\n"
-    "        if (uiCihazIndeks >= SPEC2CODE_MESAJ_CIHAZ_SAYISI)\n"
+    "        if (spec2codeMesajDenetleyiciOpMu(spBaslik->uiMesajKomut) == 1)\n"
     "        {\n"
-    "            /* Tablo disi cihaz indeksi -> CIHAZ_YOK. */\n"
-    "            return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
-    "                SPEC2CODE_MESAJ_DURUM_CIHAZ_YOK, ucpCikti, uiCiktiKapasite);\n"
+    "            if (uiCihazIndeks >= SPEC2CODE_MESAJ_DENETLEYICI_SAYISI)\n"
+    "            {\n"
+    "                /* Tablo disi denetleyici indeksi -> CIHAZ_YOK. */\n"
+    "                return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                    SPEC2CODE_MESAJ_DURUM_CIHAZ_YOK, ucpCikti, uiCiktiKapasite);\n"
+    "            }\n"
+    "            spec2codeMesajMetinKopya(sIstek.cArrRegister, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+    "                                     S_cpArrDenetleyiciTablosu[uiCihazIndeks]);\n"
     "        }\n"
-    "        spec2codeMesajMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-    "                                 S_cpArrCihazTablosu[uiCihazIndeks]);\n"
+    "        else\n"
+    "        {\n"
+    "            if (uiCihazIndeks >= SPEC2CODE_MESAJ_CIHAZ_SAYISI)\n"
+    "            {\n"
+    "                /* Tablo disi cihaz indeksi -> CIHAZ_YOK. */\n"
+    "                return spec2codeMesajHataCerceve(spBaslik->uiMesajKomut, spBaslik->uiMesajSayac,\n"
+    "                    SPEC2CODE_MESAJ_DURUM_CIHAZ_YOK, ucpCikti, uiCiktiKapasite);\n"
+    "            }\n"
+    "            spec2codeMesajMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+    "                                     S_cpArrCihazTablosu[uiCihazIndeks]);\n"
+    "        }\n"
     "    }\n"
     "    /* Ic dispatch (metin protokolu para birimi olarak kalir). */\n"
     "    spec2codeTestbenchResponseClear(&sYanit);\n"
@@ -2085,6 +2182,22 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
     # I2C hat taraması: UI hangi denetleyicilerin taranabileceğini ve mux
     # topolojisini (kanal kanal harita için) buradan öğrenir.
     if "XIicPs" in _testbench_used_handle_types(spec):
+        scan_controllers = _testbench_i2c_scan_controllers(spec)
+        # Hardening (denetleyici-indeks kontrati): manifest'in bildirdigi HER
+        # tarama denetleyicisi, uretilen board getter'in cozebildigi bir
+        # denetleyici olmali (aksi halde backend gecerli bir indeks gonderir
+        # ama board getter cArrRegister'i eslestiremez -> "unknown i2c
+        # controller"). Cihaz-indeks kontratinin (manifest devices[] <->
+        # _testbench_device_entries) ikizi.
+        board_controller_ids = {
+            entry["id"] for entry in _testbench_board_controller_entries(spec)
+        }
+        unresolved = [c["id"] for c in scan_controllers if c["id"] not in board_controller_ids]
+        if unresolved:
+            raise cmodel.CodegenError(
+                "i2c_scan.controllers icinde board getter'in cozemedigi denetleyici "
+                f"var: {unresolved!r}; denetleyici-adresli op'lar (i2c_scan/i2c_mux_set) "
+                "bu id'yi cArrRegister ile eslestiremez.")
         manifest["i2c_scan"] = {
             "op": "i2c_scan",
             "mux_op": "i2c_mux_set",
@@ -2092,11 +2205,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             # Prob yazma: recv-polled sahada NACK'te de basari dondurdu.
             "probe": "1-byte write 0x00 (register pointer reset)",
             "skip_address_param": True,
-            "controllers": [
-                {"id": c.get("id", ""), "instance": c.get("instance", "")}
-                for c in spec.get("controllers", [])
-                if c.get("type") == "i2c"
-            ],
+            "controllers": scan_controllers,
             "muxes": [
                 {
                     "id": m.get("id", ""),
