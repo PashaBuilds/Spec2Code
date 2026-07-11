@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.146 - 2026-07-11
+
+- TICS PARSE SAHA FIX (kullanici, fotograf kanitli): kullanicinin sirket LMK
+  dosyasi ZATEN 3-bayt/mesaj C formatindaydi (`0x00, 0x00, 0x90,` satirlari);
+  editor her bayt token'ini ayri 24-bit kelime sanip 126 satiri 378 sahte
+  register olarak sakliyordu -> uretilen dizi 3 kat sisti (1134U, dogrusu 378U)
+  ve satirlar bozuldu. Artik uc 1-bayt token'li satir TEK mesaj olarak taninir
+  (duz 3N-token blob dahil); %3 != 0 durumunda net Turkce hata; kanonik saklama
+  tek `0xHHHHHH` kelime formati. 126 satirlik gercek girdiyle uretilen dizi
+  metni girdiyle BIREBIR ayni, sayac 378U (tarayici + testle dogrulandi).
+- SEMATIK TICS PRO EDITORUNE C ONIZLEME (kullanici istegi): yapistirilan dizi,
+  uretilen dosyadaki duzenle (format aciklamasi + 3-bayt/mesaj satirlar +
+  `#define ..._CONFIG_FILE_BYTE_COUNT`) canli onizlenir; "Kopyala" butonu +
+  "N mesaj · 3N bayt" rozeti. Yalniz LMK-cerceveli parcalarda gorunur.
+- 309 test gecti (+17 yeni parse testi).
+
 ## v0.1.145 - 2026-07-11
 
 - LMK TICS PRO DIZISI 3-BAYT DUZENI (kullanici istegi, fotograf referansli):
