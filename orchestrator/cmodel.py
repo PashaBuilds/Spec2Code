@@ -255,6 +255,20 @@ def _static_uint_array_name(module: str, suffix: str) -> str:
     return f"S_uiArr{_pascal_suffix(module)}{suffix}"
 
 
+def _static_uchar_array_name(module: str, suffix: str) -> str:
+    return f"S_ucArr{_pascal_suffix(module)}{suffix}"
+
+
+def _is_lmk_byte_register_model(model: dict) -> bool:
+    """LMK04832-style TICS Pro register model: 15-bit address + 8-bit data.
+
+    Scope for the "3 bytes per message" unsigned char array format (saha
+    isteği). LMX-style parts (7-bit address, 16-bit data) keep the existing
+    unsigned int word array untouched.
+    """
+    return int(model.get("address_bits", 0) or 0) == 15 and int(model.get("data_bits", 0) or 0) == 8
+
+
 def _handle_var(module: str) -> str:
     return f"s{_pascal_suffix(module)}Handle"
 
@@ -393,9 +407,13 @@ def _private_i2c_init_sequence(module: str, mod: str, writes: list[dict]) -> lis
     return lines
 
 
-def _private_spi_register_init_sequence(module: str, mod: str, words: list[tics.TicsRegisterWord]) -> list[str]:
+def _private_spi_register_init_sequence(module: str, mod: str, words: list[tics.TicsRegisterWord],
+                                        model: dict | None = None) -> list[str]:
     if not words:
         return []
+
+    if _is_lmk_byte_register_model(model or {}):
+        return _private_spi_byte_init_sequence(module, mod, words)
 
     seq_name = _static_uint_array_name(module, "InitSequence")
     count_name = f"{mod}_INIT_SEQUENCE_COUNT"
@@ -408,6 +426,39 @@ def _private_spi_register_init_sequence(module: str, mod: str, words: list[tics.
     for item in words:
         lines.append(
             f"    {tics.c_word(item.word)},  /* address 0x{item.address:X}, value 0x{item.value:X} */"
+        )
+    lines.extend([
+        "};",
+        "",
+    ])
+    return lines
+
+
+def _private_spi_byte_init_sequence(module: str, mod: str, words: list[tics.TicsRegisterWord]) -> list[str]:
+    """TICS Pro export as 3-byte-per-message unsigned char array (saha isteği).
+
+    Each 24-bit register word is split MSB-first into the same 3 bytes the
+    SPI write already sends (`ucArrTx[0..2]` in `_spi_register_write_func`);
+    only the C source representation changes, not the bytes on the wire.
+    """
+    seq_name = _static_uchar_array_name(module, "ConfigFile")
+    byte_count_name = f"{mod}_CONFIG_FILE_BYTE_COUNT"
+    lines = [
+        f"#define {byte_count_name} {len(words) * 3}U",
+        "",
+        "/*",
+        " * Format: 3 bytes per message.",
+        " *    Byte 0: Address High (bit 7 = R/W, 0 = write)",
+        " *    Byte 1: Address Low",
+        " *    Byte 2: Data",
+        " */",
+        f"static const unsigned char {seq_name}[{byte_count_name}] =",
+        "{",
+    ]
+    for item in words:
+        byte0, byte1, byte2 = item.bytes_msb_first
+        lines.append(
+            f"    0x{byte0:02X}, 0x{byte1:02X}, 0x{byte2:02X},"
         )
     lines.extend([
         "};",
@@ -1261,7 +1312,12 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
     instance = controller["instance"]
     model = tics.register_model(descriptor)
     words = tics.decode_words(tics.normalize_words(device.get("config")), model)
-    seq_name = _static_uint_array_name(module, "InitSequence")
+    byte_config = _is_lmk_byte_register_model(model)
+    seq_name = (
+        _static_uchar_array_name(module, "ConfigFile") if byte_config
+        else _static_uint_array_name(module, "InitSequence")
+    )
+    count_def = f"{MOD}_CONFIG_FILE_BYTE_COUNT" if byte_config else f"{MOD}_INIT_SEQUENCE_COUNT"
     rewrite_delay_ms = int(model.get("rewrite_last_address_after_ms", 0) or 0)
     rewrite_addr = model.get("rewrite_last_address")
     rewrite_word = None
@@ -1283,7 +1339,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
     if rewrite_word is not None:
         defines.append((f"{MOD}_POST_INIT_DELAY_MS", f"{rewrite_delay_ms}U", "delay before post-init calibration write"))
 
-    private_decls = _private_spi_register_init_sequence(module, MOD, words)
+    private_decls = _private_spi_register_init_sequence(module, MOD, words, model)
     requested = device.get("operations_requested") or [op["name"] for op in descriptor["operations"]]
     ops_by_name = {op["name"]: op for op in descriptor["operations"]}
     needs_register_read = any(
@@ -1346,8 +1402,17 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
                 e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
             e.close()
 
-        if is_init and words:
-            e.open(f"for (uiIndex = 0U; uiIndex < {MOD}_INIT_SEQUENCE_COUNT; uiIndex++)")
+        if is_init and words and byte_config:
+            e.open(f"for (uiIndex = 0U; uiIndex < {count_def}; uiIndex += 3U)")
+            e.ln(
+                f"iStatus = {_func_name(module, 'register_write')}({hvar}, "
+                f"((unsigned int){seq_name}[uiIndex] << 16U) | "
+                f"((unsigned int){seq_name}[uiIndex + 1U] << 8U) | "
+                f"(unsigned int){seq_name}[uiIndex + 2U]);"
+            ).check_status()
+            e.close()
+        elif is_init and words:
+            e.open(f"for (uiIndex = 0U; uiIndex < {count_def}; uiIndex++)")
             e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {seq_name}[uiIndex]);").check_status()
             e.close()
         if is_init and rewrite_word is not None:

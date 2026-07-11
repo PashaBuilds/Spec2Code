@@ -131,9 +131,22 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             self.assertIn("drivers/adar1000.c", written)
 
             lmk_source = (out_dir / "drivers" / "lmk04832.c").read_text(encoding="utf-8")
-            self.assertIn("0x000080U,  /* address 0x0, value 0x80 */", lmk_source)
-            self.assertIn("0x016612U,  /* address 0x166, value 0x12 */", lmk_source)
-            self.assertIn("lmk04832RegisterWrite(spSpi, S_uiArrLmk04832InitSequence[uiIndex]);", lmk_source)
+            # LMK04832: TICS Pro array now emits as a 3-byte-per-message
+            # unsigned char array (saha isteği), not the unsigned int word
+            # array LMX-style parts still use below.
+            self.assertIn("Format: 3 bytes per message.", lmk_source)
+            self.assertIn("Byte 0: Address High", lmk_source)
+            self.assertIn("Byte 1: Address Low", lmk_source)
+            self.assertIn("Byte 2: Data", lmk_source)
+            self.assertIn("static const unsigned char S_ucArrLmk04832ConfigFile[LMK04832_CONFIG_FILE_BYTE_COUNT] =", lmk_source)
+            self.assertIn("0x00, 0x00, 0x80,", lmk_source)
+            self.assertIn("0x01, 0x66, 0x12,", lmk_source)
+            self.assertIn(
+                "iStatus = lmk04832RegisterWrite(spSpi, ((unsigned int)S_ucArrLmk04832ConfigFile[uiIndex] << 16U) | "
+                "((unsigned int)S_ucArrLmk04832ConfigFile[uiIndex + 1U] << 8U) | "
+                "(unsigned int)S_ucArrLmk04832ConfigFile[uiIndex + 2U]);",
+                lmk_source,
+            )
 
             lmx_header = (out_dir / "drivers" / "lmx2820.h").read_text(encoding="utf-8")
             lmx_source = (out_dir / "drivers" / "lmx2820.c").read_text(encoding="utf-8")
@@ -144,8 +157,17 @@ class TicsRegisterCodegenTests(unittest.TestCase):
             adar_header = (out_dir / "drivers" / "adar1000.h").read_text(encoding="utf-8")
             adar_source = (out_dir / "drivers" / "adar1000.c").read_text(encoding="utf-8")
             self.assertIn("#define ADAR1000_REG_RX_ENABLES 0x2EU", adar_header)
-            self.assertIn("0x002E7FU,  /* address 0x2E, value 0x7F */", adar_source)
-            self.assertIn("adar1000RegisterWrite(spSpi, S_uiArrAdar1000InitSequence[uiIndex]);", adar_source)
+            # ADAR1000 shares the LMK-style 15-bit-address/8-bit-data TICS Pro
+            # register model (descriptors/adar1000.yaml), so it gets the same
+            # 3-byte-per-message unsigned char array format.
+            self.assertIn("static const unsigned char S_ucArrAdar1000ConfigFile[ADAR1000_CONFIG_FILE_BYTE_COUNT] =", adar_source)
+            self.assertIn("0x00, 0x2E, 0x7F,", adar_source)
+            self.assertIn(
+                "iStatus = adar1000RegisterWrite(spSpi, ((unsigned int)S_ucArrAdar1000ConfigFile[uiIndex] << 16U) | "
+                "((unsigned int)S_ucArrAdar1000ConfigFile[uiIndex + 1U] << 8U) | "
+                "(unsigned int)S_ucArrAdar1000ConfigFile[uiIndex + 2U]);",
+                adar_source,
+            )
 
             # LMX1205 (SNAS850): 20 MHz SPI, multiplier lock detect R37 bit 0,
             # MUXOUT auto-readback -> generic register_read manifest'te.
