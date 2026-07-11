@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileCode2, Info } from "lucide-react";
+import { ChevronDown, Check, Copy, FileCode2, Info } from "lucide-react";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { Device, DeviceDescriptor } from "@/lib/types";
-import { Badge, Label, Textarea } from "@/components/ui";
+import { Badge, Button, Label, Textarea } from "@/components/ui";
 
 type Props = {
   device: Device;
@@ -56,6 +57,11 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
   );
   const first = decoded[0];
   const last = decoded[decoded.length - 1];
+  // 15-bit adres + 8-bit veri kayıt modeli: codegen bu şekilleri "3 bayt/mesaj"
+  // unsigned char dizisi olarak üretir (orchestrator/cmodel.py
+  // _is_lmk_byte_register_model). LMX parçaları (7-bit adres + 16-bit veri)
+  // bu şekli kullanmaz; önizleme onlarda gösterilmez.
+  const isByteRegisterModel = model?.address_bits === 15 && model?.data_bits === 8;
 
   if (!supportsTics || !model) {
     return null;
@@ -117,8 +123,136 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
           {addressHex(model.rewrite_last_address, model)} adresindeki son word tekrar yazılır.
         </p>
       ) : null}
+
+      {isByteRegisterModel ? (
+        <CPreviewSection part={device.part} words={parsedWords} draft={draft} />
+      ) : null}
     </div>
   );
+}
+
+function CPreviewSection({ part, words, draft }: { part: string; words: number[]; draft: string }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasContent = draft.trim().length > 0;
+  const preview = useMemo(() => (words.length ? buildCConfigPreview(part, words) : null), [part, words]);
+
+  const onCopy = async () => {
+    if (!preview) return;
+    try {
+      await navigator.clipboard.writeText(preview.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border bg-bg">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2 text-xs font-medium text-muted">
+          <ChevronDown
+            className={cn("h-3.5 w-3.5 shrink-0 text-faint transition-transform", open && "rotate-180")}
+            aria-hidden
+          />
+          C önizleme (üretilen düzen)
+        </span>
+        {preview ? (
+          <Badge tone="neutral">
+            {preview.wordCount} mesaj · {preview.byteCount} bayt
+          </Badge>
+        ) : null}
+      </button>
+
+      {open ? (
+        <div className="space-y-2 border-t border-border px-3 py-2.5">
+          {preview ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-faint">üretilen dosya: drivers/{part.toLowerCase()}.c</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-[11px]"
+                  onClick={onCopy}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" aria-hidden />
+                      Kopyalandı
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" aria-hidden />
+                      Kopyala
+                    </>
+                  )}
+                </Button>
+              </div>
+              <pre className="max-h-64 overflow-auto rounded border border-border bg-inset p-2 font-mono text-[11px] leading-relaxed text-text">
+                {preview.code}
+              </pre>
+            </>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-warn">
+              {hasContent
+                ? "Önizleme için geçerli kayıt gerek."
+                : "Önizleme için en az bir kayıt yapıştırın."}
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function buildCConfigPreview(part: string, words: number[]) {
+  const moduleName = modulePascalName(part);
+  const symbolName = `S_ucArr${moduleName}ConfigFile`;
+  const countName = `${part.toUpperCase()}_CONFIG_FILE_BYTE_COUNT`;
+  const byteCount = words.length * 3;
+
+  const lines: string[] = [
+    `#define ${countName} ${byteCount}U`,
+    "",
+    "/*",
+    " * Format: 3 bytes per message.",
+    " *    Byte 0: Address High (bit 7 = R/W, 0 = write)",
+    " *    Byte 1: Address Low",
+    " *    Byte 2: Data",
+    " */",
+    `static const unsigned char ${symbolName}[${countName}] =`,
+    "{",
+  ];
+  for (const word of words) {
+    const byte0 = (word >> 16) & 0xff;
+    const byte1 = (word >> 8) & 0xff;
+    const byte2 = word & 0xff;
+    lines.push(`    ${hex2(byte0)}, ${hex2(byte1)}, ${hex2(byte2)},`);
+  }
+  lines.push("};", "");
+
+  return { code: lines.join("\n"), wordCount: words.length, byteCount };
+}
+
+function modulePascalName(part: string): string {
+  const alnum = part
+    .split("")
+    .filter((ch) => /[a-zA-Z0-9]/.test(ch))
+    .join("")
+    .toLowerCase();
+  return alnum.slice(0, 1).toUpperCase() + alnum.slice(1);
+}
+
+function hex2(value: number): string {
+  return `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
 function InfoPill({ label, value }: { label: string; value: string }) {
