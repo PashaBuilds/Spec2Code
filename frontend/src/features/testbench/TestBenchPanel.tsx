@@ -4,9 +4,11 @@ import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
 import FlashTransferCard from "./FlashTransferCard";
 import I2cScanCard from "./I2cScanCard";
+import InitAllCard from "./InitAllCard";
+import VersionQueryCard from "./VersionQueryCard";
 import { api } from "@/lib/api";
 import { timeLabelMs } from "@/lib/console";
-import { asciiFromDataHex, formatConvertedValue } from "@/lib/units";
+import { formatConvertedValue } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { useBoardConnection } from "@/store/connection";
 import { useStore } from "@/store/useStore";
@@ -116,17 +118,7 @@ function ResultPanel({
   const ok = result.parsed.ok === "1";
   const data = result.parsed.data ?? "";
   const bytes = byteGroups(data);
-  // Sürüm sorgusu: data ASCII sürüm taşır (eski firmware'de boş — mesajdan
-  // ayıklanır); cihaz operasyonu metasıyla ASLA decode edilmez. Satır metni
-  // artık S2C-MSG çerçeve özeti (op= içermiyor) — sinyal olarak
-  // queryAgentVersion'ın resultOperation'ı bilerek null bıraktığı gerçeği
-  // kullanılır (send() bir operasyon SEÇİLMEDEN asla çağrılamaz, dolayısıyla
-  // operation===null yalnız sürüm sorgusunda olur).
-  const isVersionQuery = operation === null;
-  const versionText = isVersionQuery
-    ? asciiFromDataHex(data) ?? /v\d+\.\d+\.\d+/.exec(result.parsed.message ?? "")?.[0] ?? null
-    : null;
-  const decoded = isVersionQuery ? versionText : formatConvertedValue(operation, result.parsed);
+  const decoded = formatConvertedValue(operation, result.parsed);
 
   return (
     <div className={cn("rounded-md border p-3", ok ? "border-ok/30 bg-ok/10" : "border-danger/30 bg-danger/10")}>
@@ -210,16 +202,15 @@ export default function TestBenchPanel() {
   const [dataHex, setDataHex] = useState("");
   const [commandId, setCommandId] = useState(1);
   const [running, setRunning] = useState(false);
-  const [versionRunning, setVersionRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TestbenchCommandResponse | null>(null);
   const [resultMeta, setResultMeta] = useState<ResultMeta | null>(null);
-  // Cevabı ÜRETEN operasyon: decode rozeti buna göre çözülür (sürüm
-  // sorgusu null bırakır; seçili op ile decode edilirse "0 °C" gibi
-  // yanlış çözümler çıkar — saha bulgusu).
+  // Cevabı ÜRETEN operasyon: decode rozeti buna göre çözülür.
   const [resultOperation, setResultOperation] = useState<TestbenchOperation | null>(null);
-  // Sol menü görünümü: entegre sayfaları veya I2C Hat Tarama sayfası.
-  const [view, setView] = useState<"device" | "i2c-scan">("device");
+  // Sol menü görünümü: entegre sayfaları, I2C Hat Tarama veya Ajan Sürümü
+  // sayfası. Sürüm sorgusu kendi kartında kalıcı state tutar (bkz.
+  // VersionQueryCard) — bölüm/cihaz değişimi bu view'ı etkilemez.
+  const [view, setView] = useState<"device" | "i2c-scan" | "version">("device");
 
   const selectedDevice = useMemo(
     () => manifest?.devices.find((device) => device.id === selectedDeviceId) ?? manifest?.devices[0] ?? null,
@@ -273,7 +264,7 @@ export default function TestBenchPanel() {
   }
 
   async function send() {
-    if (!selectedDevice || !selectedOperation || running || versionRunning) return;
+    if (!selectedDevice || !selectedOperation || running) return;
     if (!isConnected) {
       setError("Önce kart bağlantısı kur (soldaki ortak bağlantı kartı).");
       return;
@@ -315,35 +306,6 @@ export default function TestBenchPanel() {
       reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
-    }
-  }
-
-  async function queryAgentVersion() {
-    if (!isConnected || running || versionRunning) return;
-    const nextCommandId = commandId;
-    setCommandId((current) => current + 1);
-    setVersionRunning(true);
-    setError("");
-
-    const sentAtMs = Date.now();
-    const startedAt = performance.now();
-    try {
-      const response = await api.testbenchCommand({
-        host: board.transport === "tcp" ? board.host.trim() : board.transport,
-        port: board.transport === "tcp" ? parseNumber(board.port) ?? 0 : 0,
-        device: "spec2code",
-        operation: "spec2code_version",
-        command_id: nextCommandId,
-        session_id: board.sessionId,
-        timeout_s: board.timeoutSeconds(),
-      });
-      setResult(response);
-      setResultOperation(null);
-      setResultMeta({ sentAtMs, durationMs: Math.round(performance.now() - startedAt) });
-    } catch (err) {
-      reconcileSessionAfterError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setVersionRunning(false);
     }
   }
 
@@ -393,32 +355,52 @@ export default function TestBenchPanel() {
 
         <div className="space-y-3 p-3">
           <BoardConnectionCard />
-          <Button size="sm" variant="outline" onClick={queryAgentVersion} disabled={!isConnected || running || versionRunning} className="w-full">
-            {versionRunning ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
-            Sürüm sorgula
-          </Button>
 
-          {manifest.i2c_scan && manifest.i2c_scan.controllers.length > 0 ? (
-            <div className="space-y-1.5">
-              <Label>Hat Tarama</Label>
-              <button
-                type="button"
-                onClick={() => setView("i2c-scan")}
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                  view === "i2c-scan"
-                    ? "border-accent/50 bg-accent/10 text-text"
-                    : "border-border bg-inset text-muted hover:text-text",
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-mono text-xs">I2C</span>
-                  <span className="block truncate text-[11px] text-faint">adres haritası · 0x08–0x77</span>
-                </span>
-                <Radar className="h-4 w-4 shrink-0 text-accent" aria-hidden />
-              </button>
-            </div>
-          ) : null}
+          <div className="space-y-1.5">
+            <Label>Araçlar</Label>
+            <button
+              type="button"
+              onClick={() => setView("i2c-scan")}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+                view === "i2c-scan"
+                  ? "border-accent/50 bg-accent/10 text-text"
+                  : "border-border bg-inset text-muted hover:text-text",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-mono text-xs">I2C Hat Taraması</span>
+                <span className="block truncate text-[11px] text-faint">adres haritası · 0x08–0x77</span>
+              </span>
+              <Radar className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("version")}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+                view === "version"
+                  ? "border-accent/50 bg-accent/10 text-text"
+                  : "border-border bg-inset text-muted hover:text-text",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-mono text-xs">Ajan Sürümü</span>
+                <span className="block truncate text-[11px] text-faint">spec2code_version sorgula</span>
+              </span>
+              <ShieldCheck className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+            </button>
+          </div>
+
+          <InitAllCard
+            devices={manifest.devices}
+            connected={isConnected}
+            transport={board.transport}
+            host={board.host}
+            port={board.port}
+            sessionId={board.sessionId}
+            timeoutSeconds={board.timeoutSeconds()}
+          />
 
           <div className="space-y-1.5">
             <Label>Entegre</Label>
@@ -451,6 +433,33 @@ export default function TestBenchPanel() {
       </aside>
 
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
+        {/* Ajan Sürümü HER ZAMAN mount'lu kalır (yalnız CSS ile gizlenir):
+            koşullu render (`view === "version" ? <VersionQueryCard/> : ...`)
+            unmount/remount'ta component'in kendi state'ini SIFIRLAR — bu da
+            aynen eski gömülü akışın düştüğü "sonuç kayboluyor" tuzağıdır.
+            Her zaman DOM'da tutmak sonucun bölüm değişiminde kalıcı
+            kalmasını component seviyesinde garanti eder. */}
+        <div className={cn("p-4", view === "version" ? "" : "hidden")}>
+          <div className="mb-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-accent" aria-hidden />
+              <h2 className="text-sm font-semibold text-text">Ajan Sürümü</h2>
+            </div>
+            <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
+              Karttaki generated test bench agent'ının sürümünü sorgular. Sonuç bu sayfada kalıcıdır —
+              başka bir entegre veya bölüm seçmek sonucu silmez.
+            </p>
+          </div>
+          <VersionQueryCard
+            connected={isConnected}
+            transport={board.transport}
+            host={board.host}
+            port={board.port}
+            sessionId={board.sessionId}
+            timeoutSeconds={board.timeoutSeconds()}
+          />
+        </div>
+
         {view === "i2c-scan" ? (
           <div className="p-4">
             <div className="mb-4">
@@ -470,7 +479,7 @@ export default function TestBenchPanel() {
               timeoutSeconds={board.timeoutSeconds()}
             />
           </div>
-        ) : selectedDevice && selectedOperation ? (
+        ) : view === "version" ? null : selectedDevice && selectedOperation ? (
           <div className="p-4">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -644,7 +653,7 @@ export default function TestBenchPanel() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={send} disabled={running || versionRunning || !isConnected}>
+                  <Button onClick={send} disabled={running || !isConnected}>
                     {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
                     Gönder
                   </Button>
