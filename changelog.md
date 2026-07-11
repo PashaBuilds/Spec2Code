@@ -3,6 +3,31 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.143 - 2026-07-11
+
+- SAHA KOK NEDEN (kullanici, gercek kart): I2C hat taramasi "hazirlik: switch
+  u14_tca9548a kontrol bayti yazilamadi (unknown i2c controller)" ile dusuyordu;
+  telnet log kaniti: `op=i2c_mux_set ... device=` BOS. S2C-MSG binary gecisinin
+  gozden kacan dikisi: tel hedefi yalniz uiCihazIndeks (manifest devices[] sirasi)
+  tasiyor; i2c_scan/i2c_mux_set ise CIHAZA degil DENETLEYICIYE (ps_i2c_0)
+  adresleniyor ve indeks hic set edilmiyordu -> karta 0xFFFFFFFF gidiyor ->
+  ajan denetleyici adini bos goruyordu (eski metin protokolunde string tasindigi
+  icin calisiyordu).
+  - Duzeltme: DENETLEYICI-INDEKS sozlesmesi (cihaz-indeks sozlesmesinin ikizi):
+    uretilen mesaj koprusunde op-tur tablosu (cihaz/denetleyici/hedefsiz) +
+    S_cpArrDenetleyiciTablosu (manifest i2c_scan.controllers ile AYNI tek
+    kaynaktan; sapma uretimde CodegenError); i2c_scan/i2c_mux_set icin
+    uiCihazIndeks denetleyici indeksi olarak cozulur; aralik disi -> CIHAZ_YOK.
+  - TARAMA (sweep) ayni siniftan IKI kirik daha yakaladi ve duzeltti:
+    Registers anlik goruntusu (backend/registers.py) ve Bring-up plani
+    (backend/bringup.py) device_index gondermiyordu.
+  - GUVENLIK: yanlis-hedefe-sessiz-yazma sinifi ULASILAMAZ (inceleme dogruladi);
+    eski firmware + yeni host karisiminda davranis guvenli-basarisiz (yine
+    "unknown i2c controller", yanlis cihaza gitmez).
+  - DIKKAT: KART YAZILIMI YENIDEN URETILIP YUKLENMELI (ajan koprusu degisti) —
+    tarama/snapshot/bring-up ancak yeni ELF ile calisir.
+  - 292 test gecti (+4: tel-cercevede denetleyici indeksi dogrulamasi dahil).
+
 ## v0.1.142 - 2026-07-11
 
 - TELNET LOG SUNUCUSU (kullanici istegi: "printleri telnet uzerinden aktarma"):

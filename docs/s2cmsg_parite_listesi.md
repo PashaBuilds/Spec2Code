@@ -1,5 +1,7 @@
 # S2C-MSG + CİT + YATT v1 — Gerçek Kart Parite Kontrol Listesi
 
+> **v0.1.143 notu:** I2C tarama / Registers anlık görüntü / Bring-up, denetleyici/cihaz İNDEKS sözleşmesiyle taşınır — bu akışları koşmadan önce kart yazılımı v0.1.143+ üretimiyle YENİDEN yüklenmiş olmalı (eski firmware güvenli-başarısız: "unknown i2c controller").
+
 Bu liste, S2C-MSG binary geçişinin (metin satır protokolü tamamen kaldırıldı),
 CİT altyapısının ve YATT v1'in **gerçek donanımda** doğrulanması içindir.
 Geliştirme sırasında yalnız host round-trip testleri, loop-transport testleri
