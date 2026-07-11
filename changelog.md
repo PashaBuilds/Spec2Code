@@ -3,6 +3,23 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.144 - 2026-07-11
+
+- TEST BENCH: "BUTUN CIHAZLARI ILKLENDIR" (kullanici istegi): CIT vb. kosmadan
+  once her cihazin device_init'ine tek tek basmak gerekiyordu. Entegre
+  listesinin EN USTUNE toplu ilklendirme karti eklendi: manifest'te
+  device_init'i olan HER cihaz SIRAYLA (bus disiplini, paralel degil) init
+  edilir; kosarken ilerleme ("3/7 u12_ltc2991..."), bitiste cihaz basina
+  OK/HATA rozetli ozet + "N/M basarili". Bir cihaz fail olsa da devam eder.
+  Cihaz kartlarindaki tekil init butonlari aynen durur.
+- TEST BENCH: AJAN SURUMU AYRI KART (saha bug'i): sonuc paneli yalniz cihaz
+  gorunumunde mount ediliyordu — hat taramasindayken surum sorgulaninca sonuc
+  hicbir yerde gorunmuyordu. "Ajan Surumu" artik diger bolumler gibi kendi
+  acilir karti: sorgula butonu + son sonuc KALICI (bolum/cihaz degistirmek
+  silmez; kart her zaman mount, CSS ile gizlenir). Eski gomulu surum akisi
+  tamamen kaldirildi.
+- 292 test gecti; frontend build temiz; canli tarayici dogrulamasi yapildi.
+
 ## v0.1.143 - 2026-07-11
 
 - SAHA KOK NEDEN (kullanici, gercek kart): I2C hat taramasi "hazirlik: switch
