@@ -12,6 +12,16 @@ from dataclasses import dataclass
 from typing import Any
 
 
+# Below this many tokens, "every value happens to be <=0xFF" is plausibly a
+# short, legitimate native word list (address 0, small value - occurs in
+# real descriptors/fixtures) rather than a broken byte-triplet dump. Above
+# it, a broken paste (saha hatasi: one lone byte token per message instead
+# of one 24-bit word) is the far more likely explanation - real TICS Pro
+# configs in this codebase top out at a handful of words, while a broken
+# paste balloons to 3x the true message count (e.g. 378 vs 126).
+_BYTE_DUMP_MIN_LEN = 12
+
+
 @dataclass(frozen=True)
 class TicsRegisterWord:
     word: int
@@ -60,6 +70,32 @@ def parse_words(raw: Any) -> list[int]:
     if isinstance(raw, (int, float)):
         return [int(raw)]
     if isinstance(raw, list):
+        # Tolerance for configs already saved in the broken "one byte token
+        # per array entry" shape (378 lone bytes instead of 126 24-bit
+        # words) - saha hatasi: eski parser her bayt tokenini ayri bir word
+        # olarak kaydetmisti. Each list item is normally one already-
+        # canonical word (storage contract), so - unlike a free-text blob -
+        # value range alone can't distinguish a short valid word list from
+        # a broken byte dump here; require the same volume signal.
+        #
+        # Residual risk (accepted, code-reviewed): a list of >=12 entries,
+        # count a multiple of 3, where every entry is a genuine native word
+        # that all happen to be <=0xFF (register address 0x0000 for every
+        # single entry, given address_bits=15/address_shift=8 on the LMK-
+        # style model) would still be misread as a byte dump. This is not
+        # a realistic TICS Pro export - a real init sequence does not
+        # target the same zero address a dozen-plus times - and no purely
+        # value-based heuristic can fully rule it out; volume remains the
+        # best available signal for already-broken stored configs.
+        if (
+            len(raw) >= _BYTE_DUMP_MIN_LEN
+            and len(raw) % 3 == 0
+            and all(isinstance(item, str) and _is_single_number(item) for item in raw)
+        ):
+            values = [_int_value(item) for item in raw]
+            if all(value <= 0xFF for value in values):
+                return _group_bytes_into_words(values)
+
         out: list[int] = []
         for item in raw:
             if isinstance(item, dict):
@@ -119,9 +155,52 @@ def validate_words(words: list[int], model: dict[str, Any]) -> list[str]:
 def _parse_words_from_text(raw: str) -> list[int]:
     hex_tokens = re.findall(r"0[xX][0-9A-Fa-f]+", raw)
     if hex_tokens:
-        return [_int_value(token) for token in hex_tokens]
+        values = [_int_value(token) for token in hex_tokens]
+        # A lone token is always a single native word, whatever its size -
+        # there is nothing to group it with.
+        if len(values) == 1:
+            return values
+        byte_like = [value <= 0xFF for value in values]
+        if all(byte_like) and len(values) >= _BYTE_DUMP_MIN_LEN:
+            # Every token is <=0xFF AND there are enough of them that this
+            # is implausible as a short native word list (a real config
+            # with 12+ entries essentially never has ALL its words this
+            # small - would need every register's address and upper value
+            # bits to be zero). Below the threshold, "all small" is not a
+            # reliable signal by itself (e.g. a genuine 3-word native list
+            # can coincidentally have every value <=0xFF - see the repo's
+            # own ?demo seed, frontend/src/lib/demoSeed.ts), so it must not
+            # be regrouped there. At/above threshold, group sequentially in
+            # 3s rather than storing each byte token as its own bogus
+            # 24-bit register word (saha hatasi: company LMK config pasted
+            # as-is, one "0xAA, 0xBB, 0xCC," line per message).
+            return _group_bytes_into_words(values)
+        if any(byte_like) and len(values) >= _BYTE_DUMP_MIN_LEN:
+            # Some tokens look like lone bytes (<=0xFF) and some look like
+            # full 24-bit words, AND there are enough tokens that this is
+            # plausibly a byte-triplet dump rather than a short native word
+            # list with an incidentally small value. Can't safely tell
+            # which interpretation is right - refuse rather than guessing.
+            raise ValueError(
+                "TICS Pro girisi belirsiz: bazi satirlar tek bayt (<=0xFF), "
+                "bazilari 24-bit word gibi gorunuyor. 3-bayt/mesaj format "
+                "icin butun tokenlar 0x00-0xFF araliginda olmali."
+            )
+        return values
     tokens = re.findall(r"(?<![A-Za-z0-9_])-?\d+(?![A-Za-z0-9_])", raw)
     return [_int_value(token) for token in tokens]
+
+
+def _group_bytes_into_words(values: list[int]) -> list[int]:
+    if len(values) % 3 != 0:
+        raise ValueError(
+            f"3-bayt/mesaj formatinda satir sayisi 3'un kati olmali "
+            f"(bulunan bayt tokeni sayisi: {len(values)})"
+        )
+    return [
+        (values[i] << 16) | (values[i + 1] << 8) | values[i + 2]
+        for i in range(0, len(values), 3)
+    ]
 
 
 def _is_single_number(raw: str) -> bool:

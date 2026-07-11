@@ -1,4 +1,5 @@
 import json
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -113,6 +114,23 @@ class TicsRegisterCodegenTests(unittest.TestCase):
 
         messages = [issue["message"] for issue in result["errors"]]
         self.assertTrue(any("expected write value" in message for message in messages))
+
+    def test_validator_reports_non_multiple_of_three_byte_paste_as_error(self) -> None:
+        spec = tics_spec()
+        # Saha hatasi: kullanici 3-bayt/mesaj formatinda bir dosya yapistirdi
+        # ama satirlardan biri eksik/kesik. Enough byte tokens to cross the
+        # byte-dump volume threshold (unambiguously a byte-triplet paste),
+        # plus one incomplete trailing message (2 bytes instead of 3).
+        rng = random.Random(7)
+        triplets = [(rng.randint(0, 0x7F), rng.randint(0, 0xFF), rng.randint(0, 0xFF)) for _ in range(4)]
+        lines = [f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets]
+        lines.append("0x00, 0x00,")
+        spec["devices"][0]["config"]["ticspro_registers"] = "\n".join(lines)
+
+        result = validate_wiring(spec)
+
+        messages = [issue["message"] for issue in result["errors"]]
+        self.assertTrue(any("3" in message and "kati" in message for message in messages))
 
     def test_codegen_emits_tics_arrays_and_testbench_manifest(self) -> None:
         spec = tics_spec()
@@ -232,6 +250,180 @@ class TicsRegisterCodegenTests(unittest.TestCase):
         self.assertIn("iStatus = lmk04832RegisterRead(spSpi, LMK04832_REG_RB_PLL_STATUS, &ucArrBytes[0U]);", lmk_source)
         self.assertIn("*ucpPll1 = (unsigned char)((((unsigned char)ucArrBytes[0U] & 0x4U) >> 2U));", lmk_source)
         self.assertIn("lmk04832Pll2LockLoss(spSpi, &ucValue);", ops_source)
+
+
+def _sample_triplet_lines(count: int) -> list[tuple[int, int, int]]:
+    rng = random.Random(42)
+    lines = []
+    for _ in range(count):
+        b0 = rng.randint(0, 0x7F)  # bit7=0 (write), matches R/W=write requirement
+        b1 = rng.randint(0, 0xFF)
+        b2 = rng.randint(0, 0xFF)
+        lines.append((b0, b1, b2))
+    return lines
+
+
+class TicsTripletParseTests(unittest.TestCase):
+    """Saha hatasi: kullanici zaten 3-bayt/mesaj C formatindaki LMK export'unu
+    yapistirdi (0x00, 0x00, 0x90, / ... 126 satir), editor/parser her bayt
+    tokenini ayri bir 24-bit register word sandi (378 sahte kayit). Bu testler
+    orchestrator.tics.parse_words'un dogru semantigi -- native TICS Pro
+    satiri / bare 24-bit word / bayt-uclusu satiri / duz 3N bayt blogu --
+    tanidigini ve gecersiz girdilerde ValueError firlattigini dogrular.
+    """
+
+    def test_native_bare_word_line_is_single_message(self) -> None:
+        self.assertEqual(tics.parse_words("0x016612"), [0x016612])
+
+    def test_multiple_native_word_lines_are_kept_as_is(self) -> None:
+        # All tokens clearly exceed a single byte (0xFF), so this is
+        # unambiguously a native 24-bit word list, not a byte-triplet paste.
+        raw = "0x016612\n0x4B0800\n0x230000\n"
+        self.assertEqual(tics.parse_words(raw), [0x016612, 0x4B0800, 0x230000])
+
+    def test_short_all_byte_like_text_blob_is_not_reinterpreted(self) -> None:
+        # Code-review regression: a short free-text blob (not a stored
+        # list) where every token is <=0xFF - e.g. the ?demo seed values
+        # pasted as plain text instead of already stored as a JSON list -
+        # must stay as separate native words below the volume threshold,
+        # the same as the equivalent list-storage case already covered by
+        # test_short_list_of_small_native_words_is_not_reinterpreted.
+        raw = "0x10, 0x63, 0x00"
+        self.assertEqual(tics.parse_words(raw), [0x10, 0x63, 0x00])
+
+    def test_short_native_word_blob_with_small_values_is_not_reinterpreted(self) -> None:
+        # Regression: this is the repo's own ?demo seed data
+        # (frontend/src/lib/demoSeed.ts, u6_lmk04832 -
+        # "4-wire (SPI_3WIRE_DIS=1) + PLL2 N"), a short, legitimate native
+        # word list where every token happens to be <=0xFF. Below the
+        # byte-dump volume threshold this must be kept as native words, not
+        # flagged as ambiguous or regrouped into triplets.
+        raw = "0x000010\n0x016302\n0x018300\n"
+        self.assertEqual(tics.parse_words(raw), [0x000010, 0x016302, 0x018300])
+
+    def test_long_ambiguous_mixed_byte_and_word_blob_is_an_error(self) -> None:
+        # Once a blob is long enough to plausibly be a byte-triplet dump,
+        # mixing lone-byte-looking tokens with clear 24-bit words is
+        # unsafe to resolve either way and must raise.
+        triplets = _sample_triplet_lines(4)  # 12 byte tokens
+        lines = [f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets]
+        lines.append("0x016612")  # inject one unambiguous 24-bit word token (13 tokens total)
+        raw = "\n".join(lines)
+        with self.assertRaises(ValueError):
+            tics.parse_words(raw)
+
+    def test_single_byte_triplet_line_below_volume_threshold_is_ambiguous(self) -> None:
+        # A single 3-byte-per-message line (1 message, 3 byte tokens) is
+        # indistinguishable in isolation from 3 native words that all
+        # happen to be <=0xFF (see the short-native-word-list regression
+        # tests above), so below the volume threshold it is kept as
+        # separate native words rather than guessed into one grouped word.
+        raw = "0x00, 0x00, 0x90,"
+        self.assertEqual(tics.parse_words(raw), [0x00, 0x00, 0x90])
+
+    def test_byte_triplet_lines_user_exact_format_above_threshold(self) -> None:
+        # Enough triplet lines (>= _BYTE_DUMP_MIN_LEN byte tokens) to cross
+        # the volume threshold: this is the user's exact reported format,
+        # just short of the full 126-line report - each line becomes one
+        # grouped 24-bit message.
+        triplets = _sample_triplet_lines(5)  # 15 byte tokens, above threshold
+        raw = "\n".join(f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets)
+        expected = [(b0 << 16) | (b1 << 8) | b2 for b0, b1, b2 in triplets]
+        self.assertEqual(tics.parse_words(raw), expected)
+
+    def test_flat_byte_blob_without_trailing_commas_groups_in_threes(self) -> None:
+        triplets = _sample_triplet_lines(5)  # 15 byte tokens, above threshold
+        raw = " ".join(f"0x{b0:02X} 0x{b1:02X} 0x{b2:02X}" for b0, b1, b2 in triplets)
+        expected = [(b0 << 16) | (b1 << 8) | b2 for b0, b1, b2 in triplets]
+        self.assertEqual(tics.parse_words(raw), expected)
+
+    def test_126_triplet_lines_yield_126_messages(self) -> None:
+        triplets = _sample_triplet_lines(126)
+        raw = "\n".join(f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets)
+
+        words = tics.parse_words(raw)
+
+        self.assertEqual(len(words), 126)
+        expected = [(b0 << 16) | (b1 << 8) | b2 for b0, b1, b2 in triplets]
+        self.assertEqual(words, expected)
+
+    def test_byte_token_count_not_multiple_of_three_is_an_error(self) -> None:
+        # Enough byte tokens to cross the byte-dump volume threshold (so
+        # this is unambiguously treated as a byte-triplet paste), but one
+        # short line truncates the last message to 2 bytes instead of 3.
+        triplets = _sample_triplet_lines(4)  # 12 byte tokens
+        lines = [f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets]
+        lines.append("0x00, 0x00,")  # incomplete trailing message (14 tokens total)
+        raw = "\n".join(lines)
+        with self.assertRaises(ValueError) as ctx:
+            tics.parse_words(raw)
+        self.assertIn("3", str(ctx.exception))
+
+    def test_short_mixed_byte_and_word_tokens_is_kept_as_native_words(self) -> None:
+        # Below the byte-dump volume threshold, a short blob mixing a bare
+        # 24-bit word with plain byte tokens is far more plausibly a small
+        # native word list (see the ?demo seed regression test above) than
+        # a byte-triplet dump, so it must not raise.
+        raw = "0x016612\n0x00, 0x90\n"
+        self.assertEqual(tics.parse_words(raw), [0x016612, 0x00, 0x90])
+
+    def test_list_of_already_broken_byte_strings_is_tolerated(self) -> None:
+        # Tolerance for configs already saved in the broken 378-entry shape
+        # (each list item one lone byte token) before this fix landed. Needs
+        # to be long enough to be distinguishable from a short, legitimate
+        # native-word list that coincidentally contains only small values
+        # (real fixtures do have e.g. "0x000000"/"0x000010").
+        triplets = _sample_triplet_lines(12)
+        raw = [f"0x{b:02X}" for triplet in triplets for b in triplet]
+        expected = [(b0 << 16) | (b1 << 8) | b2 for b0, b1, b2 in triplets]
+        self.assertEqual(tics.parse_words(raw), expected)
+
+    def test_short_list_of_small_native_words_is_not_reinterpreted(self) -> None:
+        # Regression guard: a short list of legitimate native words that
+        # happen to all be <=0xFF (address 0, small value - this occurs in
+        # real descriptors, e.g. LMX1204/LMX1205 fixtures) must be kept
+        # as-is, not treated as a broken byte dump.
+        raw = ["0x000001", "0x000000", "0x000010"]
+        self.assertEqual(tics.parse_words(raw), [0x000001, 0x000000, 0x000010])
+
+    def test_documented_residual_risk_12_uniform_small_native_words(self) -> None:
+        # Documents an accepted, code-reviewed residual risk (see the
+        # comment in orchestrator/tics.py, parse_words list branch): a
+        # list of >=12 entries, count a multiple of 3, where every entry
+        # is a genuine native word that all happen to be <=0xFF (register
+        # address 0x0000 for every single entry) is still misread as a
+        # byte dump. Not realistic for a real TICS Pro export (no init
+        # sequence targets the same zero address a dozen-plus times);
+        # this test pins the current, intentional behavior rather than
+        # silently leaving it uncovered.
+        raw = ["0x01"] * 12
+        result = tics.parse_words(raw)
+        self.assertEqual(len(result), 4)
+        self.assertNotEqual(result, [0x01] * 12)
+
+    def test_list_of_canonical_word_strings_is_unaffected(self) -> None:
+        raw = ["0x000080", "0x016612"]
+        self.assertEqual(tics.parse_words(raw), [0x000080, 0x016612])
+
+
+class TicsTripletEndToEndCodegenTests(unittest.TestCase):
+    def test_pasted_3n_triplet_config_generates_matching_c_array(self) -> None:
+        triplets = _sample_triplet_lines(126)
+        pasted_lines = [f"0x{b0:02X}, 0x{b1:02X}, 0x{b2:02X}," for b0, b1, b2 in triplets]
+        raw_paste = "\n".join(pasted_lines)
+
+        spec = tics_spec()
+        spec["devices"] = [spec["devices"][0]]
+        spec["devices"][0]["config"]["ticspro_registers"] = raw_paste
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            lmk_source = (out_dir / "drivers" / "lmk04832.c").read_text(encoding="utf-8")
+
+        self.assertIn("#define LMK04832_CONFIG_FILE_BYTE_COUNT 378U", lmk_source)
+        for line in pasted_lines:
+            self.assertIn(line, lmk_source)
 
 
 if __name__ == "__main__":

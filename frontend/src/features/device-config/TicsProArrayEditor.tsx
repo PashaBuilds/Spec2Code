@@ -50,7 +50,9 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
   const supportsTics = descriptor?.transport.type === "spi" && model?.ticspro_words;
   const isTicsExport = ["LMK04832", "LMX2820", "LMX1204", "LMX1205"].includes(device.part.toUpperCase());
   const configKey = isTicsExport ? "ticspro_registers" : "register_words";
-  const parsedWords = useMemo(() => parseWords(draft), [draft]);
+  const parsed = useMemo(() => safeParseWords(draft), [draft]);
+  const parsedWords = parsed.words;
+  const parseError = parsed.error;
   const decoded = useMemo(
     () => parsedWords.map((word) => decodeWord(word, model)),
     [model, parsedWords],
@@ -69,9 +71,15 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
 
   const onTextChange = (value: string) => {
     setDraft(value);
+    const next = safeParseWords(value);
+    if (next.error) {
+      // Invalid/ambiguous paste (saha hatasi guard): keep the last valid
+      // stored config untouched rather than persisting a bogus word list.
+      return;
+    }
     onChange({
       ...config,
-      [configKey]: parseWords(value).map((word) => wordHex(word)),
+      [configKey]: next.words.map((word) => wordHex(word)),
     });
   };
 
@@ -91,7 +99,9 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
               : "Doğrulanmış 24-bit SPI register word değerlerini buraya yapıştır. Sıra değiştirilmeden init sırasında SPI üzerinden MSB-first yazılır."}
           </p>
         </div>
-        <Badge tone={parsedWords.length ? "accent" : "warn"}>{parsedWords.length} word</Badge>
+        <Badge tone={parseError ? "warn" : parsedWords.length ? "accent" : "warn"}>
+          {parseError ? "Hata" : `${parsedWords.length} word`}
+        </Badge>
       </div>
 
       <div className="space-y-1.5">
@@ -105,6 +115,12 @@ export default function TicsProArrayEditor({ device, config, onChange }: Props) 
             : "const unsigned int adar1000Init[] = {\n    0x000080,\n    0x002E7F\n};"}
           className="min-h-40 text-xs"
         />
+        {parseError ? (
+          <p className="flex gap-2 rounded border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px] leading-relaxed text-warn">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            {parseError}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-2 text-[11px] sm:grid-cols-2">
@@ -264,9 +280,38 @@ function InfoPill({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Byte-dump tolerance threshold shared with the backend's canonical parser
+// (orchestrator/tics.py `_BYTE_DUMP_MIN_LEN`): real TICS Pro configs in this
+// codebase top out at a handful of words, while a broken paste (one lone
+// byte token per array entry, saha hatasi) balloons to 3x the true message
+// count. Below this length, "all entries happen to be <=0xFF" is plausibly
+// a legitimate short native-word list (address 0, small value) and must not
+// be reinterpreted.
+const BYTE_DUMP_MIN_LEN = 12;
+
 function wordsFromConfig(config: Record<string, unknown>): string[] {
   const raw = Array.isArray(config.ticspro_registers) ? config.ticspro_registers : config.register_words;
   if (!Array.isArray(raw)) return [];
+
+  // Residual risk (accepted, code-reviewed): a list of >=12 entries, count
+  // a multiple of 3, where every entry is a genuine native word that all
+  // happen to be <=0xFF (register address 0x0000 for every single entry)
+  // would still be misread as a byte dump below. This is not a realistic
+  // TICS Pro export - a real init sequence does not target the same zero
+  // address a dozen-plus times - and no purely value-based heuristic can
+  // fully rule it out; volume remains the best available signal for
+  // already-broken stored configs.
+  if (
+    raw.length >= BYTE_DUMP_MIN_LEN &&
+    raw.length % 3 === 0 &&
+    raw.every((item) => typeof item === "string" || typeof item === "number")
+  ) {
+    const values = raw.map((item) => parseNumber(item as string | number));
+    if (values.every((value) => value <= 0xff)) {
+      return groupBytesIntoWords(values).map(wordHex);
+    }
+  }
+
   return raw
     .map((item) => {
       if (typeof item === "number") return wordHex(item);
@@ -278,9 +323,64 @@ function wordsFromConfig(config: Record<string, unknown>): string[] {
 
 function parseWords(raw: string): number[] {
   const hexTokens = raw.match(/0[xX][0-9A-Fa-f]+/g);
-  if (hexTokens?.length) return hexTokens.map(parseNumber);
+  if (hexTokens?.length) {
+    const values = hexTokens.map(parseNumber);
+    // A lone token is always a single native word, whatever its size -
+    // there is nothing to group it with.
+    if (values.length === 1) return values;
+    const byteLike = values.map((value) => value <= 0xff);
+    if (byteLike.every(Boolean) && values.length >= BYTE_DUMP_MIN_LEN) {
+      // Every token is <=0xFF AND there are enough of them that this is
+      // implausible as a short native word list (a real config with 12+
+      // entries essentially never has ALL its words this small - would
+      // need every register's address and upper value bits to be zero).
+      // Below the threshold, "all small" is not a reliable signal by
+      // itself (e.g. a genuine 3-word native list can coincidentally have
+      // every value <=0xFF - see the repo's own ?demo seed,
+      // frontend/src/lib/demoSeed.ts), so it must not be regrouped there.
+      // At/above threshold, group sequentially in 3s rather than storing
+      // each byte token as its own bogus 24-bit register word (saha
+      // hatasi: company LMK config pasted as-is, one "0xAA, 0xBB, 0xCC,"
+      // line per message).
+      return groupBytesIntoWords(values);
+    }
+    if (byteLike.some(Boolean) && values.length >= BYTE_DUMP_MIN_LEN) {
+      // Some tokens look like lone bytes (<=0xFF) and some look like full
+      // 24-bit words, AND there are enough tokens that this is plausibly a
+      // byte-triplet dump rather than a short native word list with an
+      // incidentally small value (e.g. the repo's own ?demo seed:
+      // "0x000010, 0x016302, 0x018300"). Can't safely tell which
+      // interpretation is right - refuse rather than guessing.
+      throw new Error(
+        "TICS Pro girisi belirsiz: bazi satirlar tek bayt (<=0xFF), bazilari 24-bit word gibi gorunuyor. " +
+          "3-bayt/mesaj format icin butun tokenlar 0x00-0xFF araliginda olmali.",
+      );
+    }
+    return values;
+  }
   const decimalTokens = raw.match(/(?<![A-Za-z0-9_])-?\d+(?![A-Za-z0-9_])/g);
   return decimalTokens?.map(parseNumber) ?? [];
+}
+
+function safeParseWords(raw: string): { words: number[]; error: string | null } {
+  try {
+    return { words: parseWords(raw), error: null };
+  } catch (err) {
+    return { words: [], error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function groupBytesIntoWords(values: number[]): number[] {
+  if (values.length % 3 !== 0) {
+    throw new Error(
+      `3-bayt/mesaj formatinda satir sayisi 3'un kati olmali (bulunan bayt tokeni sayisi: ${values.length})`,
+    );
+  }
+  const words: number[] = [];
+  for (let i = 0; i < values.length; i += 3) {
+    words.push(((values[i] << 16) | (values[i + 1] << 8) | values[i + 2]) >>> 0);
+  }
+  return words;
 }
 
 function parseNumber(raw: string | number): number {
