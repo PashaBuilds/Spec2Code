@@ -108,6 +108,14 @@ def _expected_prefix(written_type: str, prefixes: dict, *, is_array: bool = Fals
     scalar = {k: v for k, v in prefixes.items() if k in _SCALAR_KEYS}
     if is_array:
         suffix = prefixes.get("array_suffix", "Arr")
+        if is_ptr:
+            # pointer-element arrays keep the pointer marker: const char* const [] -> cpArr
+            if base in scalar:
+                ptr = prefixes.get("pointer_suffix", prefixes.get("pointer", "p"))
+                return scalar[base] + ptr + suffix
+            if _is_structish_type(base):
+                return prefixes.get("struct_pointer", "sp") + suffix
+            return None
         if base in scalar:
             return scalar[base] + suffix
         if _is_structish_type(base):
@@ -190,7 +198,12 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
             toks = [t.spelling for t in cursor.get_tokens()]
             written_type = " ".join(toks[:toks.index(name)]) if name in toks else cursor.type.spelling
             name_idx = toks.index(name) if name in toks else -1
-            is_array = name_idx >= 0 and "[" in toks[name_idx + 1:]
+            # declarator brackets only: stop at '=' so initializer indexing
+            # (e.g. sizeof(x)/sizeof(x[0])) is not mistaken for an array decl
+            decl_toks = toks[name_idx + 1:] if name_idx >= 0 else []
+            if "=" in decl_toks:
+                decl_toks = decl_toks[:decl_toks.index("=")]
+            is_array = "[" in decl_toks
             storage_prefix = ""
             try:
                 if cursor.storage_class == cindex.StorageClass.STATIC:

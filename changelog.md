@@ -3,6 +3,30 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.147 - 2026-07-13
+
+- QC ARAC-ESITLIGI FIX (Mac/Linux'ta yakalandi): Windows gelistirme makinesinde
+  clang-tidy/cppcheck kurulu olmadigi icin gorunmeyen 18 QC hatasi, araclarin
+  kurulu oldugu makinede `spec2code_cli build`'i FAIL ediyordu. Kapanan kalemler:
+  - BSP stub'lari gercek BSP include zinciriyle hizalandi (`xstatus.h` ->
+    `xil_types.h`); `XIL_COMPONENT_IS_READY` ve `NULL`/`stddef.h` artik stub'ta
+    var -> uretilen surucu/protokol dosyalari clang'de temiz derlenir.
+  - Uretilen kod isimlendirme standardina uyduruldu: `pcVersion` -> `cpVersion`,
+    `upTuketilen` -> `uipTuketilen`, `C_cArrDigits` -> `S_cArrDigits`.
+  - Naming linter iki duzeltme: pointer-dizisi onek beklentisi eleman tipini
+    korur (`const char* const []` -> `cpArr`, mevcut uretec sozlesmesi); ve
+    initializer icindeki `sizeof(x[0])` koseli parantezi artik dizi bildirimi
+    sanilmaz (S_uiMesajOpTabloBoy yanlis pozitifi kapandi).
+  - Weak handle stub'lari NULL'u volatile static uzerinden dondurur; cppcheck
+    "kosul hep dogru" (knownConditionTrueFalse) katlamasi biter, board'un guclu
+    tanimla ezme davranisi ayni.
+  - 2-bayt register R/W dali (ucWidthBytes==2U) yalniz genis (16-bit) registeri
+    olan cihazlarda uretilir; hepsi 1 bayt olan cihazda olu dal ve sabit-donuslu
+    WidthBytes fonksiyonu artik cikmaz.
+  - CIT sifirlama/kopya donguleri `memset`/`memcpy` oldu; trace hex indeks
+    carpimlari `size_t` genisliginde (bugprone-implicit-widening kapandi).
+- Ornek proje (radar_io_board) QC'si 0 hatayla GECTI; 306 test yesil.
+
 ## v0.1.146 - 2026-07-11
 
 - TICS PARSE SAHA FIX (kullanici, fotograf kanitli): kullanicinin sirket LMK

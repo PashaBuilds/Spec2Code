@@ -2196,8 +2196,8 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('spec2codeTestbenchMessageSet(spResponse, "Spec2Code " SPEC2CODE_TESTBENCH_AGENT_VERSION);', ops_source)
         # SAHA BULGUSU (2026-07-05): surum yaniti data alanini bos birakiyordu;
         # surum ASCII baytlari olarak data'da da doner ve UI yesil rozette cozer.
-        self.assertIn("const char* pcVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;", ops_source)
-        self.assertIn("spec2codeTestbenchDataPush(spResponse, (unsigned char)pcVersion[uiVersionIndex]);", ops_source)
+        self.assertIn("const char* cpVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;", ops_source)
+        self.assertIn("spec2codeTestbenchDataPush(spResponse, (unsigned char)cpVersion[uiVersionIndex]);", ops_source)
         # Metin satir protokolu silindi: protocol.c artik yalniz para birimi
         # yardimcilarini (Clear/StringEqual/MessageSet/DataPush) tasir.
         self.assertNotIn("spec2codeTestbenchRequestParse", protocol_source)
