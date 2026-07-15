@@ -30,7 +30,7 @@ Release paketini acinca bu dosyalari gorursun:
 Spec2Code.exe
 changelog.md
 userguide.md
-kimi_vitis_debug_guide.md
+glm52_handoff.md
 ```
 
 Calistirmak icin:
@@ -519,8 +519,8 @@ Ozet kurallar:
 LLM varsayilan olarak kapali gelir. Acmak icin OpenAI-compatible endpoint,
 tam model adi ve gerekirse API key girilir.
 
-Desteklenen model ailesi uygulama tarafindan sinirlanmaz. Kimi, Qwen veya baska
-bir OpenAI-compatible model kullanilabilir.
+Desteklenen model ailesi uygulama tarafindan sinirlanmaz. GLM, Qwen, Kimi veya
+baska bir OpenAI-compatible model kullanilabilir.
 
 LLM generate akisi icinde yardimci roldedir:
 
@@ -536,7 +536,7 @@ Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
 - `Spec2Code.exe`
 - `changelog.md`
 - `userguide.md`
-- `kimi_vitis_debug_guide.md`
+- `glm52_handoff.md`
 - Opsiyonel LLVM/Cppcheck kurulumlari
 - Opsiyonel Vitis kurulumu
 - Opsiyonel lokal/internal LLM endpoint'i
@@ -622,10 +622,11 @@ Executable release zip'i sade tutulur:
 Spec2Code.exe
 changelog.md
 userguide.md
-kimi_vitis_debug_guide.md
+glm52_handoff.md
 ```
 
 `changelog.md` en yeni surumden baslayarak tum gecmis release degisikliklerini
-icerir. `userguide.md` bu dosyadir. `kimi_vitis_debug_guide.md`, Vitis/XSCT
-hatasi alindiginda lokal Kimi/Qwen gibi airgap LLM'lere source koddan once
-verilecek standart debug brief'idir.
+icerir. `userguide.md` bu dosyadir. `glm52_handoff.md`, airgap Windows'ta kaynak
+kod uzerinde gelistirme yapacak lokal GLM 5.2 FP-8 modeli icin kapsamli gelistirme
+handoff'udur: repo haritasi, mimari, kodlama standardi, QC dongusu, calistirma/test
+komutlari, gorev bataryasi ve Vitis/XSCT debug brief'i icerir.

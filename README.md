@@ -250,11 +250,14 @@ yalnızca şu dosyalar bulunur:
 Spec2Code.exe
 changelog.md
 userguide.md
+glm52_handoff.md
 ```
 
 Uygulama lokal web arayüzünü açar. `windows-x64`, Intel ve AMD 64-bit Windows
 makinelerde çalışır. `changelog.md` geçmiş tüm release değişikliklerini,
 `userguide.md` ise kullanıcı seviyesindeki kullanım adımlarını içerir.
+`glm52_handoff.md`, air-gap Windows'ta kaynak kod üzerinde geliştirme yapacak
+lokal GLM 5.2 FP-8 modeli için kapsamlı geliştirme handoff'udur.
 
 Windows'ta geliştirmeye devam etmek için source zip'i indir:
 
@@ -395,8 +398,8 @@ GitHub Actions şu asset'leri üretir:
 - `spec2code-vX.Y.Z-windows-x64.zip`
 
 Executable zip içerikleri bilinçli olarak sade tutulur: çalıştırılabilir dosya,
-`changelog.md` ve `userguide.md`. Source archive asset'leri tam kaynak ağacını
-taşımaya devam eder.
+`changelog.md`, `userguide.md` ve `glm52_handoff.md`. Source archive asset'leri
+tam kaynak ağacını taşımaya devam eder.
 
 ## Repo Haritası
 

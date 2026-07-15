@@ -3,6 +3,26 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.148 - 2026-07-15
+
+- GLM 5.2 FP-8 GELISTIRME HANDOFF'U (kullanici istegi): airgap Windows'ta kaynak
+  kod uzerinde dogrudan gelistirme yapacak lokal GLM 5.2 FP-8 modeli icin kapsamli
+  `glm52_handoff.md` eklendi. Icerik: hangi release dosyalarinin indirilecegi,
+  offline (internetsiz) bagimlilik kurulumu, repo haritasi + buyuk-dosya uyarilari,
+  mimari/veri akisi, kodlama standardi, QC dongusu ve arac-esitligi tuzagi,
+  calistirma/dogrulama komutlari, "definition of done", codegen degisiklik recetesi
+  (uretilen kodu degil ureteci duzelt), yeni cihaz descriptor recetesi, sik tuzaklar,
+  git/surum/release akisi ve 5 seviyeli GLM gorev bataryasi (kullanici modeli
+  olcebilsin diye her gorevde net dogrulama komutu). 128K context sinirina ozel
+  "haritala-sonra-hedefli-oku" stratejisi ve computer-use'suz/airgap kisitlari
+  boyunca yazildi.
+- KIMI VITIS DEBUG REHBERI KALDIRILDI: `kimi_vitis_debug_guide.md` silindi; degerli
+  Vitis/XSCT airgap debug ozu (build-fatal imzalari, VERDICT formati, custom PL IP
+  make.libs analizi, S2C-VITIS-HANG-010 which/sdscc donma senaryosu, application ELF
+  zorunlulugu) GLM handoff'unun 15. bolumune tasindi. Release paketi, build script,
+  userguide, README ve docs/WINDOWS.md referanslari GLM handoff'una guncellendi.
+- 306 test yesil; ornek proje (radar_io_board) QC 0 hatayla GECTI.
+
 ## v0.1.147 - 2026-07-13
 
 - QC ARAC-ESITLIGI FIX (Mac/Linux'ta yakalandi): Windows gelistirme makinesinde

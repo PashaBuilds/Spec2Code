@@ -71,7 +71,7 @@ class ReleaseDocsTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as zf:
                 self.assertEqual(
                     sorted(zf.namelist()),
-                    ["Spec2Code.exe", "changelog.md", "kimi_vitis_debug_guide.md",
+                    ["Spec2Code.exe", "changelog.md", "glm52_handoff.md",
                      "spec2code_version.txt", "userguide.md"],
                 )
 

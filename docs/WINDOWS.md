@@ -45,10 +45,13 @@ The executable zip is intentionally minimal:
 Spec2Code.exe
 changelog.md
 userguide.md
+glm52_handoff.md
 ```
 
 `changelog.md` contains the full release history. `userguide.md` contains the user-level
 operating guide for setup, schematic, generate, Vitis workspace, LLM, and troubleshooting.
+`glm52_handoff.md` is the comprehensive development handoff for a local GLM 5.2 FP-8 model
+working on the source tree in an air-gapped Windows environment.
 
 By default it starts a local web server on:
 
