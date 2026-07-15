@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.149 - 2026-07-15
+
+- NAMING-LINTER LIBCLANG FALLBACK (air-gap Windows): resolve_libclang() artik
+  requirements.txt'teki `libclang` pip paketinin kendi getirdigi native lib'i
+  (`<clang>/native/libclang.{dll,dylib,so}`) son care olarak bulur. Sistem LLVM'i
+  kurulu olmayan ama pip wheel'i (offline cache'te zaten var) kurulu bir makinede
+  naming-linter'in AST denetimi artik calisir; ayri tam-LLVM kurulumu sart degil.
+  `importlib.util.find_spec("clang")` ile paket import edilmeden bulunur; paket
+  yoksa eskisi gibi zarifce None doner. Arama sirasi: env override -> sistem LLVM
+  -> pip-bundled.
+- NAMING-LINTER SAGLAMLASTIRMA: native libclang cozulup (or. SPEC2CODE_LIBCLANG_
+  PATH ile bir sistem DLL'i verilip) ama Python `clang.cindex` binding'i kurulu
+  degilse, `_ensure_libclang()` artik ImportError'da crash etmek yerine AST
+  denetimini atlayarak zarifce False doner (tum QC dongusu cokmez).
+- 4 yeni birim test (tests/test_libclang_resolver.py): pip-bundled bulma, paket
+  yoksa None, native alt-dizin yolu, hicbir sey bulunamayinca None. Tam paket
+  310 test yesil; ornek proje (radar_io_board) QC 0 hatayla GECTI.
+
 ## v0.1.148 - 2026-07-15
 
 - GLM 5.2 FP-8 GELISTIRME HANDOFF'U (kullanici istegi): airgap Windows'ta kaynak

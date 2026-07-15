@@ -109,6 +109,27 @@ def resolve(name: str, *, required: bool = True) -> Optional[Path]:
     return None
 
 
+def _pip_bundled_libclang_dirs() -> list[str]:
+    """Directories holding the native lib shipped by the `libclang` pip package.
+
+    The `libclang` wheel (in requirements.txt, so present in the offline cache)
+    bundles the native library under ``<clang-package>/native/`` — e.g.
+    ``site-packages/clang/native/libclang.dylib``. This lets the naming-linter
+    work on an air-gapped host that installed the wheel but has no system LLVM,
+    without forcing a separate full-LLVM install. Import is avoided: ``find_spec``
+    only reads package metadata. Returns [] when the package is absent.
+    """
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("clang")
+    except Exception:
+        return []
+    if spec is None or not spec.submodule_search_locations:
+        return []
+    return [str(Path(location) / "native") for location in spec.submodule_search_locations]
+
+
 def resolve_libclang(*, required: bool = True) -> Optional[Path]:
     """Locate the libclang shared library used by the naming-linter (Brief §15)."""
     override = os.environ.get(_env_key("libclang"))
@@ -124,16 +145,20 @@ def resolve_libclang(*, required: bool = True) -> Optional[Path]:
     else:
         dirs, names = _LIBCLANG_DIRS_LINUX, _LIBCLANG_NAMES_LINUX
 
-    for directory in dirs:
-        for libname in names:
-            candidate = Path(directory) / libname
-            if candidate.is_file():
-                return candidate
+    # System LLVM dirs first; the pip-bundled native lib is the last-resort
+    # fallback (all platform filenames tried, since the wheel matches the host).
+    all_names = _LIBCLANG_NAMES_MAC + _LIBCLANG_NAMES_WINDOWS + _LIBCLANG_NAMES_LINUX
+    search: list[tuple[str, str]] = [(d, n) for d in dirs for n in names]
+    search += [(d, n) for d in _pip_bundled_libclang_dirs() for n in all_names]
+    for directory, libname in search:
+        candidate = Path(directory) / libname
+        if candidate.is_file():
+            return candidate
 
     if required:
         raise ToolNotFoundError(
             "Could not find libclang. Set SPEC2CODE_LIBCLANG_PATH to the full path of "
-            "libclang.dylib/.dll/.so, or install LLVM."
+            "libclang.dylib/.dll/.so, install LLVM, or `pip install libclang`."
         )
     return None
 

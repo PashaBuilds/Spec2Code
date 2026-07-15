@@ -46,7 +46,13 @@ def _ensure_libclang() -> bool:
     lib = tools.resolve_libclang(required=False)
     if lib is None:
         return False
-    from clang import cindex
+    try:
+        from clang import cindex
+    except ImportError:
+        # Native libclang resolved (e.g. a system DLL via SPEC2CODE_LIBCLANG_PATH)
+        # but the Python `clang.cindex` binding is not installed. Degrade to a
+        # skipped AST pass instead of crashing the whole QC loop.
+        return False
     try:
         cindex.Config.set_library_file(str(lib))
     except Exception:
