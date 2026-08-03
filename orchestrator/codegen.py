@@ -541,6 +541,13 @@ def _testbench_controller_op_targets(spec: dict) -> list[dict]:
     return [*_testbench_i2c_scan_controllers(spec), *_testbench_gpio_controllers(spec)]
 
 
+#: Hat taramasi (i2c_scan/i2c_mux_set) uretilen surucu handle tipleri: PS
+#: hardened XIicPs ve AXI soft-IP XIic. TEK kaynak - hem uretilen ajan op'lari
+#: (`_testbench_i2c_scan_lines`) hem manifest `i2c_scan` bolumu bu kumeye bakar,
+#: yoksa MicroBlaze tasarimlarinda op uretilir ama UI kartini gormezdi.
+_TESTBENCH_I2C_SCAN_HANDLES: frozenset[str] = frozenset({"XIicPs", "XIic"})
+
+
 def _testbench_i2c_scan_controllers(spec: dict) -> list[dict]:
     """Hat taramasi icin taranabilir I2C denetleyicileri (tek siralama kaynagi).
 
@@ -2238,7 +2245,11 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
     }
     # I2C hat taraması: UI hangi denetleyicilerin taranabileceğini ve mux
     # topolojisini (kanal kanal harita için) buradan öğrenir.
-    if "XIicPs" in _testbench_used_handle_types(spec):
+    # Kapi HER I2C surucusunu kapsar (PS XIicPs ve AXI XIic): tarama op'lari
+    # (_testbench_i2c_scan_lines) ikisi icin de URETILIYOR; manifest yalniz
+    # XIicPs'e bakarsa MicroBlaze/AXI tasarimlarinda op'lar kartta var ama UI
+    # tarama kartini hic gostermiyordu (Faz 2 bulgusu).
+    if _TESTBENCH_I2C_SCAN_HANDLES & _testbench_used_handle_types(spec):
         scan_controllers = _testbench_i2c_scan_controllers(spec)
         # Hardening (denetleyici-indeks kontrati): manifest'in bildirdigi HER
         # tarama denetleyicisi, uretilen board getter'in cozebildigi bir
@@ -2319,6 +2330,20 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "device": "psu_coresight_0",
             "driver": "coresightps_dcc",
             "processor": "psu_cortexa53_0",
+            "host_bridge": "xsdb jtagterminal -socket",
+        }
+    if agent == "mdm":
+        # CoreSight blogunun ikizi. Fark: cihaz MDM, surucu uartlite ve xsdb
+        # hedefi MicroBlaze cekirdegidir - jtagterminal MicroBlaze context'inde
+        # KENDISI MDM ebeveynine cikar (xsdb.tcl: CPUType == "MicroBlaze" &&
+        # ParentID varsa ctx = ParentID), yani ayrica MDM target'i secmek gerekmez.
+        mdm = _testbench_mdm_controller(spec) or {}
+        manifest["mdm"] = {
+            "device": "mdm (MicroBlaze Debug Module UART)",
+            "driver": "XUartLite",
+            "instance": mdm.get("instance", ""),
+            "processor": _TESTBENCH_MDM_PROCESSOR,
+            "target_filter": _TESTBENCH_MDM_TARGET_FILTER,
             "host_bridge": "xsdb jtagterminal -socket",
         }
     # Telnet log sunucusu: PS Ethernet varsa her transportta uretilir; UI Task
@@ -3626,7 +3651,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     1<<kanal=seç) ile kanal kanal orkestre edilir — TCA9548A protokolü.
     """
     htype = "XIicPs" if "XIicPs" in handle_types else ("XIic" if "XIic" in handle_types else "")
-    if not htype:
+    if htype not in _TESTBENCH_I2C_SCAN_HANDLES:
         return []
     getter = _testbench_getter(htype)
     is_axi = htype == "XIic"
@@ -4107,12 +4132,18 @@ def _testbench_uart_controller(spec: dict) -> dict | None:
     PS UARTs win over PL UARTLITEs, then lowest instance name, so the same
     design always binds the same UART (usually the console UART, which the
     host client tolerates: non-protocol lines are ignored on both sides).
+
+    MDM UARTs are EXCLUDED: they share the XUartLite driver but have no pins -
+    the only way to reach one is the xsdb jtagterminal bridge, so they belong
+    to the ``mdm`` transport and would make a "serial" agent that no COM port
+    can ever talk to.
     """
     candidates = [
         controller
         for controller in spec.get("controllers", [])
         if controller.get("type") == "uart"
         and controller.get("driver", "XUartPs") in _TESTBENCH_UART_DRIVERS
+        and controller.get("subtype") != "mdm"
     ]
     if not candidates:
         return None
@@ -4120,6 +4151,53 @@ def _testbench_uart_controller(spec: dict) -> dict | None:
         candidates,
         key=lambda item: (item.get("zone") != "ps", str(item.get("instance", ""))),
     )[0]
+
+
+#: xsdb target adi MicroBlaze cekirdegi icin: `targets` agacinda cekirdek
+#: "MicroBlaze #0" olarak listelenir (MDM'in kendisi "MicroBlaze Debug Module
+#: at USER2"). Cekirdegi secmek YETER: jtagterminal MicroBlaze context'inde
+#: ebeveyne (MDM) cikar - Vitis 2023.2 scripts/xsdb/xsdb/xsdb.tcl:
+#:   if { [dict_get_safe $rc CPUType] == "MicroBlaze" && [dict exists $rc ParentID] }
+#:       { set ctx [dict get $rc ParentID] }
+#: Bu literal host tarafiyla (backend.run_on_board._core_filter) AYNI olmali;
+#: tests/test_mdm_transport.py esitligi kilitler.
+_TESTBENCH_MDM_TARGET_FILTER = '"*MicroBlaze*#0"'
+#: Kartta tek MicroBlaze varsayimi (Vitis'in varsayilan ornek adi).
+_TESTBENCH_MDM_PROCESSOR = "microblaze_0"
+
+
+def _testbench_mdm_controller(spec: dict) -> dict | None:
+    """The MicroBlaze Debug Module UART instance the ``mdm`` agent binds to.
+
+    Recognized by ``subtype: "mdm"`` (parser: ``backend/parsers/xparameters``),
+    NOT by the driver name - an MDM UART is driven by the very same uartlite
+    BSP driver as an axi_uartlite (uartlite.mdd:
+    ``supported_peripherals = (mdm axi_uartlite tmr_sem psv_pmc_ppu1_mdm)``),
+    so only the instance tells them apart. Lowest instance name wins when a
+    design somehow carries two.
+    """
+    candidates = [
+        controller
+        for controller in spec.get("controllers", [])
+        if controller.get("type") == "uart"
+        and controller.get("subtype") == "mdm"
+        and controller.get("driver", "XUartLite") in _TESTBENCH_UART_DRIVERS
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: str(item.get("instance", "")))[0]
+
+
+def _testbench_agent_uart_controller(spec: dict) -> dict | None:
+    """UART instance the generated uartlite/uartps agent is bound to.
+
+    Same agent source for both transports; only the instance differs. Keyed on
+    the RAW project choice (not on `_testbench_transport_agent`) so this stays
+    a pure lookup and cannot recurse through the transport gate.
+    """
+    if str(spec.get("project", {}).get("testbench_transport", "") or "") == "mdm":
+        return _testbench_mdm_controller(spec)
+    return _testbench_uart_controller(spec)
 
 
 def _testbench_coresight_supported(spec: dict) -> bool:
@@ -4137,10 +4215,11 @@ def _testbench_transport_agent(spec: dict) -> str | None:
     """Which on-target agent carries the S2C-MSG binary protocol.
 
     ``project.testbench_transport``: "auto" (default) | "eth" | "uart" |
-    "coresight". auto prefers Ethernet and falls back to the PS UART so
-    boards without a PHY still get a runnable test bench. CoreSight (JTAG
-    DCC over psu_coresight_0) is never auto-picked: it needs a debug cable
-    and an xsdb jtagterminal bridge on the host, so it must be explicit.
+    "coresight" | "mdm". auto prefers Ethernet and falls back to the PS UART so
+    boards without a PHY still get a runnable test bench. The two JTAG
+    transports are never auto-picked: CoreSight (DCC over psu_coresight_0) and
+    MDM (MicroBlaze Debug Module UART) both need a debug cable and an xsdb
+    jtagterminal bridge on the host, so they must be explicit.
     """
     choice = str(spec.get("project", {}).get("testbench_transport", "auto") or "auto")
     lwip_possible = _zynqmp_lwip_eth_controller(spec) is not None
@@ -4155,6 +4234,21 @@ def _testbench_transport_agent(spec: dict) -> str | None:
         raise cmodel.CodegenError(
             "CoreSight (DCC) test bench su an yalnizca ZynqMP (psu_coresight_0) "
             "platformunda dogrulandi; bu platformda eth veya uart transportunu kullanin")
+    if choice == "mdm":
+        # Honest gate, iki AYRI nedenle iki AYRI mesaj: platform yanlissa
+        # "MDM UART ekle" demek yaniltirdi, MDM yoksa "platform" demek yaniltirdi.
+        if spec.get("project", {}).get("platform") != "microblaze_7series":
+            raise cmodel.CodegenError(
+                "MDM (MicroBlaze Debug Module UART) test bench transportu yalnizca "
+                "microblaze_7series platformunda dogrulandi; bu platformda eth, uart "
+                "veya coresight transportunu kullanin")
+        if _testbench_mdm_controller(spec) is None:
+            raise cmodel.CodegenError(
+                "MDM transportu icin tasarimda UART'i ACIK bir MDM gerekiyor "
+                "(controllers[] icinde subtype=\"mdm\" bir uart denetleyicisi); "
+                "Vivado'da MDM'i 'Debug Only' degil UART'li kurun ya da uart "
+                "transportunu (axi_uartlite) kullanin")
+        return "mdm"
     if lwip_possible:
         return "lwip"
     if uart_possible:
@@ -4168,6 +4262,18 @@ def _testbench_lwip_enabled(spec: dict) -> bool:
 
 def _testbench_uart_enabled(spec: dict) -> bool:
     return _testbench_transport_agent(spec) == "uart"
+
+
+def _testbench_mdm_enabled(spec: dict) -> bool:
+    return _testbench_transport_agent(spec) == "mdm"
+
+
+def _testbench_uartlite_agent_files_enabled(spec: dict) -> bool:
+    """Both UART-shaped agents emit the SAME four `spec2code_testbench_uart.*`
+    files: the MDM transport is an XUartLite agent bound to the debug module's
+    UART instance, not a second driver. Only the bound instance, the banner and
+    the host-side bridge differ."""
+    return _testbench_transport_agent(spec) in {"uart", "mdm"}
 
 
 def _testbench_coresight_enabled(spec: dict) -> bool:
@@ -5289,7 +5395,7 @@ def _telnet_log_source() -> str:
         "#define SPEC2CODE_TELNET_LOG_RING 16U",
         "",
         "static struct tcp_pcb* S_spListenPcb;",
-        f"static struct tcp_pcb* S_spClients[SPEC2CODE_TELNET_LOG_MAX_CLIENTS];",
+        "static struct tcp_pcb* S_spArrClients[SPEC2CODE_TELNET_LOG_MAX_CLIENTS];",
         "static char S_cArrRing[SPEC2CODE_TELNET_LOG_RING][SPEC2CODE_TELNET_LOG_LINE_MAX];",
         "static unsigned int S_uiRingHead;",
         "static unsigned int S_uiRingTail;",
@@ -5306,9 +5412,9 @@ def _telnet_log_source() -> str:
         "",
         "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
         "    {",
-        "        if (S_spClients[uiIndex] == spPcb)",
+        "        if (S_spArrClients[uiIndex] == spPcb)",
         "        {",
-        "            S_spClients[uiIndex] = NULL;",
+        "            S_spArrClients[uiIndex] = NULL;",
         "        }",
         "    }",
         "}",
@@ -5356,7 +5462,7 @@ def _telnet_log_source() -> str:
         "    uiOldest = 0U;",
         "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
         "    {",
-        "        if (S_spClients[uiIndex] == NULL)",
+        "        if (S_spArrClients[uiIndex] == NULL)",
         "        {",
         "            break;",
         "        }",
@@ -5364,15 +5470,15 @@ def _telnet_log_source() -> str:
         "    if (uiIndex == SPEC2CODE_TELNET_LOG_MAX_CLIENTS)",
         "    {",
         "        /* Tablo dolu: en eski slotu kapat, yerine yeni istemciyi koy. */",
-        "        if (S_spClients[uiOldest] != NULL)",
+        "        if (S_spArrClients[uiOldest] != NULL)",
         "        {",
-        "            tcp_recv(S_spClients[uiOldest], NULL);",
-        "            tcp_err(S_spClients[uiOldest], NULL);",
-        "            (void)tcp_close(S_spClients[uiOldest]);",
+        "            tcp_recv(S_spArrClients[uiOldest], NULL);",
+        "            tcp_err(S_spArrClients[uiOldest], NULL);",
+        "            (void)tcp_close(S_spArrClients[uiOldest]);",
         "        }",
         "        uiIndex = uiOldest;",
         "    }",
-        "    S_spClients[uiIndex] = spNewPcb;",
+        "    S_spArrClients[uiIndex] = spNewPcb;",
         "    tcp_arg(spNewPcb, spNewPcb);",
         "    tcp_recv(spNewPcb, spec2codeTelnetLogRecv);",
         "    tcp_err(spNewPcb, spec2codeTelnetLogErr);",
@@ -5438,11 +5544,11 @@ def _telnet_log_source() -> str:
         "{",
         "    unsigned int uiIndex;",
         "    struct tcp_pcb* spPcb;",
-        "    static const char cArrCrlf[2] = { '\\r', '\\n' };",
+        "    static const char S_cArrCrlf[2] = { '\\r', '\\n' };",
         "",
         "    for (uiIndex = 0U; uiIndex < SPEC2CODE_TELNET_LOG_MAX_CLIENTS; uiIndex++)",
         "    {",
-        "        spPcb = S_spClients[uiIndex];",
+        "        spPcb = S_spArrClients[uiIndex];",
         "        if (spPcb == NULL)",
         "        {",
         "            continue;",
@@ -5460,7 +5566,7 @@ def _telnet_log_source() -> str:
         "            S_uiDropCount++;",
         "            continue;",
         "        }",
-        "        if (tcp_write(spPcb, cArrCrlf, 2U, TCP_WRITE_FLAG_COPY) != ERR_OK)",
+        "        if (tcp_write(spPcb, S_cArrCrlf, 2U, TCP_WRITE_FLAG_COPY) != ERR_OK)",
         "        {",
         "            S_uiDropCount++;",
         "            continue;",
@@ -5715,19 +5821,23 @@ def _testbench_lwip_main_source(spec: dict) -> str:
 
 
 def _testbench_uart_driver(spec: dict) -> str:
-    uart = _testbench_uart_controller(spec)
+    uart = _testbench_agent_uart_controller(spec)
     driver = str(uart.get("driver", "XUartPs")) if uart else "XUartPs"
     return driver if driver in _TESTBENCH_UART_DRIVERS else "XUartPs"
 
 
 def _testbench_uart_header(spec: dict) -> str:
-    uart = _testbench_uart_controller(spec)
+    uart = _testbench_agent_uart_controller(spec)
     instance = uart.get("instance") if uart else "XPAR_XUARTPS_0"
     driver = _testbench_uart_driver(spec)
+    channel = (
+        "MDM UART (MicroBlaze Debug Module)"
+        if _testbench_mdm_enabled(spec) else f"PS UART ({driver})"
+    )
     return (
         "/**\n"
         " * @file spec2code_testbench_uart.h\n"
-        f" * @brief PS UART ({driver}) S2C-MSG binary agent for the Spec2Code test bench.\n"
+        f" * @brief {channel} S2C-MSG binary agent for the Spec2Code test bench.\n"
         " *\n"
         " * Carries the same S2C-MSG binary framing as the TCP agent over the PS\n"
         " * UART. Bytes that do not match the frame signature are skipped while\n"
@@ -5750,9 +5860,12 @@ def _testbench_uart_header(spec: dict) -> str:
 
 
 def _testbench_uart_source(spec: dict) -> str:
-    uart = _testbench_uart_controller(spec)
+    uart = _testbench_agent_uart_controller(spec)
     if uart is None:
-        raise cmodel.CodegenError("UART test bench requested without a PS UART controller")
+        raise cmodel.CodegenError(
+            "MDM test bench requested without an MDM UART controller"
+            if _testbench_mdm_enabled(spec)
+            else "UART test bench requested without a PS UART controller")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
     telnet = _telnet_log_enabled(spec)
@@ -5774,16 +5887,31 @@ def _testbench_uart_source(spec: dict) -> str:
         if any(entry["htype"] == htype for entry in entries):
             headers.append(f'#include "{header}"')
 
+    is_mdm = _testbench_mdm_enabled(spec)
+    brief = (
+        f" * @brief MDM UART ({uart_prefix}) polled S2C-MSG binary agent for the Spec2Code test bench."
+        if is_mdm
+        else f" * @brief PS UART ({uart_prefix}) polled S2C-MSG binary agent for the Spec2Code test bench."
+    )
+    mdm_note = [
+        " *",
+        f" * Transport: MicroBlaze Debug Module UART ({uart.get('instance', '')}).",
+        " * Ayni uartlite BSP surucusu (uartlite.mdd: supported_peripherals =",
+        " * (mdm axi_uartlite tmr_sem psv_pmc_ppu1_mdm)) - pin YOK, baytlar JTAG",
+        " * uzerinden akar. Host tarafinda xsdb 'jtagterminal -socket' bir TCP",
+        " * portu acar; baud kavrami yoktur.",
+    ] if is_mdm else []
     lines = [
         "/**",
         " * @file spec2code_testbench_uart.c",
-        f" * @brief PS UART ({uart_prefix}) polled S2C-MSG binary agent for the Spec2Code test bench.",
+        brief,
         " *",
         " * Polled receive per the official polled UART example; needs no",
         " * interrupts and no scheduler, so the same agent runs on bare metal",
         " * and on a FreeRTOS BSP alike. Recv baytlari S2C-MSG cozucusune (parser)",
         " * feed-forward beslenir; her tam cercevede spec2codeMesajIsle yaniti",
         " * cerceveler. Metin banner/enter-prompt YOK (binary kanal).",
+        *mdm_note,
         " */",
         *headers,
         "",
@@ -5935,15 +6063,24 @@ def _testbench_uart_main_header() -> str:
 def _testbench_uart_main_source(spec: dict) -> str:
     project_name = spec["project"]["name"]
     app_version = _app_version()
+    is_mdm = _testbench_mdm_enabled(spec)
+    transport_label = "MDM (MicroBlaze Debug Module UART, JTAG)" if is_mdm else "UART"
     banner = (
         f'    xil_printf("Spec2Code test bench {app_version} | proje: {project_name}'
-        ' | transport: UART\\r\\n");\n'
+        f' | transport: {transport_label}\\r\\n");\n'
     )
-    banner += (
-        '    xil_printf("S2C-UART-AGENT-READY (uartlite, baud sabit donanimda)\\r\\n");\n'
-        if _testbench_uart_driver(spec) == "XUartLite"
-        else '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
-    )
+    if is_mdm:
+        # MDM'de baud yoktur (uartlite.tcl mdm icin BAUDRATE'i 0 yazar) ve
+        # kanal JTAG'dir: host xsdb jtagterminal koprusunu bekler, COM portu degil.
+        banner += (
+            '    xil_printf("S2C-MDM-AGENT-READY (mdm uartlite, JTAG; baud yok)\\r\\n");\n'
+        )
+    else:
+        banner += (
+            '    xil_printf("S2C-UART-AGENT-READY (uartlite, baud sabit donanimda)\\r\\n");\n'
+            if _testbench_uart_driver(spec) == "XUartLite"
+            else '    xil_printf("S2C-UART-AGENT-READY baud=%u\\r\\n", SPEC2CODE_TESTBENCH_UART_BAUD);\n'
+        )
     runtime_note = (
         " * The polled agent needs no scheduler; on a FreeRTOS BSP it runs\n"
         " * before vTaskStartScheduler would, which is intentional.\n"
@@ -6242,7 +6379,7 @@ def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             tests_dir / "spec2code_testbench_lwip_main.h",
             tests_dir / "spec2code_testbench_lwip_main.c",
         ])
-    if _testbench_uart_enabled(spec):
+    if _testbench_uartlite_agent_files_enabled(spec):
         paths.extend([
             tests_dir / "spec2code_testbench_uart.h",
             tests_dir / "spec2code_testbench_uart.c",
@@ -6300,7 +6437,7 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
             _apply_default_identifier_style(_testbench_lwip_main_header(spec)),
             _apply_default_identifier_style(_testbench_lwip_main_source(spec)),
         ])
-    if _testbench_uart_enabled(spec):
+    if _testbench_uartlite_agent_files_enabled(spec):
         contents.extend([
             _apply_default_identifier_style(_testbench_uart_header(spec)),
             _apply_default_identifier_style(_testbench_uart_source(spec)),

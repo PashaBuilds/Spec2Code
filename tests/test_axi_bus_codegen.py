@@ -208,6 +208,41 @@ class AxiI2cCodegenTests(unittest.TestCase):
         self.assertIn("XIic_Send(ulScanIic, (unsigned char)uiScanAddr, &ucProbe, 1U, XIIC_STOP)", ops)
         self.assertNotIn("XIicPs_", ops)
 
+    def test_axi_iic_controllers_are_published_for_scanning_in_the_manifest(self) -> None:
+        # Faz 2 boslugu: manifest `i2c_scan` bolumu `"XIicPs" in handle_types`
+        # ile kapiliydi. Tarama op'lari (i2c_scan/i2c_mux_set) AXI XIic icin de
+        # URETILIYORDU, ama manifest bunu bildirmedigi icin UI'nin tarama karti
+        # (`I2cScanCard`, `scanInfo.controllers` bos oldugunda hic render
+        # edilmez) MicroBlaze kartlarinda gorunmuyordu.
+        spec = _microblaze_spec("unit_axi_iic_scan_manifest")
+        spec["muxes"] = [{"id": "u10_tca9548a", "part": "TCA9548A",
+                          "controller_id": "pl_i2c_0", "i2c_address": "0x70", "channels": 8}]
+        spec["devices"] = [_tmp101("pl_i2c_0")]
+
+        files = _generate(spec)
+        manifest = json.loads(files["tests/spec2code_testbench_manifest.json"])
+        ops = files["tests/unit_axi_iic_scan_manifest_testbench_ops.c"]
+        mesaj = files["tests/spec2code_mesaj.c"]
+
+        scan = manifest["i2c_scan"]
+        self.assertEqual(scan["controllers"], [{"id": "pl_i2c_0", "instance": "XPAR_AXI_IIC_0"}])
+        self.assertEqual(scan["op"], "i2c_scan")
+        self.assertEqual(scan["mux_op"], "i2c_mux_set")
+        # Mux topolojisi de bildirilir: kanal kanal harita UI'dan surulebilir.
+        self.assertEqual([m["id"] for m in scan["muxes"]], ["u10_tca9548a"])
+        self.assertEqual(scan["muxes"][0]["address"], 0x70)
+        # Ajan op'u gercekten var (manifest bos vaat etmiyor).
+        self.assertIn('spRequest->cArrOperation, "i2c_scan"', ops)
+        self.assertIn('spRequest->cArrOperation, "i2c_mux_set"', ops)
+        # DENETLEYICI-INDEKS KONTRATI: backend/i2c_scan.py tel'e manifest
+        # `i2c_scan.controllers` sirasindaki indeksi koyar; uretilen kopru
+        # cArrRegister'i AYNI siradaki tablodan cozer. PS'te oldugu gibi.
+        table = mesaj.split("S_cpArrDenetleyiciTablosu[] =", 1)[1].split("};", 1)[0]
+        wire_ids = [line.strip().strip(',').strip('"') for line in table.splitlines()
+                    if line.strip().startswith('"')]
+        self.assertEqual(wire_ids[:len(scan["controllers"])],
+                         [c["id"] for c in scan["controllers"]])
+
     def test_axi_spi_testbench_register_helpers_use_the_axi_api(self) -> None:
         spec = _microblaze_spec("unit_axi_spi_testbench")
         spec["devices"] = [_lmk04832("pl_spi_0")]

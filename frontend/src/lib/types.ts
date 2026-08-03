@@ -20,6 +20,9 @@ export interface Controller {
   base_address: string;
   device_id?: number | string;
   driver?: string;
+  /** Ek/opsiyonel ayrım: sürücü adı yetmediğinde. "mdm" = MicroBlaze Debug
+   * Module UART'ı (sürücü yine XUartLite; transport xsdb jtagterminal). */
+  subtype?: "mdm";
   source: string;
   zone: string;
 }
@@ -83,8 +86,9 @@ export interface ProjectMeta {
   target_core: string;
   runtime: Runtime;
   output_mode?: string;
-  /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART; coresight = JTAG DCC (ZynqMP). */
-  testbench_transport?: "auto" | "eth" | "uart" | "coresight";
+  /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART; coresight = JTAG DCC (ZynqMP);
+   * mdm = MicroBlaze Debug Module UART (XUartLite, xsdb jtagterminal köprüsü). */
+  testbench_transport?: "auto" | "eth" | "uart" | "coresight" | "mdm";
 }
 export interface LlmConfig {
   enabled: boolean;
@@ -316,9 +320,19 @@ export interface TestbenchManifest {
   agent_version?: string;
   protocol: string;
   line_format: string;
-  transport_agent?: "lwip" | "uart" | "coresight" | null;
+  transport_agent?: "lwip" | "uart" | "coresight" | "mdm" | null;
   uart?: { instance: string; baud: number };
   coresight?: { device: string; driver: string; processor: string; host_bridge: string };
+  /** MDM (MicroBlaze Debug Module UART): CoreSight bloğunun ikizi. Sürücü yine
+   * XUartLite'tır; fark xsdb'de seçilen hedeftir (`target_filter`). */
+  mdm?: {
+    device: string;
+    driver: string;
+    instance: string;
+    processor: string;
+    target_filter: string;
+    host_bridge: string;
+  };
   /** I2C hat taraması: taranabilir denetleyiciler + switch topolojisi. */
   i2c_scan?: {
     op: string;
@@ -496,16 +510,16 @@ export interface TestbenchCommandResponse {
 
 export interface TestbenchSessionConnectRequest {
   session_id: string;
-  transport?: "tcp" | "serial" | "coresight";
+  transport?: "tcp" | "serial" | "coresight" | "mdm";
   host?: string;
   port?: number;
   serial_port?: string;
   baud?: number;
-  /** coresight: xsdb bu Vitis kurulumundan bulunur. */
+  /** coresight/mdm: xsdb bu Vitis kurulumundan bulunur. */
   vitis_path?: string;
-  /** coresight: boş = lokal USB JTAG; SmartLynq için `<ip>[:port]`. */
+  /** coresight/mdm: boş = lokal USB JTAG; SmartLynq için `<ip>[:port]`. */
   hw_server_url?: string;
-  /** coresight: DCC'nin bağlandığı çekirdek. */
+  /** coresight: DCC'nin bağlandığı çekirdek. mdm: MicroBlaze çekirdeği. */
   processor?: string;
   timeout_s?: number;
 }
@@ -518,7 +532,7 @@ export interface TestbenchSessionStatus {
   connected_at?: number | null;
   last_used_at?: number | null;
   last_error?: string;
-  transport?: "tcp" | "serial" | "coresight";
+  transport?: "tcp" | "serial" | "coresight" | "mdm";
   serial_port?: string;
   baud?: number;
   processor?: string;

@@ -214,6 +214,12 @@ def _core_filter(processor: str) -> str:
         return '"*A9*#0"'
     if "r5" in lowered:
         return '"*R5*#0"'
+    # MicroBlaze soft core: xsdb lists it as "MicroBlaze #0" under the
+    # "MicroBlaze Debug Module at USER<n>" node. Selecting the CORE is what
+    # jtagterminal wants - it walks up to the MDM parent itself
+    # (xsdb.tcl: CPUType == "MicroBlaze" && ParentID -> ctx = ParentID).
+    if "microblaze" in lowered:
+        return '"*MicroBlaze*#0"'
     return '"*#0"'
 
 

@@ -251,11 +251,13 @@ export default function TestBenchPanel() {
   }, [selectedDevice]);
 
   // Manifest'in agent'ına göre varsayılan transport (kullanıcı daha önce
-  // elle seçmediyse): uart -> seri, coresight -> CoreSight DCC.
+  // elle seçmediyse): uart -> seri, coresight -> CoreSight DCC, mdm -> MDM
+  // (MicroBlaze Debug Module UART; aynı xsdb jtagterminal köprüsü).
   useEffect(() => {
     if (localStorage.getItem("spec2code.testbench.transport")) return;
     if (manifest?.transport_agent === "uart") useBoardConnection.getState().update({ transport: "serial" });
     if (manifest?.transport_agent === "coresight") useBoardConnection.getState().update({ transport: "coresight" });
+    if (manifest?.transport_agent === "mdm") useBoardConnection.getState().update({ transport: "mdm" });
   }, [manifest]);
 
   function reconcileSessionAfterError(message: string) {

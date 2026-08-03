@@ -137,14 +137,15 @@ function TransportDiagram() {
     { y: 26, color: "var(--bus-eth)", label: "TCP / lwIP — GEM Ethernet (yalnız ZynqMP)" },
     { y: 50, color: "var(--bus-uart)", label: "Seri — PS UART / UARTLITE (COM portu)" },
     { y: 74, color: "var(--bus-can)", label: "CoreSight DCC — JTAG üzerinden (kablo yetmezse)" },
+    { y: 96, color: "var(--bus-spi)", label: "MDM UART — JTAG, MicroBlaze Debug Module" },
   ];
   return (
     <div className="my-4 overflow-x-auto rounded-lg border border-border bg-bg p-4">
-      <svg viewBox="0 0 740 100" className="min-w-[620px]" role="img" aria-label="Transportlar">
-        <rect x={16} y={14} width={128} height={72} rx={7} fill="var(--chip-body)" stroke="var(--chip-body-edge)" />
+      <svg viewBox="0 0 740 118" className="min-w-[620px]" role="img" aria-label="Transportlar">
+        <rect x={16} y={14} width={128} height={94} rx={7} fill="var(--chip-body)" stroke="var(--chip-body-edge)" />
         <text x={80} y={46} textAnchor="middle" fill="var(--text)" fontFamily="JetBrains Mono, monospace" fontSize="12" fontWeight="700">HOST</text>
         <text x={80} y={62} textAnchor="middle" fill="var(--faint)" fontFamily="JetBrains Mono, monospace" fontSize="9">Spec2Code</text>
-        <rect x={596} y={14} width={128} height={72} rx={7} fill="var(--chip-body)" stroke="var(--chip-body-edge)" />
+        <rect x={596} y={14} width={128} height={94} rx={7} fill="var(--chip-body)" stroke="var(--chip-body-edge)" />
         <text x={660} y={46} textAnchor="middle" fill="var(--text)" fontFamily="JetBrains Mono, monospace" fontSize="12" fontWeight="700">BOARD</text>
         <text x={660} y={62} textAnchor="middle" fill="var(--faint)" fontFamily="JetBrains Mono, monospace" fontSize="9">S2C agent</text>
         {lines.map((l) => (
@@ -366,7 +367,7 @@ const SECTIONS: DocSection[] = [
   },
   {
     id: "baglanti", no: "7.0", title: "Kart bağlantısı ve transportlar",
-    keywords: "tcp seri coresight dcc bağlantı transport ortak kart",
+    keywords: "tcp seri coresight dcc mdm microblaze jtagterminal bağlantı transport ortak kart",
     body: (
       <>
         <P>
@@ -378,7 +379,11 @@ const SECTIONS: DocSection[] = [
         <P>
           Transport üretilen ajanla eşleşmelidir (Setup'taki <M>Test bench transport</M> seçimi):
           Ethernet varsa lwIP TCP en hızlısıdır; yoksa PS UART; UART'a da erişim yoksa{" "}
-          <B>CoreSight DCC</B> yalnız JTAG kablosuyla çalışır. Agent log seviyesi (error→debug)
+          <B>CoreSight DCC</B> (ZynqMP) veya <B>MDM UART</B> (MicroBlaze) yalnız JTAG kablosuyla
+          çalışır. İki JTAG transportu da host tarafında aynı köprüyü kurar
+          (<M>xsdb jtagterminal -socket</M>); fark yalnız seçilen hedeftir — MDM'de MicroBlaze
+          çekirdeği seçilir, xsdb debug module'e kendisi çıkar. MDM'in UART'ı Vivado'da açık
+          olmalıdır ("Debug Only" MDM'de UART yoktur). Agent log seviyesi (error→debug)
           bağlantı kartından canlı değiştirilir.
         </P>
       </>

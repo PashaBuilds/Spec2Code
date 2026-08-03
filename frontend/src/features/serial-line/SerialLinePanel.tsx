@@ -164,6 +164,7 @@ function traceTransfers(
 function transportLabel(status: TestbenchSessionStatus): string {
   if (status.transport === "serial") return `seri ${status.serial_port ?? ""}`.trim();
   if (status.transport === "coresight") return `CoreSight DCC (${status.processor ?? ""})`;
+  if (status.transport === "mdm") return `MDM UART (${status.processor ?? ""})`;
   return `TCP ${status.host}:${status.port}`;
 }
 

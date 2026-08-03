@@ -3,15 +3,15 @@ import { Link2, Loader2, Unplug } from "lucide-react";
 import { Badge, Button, Input, Label } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useBoardConnection, type BoardTransport } from "@/store/connection";
+import { isJtagTransport, useBoardConnection, type BoardTransport } from "@/store/connection";
 import type { SerialPortInfo } from "@/lib/types";
 
 let S_logLevelCommandId = 9000;
 
 /** Tek kart bağlantısı: Test Bench, UART konsolu, Bring-up, Registers ve
  * telemetri aynı session'ı paylaşır — bir kez bağlanmak yeter. Seri port ve
- * CoreSight köprüsü fiziksel olarak tek istemci kaldırdığı için bu kart
- * uygulamadaki TEK bağlanma noktasıdır. */
+ * JTAG köprüsü (CoreSight DCC / MDM UART) fiziksel olarak tek istemci
+ * kaldırdığı için bu kart uygulamadaki TEK bağlanma noktasıdır. */
 export default function BoardConnectionCard({ compact = false }: { compact?: boolean }) {
   const board = useBoardConnection();
   const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
@@ -63,8 +63,8 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
     <div className="space-y-3">
       <div>
         <Label>Bağlantı (tüm ekranlar için ortak)</Label>
-        <div className="mt-1 grid grid-cols-3 gap-1 rounded-md border border-border bg-inset p-1">
-          {(["tcp", "serial", "coresight"] as const).map((option) => (
+        <div className="mt-1 grid grid-cols-4 gap-1 rounded-md border border-border bg-inset p-1">
+          {(["tcp", "serial", "coresight", "mdm"] as const).map((option) => (
             <button
               key={option}
               type="button"
@@ -76,7 +76,7 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
                 locked && "opacity-60",
               )}
             >
-              {option === "tcp" ? "TCP" : option === "serial" ? "Seri" : "CoreSight"}
+              {option === "tcp" ? "TCP" : option === "serial" ? "Seri" : option === "coresight" ? "CoreSight" : "MDM"}
             </button>
           ))}
         </div>
@@ -92,7 +92,7 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
             <Input value={board.port} onChange={(e) => board.update({ port: e.target.value })} disabled={locked} />
           </div>
         </div>
-      ) : board.transport === "coresight" ? (
+      ) : isJtagTransport(board.transport) ? (
         <div className="space-y-2">
           <div>
             <Label>Vitis kurulum yolu</Label>
@@ -115,7 +115,7 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
             />
           </div>
           <div>
-            <Label>Çekirdek (DCC)</Label>
+            <Label>{board.transport === "mdm" ? "Çekirdek (MicroBlaze)" : "Çekirdek (DCC)"}</Label>
             <Input
               value={board.csProcessor}
               onChange={(e) => board.update({ csProcessor: e.target.value })}
@@ -124,6 +124,12 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
               spellCheck={false}
             />
           </div>
+          {board.transport === "mdm" ? (
+            <p className="text-[11px] leading-relaxed text-muted">
+              MicroBlaze çekirdeği seçilir; xsdb <code>jtagterminal</code> MDM ebeveynine kendisi
+              çıkar (MDM UART'ı açık kurulmuş olmalı — "Debug Only" MDM'de UART yoktur).
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
@@ -174,9 +180,15 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
         </div>
         {!compact ? (
           <p className="mb-3 text-xs leading-relaxed text-muted">
-            Tek {board.transport === "serial" ? "seri (COM)" : board.transport === "coresight" ? "CoreSight DCC (xsdb jtagterminal köprüsü)" : "TCP"} session
+            Tek {board.transport === "serial"
+              ? "seri (COM)"
+              : board.transport === "coresight"
+                ? "CoreSight DCC (xsdb jtagterminal köprüsü)"
+                : board.transport === "mdm"
+                  ? "MDM UART (xsdb jtagterminal köprüsü)"
+                  : "TCP"} session
             tüm ekranlarca paylaşılır; komutlar satır satır gönderilir.
-            {board.transport === "coresight" ? " İlk bağlantı xsdb açılışı nedeniyle ~10-30 sn sürebilir." : ""}
+            {isJtagTransport(board.transport) ? " İlk bağlantı xsdb açılışı nedeniyle ~10-30 sn sürebilir." : ""}
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">

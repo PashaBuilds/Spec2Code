@@ -1,4 +1,10 @@
-"""Host-side TCP/serial/CoreSight bridge for the generated Spec2Code target test bench agent."""
+"""Host-side TCP/serial/JTAG bridge for the generated Spec2Code target test bench agent.
+
+JTAG comes in two flavours that share one implementation
+(:class:`_TestbenchJtagBridgeSession`): ``coresight`` (Arm DCC on ZynqMP) and
+``mdm`` (MicroBlaze Debug Module UART). Both are opened by xsdb's
+``jtagterminal -socket`` and differ only in the selected target.
+"""
 
 from __future__ import annotations
 
@@ -714,9 +720,9 @@ class _TcpBridgeStream:
 
     Speaks the same contract as a pyserial handle with a short read
     timeout: ``read()`` returns b"" when no data is available yet and
-    raises OSError when the peer goes away. Used for the CoreSight
-    jtagterminal bridge so the coresight transport needs no pyserial at
-    all (pyserial's dynamic ``socket://`` URL handler is exactly what
+    raises OSError when the peer goes away. Used for the xsdb
+    jtagterminal bridge so the coresight/mdm transports need no pyserial
+    at all (pyserial's dynamic ``socket://`` URL handler is exactly what
     PyInstaller-packaged builds fail to bundle).
     """
 
@@ -730,7 +736,7 @@ class _TcpBridgeStream:
         except socket.timeout:
             return b""
         if not data:
-            raise OSError("coresight bridge socket closed")
+            raise OSError("jtag bridge socket closed")
         return data
 
     def write(self, data: bytes) -> int:
@@ -747,34 +753,51 @@ class _TcpBridgeStream:
             pass
 
 
-class _TestbenchCoresightSession(_TestbenchSerialSession):
-    """CoreSight DCC session bridged through xsdb ``jtagterminal -socket``.
+class _TestbenchJtagBridgeSession(_TestbenchSerialSession):
+    """JTAG byte-pipe session bridged through xsdb ``jtagterminal -socket``.
 
     xsdb connects to hw_server (local USB JTAG or a SmartLynq's built-in
     server via ``-url``), selects the target core and opens a local TCP
-    socket that carries the Arm DCC byte stream. We then reuse the whole
+    socket that carries the JTAG UART byte stream. We then reuse the whole
     serial-session machinery (reader thread, console ring, traffic ring,
     response queue) over a plain socket stream — so the UART console,
     Veri Akisi and S2C commands all work unchanged over JTAG.
+
+    Two transports ride this exact mechanism and differ ONLY in which target
+    is selected before ``jtagterminal``:
+
+    * ``coresight`` — Arm DCC on a ZynqMP A53 (``psu_coresight_0``).
+    * ``mdm``       — MicroBlaze Debug Module UART; selecting the MicroBlaze
+      core is enough, xsdb walks up to the MDM parent by itself
+      (``xsdb.tcl``: ``CPUType == "MicroBlaze" && ParentID -> ctx = ParentID``).
+
+    Subclasses set :attr:`TRANSPORT` and :attr:`DEFAULT_PROCESSOR`; the core
+    filter itself comes from :func:`backend.run_on_board._core_filter`, so the
+    bridge code exists once.
     """
+
+    TRANSPORT = "coresight"
+    DEFAULT_PROCESSOR = "psu_cortexa53_0"
+    #: Human-readable channel name used in the "bridge did not come up" error.
+    BRIDGE_LABEL = "CoreSight"
 
     def __init__(self, session_id: str) -> None:
         super().__init__(session_id)
         self.vitis_path = ""
         self.hw_server_url = ""
-        self.processor = "psu_cortexa53_0"
+        self.processor = self.DEFAULT_PROCESSOR
         self.dcc_port = 0
         self._xsdb_proc: subprocess.Popen | None = None
 
     def status(self) -> TestbenchSessionStatus:
         status = super().status()
-        status.transport = "coresight"
+        status.transport = self.TRANSPORT
         status.processor = self.processor
         status.hw_server_url = self.hw_server_url
         status.dcc_port = self.dcc_port
         return status
 
-    def connect_coresight(
+    def connect_jtag(
         self,
         vitis_path: str,
         hw_server_url: str,
@@ -792,7 +815,7 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
 
         self.vitis_path = vitis_path
         self.hw_server_url = normalize_hw_server_url(hw_server_url)
-        self.processor = processor.strip() or "psu_cortexa53_0"
+        self.processor = processor.strip() or self.DEFAULT_PROCESSOR
         if bridge_factory is not None:
             proc, port = bridge_factory(vitis_path, self.hw_server_url, self.processor)
         else:
@@ -859,7 +882,7 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
             self.last_error = f"jtagterminal koprusu acilamadi: {detail}" if detail else \
                 "jtagterminal koprusu acilamadi (xsdb port bildirmedi)"
             raise TestbenchSessionError(
-                "CoreSight koprusu kurulamadi: xsdb jtagterminal portu bildirmedi. "
+                f"{self.BRIDGE_LABEL} koprusu kurulamadi: xsdb jtagterminal portu bildirmedi. "
                 "Kartin acik, JTAG kablosunun (USB/SmartLynq) bagli ve uygulamanin "
                 "yuklu oldugundan emin olun."
                 + (f"\nxsdb ciktisi:\n{detail}" if detail else ""))
@@ -881,6 +904,35 @@ class _TestbenchCoresightSession(_TestbenchSerialSession):
                     proc.kill()
             except OSError:
                 pass
+
+
+class _TestbenchCoresightSession(_TestbenchJtagBridgeSession):
+    """Arm DCC (psu_coresight_0) over the shared xsdb jtagterminal bridge."""
+
+    TRANSPORT = "coresight"
+    DEFAULT_PROCESSOR = "psu_cortexa53_0"
+    BRIDGE_LABEL = "CoreSight"
+
+    #: Geriye donuk ad: rota/testler bu adi kullaniyor.
+    connect_coresight = _TestbenchJtagBridgeSession.connect_jtag
+
+
+class _TestbenchMdmSession(_TestbenchJtagBridgeSession):
+    """MicroBlaze Debug Module UART over the SAME xsdb jtagterminal bridge.
+
+    The only difference from CoreSight is the selected target: the MicroBlaze
+    core (``_core_filter("microblaze_0")`` -> ``"*MicroBlaze*#0"``).
+    ``jtagterminal`` then attaches to the MDM's UART stream, because xsdb
+    replaces a MicroBlaze context with its parent (the MDM) before asking for
+    the UART stream ids. The S2C-MSG binary framing is untouched — the MDM is
+    just another byte pipe.
+    """
+
+    TRANSPORT = "mdm"
+    DEFAULT_PROCESSOR = "microblaze_0"
+    BRIDGE_LABEL = "MDM"
+
+    connect_mdm = _TestbenchJtagBridgeSession.connect_jtag
 
 
 def list_serial_ports() -> list[dict]:
@@ -946,6 +998,22 @@ class TestbenchSessionManager:
         self._replace_session(session_id, session)
         return session.connect(port_name.strip(), int(baud), timeout_s, serial_factory=serial_factory)
 
+    def _connect_jtag(
+        self,
+        session_cls,
+        session_id: str,
+        vitis_path: str,
+        hw_server_url: str,
+        processor: str,
+        timeout_s: float,
+        *,
+        bridge_factory=None,
+    ) -> TestbenchSessionStatus:
+        session = session_cls(self._clean_session_id(session_id))
+        self._replace_session(session_id, session)
+        return session.connect_jtag(
+            vitis_path, hw_server_url, processor, timeout_s, bridge_factory=bridge_factory)
+
     def connect_coresight(
         self,
         session_id: str,
@@ -956,10 +1024,24 @@ class TestbenchSessionManager:
         *,
         bridge_factory=None,
     ) -> TestbenchSessionStatus:
-        session = _TestbenchCoresightSession(self._clean_session_id(session_id))
-        self._replace_session(session_id, session)
-        return session.connect_coresight(
-            vitis_path, hw_server_url, processor, timeout_s, bridge_factory=bridge_factory)
+        return self._connect_jtag(
+            _TestbenchCoresightSession, session_id, vitis_path, hw_server_url,
+            processor, timeout_s, bridge_factory=bridge_factory)
+
+    def connect_mdm(
+        self,
+        session_id: str,
+        vitis_path: str,
+        hw_server_url: str,
+        processor: str,
+        timeout_s: float,
+        *,
+        bridge_factory=None,
+    ) -> TestbenchSessionStatus:
+        """MicroBlaze Debug Module UART: same bridge, MicroBlaze core filter."""
+        return self._connect_jtag(
+            _TestbenchMdmSession, session_id, vitis_path, hw_server_url,
+            processor, timeout_s, bridge_factory=bridge_factory)
 
     def _serial_session(self, session_id: str) -> _TestbenchSerialSession:
         clean_id = self._clean_session_id(session_id)

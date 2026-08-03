@@ -241,6 +241,7 @@ export default function ProjectSetup() {
                 <SelectItem value="eth">Ethernet (lwIP TCP agent)</SelectItem>
                 <SelectItem value="uart">UART (seri agent)</SelectItem>
                 <SelectItem value="coresight">CoreSight DCC — JTAG, psu_coresight_0 (ZynqMP)</SelectItem>
+                <SelectItem value="mdm">MDM UART — JTAG, MicroBlaze Debug Module (microblaze_7series)</SelectItem>
               </SelectContent>
             </Select>
           </div>

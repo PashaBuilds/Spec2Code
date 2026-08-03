@@ -5,7 +5,7 @@ import { makeSessionId } from "@/lib/console";
 import type { TestbenchSessionStatus } from "@/lib/types";
 import { useStore } from "@/store/useStore";
 
-export type BoardTransport = "tcp" | "serial" | "coresight";
+export type BoardTransport = "tcp" | "serial" | "coresight" | "mdm";
 
 /** Board hedefi profili: tüm paneller TEK bağlantıyı paylaşır. Ayarlar
  * tarayıcıda kalıcıdır; SmartLynq adresi ve Vitis yolu Run on Board /
@@ -73,7 +73,13 @@ interface BoardConnectionState extends BoardSettings {
 
 function initialTransport(): BoardTransport {
   const saved = read(FIELD_KEYS.transport);
-  return saved === "serial" || saved === "coresight" ? saved : "tcp";
+  return saved === "serial" || saved === "coresight" || saved === "mdm" ? saved : "tcp";
+}
+
+/** CoreSight ve MDM aynı xsdb jtagterminal köprüsünü kullanır; ayrım yalnız
+ * seçilen hedef çekirdektir (A53 DCC'si vs. MicroBlaze -> MDM ebeveyni). */
+export function isJtagTransport(transport: BoardTransport): boolean {
+  return transport === "coresight" || transport === "mdm";
 }
 
 export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
@@ -132,8 +138,13 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
       set({ lastError: "Seri port seç (ör. COM4)." });
       return false;
     }
-    if (state.transport === "coresight" && !state.csVitisPath.trim()) {
-      set({ lastError: "CoreSight için Vitis kurulum yolu gerekli (xsdb oradan bulunur)." });
+    if (isJtagTransport(state.transport) && !state.csVitisPath.trim()) {
+      set({
+        lastError:
+          state.transport === "mdm"
+            ? "MDM için Vitis kurulum yolu gerekli (xsdb oradan bulunur)."
+            : "CoreSight için Vitis kurulum yolu gerekli (xsdb oradan bulunur).",
+      });
       return false;
     }
     set({ busy: true, lastError: "" });
@@ -147,10 +158,10 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
               baud: Number.parseInt(state.baud, 10) || 115200,
               timeout_s: get().timeoutSeconds(),
             }
-          : state.transport === "coresight"
+          : isJtagTransport(state.transport)
             ? {
                 session_id: state.sessionId,
-                transport: "coresight",
+                transport: state.transport,
                 vitis_path: state.csVitisPath.trim(),
                 hw_server_url: state.csHwServerUrl.trim(),
                 processor: get().effectiveProcessor(),
@@ -174,7 +185,9 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
               ? "Seri bağlantı kurulamadı."
               : state.transport === "coresight"
                 ? "CoreSight köprüsü kurulamadı."
-                : "TCP bağlantısı kurulamadı."),
+                : state.transport === "mdm"
+                  ? "MDM (JTAG) köprüsü kurulamadı."
+                  : "TCP bağlantısı kurulamadı."),
       });
       return Boolean(status.connected);
     } catch (err) {

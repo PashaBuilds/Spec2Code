@@ -17,6 +17,7 @@ const TELNET_LOG_MAX_LINES = 2000;
 function transportLabel(status: TestbenchSessionStatus): string {
   if (status.transport === "serial") return `seri ${status.serial_port ?? ""}`.trim();
   if (status.transport === "coresight") return `CoreSight DCC (${status.processor ?? "psu_cortexa53_0"})`;
+  if (status.transport === "mdm") return `MDM UART (${status.processor ?? "microblaze_0"})`;
   return `TCP ${status.host}:${status.port}`;
 }
 
@@ -225,7 +226,11 @@ export default function TrafficPanel() {
     () => sessions.find((session) => session.session_id === sessionId) ?? null,
     [sessions, sessionId],
   );
-  const canWrite = selectedSession?.transport === "serial" || selectedSession?.transport === "coresight";
+  // Ham satır gönderimi bayt hattı olan her session'da açık: seri COM ve iki
+  // JTAG köprüsü (CoreSight DCC / MDM UART).
+  const canWrite = selectedSession?.transport === "serial"
+    || selectedSession?.transport === "coresight"
+    || selectedSession?.transport === "mdm";
   const txCount = useMemo(() => entries.filter((entry) => entry.dir === "tx").length, [entries]);
   const rxCount = entries.length - txCount;
 
@@ -412,7 +417,7 @@ export default function TrafficPanel() {
           onChange={(event) => setInput(event.target.value)}
           placeholder={canWrite
             ? "Karta ham satır gönder — boş Enter '>' canlılık istemi döndürür"
-            : "Ham gönderim yalnızca seri/CoreSight session'larında (TCP'de komutlar Test Bench'ten)"}
+            : "Ham gönderim yalnızca seri/JTAG (CoreSight, MDM) session'larında (TCP'de komutlar Test Bench'ten)"}
           disabled={!canWrite}
           className="font-mono text-xs"
         />

@@ -23,9 +23,9 @@
         "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" },
         "testbench_transport": {
           "type": "string",
-          "enum": ["auto", "eth", "uart", "coresight"],
+          "enum": ["auto", "eth", "uart", "coresight", "mdm"],
           "default": "auto",
-          "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART. coresight = JTAG DCC (psu_coresight_0, ZynqMP), auto asla secmez."
+          "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART. coresight = JTAG DCC (psu_coresight_0, ZynqMP), mdm = MicroBlaze Debug Module UART (XUartLite, xsdb jtagterminal koprusu); ikisini de auto asla secmez."
         }
       }
     },
@@ -61,6 +61,11 @@
           "base_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
           "device_id": { "type": ["string", "integer"] },
           "driver": { "type": "string", "description": "Canonical Xilinx driver (e.g. XIicPs), used by codegen to pick the BSP API. Optional." },
+          "subtype": {
+            "type": "string",
+            "enum": ["mdm"],
+            "description": "Ek/opsiyonel ayrim: driver ADI yetmediginde. mdm = MicroBlaze Debug Module UART'i (surucu yine XUartLite'tir, ama transport xsdb jtagterminal koprusudur). Diger her denetleyicide alan HIC bulunmaz."
+          },
           "source": { "type": "string", "enum": ["xparameters", "manual"] },
           "zone": { "type": "string", "enum": ["ps", "pl", "noc", "aie"] }
         }

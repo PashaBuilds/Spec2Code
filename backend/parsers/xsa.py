@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.parsers.xparameters import _classify, _zone_for
+from backend.parsers.xparameters import _classify, _zone_for, is_mdm_instance
 
 _MODULE_KINDS = {
     "PERIPHERAL", "PROCESSOR", "BUS", "MEMORY", "MEMORY_CNTLR",
@@ -191,6 +191,10 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
             "driver": driver,
             "instance": f"XPAR_{middle}",
             "base": base,
+            # MDM UART: same XUartLite driver as an axi_uartlite, different
+            # transport (xsdb jtagterminal). A Debug-Only MDM has no memory
+            # range at all, so it never gets here (`_base_address_of` -> None).
+            "subtype": "mdm" if is_mdm_instance(middle) else "",
         })
         return True
 
@@ -261,7 +265,7 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
         zone = _zone_for(item["family"], platform_model)
         index = counters.get((zone, item["type"]), 0)
         counters[(zone, item["type"])] = index + 1
-        result.controllers.append({
+        controller = {
             "id": f"{zone}_{item['type']}_{index}",
             "type": item["type"],
             "instance": item["instance"],
@@ -269,7 +273,10 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
             "driver": item["driver"],
             "source": "xparameters",
             "zone": zone,
-        })
+        }
+        if item.get("subtype"):
+            controller["subtype"] = item["subtype"]  # additive; absent for every other IP
+        result.controllers.append(controller)
     return result
 
 

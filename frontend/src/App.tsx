@@ -121,7 +121,7 @@ export default function App() {
     { id: "schematic", label: "Schematic ekranına git", hint: "adım", keywords: "şema devre kablo node", run: () => { setStep("schematic"); setView("flow"); } },
     { id: "generate-view", label: "Generate ekranına git", hint: "adım", keywords: "kod üret konsol", run: () => { setStep("generate"); setView("flow"); } },
     { id: "run-generate", label: "Generate çalıştır", hint: "aksiyon", keywords: "kod üret başlat build", run: () => { void runGenerate(); } },
-    { id: "board-connect", label: "Karta bağlan", hint: "aksiyon", keywords: "bağlan connect board smartlynq coresight seri tcp", run: () => { void useBoardConnection.getState().connect(); } },
+    { id: "board-connect", label: "Karta bağlan", hint: "aksiyon", keywords: "bağlan connect board smartlynq coresight mdm microblaze seri tcp", run: () => { void useBoardConnection.getState().connect(); } },
     { id: "board-disconnect", label: "Kart bağlantısını kes", hint: "aksiyon", keywords: "kes disconnect kopar", run: () => { void useBoardConnection.getState().disconnect(); } },
     { id: "knowledge", label: "Bilgi soru merkezi", hint: "görünüm", keywords: "knowledge datasheet soru", run: () => setView("knowledge") },
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },

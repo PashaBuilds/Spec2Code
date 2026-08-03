@@ -139,14 +139,17 @@ class TestbenchCommandRequest(BaseModel):
 
 class TestbenchConnectRequest(BaseModel):
     session_id: str
-    transport: str = "tcp"  # "tcp" | "serial" | "coresight"
+    transport: str = "tcp"  # "tcp" | "serial" | "coresight" | "mdm"
     host: str = ""
     port: int = 0
     serial_port: str = ""
     baud: int = 115200
-    vitis_path: str = ""  # coresight: xsdb bu kurulumdan bulunur
-    hw_server_url: str = ""  # coresight: boş = lokal USB JTAG; SmartLynq için <ip>[:port]
-    processor: str = "psu_cortexa53_0"  # coresight: DCC'nin bağlandığı çekirdek
+    vitis_path: str = ""  # coresight/mdm: xsdb bu kurulumdan bulunur
+    hw_server_url: str = ""  # coresight/mdm: boş = lokal USB JTAG; SmartLynq için <ip>[:port]
+    # coresight: DCC'nin bağlandığı çekirdek. mdm: MicroBlaze çekirdeği
+    # (jtagterminal MDM ebeveynine kendisi çıkar) — boş bırakılırsa
+    # microblaze_0 kullanılır.
+    processor: str = "psu_cortexa53_0"
     timeout_s: float = 5.0
 
 
@@ -1245,6 +1248,19 @@ def testbench_session_connect(req: TestbenchConnectRequest) -> dict:
             return testbench_sessions.connect_coresight(
                 req.session_id, req.vitis_path, req.hw_server_url,
                 req.processor, req.timeout_s).__dict__
+        if req.transport == "mdm":
+            # MicroBlaze Debug Module UART: aynı xsdb jtagterminal köprüsü,
+            # yalnız hedef MicroBlaze çekirdeğidir. Varsayılan işlemci alanı
+            # ZynqMP'ye ayarlı olduğundan MDM'de boş/psu_* değer microblaze_0'a
+            # düşer — aksi halde çekirdek filtresi "*A53*#0" olurdu.
+            if not req.vitis_path.strip():
+                raise HTTPException(400, {"message": "vitis_path is required for the mdm transport"})
+            processor = req.processor.strip()
+            if not processor or processor.startswith(("psu_", "psv_", "ps7_")):
+                processor = "microblaze_0"
+            return testbench_sessions.connect_mdm(
+                req.session_id, req.vitis_path, req.hw_server_url,
+                processor, req.timeout_s).__dict__
         return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench session is invalid", "error": str(exc)}) from exc

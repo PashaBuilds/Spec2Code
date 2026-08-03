@@ -61,6 +61,20 @@ def _resolve_int(raw: str | None, defines: dict[str, str], depth: int = 0) -> Op
 # e.g. "XIICPS" matches i2c/PS before the PL "XIIC" rule can fire.
 # Each rule -> (type, family, canonical BSP driver).
 
+#: An MDM UART instance vs. an ordinary axi_uartlite: same driver, different
+#: transport. Carried on the controller as ``subtype: "mdm"`` (additive field)
+#: because the driver name alone cannot tell them apart, and the "mdm"
+#: test-bench transport (xsdb jtagterminal bridge) needs exactly this one.
+#: Matches ``MDM`` (xparameters middle, index stripped), ``MDM_1`` (.hwh
+#: instance) and ``PSV_PMC_PPU1_MDM``; never ``AXI_UARTLITE``.
+_MDM_INSTANCE_RE = re.compile(r"(?:^|_)MDM(?:_\d+)?$")
+
+
+def is_mdm_instance(middle: str) -> bool:
+    """True when *middle* (the XPAR_ middle name, or an .hwh instance) is an MDM."""
+    return bool(_MDM_INSTANCE_RE.search(middle.upper()))
+
+
 _RULES: list[tuple[re.Pattern, str, str, str]] = [
     # --- PS hardened drivers (driver-indexed) ---
     # Versal XUARTPSV must precede XUARTPS: the looser pattern would
@@ -97,8 +111,19 @@ _RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"AXI_SPI|^XSPI"), "spi", "pl", "XSpi"),
     (re.compile(r"AXI_GPIO|^XGPIO"), "gpio", "pl", "XGpio"),
     (re.compile(r"UARTLITE"), "uart", "pl", "XUartLite"),
+    # MicroBlaze Debug Module UART. The MDM's UART is driven by the SAME
+    # uartlite BSP driver - authoritative:
+    #   .../drivers/uartlite_v3_9/data/uartlite.mdd
+    #   OPTION supported_peripherals = (mdm axi_uartlite tmr_sem psv_pmc_ppu1_mdm);
+    # so there is no new driver, only a different instance. uartlite.tcl emits
+    # XPAR_<MDM>_DEVICE_ID/BASEADDR *only* when the MDM is configured with a
+    # UART ("Updated the tcl to not to generate defines for instance where IP
+    # is not configured for uart functionality"), so a Debug-Only MDM never
+    # reaches this rule - it has no BASEADDR macro at all.
+    (_MDM_INSTANCE_RE, "uart", "pl", "XUartLite"),
     (re.compile(r"AXI_DMA|AXIDMA"), "dma", "pl", "XAxiDma"),
 ]
+
 
 # Recognized but non-attachable peripherals - skipped silently (kept out of `unmatched`).
 _IGNORE_RE = re.compile(
@@ -116,6 +141,7 @@ class Controller:
     driver: str
     zone: str
     source: str = "xparameters"
+    subtype: str = ""
 
     def to_spec(self) -> dict:
         out = {
@@ -129,6 +155,10 @@ class Controller:
         }
         if self.device_id is not None:
             out["device_id"] = self.device_id
+        # Additive: only emitted when the controller really is a special kind
+        # (today: "mdm"), so every existing spec stays byte-identical.
+        if self.subtype:
+            out["subtype"] = self.subtype
         return out
 
 
@@ -149,6 +179,7 @@ class _Candidate:
     base_addr_int: Optional[int]
     instance: str
     device_id: Optional[object]
+    subtype: str = ""
 
 
 _DRIVER_ALIAS_RE = re.compile(
@@ -171,11 +202,19 @@ def _zone_for(family: str, platform_model: Optional[dict]) -> str:
     return family
 
 
-def _candidate_preference(candidate: _Candidate) -> tuple[int, int, str]:
-    """Prefer BSP driver aliases over peripheral aliases for generated C compatibility."""
+def _candidate_preference(candidate: _Candidate) -> tuple[int, int, int, str]:
+    """Prefer BSP driver aliases over peripheral aliases for generated C compatibility.
+
+    An MDM UART emits BOTH ``XPAR_MDM_1_*`` and the canonical
+    ``XPAR_UARTLITE_<n>_*`` alias at the same address (uartlite.tcl
+    ``xdefine_params_canonical``). Neither is a BSP driver alias, so without
+    the mdm rank the winner would be decided alphabetically. Pick the MDM name
+    deliberately: it is the only one that says "debug module".
+    """
     driver_alias_rank = 0 if _DRIVER_ALIAS_RE.search(candidate.middle) else 1
+    mdm_rank = 0 if candidate.subtype == "mdm" else 1
     unresolved_device_id_rank = 1 if candidate.device_id is None else 0
-    return driver_alias_rank, unresolved_device_id_rank, candidate.instance
+    return driver_alias_rank, mdm_rank, unresolved_device_id_rank, candidate.instance
 
 
 def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> ParseResult:
@@ -232,6 +271,7 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
                 base_addr_int=addr_int,
                 instance=base_key,
                 device_id=device_id_val,
+                subtype="mdm" if is_mdm_instance(middle) else "",
             )
         )
 
@@ -240,6 +280,7 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
     # Keep one logical controller per address/type/driver and prefer the BSP alias,
     # because generated C uses <instance>_DEVICE_ID in LookupConfig calls.
     deduped: dict[tuple[str, str, str, str], _Candidate] = {}
+    mdm_keys: set[tuple[str, str, str, str]] = set()
     for candidate in candidates:
         addr_key = (
             f"0x{candidate.base_addr_int:X}"
@@ -247,9 +288,16 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
             else candidate.base_address.upper()
         )
         key = (candidate.zone, candidate.type, candidate.driver, addr_key)
+        if candidate.subtype == "mdm":
+            # "is an MDM" is a property of the ADDRESS, not of whichever alias
+            # happens to win the merge - keep it even if the canonical
+            # XPAR_UARTLITE_<n> alias were ever preferred.
+            mdm_keys.add(key)
         previous = deduped.get(key)
         if previous is None or _candidate_preference(candidate) < _candidate_preference(previous):
             deduped[key] = candidate
+    for key in mdm_keys:
+        deduped[key].subtype = "mdm"
 
     seen_ids: set[str] = set()
     for candidate in sorted(deduped.values(), key=lambda c: (c.zone, c.type, c.instance)):
@@ -270,6 +318,7 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
                 device_id=candidate.device_id,
                 driver=candidate.driver,
                 zone=candidate.zone,
+                subtype=candidate.subtype,
             ).to_spec()
         )
 
