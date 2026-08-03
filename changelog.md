@@ -3,6 +3,20 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.151 - 2026-08-03
+
+- TEST FIX (Windows'ta yakalandi): v0.1.149'da eklenen
+  `tests/test_libclang_resolver.py::test_resolve_falls_back_to_pip_bundled_lib`
+  Windows'ta 3 alt-testin hepsinde FAIL ediyordu. Kok neden: test, sahte
+  `Path.is_file` icinde duz-bolulu string ile kiyas yapiyordu
+  (`str(self) == "/pip/clang/native/libclang.dll"`); Windows'ta `str(Path)`
+  ters bolu verdigi icin kiyas hep False donuyor, resolve None donuyordu.
+  Kiyas artik Path nesnesi uzerinden (platform-bagimsiz). Uretim kodu
+  (`hostplat/tools.py` resolve_libclang) DOGRUYDU — yalnizca test kirikti.
+- Bu, standarttaki "arac-esitligi tuzagi"nin test tarafindaki ikizi: bir
+  platformda yesil goruen paket, digerinde kirik olabiliyor.
+- 313 test yesil (gcc PATH'te; host-derleme round-trip testleri dahil).
+
 ## v0.1.150 - 2026-08-03
 
 - KODLAMA STANDARDI DOKUMANI (kullanici istegi): `docs/kodlama_standardi.md`

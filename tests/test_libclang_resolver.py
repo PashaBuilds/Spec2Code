@@ -29,21 +29,26 @@ class PipBundledLibclangTests(unittest.TestCase):
     def test_resolve_falls_back_to_pip_bundled_lib(self) -> None:
         # No env override, no system LLVM dir hits, but the pip-bundled native
         # lib exists -> resolve_libclang must return it.
+        # Yol karsilastirmasi Path uzerinden yapilir: Windows'ta str(Path) ters
+        # bolu verir ("\pip\clang\native\..."), duz-bolulu string ile kiyas
+        # platforma bagimli kirilirdi.
+        native_dir = Path("/pip/clang/native")
         for name in ("libclang.dylib", "libclang.dll", "libclang.so"):
             with self.subTest(name=name):
+                expected = native_dir / name
                 with mock.patch.dict("os.environ", {}, clear=False) as env:
                     env.pop("SPEC2CODE_LIBCLANG_PATH", None)
                     with mock.patch.object(
-                        tools, "_pip_bundled_libclang_dirs", return_value=["/pip/clang/native"]
+                        tools, "_pip_bundled_libclang_dirs", return_value=[str(native_dir)]
                     ), mock.patch.object(tools, "_LIBCLANG_DIRS_MAC", []), \
                          mock.patch.object(tools, "_LIBCLANG_DIRS_WINDOWS", []), \
                          mock.patch.object(tools, "_LIBCLANG_DIRS_LINUX", []):
                         def _is_file(self: Path) -> bool:
-                            return str(self) == f"/pip/clang/native/{name}"
+                            return self == expected
 
                         with mock.patch.object(Path, "is_file", _is_file):
                             got = tools.resolve_libclang(required=False)
-                        self.assertEqual(str(got), f"/pip/clang/native/{name}")
+                        self.assertEqual(got, expected)
 
     def test_resolve_returns_none_when_nothing_found(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=False) as env:
