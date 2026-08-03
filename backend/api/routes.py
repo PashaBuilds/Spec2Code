@@ -969,6 +969,14 @@ class VivadoDesignRequest(BaseModel):
     add_regmap_test_ip: bool = False
     make_bitstream: bool = False
     timeout_s: int = 3600
+    # microblaze_7series alanlari (diger platformlarda kullanilmaz)
+    mb_clk_mhz: str = "100"
+    mb_local_mem: str = "128KB"
+    mb_axi_iic: int = 0
+    mb_axi_spi: int = 0
+    mb_axi_uartlite: int = 0
+    mb_axi_gpio: int = 0
+    constraints_path: str = ""
 
 
 def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
@@ -992,6 +1000,13 @@ def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
         add_regmap_test_ip=req.add_regmap_test_ip,
         make_bitstream=req.make_bitstream,
         timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
+        mb_clk_mhz=req.mb_clk_mhz,
+        mb_local_mem=req.mb_local_mem,
+        mb_axi_iic=req.mb_axi_iic,
+        mb_axi_spi=req.mb_axi_spi,
+        mb_axi_uartlite=req.mb_axi_uartlite,
+        mb_axi_gpio=req.mb_axi_gpio,
+        constraints_path=req.constraints_path,
     )
 
 
@@ -1163,7 +1178,7 @@ class RunOnBoardRequest(BaseModel):
     platform_name: str
     app_name: str
     processor: str = "psu_cortexa53_0"
-    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
+    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal | microblaze_7series
     program_fpga: str = "auto"  # auto | yes | no
     hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq için <ip>[:port]
     bitstream_path: str = ""  # boş = platformdan otomatik; XSA bit içermiyorsa elle .bit yolu

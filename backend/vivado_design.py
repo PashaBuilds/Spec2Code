@@ -11,6 +11,10 @@ Kapsam (Faz A): Zynq UltraScale+ (tam PS konfigürasyonu: çevre birimleri +
 MIO + referans saat + DDR custom/none) ve Versal (UART/I2C, PMC/PS MIO; DDR
 Faz A'da yok — ajan OCM'den koşar). Zynq-7000 bilinçli olarak kapsam dışı.
 
+Faz 4 eki: ``microblaze_7series`` — PL'de soft MicroBlaze + LMB yerel bellek +
+**UART'ı AÇIK MDM** (MDM transportunun donanım tarafı) + seçilen AXI çevre
+birimleri (IIC / Quad SPI / UARTLite / GPIO). Bkz. ``_microblaze_design_tcl``.
+
 DÜRÜSTLÜK NOTU: Buradaki tüm PSU__*/CIPS parametre adları ve değer
 biçimleri Vitis 2023.2 kurulumundaki resmi zcu102.xsa / vck190.xsa hardware
 handoff'larından ve zynq_ultra_ps_e IP verisinden doğrulanarak alınmıştır
@@ -65,6 +69,54 @@ _VERSAL_PERIPHERALS: dict[str, str] = {
 
 _MIO_RE = re.compile(r"^(?:MIO|PMC_MIO|PS_MIO)\s+\d+(?:\s*\.\.\s*\d+)?$")
 
+#: Desteklenen platformlar. microblaze_7series PL'de soft cekirdek kurar;
+#: PS tablolarindan (MIO/DDR/CIPS) hicbiri onun icin gecerli degildir.
+_PLATFORMS = ("zynq_ultrascale", "versal", "microblaze_7series")
+
+
+@dataclass(frozen=True)
+class _MbPeripheral:
+    """Bir AXI cevre biriminin BD gercekleri (Vivado 2023.2 IP kataloğundan)."""
+    vlnv: str        # create_bd_cell -vlnv
+    axi_pin: str     # AXI4-Lite slave arayuz pini (axi4 otomasyonunun hedefi)
+    ext_intf: str    # disariya port olarak cikarilan arayuz
+    label: str
+
+
+#: MicroBlaze AXI cevre birimleri. Ornek adlari Vivado konvansiyonudur
+#: (``axi_iic_0``, ``axi_quad_spi_0``, ...) ve DOGRUDAN xparameters.h'taki
+#: ``XPAR_AXI_IIC_0_*`` adlarina donusur — Faz 1-3'un tanima/codegen zinciri
+#: tam olarak bu adlari bekler, bu yuzden serbest isimlendirme YOKTUR.
+#: Quad SPI'nin AXI slave'i digerlerinden farkli adlanir (``AXI_LITE``).
+_MICROBLAZE_PERIPHERALS: dict[str, _MbPeripheral] = {
+    "axi_iic": _MbPeripheral("xilinx.com:ip:axi_iic", "S_AXI", "IIC", "AXI IIC"),
+    "axi_quad_spi": _MbPeripheral("xilinx.com:ip:axi_quad_spi", "AXI_LITE", "SPI_0", "AXI Quad SPI"),
+    "axi_uartlite": _MbPeripheral("xilinx.com:ip:axi_uartlite", "S_AXI", "UART", "AXI UARTLite"),
+    "axi_gpio": _MbPeripheral("xilinx.com:ip:axi_gpio", "S_AXI", "GPIO", "AXI GPIO"),
+}
+
+#: ``local_mem`` icin gecerli degerler — Vivado kurulumundaki otomasyon
+#: kaynagindan BIREBIR: ``data/rsb/design_assist/block/microblaze/bd.tcl``
+#: ``mem [list None 4KB 8KB 16KB 32KB 64KB 128KB]``.
+_MICROBLAZE_LOCAL_MEM = ("None", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB")
+
+#: Cevre birimi basina ust sinir (mutevazi kapsam; her biri ayri AXI slave'i
+#: ve ayri harici port demektir).
+_MICROBLAZE_MAX_COUNT = 2
+
+#: ``debug_module`` icin gecerli degerler, ayni kaynaktan:
+#: ``dbg_all [list None "Debug Only" "Debug & UART" "Extended Debug"]``.
+#: MDM UART transportunu (Faz 3) acan deger ``Debug & UART``'tir; otomasyonun
+#: kendi tooltip'i: "also enable the MDM UART functionality, and connect the
+#: MDM to the MicroBlaze AXI peripheral interface".
+_MICROBLAZE_DEBUG_MODULE = "Debug & UART"
+
+#: Saat: otomasyon string'i DAIMA dogrulanmis ``(100 MHz)`` variantidir;
+#: istenen frekans sonrasinda portun CONFIG.FREQ_HZ'ine ACIKCA yazilir
+#: (canli probe: 100 MHz -> 50 MHz set_property tuttu ve geri alindi).
+_MICROBLAZE_CLK_AUTOMATION = "New External Port (100 MHz)"
+_MICROBLAZE_CLK_PORT = "Clk"
+
 
 #: QSPI mod seçenekleri (değerler zcu102.xsa'dan ve canlı probe'dan
 #: doğrulandı): Single → IO 'MIO 0 .. 5'; Dual Parallel (2 yonga, toplam x8)
@@ -100,19 +152,92 @@ class VivadoDesignConfig:
     add_regmap_test_ip: bool = False  # opsiyonel: Register Map Test IP (AXI4-Lite)
     make_bitstream: bool = False
     timeout_s: int = 3600
+    # --- YALNIZ microblaze_7series (ZynqMP/Versal alanlari yukarida, degismedi) ---
+    mb_clk_mhz: str = "100"        # harici saat portunun frekansi (CONFIG.FREQ_HZ)
+    mb_local_mem: str = "128KB"    # LMB yerel bellek (bkz. _MICROBLAZE_LOCAL_MEM)
+    mb_axi_iic: int = 0            # AXI IIC adedi (0..2)
+    mb_axi_spi: int = 0            # AXI Quad SPI adedi (0..2)
+    mb_axi_uartlite: int = 0       # AXI UARTLite adedi (0..2)
+    mb_axi_gpio: int = 0           # AXI GPIO adedi (0..2)
+    constraints_path: str = ""     # kullanicinin XDC'si; bitstream icin ZORUNLU
+
+
+def microblaze_counts(cfg: VivadoDesignConfig) -> list[tuple[str, int]]:
+    """Cevre birimi anahtari -> istenen adet, DETERMINISTIK sirada (Tcl ve
+    dogrulama tek kaynaktan beslenir)."""
+    return [
+        ("axi_iic", cfg.mb_axi_iic),
+        ("axi_quad_spi", cfg.mb_axi_spi),
+        ("axi_uartlite", cfg.mb_axi_uartlite),
+        ("axi_gpio", cfg.mb_axi_gpio),
+    ]
+
+
+def _validate_microblaze(cfg: VivadoDesignConfig) -> list[str]:
+    errors: list[str] = []
+    if cfg.mb_local_mem not in _MICROBLAZE_LOCAL_MEM:
+        errors.append(
+            f"mb_local_mem: {' | '.join(_MICROBLAZE_LOCAL_MEM)} olmalı (şu an: {cfg.mb_local_mem!r})")
+    try:
+        mhz = float(cfg.mb_clk_mhz)
+    except ValueError:
+        errors.append(f"mb_clk_mhz: sayı olmalı (şu an: {cfg.mb_clk_mhz!r})")
+    else:
+        if mhz <= 0:
+            errors.append(f"mb_clk_mhz: pozitif olmalı (şu an: {cfg.mb_clk_mhz!r})")
+    for key, count in microblaze_counts(cfg):
+        if not 0 <= count <= _MICROBLAZE_MAX_COUNT:
+            label = _MICROBLAZE_PERIPHERALS[key].label
+            errors.append(f"{key}: {label} adedi 0..{_MICROBLAZE_MAX_COUNT} olmalı (şu an: {count})")
+    # PS'e ait alanlar MicroBlaze'de anlamsizdir: sessizce yok saymak yerine
+    # kullaniciya soyle (form yanlis platformda doldurulmus olabilir).
+    if cfg.peripherals:
+        errors.append(
+            "peripherals: PS çevre birimi/MIO listesi MicroBlaze'de geçerli değil — "
+            "MicroBlaze tasarımında çevre birimleri AXI IP olarak (mb_axi_*) seçilir")
+    if cfg.ddr_mode != "none":
+        errors.append(
+            "ddr_mode: MicroBlaze tasarımında DDR (MIG) henüz desteklenmiyor — ajan LMB yerel "
+            "belleğinden koşar; ddr_mode 'none' olmalı")
+    if cfg.add_regmap_test_ip:
+        errors.append("add_regmap_test_ip: Register Map Test IP şimdilik yalnız ZynqMP'de")
+    # DURUSTLUK: MicroBlaze PL'de yasar; bitstream'i UYDURULAMAZ. Saat, reset ve
+    # her harici arayuz (IIC/SPI/UART/GPIO) gercek FPGA pinlerine baglanmalidir
+    # ve bu bilgi YALNIZ kartin semasinda vardir.
+    if cfg.make_bitstream and not cfg.constraints_path.strip():
+        errors.append(
+            "make_bitstream: MicroBlaze bitstream'i üretmek için XDC kısıt dosyası ZORUNLUDUR. "
+            "MicroBlaze PL'de yaşar; saat portu (Clk), reset ve dışarı çıkarılan her arayüz "
+            "(IIC/SPI/UART/GPIO) gerçek FPGA pinlerine bağlanmalıdır. Bu pinler yalnız kartınızın "
+            "şemasında vardır — Spec2Code pin ataması UYDURMAZ. Kartınızın XDC dosyasını "
+            "'Kısıt dosyası (XDC)' alanında verin; XDC olmadan sentez yapılsaydı çalışmayan bir "
+            "bitstream üretilirdi. XDC'siz üretim (yalnız .xsa) sorunsuz çalışır — bitstream "
+            "kutusunu boş bırakın.")
+    xdc = cfg.constraints_path.strip()
+    if xdc and not Path(xdc.strip('"')).is_file():
+        errors.append(f"constraints_path: XDC dosyası bulunamadı: {xdc}")
+    return errors
 
 
 def validate_design(cfg: VivadoDesignConfig) -> list[str]:
     errors: list[str] = []
-    if cfg.platform not in ("zynq_ultrascale", "versal"):
+    if cfg.platform not in _PLATFORMS:
         errors.append(
-            f"platform: yalnız zynq_ultrascale ve versal desteklenir (Faz A); Zynq-7000 kapsam dışı (şu an: {cfg.platform!r})")
+            f"platform: yalnız {', '.join(_PLATFORMS)} desteklenir; Zynq-7000 kapsam dışı "
+            f"(şu an: {cfg.platform!r})")
     if not cfg.part.strip():
         errors.append("part: hedef parça numarası boş olamaz (örn. xczu9eg-ffvb1156-2-e)")
     if not cfg.vivado_path.strip():
         errors.append("vivado_path: Vivado kurulum dizini gerekli (örn. C:\\Xilinx_2023_2\\Vivado\\2023.2)")
     if not cfg.temp_path.strip():
         errors.append("temp_path: staging dizini gerekli")
+    if cfg.platform == "microblaze_7series":
+        # PS dogrulamalari (MIO/DDR/CIPS) MicroBlaze'de hic calismaz.
+        return errors + _validate_microblaze(cfg)
+    if cfg.constraints_path.strip():
+        errors.append(
+            "constraints_path: XDC şimdilik yalnız microblaze_7series akışında kullanılıyor "
+            "(ZynqMP/Versal PS-only tasarımı kısıt gerektirmez)")
     table = _ZYNQMP_PERIPHERALS if cfg.platform == "zynq_ultrascale" else _VERSAL_PERIPHERALS
     if not cfg.peripherals:
         errors.append("peripherals: en az bir PS çevre birimi seçilmeli (test edilecek arayüzler)")
@@ -424,9 +549,197 @@ def _regmap_ip_base_from_xsa(xsa_path: str, instance: str = "regmap_test_0") -> 
     return ""
 
 
+#: MicroBlaze BD yardimcilari.
+#:
+#: SAHA KOK NEDENI (2026-08-03, Vivado 2023.2 ile canli probe): geçersiz bir
+#: ``-config`` degerinde (probe: ``debug_module {Debug + UART}``)
+#: ``apply_bd_automation`` **Tcl hatasi ATMAZ**. Yalnizca
+#: ``ERROR: [xilinx.com:ip:microblaze:11.0-101] Invalid configuration value``
+#: satirini basar, otomasyon HIC calismaz ve batch **0 koduyla** çıkar. Probe'da
+#: BD'de yalnizca ciplak ``microblaze_0`` kaldi: LMB yok, MDM yok, AXI yok, saat
+#: portu yok. Yani sessiz bir no-op'tur ve fark edilmezse "basarili" bir XSA
+#: uretilirdi. Bu yuzden otomasyonun URUNLERI acikca dogrulanir.
+_MICROBLAZE_HELPERS_TCL = """proc spec2codeMbVerifyAutomation {} {
+    set spec2code_mdm [get_bd_cells -quiet -filter {VLNV =~ "*:mdm:*"}]
+    if {[llength $spec2code_mdm] != 1} {
+        error "Spec2Code: MicroBlaze blok otomasyonu MDM uretmedi (bulunan: '$spec2code_mdm'). apply_bd_automation GECERSIZ bir config degerinde Tcl hatasi atmaz - sessizce hicbir sey yapar. Vivado log'unda 'Invalid configuration value' satirini arayin."
+    }
+    if {[get_property CONFIG.C_USE_UART $spec2code_mdm] ne "1"} {
+        error "Spec2Code: MDM uretildi ama UART'i KAPALI (C_USE_UART != 1). MDM transportu icin debug_module {Debug & UART} gerekir; 'Debug Only' MDM'in xparameters.h'a hic girmeyen, UART'siz bir hali olur."
+    }
+    if {[llength [get_bd_ports -quiet Clk]] != 1} {
+        error "Spec2Code: MicroBlaze otomasyonu harici saat portu 'Clk' uretmedi - otomasyon calismamis olabilir."
+    }
+    puts "S2C-VIVADO|mdm_uart=$spec2code_mdm"
+}
+proc spec2codeMbExternalReset {} {
+    set spec2code_rst [get_bd_cells -quiet -filter {VLNV =~ "*:proc_sys_reset:*"}]
+    if {[llength $spec2code_rst] != 1} {
+        error "Spec2Code: MicroBlaze otomasyonu proc_sys_reset uretmedi (bulunan: '$spec2code_rst')."
+    }
+    # ext_reset_in disarida birakilirsa Vivado onu 0'a bagliyor ve
+    # 'CRITICAL WARNING: [BD 41-759]' veriyor. Polarite C_EXT_RESET_HIGH ile
+    # belirlenir; canli probe'da otomasyonun urettigi deger 1 = AKTIF-YUKSEK
+    # cikti (yani 0'a baglanmis hali "reset yok" demek - zararsiz ama kartta
+    # reset dugmesi olmaz). Portu ACIKCA disari cikariyoruz ve polariteyi
+    # bildiriyoruz; XDC'de dogru pine baglamak kullanicinin semasina aittir.
+    set spec2code_high [get_property CONFIG.C_EXT_RESET_HIGH $spec2code_rst]
+    make_bd_pins_external -name reset [get_bd_pins $spec2code_rst/ext_reset_in]
+    puts "S2C-VIVADO|reset_port=reset|active_high=$spec2code_high"
+}
+proc spec2codeMbTieSpiClock {inst} {
+    # AXI Quad SPI'nin ext_spi_clk girisi AYRI bir saat girisidir; baglanmazsa
+    # validate_bd_design duser. AXI saat agini yeniden kullaniyoruz. Net bir
+    # NESNE referansi olarak tek satirda kalmali - stringe cevrilirse (expr /
+    # satir bolme) connect_bd_net tek argumanli sanip hata verir.
+    set spec2code_net [get_bd_nets -of_objects [get_bd_pins $inst/s_axi_aclk]]
+    connect_bd_net -net $spec2code_net [get_bd_pins $inst/ext_spi_clk]
+}
+proc spec2codeMbReportPorts {} {
+    # Kullanicinin XDC'sinin kisitlamasi GEREKEN portlarin tam listesi. 7-serisi
+    # bitstream'de kisitlanmamis IO, place asamasinda DRC hatasi (UCIO/NSTD)
+    # verir - bu listeyi onceden gormek hatayi anlasilir kilar.
+    foreach spec2code_port [get_bd_ports] {
+        puts "S2C-VIVADO|external_port=[get_property NAME $spec2code_port]|[get_property DIR $spec2code_port]"
+    }
+    foreach spec2code_intf [get_bd_intf_ports] {
+        puts "S2C-VIVADO|external_port=[get_property NAME $spec2code_intf]|arayuz"
+    }
+}
+"""
+
+
+def _microblaze_instances(cfg: VivadoDesignConfig) -> list[tuple[str, _MbPeripheral]]:
+    """(BD ornek adi, cevre birimi) — Vivado konvansiyonuyla ``axi_iic_0`` vb.
+    Bu adlar xparameters.h'taki ``XPAR_AXI_IIC_0_*`` adlarina birebir donusur."""
+    instances: list[tuple[str, _MbPeripheral]] = []
+    for key, count in microblaze_counts(cfg):
+        spec = _MICROBLAZE_PERIPHERALS[key]
+        for index in range(count):
+            instances.append((f"{key}_{index}", spec))
+    return instances
+
+
+def _microblaze_design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
+    """MicroBlaze (7 serisi PL) batch-Tcl: proje → BD → MicroBlaze otomasyonu
+    (MDM UART AÇIK) → AXI çevre birimleri → adresleme → wrapper → XSA →
+    (XDC verildiyse) synth/impl → .bit → bit'li XSA."""
+    proj_dir = staging / "vivado_proj"
+    xsa_out = staging / f"{cfg.design_name}.xsa"
+    xsa_bit_out = staging / f"{cfg.design_name}_bit.xsa"
+    # Otomasyon config'i: her deger Vivado kurulumundaki
+    # data/rsb/design_assist/block/microblaze/bd.tcl'den dogrulanmistir.
+    mb_config = (
+        "{ local_mem " + _tcl_brace(cfg.mb_local_mem) + " ecc {None} cache {None}"
+        " debug_module " + _tcl_brace(_MICROBLAZE_DEBUG_MODULE) +
+        " axi_periph {Enabled} axi_intc {0}"
+        " clk " + _tcl_brace(_MICROBLAZE_CLK_AUTOMATION) + " }"
+    )
+    clk_hz = int(round(float(cfg.mb_clk_mhz) * 1_000_000))
+    instances = _microblaze_instances(cfg)
+
+    lines = [
+        "# Spec2Code tarafindan uretildi - Vivado batch MicroBlaze tasarim akisi.\n",
+        _MICROBLAZE_HELPERS_TCL,
+        _marker("stage=create_project"),
+        f"create_project spec2code_design {_tcl_path(proj_dir)} -part {cfg.part.strip()} -force\n",
+        _marker("stage=block_design"),
+        "create_bd_design \"design_1\"\n",
+        "create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze microblaze_0\n",
+        _marker("stage=mb_config"),
+        # MDM UART'i ACAN tek satir: debug_module {Debug & UART}. Otomasyonun
+        # kendi aciklamasi: "also enable the MDM UART functionality, and connect
+        # the MDM to the MicroBlaze AXI peripheral interface".
+        f"apply_bd_automation -rule xilinx.com:bd_rule:microblaze -config {mb_config} "
+        "[get_bd_cells microblaze_0]\n",
+        "spec2codeMbVerifyAutomation\n",
+        # Otomasyon string'i daima dogrulanmis (100 MHz) variantidir; istenen
+        # frekans porta ACIKCA yazilir (canli probe: set_property tutuyor).
+        f"set_property CONFIG.FREQ_HZ {clk_hz} [get_bd_ports {_MICROBLAZE_CLK_PORT}]\n",
+        "spec2codeMbExternalReset\n",
+    ]
+    if instances:
+        lines.append(_marker("stage=mb_peripherals"))
+    for inst, spec in instances:
+        lines.append(f"create_bd_cell -type ip -vlnv {spec.vlnv} {inst}\n")
+    for inst, spec in instances:
+        # AXI4 otomasyonu: MicroBlaze'in kendi 'Periph' masterina, otomasyonun
+        # ZATEN urettigi interconnect'e baglanir (intc_ip ACIKCA verilir; aksi
+        # halde 'New AXI Interconnect' her birim icin yeni bir tane kurabilir).
+        axi_cfg = (
+            "[list Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} "
+            "Master {/microblaze_0 (Periph)} "
+            f"Slave {{/{inst}/{spec.axi_pin}}} ddr_seg {{Auto}} "
+            "intc_ip {/microblaze_0_axi_periph} master_apm {0}]"
+        )
+        lines.append(
+            f"apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {axi_cfg} "
+            f"[get_bd_intf_pins {inst}/{spec.axi_pin}]\n")
+        if spec.vlnv.endswith(":axi_quad_spi"):
+            lines.append(f"spec2codeMbTieSpiClock {inst}\n")
+    for inst, spec in instances:
+        # Her cevre biriminin dis arayuzu gercek bir port olur - XSA gercekci
+        # olsun ve XDC'de pine baglanabilsin diye.
+        lines.append(f"make_bd_intf_pins_external [get_bd_intf_pins {inst}/{spec.ext_intf}]\n")
+    lines.extend([
+        _marker("stage=address"),
+        "assign_bd_address\n",
+        _marker("stage=validate"),
+        "validate_bd_design\n",
+        "save_bd_design\n",
+        "spec2codeMbReportPorts\n",
+        _marker("stage=wrapper"),
+        "set spec2code_wrapper [make_wrapper -files [get_files design_1.bd] -top]\n",
+        "add_files -norecurse $spec2code_wrapper\n",
+        "set_property top design_1_wrapper [current_fileset]\n",
+        "update_compile_order -fileset sources_1\n",
+        _marker("stage=generate_targets"),
+        "generate_target all [get_files design_1.bd]\n",
+        _marker("stage=xsa"),
+        f"set_property platform.name {cfg.design_name} [current_project]\n",
+        f"set_property platform.board_id {cfg.design_name} [current_project]\n",
+        f"write_hw_platform -fixed -force -file {_tcl_path(xsa_out)}\n",
+        _marker(f"xsa_ready={_fs(xsa_out)}"),
+    ])
+    if cfg.make_bitstream:
+        # validate_design XDC'siz bitstream'i zaten reddeder; buraya XDC ile gelinir.
+        xdc = Path(cfg.constraints_path.strip().strip('"'))
+        impl_products = proj_dir / "spec2code_design.runs" / "impl_1"
+        image_src = impl_products / "design_1_wrapper.bit"
+        image_out = staging / f"{cfg.design_name}.bit"
+        lines.extend([
+            _marker("stage=constraints"),
+            f"add_files -fileset constrs_1 -norecurse {_tcl_path(xdc)}\n",
+            _marker("stage=synth"),
+            "launch_runs synth_1 -jobs 4\n",
+            "wait_on_run synth_1\n",
+            "if {[get_property PROGRESS [get_runs synth_1]] ne \"100%\"} {\n",
+            "    error \"Spec2Code: synthesis tamamlanamadi - [get_property STATUS [get_runs synth_1]]\"\n",
+            "}\n",
+            _marker("stage=impl"),
+            "launch_runs impl_1 -to_step write_bitstream -jobs 4\n",
+            "wait_on_run impl_1\n",
+            "if {[get_property PROGRESS [get_runs impl_1]] ne \"100%\"} {\n",
+            "    error \"Spec2Code: implementation tamamlanamadi - [get_property STATUS [get_runs impl_1]]\"\n",
+            "}\n",
+            f"file copy -force {_tcl_path(image_src)} {_tcl_path(image_out)}\n",
+            _marker(f"bit_ready={_fs(image_out)}"),
+            _marker("stage=xsa_bit"),
+            f"write_hw_platform -fixed -include_bit -force -file {_tcl_path(xsa_bit_out)}\n",
+            _marker(f"xsa_bit_ready={_fs(xsa_bit_out)}"),
+        ])
+    lines.extend([
+        _marker("stage=done"),
+        "exit\n",
+    ])
+    return "".join(lines)
+
+
 def design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
     """Deterministic batch-Tcl: proje → BD → PS → validate → wrapper →
     aşama 1 XSA → (istenirse) synth/impl → bit/pdi → bit'li XSA."""
+    if cfg.platform == "microblaze_7series":
+        return _microblaze_design_tcl(cfg, staging)
     proj_dir = staging / "vivado_proj"
     xsa_out = staging / f"{cfg.design_name}.xsa"
     xsa_bit_out = staging / f"{cfg.design_name}_bit.xsa"
@@ -539,10 +852,14 @@ _STAGE_PROGRESS = {
     "block_design": 20,
     "ps_config": 30,
     "regmap_ip": 35,
+    "mb_config": 25,
+    "mb_peripherals": 32,
+    "address": 38,
     "validate": 40,
     "wrapper": 45,
     "generate_targets": 50,
     "xsa": 60,
+    "constraints": 65,
     "synth": 70,
     "impl": 85,
     "xsa_bit": 95,
@@ -554,6 +871,10 @@ _STAGE_LABELS = {
     "block_design": "Blok tasarım kuruluyor",
     "ps_config": "PS yapılandırılıyor",
     "regmap_ip": "Register Map Test IP ekleniyor (AXI4-Lite + adres atama)",
+    "mb_config": "MicroBlaze kuruluyor (LMB + MDM UART açık + AXI periph)",
+    "mb_peripherals": "AXI çevre birimleri ekleniyor ve bağlanıyor",
+    "address": "Adres haritası atanıyor (assign_bd_address)",
+    "constraints": "XDC kısıt dosyası projeye ekleniyor",
     "validate": "Tasarım doğrulanıyor (validate_bd_design)",
     "wrapper": "HDL wrapper üretiliyor",
     "generate_targets": "Blok tasarım çıktı ürünleri üretiliyor",
@@ -722,6 +1043,22 @@ class VivadoDesignJobManager:
             label, _, value = rest.partition("|")
             result.setdefault("io_assignments", {})[label] = value
             job.emit({"event": "vivado.log", "line": f"MIO atandı: {label} -> {value}"})
+        elif payload.startswith("mdm_uart="):
+            cell = payload[len("mdm_uart="):].strip()
+            result["mdm_uart"] = cell
+            job.emit({"event": "vivado.log",
+                      "line": f"MDM UART açık ve doğrulandı: {cell} (C_USE_UART=1)"})
+        elif payload.startswith("reset_port="):
+            rest = payload[len("reset_port="):]
+            name, _, polarity = rest.partition("|")
+            result["reset_port"] = name
+            job.emit({"event": "vivado.log",
+                      "line": f"Harici reset portu: {name} ({polarity})"})
+        elif payload.startswith("external_port="):
+            rest = payload[len("external_port="):]
+            name, _, direction = rest.partition("|")
+            result.setdefault("external_ports", []).append({"name": name, "dir": direction})
+            job.emit({"event": "vivado.log", "line": f"Dış port: {name} ({direction})"})
         elif payload.startswith("regmap_ip_base="):
             base = payload[len("regmap_ip_base="):].strip()
             result["regmap_ip_base"] = base
@@ -817,13 +1154,20 @@ def _platform_of_family(family: str) -> str | None:
         return "zynq_ultrascale"
     if lowered.startswith("versal"):
         return "versal"
+    # 7 serisi PL aileleri: MicroBlaze soft cekirdegi bunlarin fabric'inde
+    # kosar. Aile adlari kurulu Vivado 2023.2'nin get_parts FAMILY degerleridir
+    # (artix7 / artix7l / kintex7 / kintex7l / spartan7 - canli tarandi).
+    # 'zynq' (7000) BILINCLI olarak disaridadir: o ayri bir platformdur.
+    if lowered.startswith(("artix7", "kintex7", "spartan7")):
+        return "microblaze_7series"
     return None
 
 
 def group_parts(lines: list[str]) -> dict[str, dict[str, list[str]]]:
     """S2C-PART|<family>|<part> satırlarını platform -> cihaz -> tam parça
     listesi olarak gruplar (cihaz = parçanın ilk '-' öncesi, ör. xczu9eg)."""
-    grouped: dict[str, dict[str, list[str]]] = {"zynq_ultrascale": {}, "versal": {}}
+    grouped: dict[str, dict[str, list[str]]] = {
+        "zynq_ultrascale": {}, "versal": {}, "microblaze_7series": {}}
     for line in lines:
         if not line.startswith("S2C-PART|"):
             continue

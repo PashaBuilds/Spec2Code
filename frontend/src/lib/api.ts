@@ -244,6 +244,14 @@ export const api = {
     add_regmap_test_ip?: boolean;
     make_bitstream: boolean;
     timeout_s: number;
+    // microblaze_7series alanları (diğer platformlarda gönderilse de kullanılmaz)
+    mb_clk_mhz?: string;
+    mb_local_mem?: string;
+    mb_axi_iic?: number;
+    mb_axi_spi?: number;
+    mb_axi_uartlite?: number;
+    mb_axi_gpio?: number;
+    constraints_path?: string;
   }) =>
     req<{ vivado_job_id: string }>("/api/vivado/design", {
       method: "POST",

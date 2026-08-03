@@ -151,6 +151,41 @@ class MdmRecognitionTests(unittest.TestCase):
         uart_instances = [c["instance"] for c in parsed.controllers if c["type"] == "uart"]
         self.assertEqual(uart_instances, ["XPAR_AXI_UARTLITE_0"])
 
+    def test_real_vivado_generated_mdm_uart_xsa_is_recognized(self) -> None:
+        # Faz 4 KAPANISI: bu XSA artik SENTETIK DEGIL - backend/vivado_design.py'in
+        # microblaze_7series kod yolundan gercek Vivado 2023.2 batch kosusuyla
+        # uretildi (debug_module {Debug & UART}). Faz 3'un acik notu #2 ("gercek
+        # bir MDM-UART XSA fixture'i YOK") bu dosyayla kapaniyor.
+        xsa = ROOT / "test/0_dosyalar/microblaze_mdm_uart.xsa"
+        if not xsa.exists():
+            self.skipTest("MDM UART XSA fixture yok (Vivado ile uretilir)")
+
+        parsed = parse_xsa(xsa)
+
+        self.assertEqual(parsed.platform, "microblaze_7series")
+        self.assertEqual(parsed.processors, ["microblaze_0"])
+        # MDM UART: Faz 3'un sentetik testinin TAHMIN ettigi adresin ta kendisi.
+        mdm = [c for c in parsed.controllers if c.get("subtype") == "mdm"]
+        self.assertEqual(len(mdm), 1, parsed.controllers)
+        self.assertEqual(mdm[0]["type"], "uart")
+        self.assertEqual(mdm[0]["driver"], "XUartLite")
+        self.assertEqual(mdm[0]["instance"], "XPAR_MDM_1")
+        self.assertEqual(mdm[0]["base_address"], "0x41400000")
+        # Ayni tasarimdaki AXI cevre birimleri de tanindi (Faz 1/2 zinciri).
+        by_instance = {c["instance"]: c for c in parsed.controllers}
+        for instance, driver, kind in (
+            ("XPAR_AXI_IIC_0", "XIic", "i2c"),
+            ("XPAR_AXI_QUAD_SPI_0", "XSpi", "spi"),
+            ("XPAR_AXI_UARTLITE_0", "XUartLite", "uart"),
+            ("XPAR_AXI_GPIO_0", "XGpio", "gpio"),
+        ):
+            self.assertIn(instance, by_instance, parsed.controllers)
+            self.assertEqual(by_instance[instance]["driver"], driver)
+            self.assertEqual(by_instance[instance]["type"], kind)
+            self.assertEqual(by_instance[instance]["zone"], "pl")
+        # Duz AXI UARTLite MDM ile KARISMAZ (dedup dogru tarafi sectI).
+        self.assertNotIn("subtype", by_instance["XPAR_AXI_UARTLITE_0"])
+
     def test_xsa_mdm_with_a_uart_memrange_is_recognized(self) -> None:
         # Ayni fixture, tek fark: mdm_1'e (UART acikken olusan) MEMRANGE
         # eklendi. Fazla varsayim yok - gercek dosyanin uzerine yazilmis

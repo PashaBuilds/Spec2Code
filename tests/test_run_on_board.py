@@ -125,6 +125,49 @@ class RenderRunScriptTests(unittest.TestCase):
                 elf_path=Path("a.elf"), processor="psv_cortexa72_0",
                 platform="versal", pdi_path=None)
 
+    def test_microblaze_script_programs_pl_first_then_downloads_to_the_soft_core(self) -> None:
+        # MicroBlaze bir SOFT cekirdektir: PL programlanmadan JTAG'de islemci
+        # hedefi YOKTUR. Bu yuzden bitstream ZORUNLU ve ILK adimdir; psu_init /
+        # ps7_init yoktur (kurulacak bir PS blogu yok).
+        script = render_run_on_board_script(
+            elf_path=Path("C:/ws/app/Debug/app.elf"),
+            processor="microblaze_0",
+            platform="microblaze_7series",
+            bitstream_path=Path("C:/ws/plat/hw/design_1_wrapper.bit"),
+        )
+        markers = ["\nconnect\n", "fpga -file {C:/ws/plat/hw/design_1_wrapper.bit}",
+                   "targets -set -nocase -timeout 30", "rst -processor",
+                   "\ndow {", "\ncon\n", "disconnect"]
+        positions = [script.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        # Faz 3'un MDM kopru filtresiyle AYNI cekirdek filtresi.
+        self.assertIn('name =~ "*MicroBlaze*#0"', script)
+        # PS'e ait hicbir sey yok.
+        for ps_token in ("psu_init", "ps7_init", "device program", "*PSU*", "*APU*"):
+            self.assertNotIn(ps_token, script, f"PS artefakti MicroBlaze script'ine sizdi: {ps_token}")
+        # -clear-registers KULLANILMAZ: xsdb help rst -> "supported for ARM
+        # targets". MicroBlaze'de duz 'rst -processor'.
+        self.assertNotIn("-clear-registers", script)
+
+    def test_microblaze_script_requires_a_bitstream(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            render_run_on_board_script(
+                elf_path=Path("a.elf"), processor="microblaze_0",
+                platform="microblaze_7series", bitstream_path=None)
+        self.assertIn("MicroBlaze icin bitstream zorunlu", str(ctx.exception))
+
+    def test_arm_platforms_keep_clear_registers(self) -> None:
+        # MicroBlaze dali Arm akislarini DEGISTIRMEMELI (regresyon kilidi).
+        for platform, kwargs in (
+            ("zynq_ultrascale", {"psu_init_path": Path("p.tcl"), "processor": "psu_cortexa53_0"}),
+            ("zynq_7000", {"ps7_init_path": Path("p.tcl"), "processor": "ps7_cortexa9_0"}),
+            ("versal", {"pdi_path": Path("b.pdi"), "processor": "psv_cortexa72_0"}),
+        ):
+            script = render_run_on_board_script(
+                elf_path=Path("a.elf"), platform=platform, **kwargs)
+            self.assertIn("rst -processor -clear-registers", script)
+            self.assertNotIn("-timeout 30", script)
+
     def test_zynq7000_script_uses_ps7_init_and_post_config(self) -> None:
         script = render_run_on_board_script(
             elf_path=Path("C:/ws/app/Debug/app.elf"),
@@ -290,6 +333,56 @@ class RunOnBoardBlockingTests(unittest.TestCase):
             RunOnBoardJobManager()._blocking(job)
         self.assertIn("S2C-RUN: running", job.result["markers"])
         self.assertIsNone(job.result["bitstream"])
+
+    def _mb_job(self, root: Path, *, with_bit: bool, program_fpga: str = "auto",
+                bitstream_path: str = "") -> RunOnBoardJob:
+        ws = root / "ws"
+        (ws / "myapp" / "Debug").mkdir(parents=True)
+        (ws / "myapp" / "Debug" / "myapp.elf").write_text("elf")
+        (ws / "myplat" / "hw").mkdir(parents=True)
+        # DIKKAT: MicroBlaze platformunda psu_init.tcl YOKTUR - eskiden ZynqMP
+        # else-dalina dusup burada FileNotFoundError alirdik.
+        if with_bit:
+            (ws / "myplat" / "hw" / "design_1_wrapper.bit").write_text("bit")
+        name = "xsdb.bat" if os.name == "nt" else "xsdb"
+        xsdb = root / "tools" / name
+        _write_fake_xsct(xsdb, _RUN_OK_BODY, "2023.2")
+        config = RunOnBoardConfig(
+            vitis_path=str(xsdb), workspace_path=str(ws), platform_name="myplat",
+            app_name="myapp", processor="microblaze_0", platform="microblaze_7series",
+            program_fpga=program_fpga, bitstream_path=bitstream_path, timeout_s=60)
+        job = RunOnBoardJob(id="runboard_mb", config=config)
+        RunOnBoardJobManager()._blocking(job)
+        return job
+
+    def test_microblaze_blocking_flow_needs_no_psu_init(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            job = self._mb_job(root, with_bit=True)
+            scripts = sorted((root / "ws" / ".spec2code_runboard").glob("run_*.tcl"))
+            script = scripts[-1].read_text(encoding="utf-8")
+        self.assertIn("S2C-RUN: running", job.result["markers"])
+        self.assertTrue(job.result["bitstream"].endswith("design_1_wrapper.bit"))
+        self.assertIsNone(job.result["psu_init"])
+        self.assertIsNone(job.result["ps7_init"])
+        self.assertIn("fpga -file {", script)
+
+    def test_microblaze_without_bitstream_is_an_error_not_a_warning(self) -> None:
+        # ZynqMP'nin 'auto -> uyar ve devam et' kalibi burada YANLIS olurdu:
+        # PL programlanmadan hedef hic olusmaz.
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError) as ctx:
+                self._mb_job(Path(tmp), with_bit=False)
+        self.assertIn("MicroBlaze icin bitstream zorunlu", str(ctx.exception))
+
+    def test_microblaze_accepts_a_manual_bitstream(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manual = root / "external" / "my_mb.bit"
+            manual.parent.mkdir(parents=True)
+            manual.write_text("bit")
+            job = self._mb_job(root, with_bit=False, bitstream_path=str(manual))
+        self.assertTrue(job.result["bitstream"].endswith("my_mb.bit"))
 
 
 if __name__ == "__main__":

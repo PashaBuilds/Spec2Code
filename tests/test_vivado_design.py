@@ -30,6 +30,19 @@ def _zynqmp_cfg(**overrides) -> VivadoDesignConfig:
     return VivadoDesignConfig(**base)
 
 
+def _mb_cfg(**overrides) -> VivadoDesignConfig:
+    """MicroBlaze varsayilani: kurulu Vivado 2023.2'de GERCEKTEN var olan bir
+    Artix-7 parcasi (get_parts ile tarandi) ve cevre birimsiz MDM-only tasarim."""
+    base = dict(
+        vivado_path=r"C:\Xilinx_2023_2\Vivado\2023.2",
+        platform="microblaze_7series",
+        part="xc7a100tcsg324-1",
+        temp_path=r"D:\tmp",
+    )
+    base.update(overrides)
+    return VivadoDesignConfig(**base)
+
+
 class VivadoDesignTclTests(unittest.TestCase):
     # Parametre adlari resmi zcu102.xsa/vck190.xsa hardware handoff'larindan
     # dogrulanmistir; bu testler uretilen Tcl'in o dogrulanmis bicimden
@@ -321,6 +334,172 @@ class VivadoDesignTclTests(unittest.TestCase):
             temp_path="t", peripherals=[VivadoPeripheral(kind="uart0", mio="PMC_MIO 42 .. 43")],
         )
         self.assertEqual(validate_design(cfg), [])
+
+
+class MicroBlazeDesignTclTests(unittest.TestCase):
+    """MicroBlaze (7 serisi PL) uretimi.
+
+    Buradaki her literal Vivado 2023.2 kurulumundan DOGRULANMISTIR:
+    otomasyon secenek sozlugu ``data/rsb/design_assist/block/microblaze/bd.tcl``
+    (``dbg_all [list None "Debug Only" "Debug & UART" "Extended Debug"]``),
+    geri kalani ise canli batch probe'lariyla.
+    """
+
+    def test_microblaze_tcl_enables_the_mdm_uart(self) -> None:
+        tcl = design_tcl(_mb_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertIn("create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze microblaze_0", tcl)
+        self.assertIn("apply_bd_automation -rule xilinx.com:bd_rule:microblaze", tcl)
+        # MDM UART'i acan TEK literal. Yazimi Vivado'nun kendi otomasyon
+        # sozlugunden gelir; "Debug Only" MDM'i UART'siz kurar ve Faz 3'un
+        # MDM transportu calismaz.
+        self.assertIn("debug_module {Debug & UART}", tcl)
+        self.assertNotIn("debug_module {Debug Only}", tcl)
+        self.assertIn("local_mem {128KB}", tcl)
+        self.assertIn("axi_periph {Enabled}", tcl)
+        self.assertIn("axi_intc {0}", tcl)
+        self.assertIn("clk {New External Port (100 MHz)}", tcl)
+        # PS makinesi MicroBlaze'e SIZMAZ.
+        for ps_token in ("zynq_ultra_ps_e", "versal_cips", "PSU__", "PS_PMC_CONFIG", "psu_init"):
+            self.assertNotIn(ps_token, tcl, f"PS artefakti MicroBlaze Tcl'ine sizdi: {ps_token}")
+
+    def test_microblaze_tcl_verifies_the_automation_instead_of_trusting_it(self) -> None:
+        # SAHA BULGUSU (canli probe): gecersiz bir config degerinde
+        # apply_bd_automation Tcl HATASI ATMAZ - "Invalid configuration value"
+        # basip sessizce hicbir sey yapar ve batch 0 ile cikar. Uretilen Tcl bu
+        # yuzden MDM'i ve UART bayragini ACIKCA dogrulamak ZORUNDA.
+        tcl = design_tcl(_mb_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertIn("proc spec2codeMbVerifyAutomation", tcl)
+        self.assertIn('get_bd_cells -quiet -filter {VLNV =~ "*:mdm:*"}', tcl)
+        self.assertIn("CONFIG.C_USE_UART", tcl)
+        # Dogrulama otomasyondan SONRA, cevre birimlerinden ONCE cagrilir.
+        self.assertLess(tcl.index("apply_bd_automation -rule xilinx.com:bd_rule:microblaze"),
+                        tcl.index("\nspec2codeMbVerifyAutomation\n"))
+
+    def test_microblaze_clock_frequency_is_written_to_the_port(self) -> None:
+        # Otomasyon string'i daima dogrulanmis (100 MHz) variantidir; istenen
+        # frekans porta ACIKCA yazilir (probe: set_property FREQ_HZ tutuyor).
+        tcl = design_tcl(_mb_cfg(mb_clk_mhz="50"), Path(r"D:\tmp\s2c"))
+        self.assertIn("clk {New External Port (100 MHz)}", tcl)
+        self.assertIn("set_property CONFIG.FREQ_HZ 50000000 [get_bd_ports Clk]", tcl)
+
+    def test_microblaze_peripherals_use_vivado_instance_names_and_real_ports(self) -> None:
+        tcl = design_tcl(
+            _mb_cfg(mb_axi_iic=2, mb_axi_spi=1, mb_axi_uartlite=1, mb_axi_gpio=1),
+            Path(r"D:\tmp\s2c"))
+        # Ornek adlari xparameters.h'taki XPAR_AXI_IIC_0_* adlarina donusur -
+        # Faz 1-3 zinciri tam olarak bunlari bekler.
+        for inst, vlnv in (
+            ("axi_iic_0", "xilinx.com:ip:axi_iic"),
+            ("axi_iic_1", "xilinx.com:ip:axi_iic"),
+            ("axi_quad_spi_0", "xilinx.com:ip:axi_quad_spi"),
+            ("axi_uartlite_0", "xilinx.com:ip:axi_uartlite"),
+            ("axi_gpio_0", "xilinx.com:ip:axi_gpio"),
+        ):
+            self.assertIn(f"create_bd_cell -type ip -vlnv {vlnv} {inst}\n", tcl)
+        # Quad SPI'nin AXI slave'i FARKLI adlanir (AXI_LITE), digerleri S_AXI.
+        self.assertIn("[get_bd_intf_pins axi_quad_spi_0/AXI_LITE]", tcl)
+        self.assertIn("[get_bd_intf_pins axi_iic_0/S_AXI]", tcl)
+        # Interconnect ACIKCA yeniden kullanilir (her birime yeni bir tane degil).
+        self.assertIn("intc_ip {/microblaze_0_axi_periph}", tcl)
+        self.assertNotIn("New AXI Interconnect", tcl)
+        # ext_spi_clk ayri bir saat girisidir; baglanmazsa validate duser.
+        self.assertIn("spec2codeMbTieSpiClock axi_quad_spi_0\n", tcl)
+        # Her cevre biriminin dis arayuzu gercek bir port olur.
+        for intf in ("axi_iic_0/IIC", "axi_quad_spi_0/SPI_0",
+                     "axi_uartlite_0/UART", "axi_gpio_0/GPIO"):
+            self.assertIn(f"make_bd_intf_pins_external [get_bd_intf_pins {intf}]", tcl)
+        # Akis sirasi: hucre -> AXI otomasyonu -> disari cikarma -> adres -> XSA.
+        order = [tcl.index("create_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic axi_iic_0"),
+                 tcl.index("apply_bd_automation -rule xilinx.com:bd_rule:axi4"),
+                 tcl.index("make_bd_intf_pins_external"),
+                 tcl.index("\nassign_bd_address\n"),
+                 tcl.index("\nvalidate_bd_design\n"),
+                 tcl.index("make_wrapper"),
+                 tcl.index("generate_target all"),
+                 tcl.index("write_hw_platform -fixed -force")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("xsa_ready=", tcl)
+
+    def test_microblaze_without_peripherals_is_still_a_valid_mdm_only_design(self) -> None:
+        tcl = design_tcl(_mb_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertNotIn("bd_rule:axi4", tcl)
+        self.assertNotIn("make_bd_intf_pins_external", tcl)
+        # MDM UART tek basina da anlamlidir: ajan MDM uzerinden konusur.
+        self.assertIn("debug_module {Debug & UART}", tcl)
+        self.assertIn("write_hw_platform -fixed -force", tcl)
+
+    def test_microblaze_external_reset_port_is_explicit(self) -> None:
+        # Otomasyon proc_sys_reset/ext_reset_in'i BAGLANMADAN birakiyor; Vivado
+        # onu 0'a bagliyor ve CRITICAL WARNING BD 41-759 veriyor. Portu acikca
+        # disari cikariyoruz (polarite C_EXT_RESET_HIGH'dan raporlanir).
+        tcl = design_tcl(_mb_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertIn("proc spec2codeMbExternalReset", tcl)
+        self.assertIn("make_bd_pins_external -name reset", tcl)
+        self.assertIn("C_EXT_RESET_HIGH", tcl)
+        # Kullanicinin XDC'sinin kisitlamasi gereken portlar bildirilir.
+        self.assertIn("proc spec2codeMbReportPorts", tcl)
+
+    def test_microblaze_bitstream_requires_user_xdc(self) -> None:
+        # DURUSTLUK KAPISI: MicroBlaze PL'de yasar; saat/reset/arayuz pinleri
+        # yalniz kartin semasindadir. Pin atamasi UYDURULMAZ.
+        errors = validate_design(_mb_cfg(make_bitstream=True))
+        self.assertTrue(any("XDC" in e for e in errors), errors)
+        self.assertTrue(any("UYDURMAZ" in e for e in errors), errors)
+        # XSA-only (sentezsiz) SIFIR kisitla calisir.
+        self.assertEqual(validate_design(_mb_cfg()), [])
+        tcl = design_tcl(_mb_cfg(), Path(r"D:\tmp\s2c"))
+        self.assertNotIn("launch_runs", tcl)
+        self.assertNotIn("constrs_1", tcl)
+
+    def test_microblaze_bitstream_with_xdc_adds_constraints_and_synth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            xdc = Path(tmp) / "board.xdc"
+            xdc.write_text("set_property PACKAGE_PIN E3 [get_ports Clk]\n", encoding="utf-8")
+            cfg = _mb_cfg(make_bitstream=True, constraints_path=str(xdc), mb_axi_iic=1)
+            self.assertEqual(validate_design(cfg), [])
+            tcl = design_tcl(cfg, Path(r"D:\tmp\s2c"))
+            self.assertIn(f"add_files -fileset constrs_1 -norecurse {{{str(xdc).replace(chr(92), '/')}}}", tcl)
+            order = [tcl.index("constrs_1"), tcl.index("launch_runs synth_1"),
+                     tcl.index("launch_runs impl_1"), tcl.index("bit_ready="),
+                     tcl.index("write_hw_platform -fixed -include_bit")]
+            self.assertEqual(order, sorted(order))
+            # 7 serisi: .bit (Versal .pdi degil).
+            self.assertIn("write_bitstream", tcl)
+            self.assertNotIn("write_device_image", tcl)
+
+    def test_microblaze_validation_rejects_ps_fields_and_bad_values(self) -> None:
+        errors = validate_design(_mb_cfg(peripherals=[VivadoPeripheral(kind="uart0")]))
+        self.assertTrue(any("PS çevre birimi" in e for e in errors), errors)
+        errors = validate_design(_mb_cfg(ddr_mode="model", ddr_model="x"))
+        self.assertTrue(any("DDR" in e for e in errors), errors)
+        errors = validate_design(_mb_cfg(mb_local_mem="1MB"))
+        self.assertTrue(any("mb_local_mem" in e for e in errors), errors)
+        errors = validate_design(_mb_cfg(mb_axi_iic=5))
+        self.assertTrue(any("0..2" in e for e in errors), errors)
+        errors = validate_design(_mb_cfg(mb_clk_mhz="hizli"))
+        self.assertTrue(any("mb_clk_mhz" in e for e in errors), errors)
+        errors = validate_design(_mb_cfg(constraints_path=r"D:\yok\boyle\bir.xdc"))
+        self.assertTrue(any("bulunamadı" in e for e in errors), errors)
+        # XDC su an yalniz MicroBlaze akisinda kullaniliyor - sessizce yok sayilmaz.
+        errors = validate_design(_zynqmp_cfg(constraints_path="x.xdc"))
+        self.assertTrue(any("microblaze_7series" in e for e in errors), errors)
+
+    def test_group_parts_maps_7series_families_to_microblaze(self) -> None:
+        # Aile adlari kurulu Vivado 2023.2'nin get_parts FAMILY degerleridir.
+        grouped = group_parts([
+            "S2C-PART|artix7|xc7a100tcsg324-1",
+            "S2C-PART|artix7|xc7a100tcsg324-2",
+            "S2C-PART|kintex7|xc7k325tffg900-2",
+            "S2C-PART|spartan7|xc7s50csga324-1",
+            "S2C-PART|zynquplus|xczu9eg-ffvb1156-2-e",
+        ])
+        self.assertEqual(sorted(grouped["microblaze_7series"]),
+                         ["xc7a100tcsg324", "xc7k325tffg900", "xc7s50csga324"])
+        self.assertEqual(grouped["microblaze_7series"]["xc7a100tcsg324"],
+                         ["xc7a100tcsg324-1", "xc7a100tcsg324-2"])
+        # Zynq-7000 BILINCLI olarak disarida (ayri platform).
+        self.assertNotIn("microblaze_7series", str(group_parts(["S2C-PART|zynq|xc7z020clg484-1"])["versal"]))
+        self.assertEqual(group_parts(["S2C-PART|zynq|xc7z020clg484-1"])["microblaze_7series"], {})
 
 
 if __name__ == "__main__":

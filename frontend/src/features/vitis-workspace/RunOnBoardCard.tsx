@@ -142,7 +142,9 @@ export default function RunOnBoardCard({
           ? "PDI programla (PLM + PL dahil) → ELF indir → başlat"
           : platform === "zynq_7000"
             ? "sistem reset → ps7_init → bitstream (varsa) → ELF indir → başlat"
-            : "sistem reset → psu_init → bitstream (varsa) → ELF indir → başlat"}
+            : platform === "microblaze_7series"
+              ? "bitstream yükle (ZORUNLU — soft çekirdek PL'de) → MicroBlaze hedefini bul → işlemci reset → ELF indir → başlat"
+              : "sistem reset → psu_init → bitstream (varsa) → ELF indir → başlat"}
         . Uygulama çıktısını UART konsolundan izleyebilirsin.
       </p>
       <div className="flex flex-wrap items-end gap-3">
@@ -170,7 +172,9 @@ export default function RunOnBoardCard({
             />
           </div>
         ) : null}
-        <div className={cn("w-44", platform === "versal" && "hidden")}>
+        {/* MicroBlaze: bitstream SEÇENEK DEĞİL — soft çekirdek, PL programlanmadan
+            JTAG'de hiç işlemci hedefi olmaz. Bu yüzden seçici gösterilmez. */}
+        <div className={cn("w-44", (platform === "versal" || platform === "microblaze_7series") && "hidden")}>
           <Label htmlFor="runboard-fpga">PL bitstream</Label>
           <Select value={programFpga} onValueChange={(value) => setProgramFpga(value as FpgaChoice)}>
             <SelectTrigger id="runboard-fpga">
@@ -183,9 +187,11 @@ export default function RunOnBoardCard({
             </SelectContent>
           </Select>
         </div>
-        {platform !== "versal" && programFpga !== "no" ? (
+        {platform !== "versal" && (platform === "microblaze_7series" || programFpga !== "no") ? (
           <div className="w-64">
-            <Label htmlFor="runboard-bitstream">Bitstream dosyası (opsiyonel)</Label>
+            <Label htmlFor="runboard-bitstream">
+              {platform === "microblaze_7series" ? "Bitstream dosyası (ZORUNLU)" : "Bitstream dosyası (opsiyonel)"}
+            </Label>
             <Input
               id="runboard-bitstream"
               value={bitstreamPath}

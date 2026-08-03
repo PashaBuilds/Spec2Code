@@ -66,7 +66,7 @@ class RunOnBoardConfig:
     platform_name: str
     app_name: str
     processor: str = "psu_cortexa53_0"
-    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal
+    platform: str = "zynq_ultrascale"  # zynq_ultrascale | zynq_7000 | versal | microblaze_7series
     program_fpga: str = "auto"  # auto | yes | no (versal: PL is inside the PDI)
     hw_server_url: str = ""  # boş = lokal USB JTAG; SmartLynq/uzak hw_server için <ip>[:port]
     bitstream_path: str = ""  # boş = platformdan otomatik bul; XSA bit içermiyorsa elle .bit yolu
@@ -240,6 +240,7 @@ def render_run_on_board_script(
                      -> ps_pl_reset_config] -> A53/R5 -> dow -> con
     zynq_7000:       rst -system -> ps7_init -> [fpga .bit] -> A9 -> dow -> ps7_post_config -> con
     versal:          device program <pdi> (PLM+PL) -> A72 -> dow -> con
+    microblaze_7series: fpga .bit (ZORUNLU) -> MicroBlaze -> rst -processor -> dow -> con
 
     hw_server_url (canonical ``TCP:<host>:<port>``) switches the connect from
     the local hw_server to a remote one, e.g. a SmartLynq cable's built-in
@@ -262,6 +263,21 @@ def render_run_on_board_script(
             'targets -set -nocase -filter {name =~ "*Versal*"}',
             f"device program {{{_tcl_path(pdi_path)}}}",
             'puts "S2C-RUN: pdi programmed"',
+        ])
+    elif platform == "microblaze_7series":
+        # MicroBlaze bir SOFT cekirdektir: PL programlanmadan ortada bir islemci
+        # YOKTUR. Bu yuzden bitstream ZORUNLUDUR (ZynqMP'deki "opsiyonel PL"
+        # kalibi burada gecerli degil) ve ILK adimdir. psu_init/ps7_init yok -
+        # kurulacak bir PS blogu bulunmuyor.
+        if bitstream_path is None:
+            raise ValueError(
+                "MicroBlaze icin bitstream zorunlu: MicroBlaze bir soft cekirdektir ve "
+                "PL programlanmadan JTAG uzerinde hicbir islemci hedefi gorunmez.")
+        lines.extend([
+            # 'fpga -file' dogrulandi (xsdb help fpga): hedef secilmemisse ve
+            # tarama zincirinde tek bir desteklenen FPGA varsa o programlanir.
+            f"fpga -file {{{_tcl_path(bitstream_path)}}}",
+            'puts "S2C-RUN: fpga programmed"',
         ])
     elif platform == "zynq_7000":
         if ps7_init_path is None:
@@ -308,9 +324,21 @@ def render_run_on_board_script(
                 "after 500",
                 _guarded_proc_call("psu_ps_pl_reset_config", "PL reset serbest birakildi"),
             ])
+    if platform == "microblaze_7series":
+        # -timeout: xsdb help targets -> "Poll until the targets specified by
+        # filter option are found ... useful in case of soft processors on PL,
+        # as their initialization and detection takes some time." Varsayilan 3s;
+        # PL yeni programlandigi icin genisletiyoruz.
+        lines.append(f"targets -set -nocase -timeout 30 -filter {{name =~ {core_filter}}}")
+        # -clear-registers KULLANILMAZ: xsdb help rst -> "This option is
+        # supported for ARM targets, when used with '-processor' and '-cores'".
+        # MicroBlaze icin duz 'rst -processor' ("Reset the active processor
+        # target") dogru komuttur.
+        lines.append("rst -processor")
+    else:
+        lines.append(f"targets -set -nocase -filter {{name =~ {core_filter}}}")
+        lines.append("rst -processor -clear-registers")
     lines.extend([
-        f"targets -set -nocase -filter {{name =~ {core_filter}}}",
-        "rst -processor -clear-registers",
         f"dow {{{_tcl_path(elf_path)}}}",
         'puts "S2C-RUN: elf downloaded"',
     ])
@@ -408,11 +436,31 @@ class RunOnBoardJobManager:
         elif config.platform == "zynq_7000":
             ps7_init = find_ps7_init(workspace, config.platform_name)
             boot_note = f"ps7_init: {ps7_init.name}"
+        elif config.platform == "microblaze_7series":
+            # MicroBlaze'de PS yok: psu_init/ps7_init aranmaz. Boot = bitstream.
+            boot_note = "psu_init/ps7_init yok (MicroBlaze PL'de; boot = bitstream)"
         else:
             psu_init = find_psu_init(workspace, config.platform_name)
             boot_note = f"psu_init: {psu_init.name}"
         manual_bit = config.bitstream_path.strip()
-        if config.platform != "versal" and config.program_fpga in ("auto", "yes"):
+        if config.platform == "microblaze_7series":
+            # ZORUNLU bitstream: 'auto'da sessizce atlama YOK, 'no' da kabul
+            # edilmez - PL programlanmadan MicroBlaze hedefi hic olusmaz.
+            if manual_bit:
+                bitstream = _clean_user_path(manual_bit)
+                if not bitstream.is_file():
+                    raise FileNotFoundError(f"specified bitstream not found: {bitstream}")
+            else:
+                bitstream = find_bitstream(workspace, config.platform_name)
+            if bitstream is None:
+                raise FileNotFoundError(
+                    "MicroBlaze icin bitstream zorunlu: MicroBlaze bir SOFT cekirdektir, PL "
+                    "programlanmadan JTAG uzerinde hicbir islemci hedefi gorunmez (ZynqMP'deki "
+                    "'PL opsiyonel' durumu burada gecerli degil). Platformda .bit bulunamadi. "
+                    "COZUM: Vivado Tasarimi ekraninda kartinizin XDC'siyle bitstream uretin ve "
+                    "Setup'i bit'li XSA ile kurun, ya da 'Bitstream dosyasi' alanindan .bit'i "
+                    "elle secin.")
+        elif config.platform != "versal" and config.program_fpga in ("auto", "yes"):
             if manual_bit:
                 bitstream = _clean_user_path(manual_bit)
                 if not bitstream.is_file():
@@ -452,7 +500,8 @@ class RunOnBoardJobManager:
         script_path = run_dir / f"run_{int(time.time())}.tcl"
         script_path.write_text(script, encoding="utf-8")
 
-        boot_step = {"versal": "PDI programla", "zynq_7000": "ps7_init"}.get(config.platform, "psu_init")
+        boot_step = {"versal": "PDI programla", "zynq_7000": "ps7_init",
+                     "microblaze_7series": "bitstream (zorunlu)"}.get(config.platform, "psu_init")
         job.emit({"event": "runboard.stage", "stage": "run", "progress": 45,
                   "message": f"xsdb çalışıyor: reset -> {boot_step} -> ELF indir -> başlat..."})
         stdout_path = run_dir / "xsdb_stdout.log"

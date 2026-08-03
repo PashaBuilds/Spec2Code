@@ -73,6 +73,21 @@ const DDR_FIELDS: Array<{ key: string; label: string; placeholder: string }> = [
   { key: "PSU__DDRC__RANK_ADDR_COUNT", label: "Rank adres biti", placeholder: "0" },
 ];
 
+/** MicroBlaze (7 serisi PL) AXI çevre birimleri. Örnek adları Vivado
+ * konvansiyonundadır (axi_iic_0 ...) ve doğrudan xparameters.h'taki
+ * XPAR_AXI_IIC_0_* adlarına dönüşür. */
+const MB_PERIPHERALS: Array<{ key: MbCountKey; label: string; hint: string }> = [
+  { key: "mbAxiIic", label: "AXI IIC", hint: "I2C denetleyicisi (XIic) — tarama + cihaz sürücüleri" },
+  { key: "mbAxiSpi", label: "AXI Quad SPI", hint: "SPI denetleyicisi (XSpi)" },
+  { key: "mbAxiUartlite", label: "AXI UARTLite", hint: "Gerçek pinli seri port (XUartLite)" },
+  { key: "mbAxiGpio", label: "AXI GPIO", hint: "Ayrık hatlar (XGpio) — tek kanal" },
+];
+type MbCountKey = "mbAxiIic" | "mbAxiSpi" | "mbAxiUartlite" | "mbAxiGpio";
+// Vivado otomasyon sözlüğünden birebir (data/rsb/design_assist/block/microblaze/bd.tcl).
+const MB_LOCAL_MEM = ["4KB", "8KB", "16KB", "32KB", "64KB", "128KB"];
+
+type Platform = "zynq_ultrascale" | "versal" | "microblaze_7series";
+
 function buildRows(platform: string): PeripheralRow[] {
   const source = platform === "versal" ? VERSAL_ROWS : ZYNQMP_ROWS;
   return source.map((row) => ({
@@ -90,10 +105,12 @@ function buildRows(platform: string): PeripheralRow[] {
 // anahtarlarında, gerisi tek bir JSON snapshot'ta. --- //
 const VIVADO_FORM_KEY = "spec2code.vivadoForm";
 type SavedForm = {
-  platform?: "zynq_ultrascale" | "versal"; designName?: string; refClk?: string;
+  platform?: Platform; designName?: string; refClk?: string;
   ddrMode?: "none" | "model" | "custom"; ddrValues?: Record<string, string>;
   ddrModel?: string; ddrBusWidth?: string; makeBit?: boolean; addTestIp?: boolean;
   rows?: Array<Pick<PeripheralRow, "kind" | "enabled" | "mio" | "qspiMode" | "qspiDataMode" | "qspiFbclk">>;
+  mbClk?: string; mbLocalMem?: string; mbCounts?: Partial<Record<MbCountKey, number>>;
+  constraintsPath?: string;
 };
 function loadVivadoForm(): SavedForm {
   try { return (JSON.parse(localStorage.getItem(VIVADO_FORM_KEY) || "{}") as SavedForm) || {}; }
@@ -124,10 +141,13 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const savedFormRef = useRef<SavedForm | null>(null);
   if (savedFormRef.current === null) savedFormRef.current = loadVivadoForm();
   const savedForm = savedFormRef.current;
-  const savedPlatform = savedForm.platform === "versal" ? "versal" : "zynq_ultrascale";
+  const savedPlatform: Platform =
+    savedForm.platform === "versal" || savedForm.platform === "microblaze_7series"
+      ? savedForm.platform
+      : "zynq_ultrascale";
 
   const [vivadoDir, setVivadoDir] = useState(() => localStorage.getItem("spec2code.vivadoDir") ?? "");
-  const [platform, setPlatform] = useState<"zynq_ultrascale" | "versal">(savedPlatform);
+  const [platform, setPlatform] = useState<Platform>(savedPlatform);
   const [part, setPart] = useState(() => localStorage.getItem("spec2code.vivadoPart") ?? "");
   const [tempPath, setTempPath] = useState(() => localStorage.getItem("spec2code.vivadoTemp") ?? "");
   const [designName, setDesignName] = useState(() => savedForm.designName ?? "spec2code_hw");
@@ -143,6 +163,16 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const [ddrBusWidth, setDdrBusWidth] = useState(() => savedForm.ddrBusWidth ?? "32 Bit");
   const [makeBit, setMakeBit] = useState(() => savedForm.makeBit ?? false);
   const [addTestIp, setAddTestIp] = useState(() => savedForm.addTestIp ?? false);
+  // --- MicroBlaze (7 serisi PL) alanları ---
+  const [mbClk, setMbClk] = useState(() => savedForm.mbClk ?? "100");
+  const [mbLocalMem, setMbLocalMem] = useState(() => savedForm.mbLocalMem ?? "128KB");
+  const [mbCounts, setMbCounts] = useState<Record<MbCountKey, number>>(() => ({
+    mbAxiIic: savedForm.mbCounts?.mbAxiIic ?? 1,
+    mbAxiSpi: savedForm.mbCounts?.mbAxiSpi ?? 1,
+    mbAxiUartlite: savedForm.mbCounts?.mbAxiUartlite ?? 1,
+    mbAxiGpio: savedForm.mbCounts?.mbAxiGpio ?? 0,
+  }));
+  const [constraintsPath, setConstraintsPath] = useState(() => savedForm.constraintsPath ?? "");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [events, setEvents] = useState<VivadoEvent[]>([]);
@@ -186,16 +216,18 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         platform, designName, refClk, ddrMode, ddrValues, ddrModel, ddrBusWidth, makeBit, addTestIp,
         rows: rows.map((r) => ({ kind: r.kind, enabled: r.enabled, mio: r.mio,
           qspiMode: r.qspiMode, qspiDataMode: r.qspiDataMode, qspiFbclk: r.qspiFbclk })),
+        mbClk, mbLocalMem, mbCounts, constraintsPath,
       };
       localStorage.setItem(VIVADO_FORM_KEY, JSON.stringify(snapshot));
     } catch { /* localStorage kapali - ayarlar yalnizca bu oturumda kalir */ }
   }, [vivadoDir, part, tempPath, platform, designName, refClk, ddrMode, ddrValues,
-      ddrModel, ddrBusWidth, makeBit, addTestIp, rows]);
+      ddrModel, ddrBusWidth, makeBit, addTestIp, rows, mbClk, mbLocalMem, mbCounts,
+      constraintsPath]);
 
-  function switchPlatform(next: "zynq_ultrascale" | "versal") {
+  function switchPlatform(next: Platform) {
     setPlatform(next);
     setRows(buildRows(next));
-    if (next === "versal") setDdrMode("none");
+    if (next !== "zynq_ultrascale") setDdrMode("none");
     // Seçili parça yeni platforma ait değilse menü tutarlılığı için sıfırla.
     const nextDevices = partsCatalog?.[next] ?? null;
     if (nextDevices && !(part.split("-", 1)[0] in nextDevices)) setPart("");
@@ -307,13 +339,24 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
     setError("");
     setResult(null);
     setConnectMsg("");
-    const peripherals = rows.filter((r) => r.enabled).map((r) => ({
+    const isMb = platform === "microblaze_7series";
+    // MicroBlaze'de PS çevre birimi/MIO listesi gönderilmez (backend reddeder).
+    const peripherals = isMb ? [] : rows.filter((r) => r.enabled).map((r) => ({
       kind: r.kind,
       mio: r.kind === "qspi" ? "" : r.mio.trim(),
       qspi_mode: r.kind === "qspi" ? r.qspiMode : "",
       qspi_data_mode: r.kind === "qspi" ? r.qspiDataMode : "",
       qspi_fbclk: r.kind === "qspi" ? r.qspiFbclk : false,
     }));
+    if (isMb && makeBit && !constraintsPath.trim()) {
+      setError(
+        "MicroBlaze bitstream'i üretmek için XDC kısıt dosyası zorunludur: MicroBlaze PL'de yaşar; " +
+        "saat portu (Clk), reset ve dışarı çıkarılan her arayüz gerçek FPGA pinlerine bağlanmalıdır. " +
+        "Bu pinler yalnız kartının şemasında vardır — Spec2Code pin ataması uydurmaz. Kartının XDC " +
+        "dosyasını ver ya da bitstream kutusunu boş bırak (yalnız .xsa sorunsuz üretilir).",
+      );
+      return;
+    }
     const ddrParams = Object.fromEntries(
       Object.entries(ddrValues).filter(([, value]) => value.trim() !== "").map(([k, v]) => [k, v.trim()]),
     );
@@ -340,16 +383,23 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
         temp_path: tempPath.trim(),
         design_name: designName.trim() || "spec2code_hw",
         peripherals,
-        ref_clk_mhz: refClk.trim(),
-        ddr_mode: platform === "versal" ? "none" : ddrMode,
-        ddr_params: ddrMode === "custom" ? ddrParams : {},
-        ddr_model: ddrMode === "model" ? ddrModel : "",
-        ddr_bus_width: ddrMode === "model" ? ddrBusWidth : "",
+        ref_clk_mhz: isMb ? "" : refClk.trim(),
+        ddr_mode: platform === "zynq_ultrascale" ? ddrMode : "none",
+        ddr_params: !isMb && ddrMode === "custom" ? ddrParams : {},
+        ddr_model: !isMb && ddrMode === "model" ? ddrModel : "",
+        ddr_bus_width: !isMb && ddrMode === "model" ? ddrBusWidth : "",
         // Hıza dokunulmaz (PCW 1600 varsayılanı) — bkz. backend notu.
         ddr_speed_bin: "",
         add_regmap_test_ip: platform === "zynq_ultrascale" ? addTestIp : false,
         make_bitstream: makeBit,
         timeout_s: makeBit ? 3 * 3600 : 1800,
+        mb_clk_mhz: mbClk.trim() || "100",
+        mb_local_mem: mbLocalMem,
+        mb_axi_iic: isMb ? mbCounts.mbAxiIic : 0,
+        mb_axi_spi: isMb ? mbCounts.mbAxiSpi : 0,
+        mb_axi_uartlite: isMb ? mbCounts.mbAxiUartlite : 0,
+        mb_axi_gpio: isMb ? mbCounts.mbAxiGpio : 0,
+        constraints_path: isMb ? constraintsPath.trim() : "",
       });
       localStorage.setItem(VIVADO_JOB_KEY, res.vivado_job_id);
       attach(res.vivado_job_id);
@@ -381,9 +431,10 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   // otomatik TAŞIMAZ. Yani birden fazla birim boş MIO ile açıksa üretim
   // büyük olasılıkla çakışma hatasıyla düşer — gerçek kartta MIO zaten
   // şemadan gelir. Kullanıcıyı üretimden ÖNCE uyar.
+  const isMicroblaze = platform === "microblaze_7series";
   const enabledRows = rows.filter((r) => r.enabled);
   const blankMioCount = enabledRows.filter((r) => !r.mio.trim()).length;
-  const multiBlankMioWarning = enabledRows.length >= 2 && blankMioCount >= 2;
+  const multiBlankMioWarning = !isMicroblaze && enabledRows.length >= 2 && blankMioCount >= 2;
 
   const xsaReady = result?.xsa_path || events.find((e) => e.event === "vivado.xsa_ready")?.xsa_path;
   const xsaBitReady = result?.xsa_bit_path || events.find((e) => e.event === "vivado.xsa_bit_ready")?.xsa_bit_path;
@@ -397,7 +448,10 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   useEffect(() => { if (regmapBase) localStorage.setItem("spec2code.regmap.testIpBase", regmapBase); }, [regmapBase]);
   const lastStage = [...events].reverse().find((e) => e.event === "vivado.stage");
   const tempTooLong = tempPath.trim().length > 60;
-  const canStart = Boolean(vivadoDir.trim() && part.trim() && tempPath.trim() && rows.some((r) => r.enabled)) && !running;
+  // MicroBlaze'de PS çevre birimi satırı yok: çevre birimsiz (yalnız MDM UART'lı)
+  // tasarım da geçerlidir — ajan MDM üzerinden konuşur.
+  const canStart = Boolean(vivadoDir.trim() && part.trim() && tempPath.trim()
+    && (isMicroblaze || rows.some((r) => r.enabled))) && !running;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -419,10 +473,21 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           </div>
         </div>
         <p className="mb-4 text-xs leading-relaxed text-muted">
-          Gerçek kartın PS arayüzlerini şemadan seç, MIO&apos;ları gir; arka planda Vivado batch koşar.
-          <b> Aşama 1</b>: sentezsiz .xsa (~1-2 dk) — hazır olunca tek tuşla Setup/şematiğe bağlanır.
-          <b> Aşama 2</b> (isteğe bağlı): sentez + implementasyon ile {platform === "versal" ? ".pdi" : ".bit"}.
-          MIO/parametre doğrulaması Vivado&apos;ya aittir: geçersiz değer 1. aşamada net hatayla döner.
+          {isMicroblaze ? (
+            <>
+              PL&apos;de soft MicroBlaze + LMB yerel bellek + <b>UART&apos;ı açık MDM</b> + seçtiğin AXI çevre
+              birimleri; arka planda Vivado batch koşar.
+              <b> Aşama 1</b>: sentezsiz .xsa (~2-3 dk) — hazır olunca tek tuşla Setup/şematiğe bağlanır.
+              <b> Aşama 2</b> (isteğe bağlı): sentez + implementasyon ile .bit — <b>kartının XDC&apos;si zorunlu</b>.
+            </>
+          ) : (
+            <>
+              Gerçek kartın PS arayüzlerini şemadan seç, MIO&apos;ları gir; arka planda Vivado batch koşar.
+              <b> Aşama 1</b>: sentezsiz .xsa (~1-2 dk) — hazır olunca tek tuşla Setup/şematiğe bağlanır.
+              <b> Aşama 2</b> (isteğe bağlı): sentez + implementasyon ile {platform === "versal" ? ".pdi" : ".bit"}.
+              MIO/parametre doğrulaması Vivado&apos;ya aittir: geçersiz değer 1. aşamada net hatayla döner.
+            </>
+          )}
         </p>
 
         <div className="grid gap-3 lg:grid-cols-2">
@@ -439,14 +504,19 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           </div>
           <div>
             <Label>Platform</Label>
-            <Select value={platform} onValueChange={(v) => switchPlatform(v as "zynq_ultrascale" | "versal")}>
+            <Select value={platform} onValueChange={(v) => switchPlatform(v as Platform)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="zynq_ultrascale">Zynq UltraScale+</SelectItem>
                 <SelectItem value="versal">Versal</SelectItem>
+                <SelectItem value="microblaze_7series">MicroBlaze (7 serisi PL)</SelectItem>
               </SelectContent>
             </Select>
-            <p className="mt-1 text-[11px] text-faint">Zynq-7000 bu akışta bilinçli olarak kapsam dışı (Faz A).</p>
+            <p className="mt-1 text-[11px] text-faint">
+              {isMicroblaze
+                ? "Artix-7 / Kintex-7 / Spartan-7 fabric'inde soft MicroBlaze; MDM UART açık üretilir."
+                : "Zynq-7000 bu akışta bilinçli olarak kapsam dışı (Faz A)."}
+            </p>
           </div>
           <div>
             <Label>Hedef parça (part)</Label>
@@ -512,13 +582,82 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
             <Label>Tasarım adı</Label>
             <Input value={designName} onChange={(e) => setDesignName(e.target.value)} placeholder="spec2code_hw" />
           </div>
-          <div>
-            <Label>PS referans saati (MHz)</Label>
-            <Input value={refClk} onChange={(e) => setRefClk(e.target.value)} placeholder="33.333" className="font-mono text-xs" />
-          </div>
+          {isMicroblaze ? (
+            <div>
+              <Label>Harici saat (MHz)</Label>
+              <Input value={mbClk} onChange={(e) => setMbClk(e.target.value)} placeholder="100" className="font-mono text-xs" />
+              <p className="mt-1 text-[11px] text-faint">
+                Kartın osilatörü. Değer <code>Clk</code> portunun FREQ_HZ&apos;ine yazılır; XDC&apos;de bu pini kısıtlaman gerekir.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <Label>PS referans saati (MHz)</Label>
+              <Input value={refClk} onChange={(e) => setRefClk(e.target.value)} placeholder="33.333" className="font-mono text-xs" />
+            </div>
+          )}
         </div>
       </Card>
 
+      {isMicroblaze ? (
+        <Card className="p-4">
+          <h4 className="mb-2 text-sm font-semibold text-text">MicroBlaze + AXI çevre birimleri</h4>
+          <p className="mb-3 text-[11px] leading-relaxed text-faint">
+            MicroBlaze soft çekirdek, LMB yerel belleği ve <b>UART&apos;ı AÇIK MDM</b> (MicroBlaze Debug
+            Module) üretilir — Test Tezgahı&apos;ndaki <b>MDM transportu</b> tam olarak bunu kullanır
+            (ayrı pin gerekmez, JTAG üzerinden konuşur). Seçtiğin AXI birimleri MicroBlaze&apos;in AXI
+            interconnect&apos;ine bağlanır, adresleri otomatik atanır ve dış arayüzleri gerçek port olur.
+            Örnek adları Vivado konvansiyonundadır (<code>axi_iic_0</code> → <code>XPAR_AXI_IIC_0_*</code>).
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <Label>Yerel bellek (LMB)</Label>
+              <select
+                value={mbLocalMem}
+                onChange={(e) => setMbLocalMem(e.target.value)}
+                className="h-9 w-full rounded-md border border-border bg-inset px-2 font-mono text-xs text-text"
+              >
+                {MB_LOCAL_MEM.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+              <p className="mt-1 text-[11px] text-faint">Ajan bu bellekten koşar (DDR/MIG bu fazda yok).</p>
+            </div>
+            <div>
+              <Label>Kısıt dosyası (XDC) — bitstream için zorunlu</Label>
+              <Input
+                value={constraintsPath}
+                onChange={(e) => setConstraintsPath(e.target.value)}
+                placeholder="D:\board\ax7a100.xdc"
+                className="font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] text-faint">
+                Yalnız .xsa üretmek için gerekmez. Bitstream isteniyorsa kartının XDC&apos;si şart —
+                pin ataması uydurulmaz.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {MB_PERIPHERALS.map((per) => (
+              <div key={per.key} className={cn(
+                "flex items-center gap-2 rounded-md border px-2 py-1.5",
+                mbCounts[per.key] > 0 ? "border-accent/40 bg-accent/5" : "border-border bg-inset",
+              )}>
+                <span className="w-36 shrink-0 font-mono text-xs text-text" title={per.hint}>{per.label}</span>
+                <select
+                  value={String(mbCounts[per.key])}
+                  onChange={(e) => setMbCounts((c) => ({ ...c, [per.key]: Number(e.target.value) }))}
+                  className="h-8 rounded-md border border-border bg-inset px-2 font-mono text-xs text-text"
+                  data-testid={`vivado-mb-${per.key}`}
+                >
+                  <option value="0">yok</option>
+                  <option value="1">1 adet</option>
+                  <option value="2">2 adet</option>
+                </select>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-faint">{per.hint}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : (
       <Card className="p-4">
         <h4 className="mb-2 text-sm font-semibold text-text">PS çevre birimleri + MIO</h4>
         <p className="mb-3 text-[11px] text-faint">
@@ -633,6 +772,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
           })}
         </div>
       </Card>
+      )}
 
       {platform === "zynq_ultrascale" ? (
         <Card className="p-4">
@@ -736,6 +876,14 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
             </>
           )}
         </Card>
+      ) : isMicroblaze ? (
+        <Card className="p-4">
+          <h4 className="mb-1 text-sm font-semibold text-text">Bellek (MicroBlaze)</h4>
+          <p className="text-[11px] leading-relaxed text-faint">
+            Tasarım yalnız LMB yerel belleğiyle üretilir — ajan oradan koşar. Harici DDR (MIG)
+            bu fazda kapsam dışıdır; ihtiyaç olursa yerel belleği yukarıdaki listeden büyüt.
+          </p>
+        </Card>
       ) : (
         <Card className="p-4">
           <h4 className="mb-1 text-sm font-semibold text-text">DDR (Versal)</h4>
@@ -759,10 +907,19 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
             </span>
           </label>
         ) : null}
+        {isMicroblaze && makeBit && !constraintsPath.trim() ? (
+          <p className="mb-3 rounded-md border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-warn">
+            Bitstream seçili ama <b>XDC kısıt dosyası boş</b>. MicroBlaze PL&apos;de yaşar: saat (Clk),
+            reset ve dışarı çıkarılan her arayüz (IIC/SPI/UART/GPIO) gerçek FPGA pinlerine bağlanmalıdır
+            ve bu pinler yalnız kartının şemasındadır — Spec2Code pin ataması <b>uydurmaz</b>. Yukarıdaki
+            &quot;Kısıt dosyası (XDC)&quot; alanını doldur, ya da bu kutuyu boş bırak (yalnız .xsa üretilir).
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-text">
             <input type="checkbox" checked={makeBit} onChange={(e) => setMakeBit(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
             Aşama 2: {platform === "versal" ? ".pdi" : ".bit"} de üret (sentez + implementasyon — tasarıma göre dakikalar/saatler)
+            {isMicroblaze ? " — XDC zorunlu" : ""}
           </label>
           <Button onClick={() => void start()} disabled={!canStart} className="ml-auto" data-testid="vivado-start">
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />}
