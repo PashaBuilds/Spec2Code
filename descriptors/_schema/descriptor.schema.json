@@ -128,7 +128,7 @@
                   "enum": [
                     "write_register", "read_register", "read_registers", "read_channels", "poll", "delay_ms",
                     "send_command", "write_command_address", "read_command_address",
-                    "select_mux_channel", "comment"
+                    "select_mux_channel", "pin_write", "pin_read", "comment"
                   ]
                 },
                 "reg": { "type": "string" },
@@ -141,6 +141,8 @@
                 "mask": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Optional byte mask for read_register scalar composition." },
                 "right_shift": { "type": "integer", "minimum": 0, "maximum": 31, "description": "Optional right shift after mask for read_register scalar composition." },
                 "shift": { "type": "integer", "minimum": 0, "maximum": 31, "description": "Optional left shift for read_register scalar composition." },
+                "pin_mask": { "type": "integer", "minimum": 1, "maximum": 4294967295, "description": "gpio transport (pin_write/pin_read): 32-bit pin mask on the device's AXI GPIO channel. Omitted = the device's attach.gpio_pin_mask." },
+                "pin_value": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "gpio transport (pin_write): value driven on the masked pins. Required - a runtime-valued line write goes through the controller-level gpio_write op instead." },
                 "timeout_ms": { "type": "integer", "minimum": 0 },
                 "ms": { "type": "integer", "minimum": 0 },
                 "note": { "type": "string" }

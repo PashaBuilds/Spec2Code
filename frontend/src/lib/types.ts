@@ -336,6 +336,18 @@ export interface TestbenchManifest {
    * orchestrator/codegen.py `_telnet_log_enabled`). Host tarafi bu alandan
    * IP/port okuyup Akış ekranındaki Telnet log kartını önceden doldurur. */
   telnet_log?: { port: number; ip: string };
+  /** AXI GPIO denetleyici op'ları: gpio_read/gpio_write DENETLEYİCİ-adreslidir
+   * (hedef bir cihaz değil, AXI GPIO çekirdeğinin kendisi). `index` tel'de
+   * uiCihazIndeks olarak gider — I2C denetleyicileri aynı tabloda ÖNEK olduğu
+   * için burada AÇIKÇA yayınlanır, UI ofseti yeniden türetmez. */
+  gpio?: {
+    read_op: string;
+    write_op: string;
+    channels: number[];
+    payload: { channel: string; mask: string; value: string };
+    direction_note: string;
+    controllers: Array<{ id: string; instance: string; index: number }>;
+  };
 }
 
 export interface TestbenchCitMeasurement {
@@ -439,6 +451,21 @@ export interface I2cScanResult {
     address: number;
     channels: Array<{ channel: number; addresses: number[] }>;
   }>;
+}
+
+/** Tek bir AXI GPIO kanal okuma/yazma sonucu (op SONRASI okunan değer). */
+export interface GpioOpResult {
+  controller_id: string;
+  op: string;
+  channel: number;
+  /** Uygulanan pin maskesi (istekte 0 verildiyse 0xFFFFFFFF döner). */
+  mask: number;
+  value: number;
+  /** Aynı değerin 4 baytı, MSB önce (hex). */
+  data: string;
+  message: string;
+  taken_at: number;
+  duration_ms: number;
 }
 
 export interface TestbenchCommandRequest {

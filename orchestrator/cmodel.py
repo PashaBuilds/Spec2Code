@@ -186,6 +186,11 @@ _SUPPORTED_BUS_DRIVERS: dict[str, set[str]] = {
     "i2c": {"XIicPs", "XIic"},
     "spi": {"XSpiPs", "XSpi"},
     "qspi": {"XQspiPsu"},
+    # AXI GPIO (soft IP) only. PS GPIO (XGpioPs) has a different API entirely
+    # (XGpioPs_ReadPin/WritePin on a flat pin space, no channel/TRI-mask model)
+    # and no emitter arm - it must fail loudly rather than emit code that
+    # cannot compile.
+    "gpio": {"XGpio"},
 }
 
 #: Handle variable name per driver. AXI IIC is the odd one out: its polled API
@@ -204,6 +209,7 @@ def _handle_for(controller: dict) -> tuple[str, str]:
             ("i2c", True): "XIicPs", ("i2c", False): "XIic",
             ("spi", True): "XSpiPs", ("spi", False): "XSpi",
             ("qspi", True): "XQspiPs", ("qspi", False): "XSpi",
+            ("gpio", True): "XGpioPs", ("gpio", False): "XGpio",
         }
         driver = table.get((ctype, is_ps))
         if driver is None:
@@ -245,6 +251,18 @@ def _spi_header_for(htype: str) -> str:
 
 def _i2c_header_for(htype: str) -> str:
     return "xiic_l.h" if htype == "XIic" else "xiicps.h"
+
+
+def _gpio_header_for(htype: str) -> str:
+    """BSP header for a GPIO controller driver.
+
+    Only the AXI GPIO soft IP (``XGpio``) has an emitter arm; ``_handle_for``
+    already rejects everything else, so this stays a single-entry map that
+    fails as loudly as its caller if that ever changes.
+    """
+    if htype != "XGpio":
+        raise CodegenError(f"no GPIO header mapping for driver '{htype}' (only XGpio is implemented)")
+    return "xgpio.h"
 
 
 def _is_qspipsu(htype: str) -> bool:
@@ -1823,6 +1841,194 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
+# --- GPIO device unit (AXI GPIO / XGpio) ------------------------------------------------
+
+#: Descriptor step ops the GPIO emitter can express. Anything else must fail
+#: loudly - a silently skipped step would produce a driver that compiles and
+#: does nothing.
+_GPIO_STEP_OPS: frozenset[str] = frozenset({"comment", "pin_write", "pin_read"})
+
+
+def _gpio_channel_of(attach: dict) -> int:
+    channel = attach.get("gpio_channel", 1)
+    channel = _int_value(channel) if channel is not None else 1
+    if channel not in (1, 2):
+        raise CodegenError(f"gpio_channel must be 1 or 2 (AXI GPIO has two channels), got {channel!r}")
+    return channel
+
+
+def _gpio_pin_mask(step: dict, mask_def: str, where: str) -> str:
+    """C expression for a step's ``pin_mask``.
+
+    A step without ``pin_mask`` means "all the lines this device owns", which is
+    exactly the ``<MOD>_GPIO_MASK`` define - emit the define, not a copy of its
+    value, so the board wiring stays a single named constant.
+    """
+    raw = step.get("pin_mask")
+    if raw is None:
+        return mask_def
+    mask = _int_value(raw)
+    if not 0 < mask <= 0xFFFFFFFF:
+        raise CodegenError(f"{where}: pin_mask 0x{mask:X} is outside a 32-bit non-zero range")
+    return _hexu32(mask)
+
+
+def _gpio_low_level(module: str, channel_def: str) -> list[CFunc]:
+    """Masked read / read-modify-write helpers over the XGpio discrete API.
+
+    Direction semantics come straight from the driver: in ``XGpio_SetDataDirection``
+    a mask bit set to **1 is an INPUT** and a bit set to **0 is an OUTPUT**
+    (``gpio_v4_10/src/xgpio.c`` doxygen). Each channel has its own TRI register
+    (``(Channel-1) * XGPIO_CHAN_OFFSET + XGPIO_TRI_OFFSET``), so touching one
+    channel can never disturb the other; within a channel only the masked bits
+    are moved, the rest of the direction word is preserved.
+    """
+    wr = Emit()
+    wr.ln("unsigned int uiDirection;")
+    wr.ln("unsigned int uiCurrent;")
+    wr.blank()
+    wr.ln("/* Yon maskesinde bit=1 GIRIS, bit=0 CIKIS. Yalniz maskelenen")
+    wr.ln(" * pinler cikisa alinir; ayni kanaldaki digerlerinin yonu korunur,")
+    wr.ln(" * diger kanalin TRI yazmacina hic dokunulmaz. */")
+    wr.ln(f"uiDirection = (unsigned int)XGpio_GetDataDirection(spGpio, {channel_def});")
+    wr.ln(f"XGpio_SetDataDirection(spGpio, {channel_def}, uiDirection & ~uiMask);")
+    wr.ln("/* \"All Inputs\" konfigurasyonunda TRI SALT-OKUNURDUR ve yazma")
+    wr.ln(" * sessizce yutulur: geri okunup pinlerin gercekten cikis oldugu")
+    wr.ln(" * dogrulanmazsa yazma hicbir sey yapmadan basarili gorunurdu. */")
+    wr.ln(f"uiDirection = (unsigned int)XGpio_GetDataDirection(spGpio, {channel_def});")
+    wr.open("if ((uiDirection & uiMask) != 0U)")
+    wr.ln("return XST_FAILURE;")
+    wr.close()
+    wr.ln(f"uiCurrent = (unsigned int)XGpio_DiscreteRead(spGpio, {channel_def});")
+    wr.ln(f"XGpio_DiscreteWrite(spGpio, {channel_def},")
+    wr.ln("                    (uiCurrent & ~uiMask) | (uiValue & uiMask));")
+    wr.ln("return XST_SUCCESS;")
+    write = CFunc(
+        name=_func_name(module, "pins_write"), ret="int",
+        params=["XGpio* spGpio", "unsigned int uiMask", "unsigned int uiValue"],
+        body=wr.out(), static=True)
+
+    # Okuma hicbir sekilde basarisiz olamaz (tek bir AXI yazmac okumasi, yon
+    # degistirilmez) - int dondurup her cagri noktasina asla girilmeyen bir
+    # hata dali koymak yerine void.
+    rd = Emit()
+    rd.ln(f"*uipValue = ((unsigned int)XGpio_DiscreteRead(spGpio, {channel_def})) & uiMask;")
+    read = CFunc(
+        name=_func_name(module, "pins_read"), ret="void",
+        params=["XGpio* spGpio", "unsigned int uiMask", "unsigned int* uipValue"],
+        body=rd.out(), static=True)
+    return [write, read]
+
+
+def _gpio_device_unit(device: dict, controller: dict, descriptor: dict,
+                      module: Optional[str] = None) -> CUnit:
+    """Driver unit for a device wired to discrete AXI GPIO lines (XGpio)."""
+    module = module or _module_of(device["part"])
+    htype, hvar = _handle_for(controller)
+    if htype != "XGpio":
+        raise CodegenError(
+            f"device {device.get('id', '?')}: gpio transport needs an AXI GPIO (XGpio) controller, "
+            f"got driver '{htype}'")
+    MOD = module.upper()
+    attach = device.get("attach", {})
+    instance = controller["instance"]
+    channel = _gpio_channel_of(attach)
+    channel_def, mask_def = f"{MOD}_GPIO_CHANNEL", f"{MOD}_GPIO_MASK"
+    device_mask = _int_value(attach.get("gpio_pin_mask", 0xFFFFFFFF))
+    if not 0 < device_mask <= 0xFFFFFFFF:
+        raise CodegenError(
+            f"device {device.get('id', '?')}: gpio_pin_mask 0x{device_mask:X} is outside a "
+            "32-bit non-zero range")
+
+    defines = [
+        (channel_def, f"{channel}U", "AXI GPIO channel (1 or 2)"),
+        (mask_def, _hexu32(device_mask), "board lines this device owns on that channel"),
+    ]
+
+    funcs = _gpio_low_level(module, channel_def)
+    public: list[str] = []
+    ops_by_name = {op["name"]: op for op in descriptor["operations"]}
+    requested = device.get("operations_requested") or list(ops_by_name)
+
+    for op_name in requested:
+        op = ops_by_name.get(op_name)
+        if op is None:
+            continue
+        where = f"device {device.get('id', '?')} op '{op_name}'"
+        steps = op.get("steps", [])
+        for step in steps:
+            if step.get("op") not in _GPIO_STEP_OPS:
+                raise CodegenError(
+                    f"{where}: gpio transport cannot express step '{step.get('op')}' "
+                    f"(supported: {', '.join(sorted(_GPIO_STEP_OPS))})")
+            if step.get("op") == "pin_write" and step.get("pin_value") is None:
+                raise CodegenError(
+                    f"{where}: pin_write needs an explicit 'pin_value'; a runtime-valued line "
+                    "write is not generated - use the controller-level gpio_write op for that")
+
+        reads = [s for s in steps if s.get("op") == "pin_read"]
+        if len(reads) > 1:
+            raise CodegenError(f"{where}: gpio transport supports at most one pin_read per operation")
+        params = [f"XGpio* {hvar}"]
+        out_param = None
+        if reads:
+            returns = str(op.get("returns", "")).lower()
+            if "uint32" not in returns:
+                raise CodegenError(
+                    f"{where}: a pin_read operation must declare 'returns: uint32' "
+                    f"(got {op.get('returns')!r})")
+            _out_type, out_param = _return_param(op_name, returns)
+            params.append(f"unsigned int* {out_param}")
+
+        # `iStatus` yalniz gercekten atanacaksa bildirilir: yalniz `comment`
+        # adimi olan bir op'ta bildirmek -Wunused-variable uretirdi.
+        uses_status = op_name == "device_init" or any(
+            step["op"] == "pin_write" for step in steps)
+        e = Emit()
+        if uses_status:
+            e.ln("int iStatus;")
+            e.blank()
+        if op_name == "device_init":
+            e.ln(f"iStatus = XGpio_Initialize({hvar}, {instance}_DEVICE_ID);").check_status()
+            if channel == 2:
+                e.ln("/* Kanal 2 yalniz cift kanalli IP'de vardir; tek kanalli")
+                e.ln(" * cekirdekte 0x8/0xC yazmaclari yoktur (surucu Xil_Assert")
+                e.ln(" * eder, release derlemesinde bu sessizce kaybolur). */")
+                e.open(f"if ({hvar}->IsDual == 0)")
+                e.ln("return XST_FAILURE;")
+                e.close()
+
+        for step in steps:
+            sop = step["op"]
+            if sop == "comment":
+                e.ln(f"/* {step.get('note', '')} */")
+            elif sop == "pin_write":
+                mask = _gpio_pin_mask(step, mask_def, where)
+                value = _int_value(step["pin_value"])
+                e.ln(f"iStatus = {_func_name(module, 'pins_write')}({hvar}, {mask}, "
+                     f"{_hexu32(value)});").check_status()
+            elif sop == "pin_read":
+                mask = _gpio_pin_mask(step, mask_def, where)
+                e.ln(f"{_func_name(module, 'pins_read')}({hvar}, {mask}, {out_param});")
+        e.ln("return XST_SUCCESS;")
+
+        doxy_params = [(hvar, "AXI GPIO controller instance (initialized by device_init).")]
+        if out_param:
+            doxy_params.append((out_param, "Out: masked 32-bit channel value."))
+        funcs.append(CFunc(
+            name=_func_name(module, op_name), ret="int", params=params, body=e.out(),
+            brief=op.get("description", op_name.replace("_", " ")),
+            doxy_params=doxy_params,
+            doxy_return="XST_SUCCESS on success, else an XST_* error code."))
+        public.append(_func_name(module, op_name))
+
+    return CUnit(
+        module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="gpio",
+        header_includes=["xil_types.h", _gpio_header_for(htype)],
+        driver_includes=[f"{module}.h", "xparameters.h", "xstatus.h"],
+        defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
+
+
 # --- test unit --------------------------------------------------------------------------
 
 def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTest:
@@ -1909,6 +2115,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned int uiEvent;")
         if any(n.endswith("DataRead") for n in read_ops):
             st.ln("unsigned char ucArrBuffer[16];")
+    elif unit.transport == "gpio":
+        if any(n.endswith("LineRead") for n in read_ops):
+            st.ln("unsigned int uiLines;")
     else:
         if any(n.endswith("IdRead") for n in read_ops):
             st.ln("unsigned char ucArrId[3];")
@@ -2008,6 +2217,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             else:
                 st.ln(f"iStatus = {name}({hvar}, ucArrId);").check_status()
                 st.ln('xil_printf("' + part + ' JEDEC id = %02X %02X %02X\\r\\n", ucArrId[0], ucArrId[1], ucArrId[2]);')
+        elif unit.transport == "gpio" and name.endswith("LineRead"):
+            st.ln(f"iStatus = {name}({hvar}, &uiLines);").check_status()
+            st.ln('xil_printf("' + part + ' lines = 0x%X\\r\\n", uiLines);')
         elif name.endswith("DataRead"):
             st.ln(f"iStatus = {name}({hvar}, 0x0U, ucArrBuffer, 16U);").check_status()
             st.ln('xil_printf("' + part + ' data[0] = %02X\\r\\n", ucArrBuffer[0]);')
@@ -2124,10 +2336,13 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
             else:
                 unit = _spi_device_unit(device, controller, descriptor,
                                         module=modules.get(device["id"]))
+        elif transport == "gpio":
+            unit = _gpio_device_unit(device, controller, descriptor,
+                                     module=modules.get(device["id"]))
         else:
             raise CodegenError(
                 f"device {device['id']}: transport '{transport}' not supported by codegen yet "
-                f"(supported: i2c, spi). Extend cmodel.py to add it.")
+                f"(supported: i2c, spi, gpio). Extend cmodel.py to add it.")
 
         unit.test = _test_unit(unit, device, controller, runtime)
         units.append(unit)

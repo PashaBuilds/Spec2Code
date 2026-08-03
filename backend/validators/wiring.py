@@ -71,6 +71,9 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
     muxes = {m.get("id"): m for m in spec.get("muxes", [])}
     seen_i2c: dict[tuple[tuple[str, str], int], str] = {}
     seen_spi: dict[tuple[str, int], str] = {}
+    #: (controller_id, gpio channel) -> [(pin mask, owner)] - overlapping masks
+    #: on one channel mean two devices drive the same physical line.
+    seen_gpio: dict[tuple[str, int], list[tuple[int, str]]] = {}
 
     def add(severity: str, path: str, message: str) -> None:
         target = errors if severity == "error" else warnings
@@ -191,6 +194,31 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
                     add=add,
                 )
             elif _has_manual_init_sequence(device):
+                add("warning", f"{path}/config/init_sequence",
+                    f"{owner}: manual register init sequence is only applied to I2C register devices")
+        elif transport == "gpio":
+            if controller_type != "gpio":
+                add("error", f"{path}/attach/controller_id", f"{owner}: GPIO descriptor is attached to {controller_type}")
+            channel = _int_value(attach.get("gpio_channel", 1))
+            if channel not in (1, 2):
+                add("error", f"{path}/attach/gpio_channel",
+                    f"{owner}: gpio_channel must be 1 or 2 (AXI GPIO has two channels)")
+                channel = None
+            mask = _int_value(attach.get("gpio_pin_mask", 0xFFFFFFFF))
+            if mask is None or not 0 < mask <= 0xFFFFFFFF:
+                add("error", f"{path}/attach/gpio_pin_mask",
+                    f"{owner}: gpio_pin_mask must be a non-zero 32-bit mask")
+            elif channel is not None:
+                # Ayni cekirdegin ayni kanalinda iki cihaz AYNI pini surerse
+                # biri digerini ezer - I2C adres / SPI CS catismasinin ikizi.
+                key = (attach["controller_id"], channel)
+                for previous_mask, previous_owner in seen_gpio.get(key, []):
+                    overlap = previous_mask & mask
+                    if overlap:
+                        add("error", f"{path}/attach/gpio_pin_mask",
+                            f"{owner}: GPIO pins 0x{overlap:X} on channel {channel} conflict with {previous_owner}")
+                seen_gpio.setdefault(key, []).append((mask, owner))
+            if _has_manual_init_sequence(device):
                 add("warning", f"{path}/config/init_sequence",
                     f"{owner}: manual register init sequence is only applied to I2C register devices")
         elif transport == "i2c_mux":

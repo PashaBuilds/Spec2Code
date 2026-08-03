@@ -100,6 +100,15 @@
                   "channel": { "type": "integer", "minimum": 0, "maximum": 7 }
                 }
               },
+              "gpio_channel": {
+                "type": ["integer", "null"],
+                "enum": [1, 2, null],
+                "description": "gpio transport: AXI GPIO channel the device's lines sit on (1 or 2). Default 1."
+              },
+              "gpio_pin_mask": {
+                "type": ["integer", "string", "null"],
+                "description": "gpio transport: 32-bit mask of the lines this device owns on that channel (integer or 0x hex string). Default all 32 pins."
+              },
               "reset_gpio": { "type": ["string", "integer", "null"] },
               "irq_line": { "type": ["string", "integer", "null"] }
             }

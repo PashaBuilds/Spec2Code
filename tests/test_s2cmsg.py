@@ -12,6 +12,7 @@ class CatalogTests(unittest.TestCase):
             "REGISTER_READ": 0x53430201, "REGISTER_WRITE": 0x53430202,
             "REGISTERS_READ": 0x53430203, "MEM_READ": 0x53430204,
             "MEM_WRITE": 0x53430205, "I2C_SCAN": 0x53430206, "I2C_MUX_SET": 0x53430207,
+            "GPIO_READ": 0x53430208, "GPIO_WRITE": 0x53430209,
             "CIT_RUN": 0x53430301, "CIT_READ": 0x53430302,
             "DEVICE_INIT": 0x53430401, "VOLTAGE_READ": 0x53430402,
             "TEMPERATURE_READ": 0x53430403, "CURRENT_READ": 0x53430404,
@@ -27,6 +28,8 @@ class CatalogTests(unittest.TestCase):
             "PLL1_LOCK_DETECT": 0x53430417, "PLL1_LOCK_LOSS": 0x53430418,
             "PLL2_LOCK_DETECT": 0x53430419, "PLL2_LOCK_LOSS": 0x5343041A,
             "MULTIPLIER_LOCK_DETECT": 0x5343041B,
+            "LINE_READ": 0x5343041C, "RESET_ASSERT": 0x5343041D,
+            "RESET_RELEASE": 0x5343041E,
         }
         catalog = s2cmsg.load_catalog()
         actual = {m["name"]: int(m["id"], 16) for m in catalog["messages"]}
@@ -46,6 +49,7 @@ class CatalogTests(unittest.TestCase):
         # (canli KeyError regresyon korumasi; kaynaklar: i2c_scan.py,
         # registers.py, register-map/BoardConnectionCard UI).
         for op in ("spec2code_version", "log_level", "i2c_mux_set", "i2c_scan",
+                   "gpio_read", "gpio_write",
                    "register_read", "register_write", "mem_read", "mem_write"):
             self.assertEqual(s2cmsg.message_id_for_op(op) >> 16, 0x5343, op)
 

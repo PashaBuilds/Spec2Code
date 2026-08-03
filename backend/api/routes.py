@@ -1366,6 +1366,45 @@ def testbench_i2c_scan(req: I2cScanRequest) -> dict:
         raise HTTPException(502, {"message": "i2c taramasi transport hatasi", "error": str(exc)}) from exc
 
 
+class GpioRequest(BaseModel):
+    session_id: str
+    controller_id: str
+    # DENETLEYICI-adresli op: hedef tel'de uiCihazIndeks ile tasinir ve bu
+    # indeks manifest gpio.controllers[].index degeridir (I2C denetleyicileri
+    # ayni tabloda ONEK olarak durur). 0xFFFFFFFF = cozulemedi.
+    controller_index: int = 0xFFFFFFFF
+    op: str = "gpio_read"
+    channel: int = 1
+    #: 0 = tum pinler (ajan 0xFFFFFFFF'e cevirir).
+    mask: int = 0
+    value: int = 0
+    timeout_s: float = 5.0
+
+
+@router.post("/testbench/gpio")
+def testbench_gpio(req: GpioRequest) -> dict:
+    from backend.gpio import GpioError, read_channel, write_channel
+
+    if req.op not in {"gpio_read", "gpio_write"}:
+        raise HTTPException(400, {"message": "gpio op 'gpio_read' veya 'gpio_write' olmali",
+                                  "error": req.op})
+    try:
+        if req.op == "gpio_write":
+            return write_channel(req.session_id, req.controller_id,
+                                 controller_index=req.controller_index,
+                                 channel=req.channel, value=req.value, mask=req.mask,
+                                 timeout_s=req.timeout_s)
+        return read_channel(req.session_id, req.controller_id,
+                            controller_index=req.controller_index,
+                            channel=req.channel, mask=req.mask, timeout_s=req.timeout_s)
+    except GpioError as exc:
+        raise HTTPException(502, {"message": "gpio islemi basarisiz", "error": str(exc)}) from exc
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench session is not usable", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "gpio transport hatasi", "error": str(exc)}) from exc
+
+
 class RegisterSnapshotRequest(BaseModel):
     session_id: str
     device_id: str

@@ -1,0 +1,38 @@
+descriptor_version: "1.0"
+part: "GPIO_LINES"
+manufacturer: ""
+# DURUSTLUK NOTU: bu bir CIP DEGILDIR. Bir AXI GPIO kanalindaki ayrik kart
+# hatlarini (reset, enable, "hazir/hata" durum girisleri) tarif eder. Register
+# haritasi YOKTUR cunku karsisinda register'i olan bir parca yoktur: tel
+# uzerindeki tek sey AXI GPIO cekirdeginin veri/TRI yazmacidir. Hangi pinin ne
+# oldugu KART KABLOLAMASIDIR ve project.spec'te attach.gpio_pin_mask /
+# attach.gpio_channel ile verilir; buradaki maskeler bu jenerik yerlesimi
+# varsayar: bit0 = reset (aktif-dusuk), geri kalan hatlar salt-okunur durum.
+summary: >-
+  Kart kablolamasi (cip degil): bir AXI GPIO kanalindaki ayrik hat bankasi.
+  bit0 aktif-dusuk bir reset cikisidir, kalan bitler durum girisi olarak
+  okunur. Pin atamasi kartin semasindan gelir - descriptor yalnizca
+  "bu maskedeki hatlari sur/oku" der, hicbir parcanin register haritasini
+  iddia etmez.
+transport:
+  type: gpio
+operations:
+  - name: device_init
+    description: "AXI GPIO surucu ornegini kur (XGpio_Initialize). Hat yonu burada DEGISTIRILMEZ: hangi hattin cikis olacagina reset_assert/reset_release karar verir."
+    steps:
+      - { op: comment, note: "TRI varsayilani gucten sonra 'hepsi giris'tir; init bir hatti surmeye baslamaz." }
+  - name: line_read
+    returns: "uint32"
+    description: "Bankadaki hatlarin o anki durumunu oku (yon degistirilmez)."
+    steps:
+      - { op: pin_read }
+  - name: reset_assert
+    description: "bit0 reset hattini AKTIF (dusuk) sur - pin cikis yapilir."
+    steps:
+      - { op: pin_write, pin_mask: 0x1, pin_value: 0x0 }
+  - name: reset_release
+    description: "bit0 reset hattini serbest birak (yuksek sur)."
+    steps:
+      - { op: pin_write, pin_mask: 0x1, pin_value: 0x1 }
+test_hints:
+  self_test: { description: "Hatlari oku; reset hattina DOKUNMAZ (kart resetlenmesin)." }

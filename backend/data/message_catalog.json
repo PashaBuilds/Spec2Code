@@ -29,6 +29,8 @@
     {"id": "0x53430205", "name": "MEM_WRITE", "op": "mem_write", "dir": "req", "body": "request_std", "aciklama": "Belleğe yaz."},
     {"id": "0x53430206", "name": "I2C_SCAN", "op": "i2c_scan", "dir": "req", "body": "request_std", "aciklama": "I2C veriyolunu tara."},
     {"id": "0x53430207", "name": "I2C_MUX_SET", "op": "i2c_mux_set", "dir": "req", "body": "request_std", "aciklama": "I2C mux kanal secimi (tarama oncesi)."},
+    {"id": "0x53430208", "name": "GPIO_READ", "op": "gpio_read", "dir": "req", "body": "request_std", "aciklama": "AXI GPIO kanal okumasi. DENETLEYICI-adresli: uiCihazIndeks = denetleyici indeksi (cihaz degil). uiAdres = kanal (1|2), uiUzunluk = pin maskesi (0 = tum pinler). Yanit: uiDeger = maskelenmis 32-bit kanal degeri, veri = 4 bayt MSB-once. Yon (TRI) DEGISTIRILMEZ — okuma pasif bir gozlemdir."},
+    {"id": "0x53430209", "name": "GPIO_WRITE", "op": "gpio_write", "dir": "req", "body": "request_std", "aciklama": "AXI GPIO kanal yazmasi. DENETLEYICI-adresli: uiCihazIndeks = denetleyici indeksi. uiAdres = kanal (1|2), uiDeger = yazilacak deger, uiUzunluk = pin maskesi (0 = tum pinler). Maskelenen pinler CIKIS yapilir (ayni kanaldaki diger pinlerin ve diger kanalin yonu degismez), sonra oku-degistir-yaz. Yanit uiDeger = yazma sonrasi kanal degeri."},
     {"id": "0x53430301", "name": "CIT_RUN", "op": null, "dir": "req", "body": "cit", "aciklama": "Belirlenmi test kosturulsun."},
     {"id": "0x53430302", "name": "CIT_READ", "op": null, "dir": "req", "body": "cit", "aciklama": "Test sonucu oku."},
     {"id": "0x53430401", "name": "DEVICE_INIT", "op": "device_init", "dir": "req", "body": "request_std", "aciklama": "Cihaz baslat."},
@@ -57,6 +59,9 @@
     {"id": "0x53430418", "name": "PLL1_LOCK_LOSS", "op": "pll1_lock_loss", "dir": "req", "body": "request_std", "aciklama": "PLL1 kilit kaybi."},
     {"id": "0x53430419", "name": "PLL2_LOCK_DETECT", "op": "pll2_lock_detect", "dir": "req", "body": "request_std", "aciklama": "PLL2 kilit tespit."},
     {"id": "0x5343041A", "name": "PLL2_LOCK_LOSS", "op": "pll2_lock_loss", "dir": "req", "body": "request_std", "aciklama": "PLL2 kilit kaybi."},
-    {"id": "0x5343041B", "name": "MULTIPLIER_LOCK_DETECT", "op": "multiplier_lock_detect", "dir": "req", "body": "request_std", "aciklama": "Çarpan kilit tespit."}
+    {"id": "0x5343041B", "name": "MULTIPLIER_LOCK_DETECT", "op": "multiplier_lock_detect", "dir": "req", "body": "request_std", "aciklama": "Çarpan kilit tespit."},
+    {"id": "0x5343041C", "name": "LINE_READ", "op": "line_read", "dir": "req", "body": "request_std", "aciklama": "GPIO hat bankasi okumasi (gpio transport cihazi): descriptor maskesindeki hatlarin durumu."},
+    {"id": "0x5343041D", "name": "RESET_ASSERT", "op": "reset_assert", "dir": "req", "body": "request_std", "aciklama": "GPIO reset hatti aktif (descriptor'da sabit maske/deger)."},
+    {"id": "0x5343041E", "name": "RESET_RELEASE", "op": "reset_release", "dir": "req", "body": "request_std", "aciklama": "GPIO reset hatti serbest (descriptor'da sabit maske/deger)."}
   ]
 }

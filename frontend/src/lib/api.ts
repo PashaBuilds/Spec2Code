@@ -395,6 +395,21 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  gpioOp: (payload: {
+    session_id: string;
+    controller_id: string;
+    controller_index: number;
+    op: "gpio_read" | "gpio_write";
+    channel: number;
+    mask: number;
+    value?: number;
+    timeout_s?: number;
+  }) =>
+    req<import("./types").GpioOpResult>("/api/testbench/gpio", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   citRun: (sessionId: string, manifest: import("./types").TestbenchManifest, timeoutS = 10.0) =>
     req<import("./types").CitDecodeResult>("/api/testbench/cit/run", {
       method: "POST",

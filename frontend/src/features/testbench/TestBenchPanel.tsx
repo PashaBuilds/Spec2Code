@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Radar, Send, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Loader2, PlugZap, Radar, Send, ShieldCheck, ToggleLeft, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import BoardConnectionCard from "@/components/BoardConnectionCard";
 import FlashTransferCard from "./FlashTransferCard";
+import GpioCard from "./GpioCard";
 import I2cScanCard from "./I2cScanCard";
 import InitAllCard from "./InitAllCard";
 import VersionQueryCard from "./VersionQueryCard";
@@ -210,7 +211,7 @@ export default function TestBenchPanel() {
   // Sol menü görünümü: entegre sayfaları, I2C Hat Tarama veya Ajan Sürümü
   // sayfası. Sürüm sorgusu kendi kartında kalıcı state tutar (bkz.
   // VersionQueryCard) — bölüm/cihaz değişimi bu view'ı etkilemez.
-  const [view, setView] = useState<"device" | "i2c-scan" | "version">("device");
+  const [view, setView] = useState<"device" | "i2c-scan" | "gpio" | "version">("device");
 
   const selectedDevice = useMemo(
     () => manifest?.devices.find((device) => device.id === selectedDeviceId) ?? manifest?.devices[0] ?? null,
@@ -390,6 +391,26 @@ export default function TestBenchPanel() {
               </span>
               <ShieldCheck className="h-4 w-4 shrink-0 text-accent" aria-hidden />
             </button>
+            {/* AXI GPIO yalnız manifest bir GPIO denetleyicisi bildirdiyse
+                görünür — I2C taramasıyla aynı kural. */}
+            {(manifest.gpio?.controllers?.length ?? 0) > 0 ? (
+              <button
+                type="button"
+                onClick={() => setView("gpio")}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+                  view === "gpio"
+                    ? "border-accent/50 bg-accent/10 text-text"
+                    : "border-border bg-inset text-muted hover:text-text",
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-mono text-xs">AXI GPIO</span>
+                  <span className="block truncate text-[11px] text-faint">kanal oku / yaz · 32 bit</span>
+                </span>
+                <ToggleLeft className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+              </button>
+            ) : null}
           </div>
 
           <InitAllCard
@@ -473,6 +494,25 @@ export default function TestBenchPanel() {
               </p>
             </div>
             <I2cScanCard
+              manifest={manifest}
+              sessionId={board.sessionId}
+              connected={isConnected}
+              timeoutSeconds={board.timeoutSeconds()}
+            />
+          </div>
+        ) : view === "gpio" ? (
+          <div className="p-4">
+            <div className="mb-4">
+              <div className="flex items-center gap-2">
+                <ToggleLeft className="h-4 w-4 text-accent" aria-hidden />
+                <h2 className="text-sm font-semibold text-text">AXI GPIO</h2>
+              </div>
+              <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
+                AXI GPIO çekirdeğinin bir kanalını doğrudan oku/yaz. Hedef bir entegre değil,
+                çekirdeğin kendisidir — I2C hat taraması gibi denetleyici-adresli bir op'tur.
+              </p>
+            </div>
+            <GpioCard
               manifest={manifest}
               sessionId={board.sessionId}
               connected={isConnected}

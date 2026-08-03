@@ -495,7 +495,50 @@ def _mesaj_header(spec: dict | None = None,
 #: cArrRegister'i ayri bir denetleyici-id tablosundan cozer (bkz.
 #: S_cpArrDenetleyiciTablosu). Cihaz-adresli op'lar (register_read/write,
 #: descriptor op'lari) indeksi cihaz tablosunda kullanmaya devam eder.
-_CONTROLLER_ADDRESSED_OPS: frozenset[str] = frozenset({"i2c_scan", "i2c_mux_set"})
+_CONTROLLER_ADDRESSED_OPS: frozenset[str] = frozenset({
+    "i2c_scan", "i2c_mux_set", "gpio_read", "gpio_write",
+})
+
+
+def _testbench_gpio_controller_specs(spec: dict) -> list[dict]:
+    """Raw spec entries of the AXI GPIO controllers the agent can drive.
+
+    Only the AXI soft IP (driver resolves to ``XGpio``) qualifies: a PS GPIO
+    (``XGpioPs``) has no emitter arm, and every xparameters-derived ZynqMP spec
+    lists one, so silently skipping it keeps those specs generating exactly as
+    before instead of failing on a controller nobody asked to use.
+    """
+    out: list[dict] = []
+    for controller in spec.get("controllers", []):
+        if controller.get("type") != "gpio":
+            continue
+        try:
+            htype, _hvar = cmodel._handle_for(controller)
+        except cmodel.CodegenError:
+            continue
+        if htype == "XGpio":
+            out.append(controller)
+    return out
+
+
+def _testbench_gpio_controllers(spec: dict) -> list[dict]:
+    """GPIO controllers offered to the controller-level gpio ops (single order)."""
+    return [
+        {"id": c.get("id", ""), "instance": c.get("instance", "")}
+        for c in _testbench_gpio_controller_specs(spec)
+    ]
+
+
+def _testbench_controller_op_targets(spec: dict) -> list[dict]:
+    """Index -> controller id table for ALL controller-addressed ops.
+
+    One table, one order: I2C controllers first (so the field-verified
+    ``i2c_scan`` contract - index == position in manifest ``i2c_scan.controllers``
+    - stays valid as a PREFIX and can never shift), GPIO controllers after.
+    The manifest publishes the GPIO indices explicitly so nothing has to
+    re-derive the offset.
+    """
+    return [*_testbench_i2c_scan_controllers(spec), *_testbench_gpio_controllers(spec)]
 
 
 def _testbench_i2c_scan_controllers(spec: dict) -> list[dict]:
@@ -545,12 +588,14 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     device_count = len(device_ids)
 
     # Denetleyici indeks -> id tablosu: DENETLEYICI-adresli op'lar (i2c_scan/
-    # i2c_mux_set) hedefi cihaz degil denetleyici olarak tasir. Siralama
-    # manifest i2c_scan.controllers ile AYNI (tek kaynak: _testbench_i2c_scan_
-    # controllers) -> backend i2c_scan.py bu listeden denetleyici indeksini
-    # hesaplayip uiCihazIndeks olarak gonderir; kopru bu tablodan cArrRegister'i
-    # cozer (dispatch getter'i cArrRegister ile denetleyiciyi bulur).
-    controller_ids = [c["id"] for c in _testbench_i2c_scan_controllers(spec)]
+    # i2c_mux_set/gpio_read/gpio_write) hedefi cihaz degil denetleyici olarak
+    # tasir. Siralama tek kaynaktan gelir (_testbench_controller_op_targets):
+    # once I2C denetleyicileri (manifest i2c_scan.controllers ile AYNI ve bir
+    # ONEK oldugu icin mevcut indeksler asla kaymaz), sonra GPIO denetleyicileri
+    # (manifest gpio.controllers[].index). Backend bu indeksi uiCihazIndeks
+    # olarak gonderir; kopru tablodan cArrRegister'i cozer (dispatch getter'i
+    # cArrRegister ile denetleyiciyi bulur).
+    controller_ids = [c["id"] for c in _testbench_controller_op_targets(spec)]
     controller_rows = "\n".join(
         f'    "{_c_string_escape(controller_id)}",' for controller_id in controller_ids
     ) or '    ""'
@@ -603,8 +648,10 @@ def _mesaj_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "{\n"
         f"{device_rows}\n"
         "};\n\n"
-        "/* Denetleyici indeks -> id tablosu (manifest i2c_scan.controllers\n"
-        " * sirasiyla ayni). DENETLEYICI-adresli op'lar hedefi bu tablodan cozer. */\n"
+        "/* Denetleyici indeks -> id tablosu: once I2C (manifest\n"
+        " * i2c_scan.controllers sirasi, bir ONEK), sonra GPIO (manifest\n"
+        " * gpio.controllers[].index). DENETLEYICI-adresli op'lar (i2c_scan,\n"
+        " * i2c_mux_set, gpio_read, gpio_write) hedefi bu tablodan cozer. */\n"
         f"#define SPEC2CODE_MESAJ_DENETLEYICI_SAYISI {controller_count}U\n"
         "static const char* const S_cpArrDenetleyiciTablosu[] =\n"
         "{\n"
@@ -666,8 +713,9 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "    }\n"
     "    return (const char*)0;\n"
     "}\n\n"
-    "/* Op DENETLEYICI-adresli mi? (i2c_scan/i2c_mux_set: hedef bir denetleyici,\n"
-    " * cihaz degil). Boyle op'larda uiCihazIndeks = denetleyici indeksidir. */\n"
+    "/* Op DENETLEYICI-adresli mi? (i2c_scan/i2c_mux_set/gpio_read/gpio_write:\n"
+    " * hedef bir denetleyici, cihaz degil). Boyle op'larda uiCihazIndeks =\n"
+    " * denetleyici indeksidir. */\n"
     "static int spec2codeMesajDenetleyiciOpMu(unsigned int uiKomut)\n"
     "{\n"
     "    unsigned int uiIndex;\n"
@@ -942,7 +990,7 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "    }\n"
     "    sIstek.uiDataLength = uiVeriBoyu;\n"
     "    /* Hedef cozumu (0xFFFFFFFF = hedefsiz global op). Denetleyici-adresli\n"
-    "     * op'larda (i2c_scan/i2c_mux_set) uiCihazIndeks bir DENETLEYICI\n"
+    "     * op'larda (i2c_scan/i2c_mux_set/gpio_read/gpio_write) uiCihazIndeks bir DENETLEYICI\n"
     "     * indeksidir: cArrRegister denetleyici tablosundan cozulur (dispatch\n"
     "     * getter'i cArrRegister ile denetleyiciyi bulur). Diger op'larda\n"
     "     * uiCihazIndeks cihaz tablosuna girer ve cArrDevice'i cozer. */\n"
@@ -1178,6 +1226,9 @@ def _testbench_label(part: str, op_name: str) -> str:
         "page_program": "Page programla",
         "sector_erase": "Sector erase",
         "device_init": "Init uygula",
+        "line_read": "GPIO hatlarını oku",
+        "reset_assert": "Reset hattını aktif et",
+        "reset_release": "Reset hattını serbest bırak",
     }
     return labels.get(part, {}).get(op_name, generic.get(op_name, op_name.replace("_", " ")))
 
@@ -1335,6 +1386,18 @@ def _op_wire_plan(device: dict, descriptor: dict, op: dict) -> list[dict]:
                          "opcode": int(cmd.get("opcode", 0)),
                          "addr_bytes": int(cmd.get("address_bytes", 0)),
                          "length": int(step["length"]) if "length" in step else None})
+        elif sop in {"pin_write", "pin_read"}:
+            # GPIO'da "transfer" yok: tek bir AXI yazmac erisimi. Plan yine de
+            # hangi pinlerin dokunuldugunu tasir (Seri Hat paneli bunu cizer).
+            default_mask = cmodel._int_value(
+                device.get("attach", {}).get("gpio_pin_mask", 0xFFFFFFFF))
+            mask = cmodel._int_value(step["pin_mask"]) if step.get("pin_mask") is not None else default_mask
+            entry = {"kind": "gpio_write" if sop == "pin_write" else "gpio_read",
+                     "channel": cmodel._int_value(device.get("attach", {}).get("gpio_channel", 1)),
+                     "mask": mask}
+            if sop == "pin_write":
+                entry["value"] = cmodel._int_value(step.get("pin_value", 0))
+            plan.append(entry)
     return plan
 
 
@@ -2211,6 +2274,39 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 for m in spec.get("muxes", [])
             ],
         }
+    # AXI GPIO denetleyici op'lari: UI hangi GPIO cekirdeklerini surebilecegini
+    # ve tel'de tasiyacagi DENETLEYICI INDEKSini buradan ogrenir. Indeks
+    # ACIKCA yazilir (i2c_scan.controllers'dan sonra gelirler; ofseti UI'nin
+    # yeniden turetmesi sessiz kaymaya acik olurdu).
+    gpio_controllers = _testbench_gpio_controllers(spec)
+    if gpio_controllers:
+        board_controller_ids = {
+            entry["id"] for entry in _testbench_board_controller_entries(spec)
+        }
+        unresolved = [c["id"] for c in gpio_controllers if c["id"] not in board_controller_ids]
+        if unresolved:
+            raise cmodel.CodegenError(
+                "gpio.controllers icinde board getter'in cozemedigi denetleyici "
+                f"var: {unresolved!r}; denetleyici-adresli op'lar (gpio_read/gpio_write) "
+                "bu id'yi cArrRegister ile eslestiremez.")
+        targets = [c["id"] for c in _testbench_controller_op_targets(spec)]
+        manifest["gpio"] = {
+            "read_op": "gpio_read",
+            "write_op": "gpio_write",
+            "channels": [1, 2],
+            "payload": {
+                "channel": "uiAdres (1|2)",
+                "mask": "uiUzunluk (0 = tum pinler)",
+                "value": "uiDeger (yalniz gpio_write)",
+            },
+            "direction_note": (
+                "gpio_write maskelenen pinleri CIKIS yapar (bit=0 = cikis); gpio_read "
+                "yonu DEGISTIRMEZ."),
+            "controllers": [
+                {"id": c["id"], "instance": c["instance"], "index": targets.index(c["id"])}
+                for c in gpio_controllers
+            ],
+        }
     if agent == "uart":
         uart = _testbench_uart_controller(spec) or {}
         manifest["uart"] = {
@@ -2262,6 +2358,7 @@ _TESTBENCH_HANDLE_HEADERS: list[tuple[str, str]] = [
     # kullanir.
     ("XIic", "xiic_l.h"),
     ("XSpi", "xspi.h"),
+    ("XGpio", "xgpio.h"),
 ]
 
 #: Board-handle getter return type per driver. AXI IIC has no instance struct -
@@ -2342,6 +2439,7 @@ def _testbench_getter(htype: str) -> str | None:
         "XQspiPsu": "spec2codeTestbenchQspiPsuHandleGet",
         "XIic": "spec2codeTestbenchIicHandleGet",
         "XSpi": "spec2codeTestbenchSpiHandleGet",
+        "XGpio": "spec2codeTestbenchGpioHandleGet",
     }.get(htype)
 
 
@@ -3616,6 +3714,110 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     ]
 
 
+def _testbench_gpio_lines(handle_types: set[str]) -> list[str]:
+    """Controller-level AXI GPIO ops (only when an XGpio controller is wired).
+
+    ``gpio_read`` / ``gpio_write`` are CONTROLLER-addressed, exactly like
+    ``i2c_scan``: the target is an AXI GPIO core, not a device, so the wire
+    frame carries a controller index and the bridge resolves ``cArrRegister``
+    from the controller table.
+
+    Payload (see backend/data/message_catalog.json, YATT):
+      * ``uiAdres``   = channel, 1 or 2
+      * ``uiUzunluk`` = pin mask, 0 means "all 32 pins"
+      * ``uiDeger``   = value to write (gpio_write only)
+      * response ``uiDeger`` = masked channel value AFTER the op, plus 4 data
+        bytes MSB-first.
+
+    Direction handling is deliberately asymmetric and documented as such:
+    a write must force the masked pins to OUTPUT or the write is a no-op on a
+    tri-stated pin, while a read must NOT touch TRI - tri-stating a line the
+    board is actively driving (a held reset, an enable) is destructive, and the
+    discrete data register reads back fine for output pins anyway.
+    """
+    if "XGpio" not in handle_types:
+        return []
+    getter = _testbench_getter("XGpio")
+    return [
+        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_read\") == 1) ||",
+        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_write\") == 1))",
+        "    {",
+        "        XGpio* spGpioTarget;",
+        "        unsigned int uiChannel;",
+        "        unsigned int uiMask;",
+        "        unsigned int uiDirection;",
+        "        unsigned int uiCurrent;",
+        "        unsigned int uiIndex;",
+        "        int iIsWrite;",
+        "",
+        f"        spGpioTarget = {getter}(spRequest->cArrRegister);",
+        "        if (spGpioTarget == NULL)",
+        "        {",
+        "            spResponse->iStatus = XST_FAILURE;",
+        "            spec2codeTestbenchMessageSet(spResponse, \"unknown gpio controller\");",
+        "            return XST_FAILURE;",
+        "        }",
+        "        /* uiAdres = kanal (AXI GPIO'nun en fazla iki kanali vardir). */",
+        "        uiChannel = spRequest->uiAddress;",
+        "        if ((uiChannel != 1U) && (uiChannel != 2U))",
+        "        {",
+        "            spResponse->iStatus = XST_FAILURE;",
+        "            spec2codeTestbenchMessageSet(spResponse, \"gpio: kanal 1 veya 2 olmali (uiAdres)\");",
+        "            return XST_FAILURE;",
+        "        }",
+        "        /* Kanal 2'nin veri/TRI yazmaclari yalniz cift kanalli IP'de",
+        "         * vardir; tek kanalli cekirdekte o adresler yoktur (surucu",
+        "         * Xil_Assert eder, release derlemesinde sessizce kaybolur). */",
+        "        if ((uiChannel == 2U) && (spGpioTarget->IsDual == 0))",
+        "        {",
+        "            spResponse->iStatus = XST_FAILURE;",
+        "            spec2codeTestbenchMessageSet(spResponse, \"gpio: bu IP tek kanalli, kanal 2 yok\");",
+        "            return XST_FAILURE;",
+        "        }",
+        "        /* uiUzunluk = pin maskesi; 0 = tum pinler. */",
+        "        uiMask = (spRequest->uiLength == 0U) ? 0xFFFFFFFFU : spRequest->uiLength;",
+        "        iIsWrite = spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_write\");",
+        "        if (iIsWrite == 1)",
+        "        {",
+        "            /* Yon maskesinde bit=1 GIRIS, bit=0 CIKIS (xgpio.c doxygen).",
+        "             * Yalniz maskelenen pinler cikisa alinir: ayni kanaldaki",
+        "             * digerlerinin yonu ve diger kanalin TRI yazmaci korunur. */",
+        "            uiDirection = (unsigned int)XGpio_GetDataDirection(spGpioTarget, uiChannel);",
+        "            XGpio_SetDataDirection(spGpioTarget, uiChannel, uiDirection & ~uiMask);",
+        "            uiDirection = (unsigned int)XGpio_GetDataDirection(spGpioTarget, uiChannel);",
+        "            if ((uiDirection & uiMask) != 0U)",
+        "            {",
+        "                /* \"All Inputs\" konfigurasyonunda TRI SALT-OKUNURDUR ve",
+        "                 * yazma sessizce yutulur - bu kontrol olmasa op hicbir",
+        "                 * sey yapmadan basarili gorunurdu. */",
+        "                spResponse->iStatus = XST_FAILURE;",
+        "                spec2codeTestbenchMessageSet(spResponse, \"gpio_write: kanal salt-okunur (All Inputs)\");",
+        "                return XST_FAILURE;",
+        "            }",
+        "            uiCurrent = (unsigned int)XGpio_DiscreteRead(spGpioTarget, uiChannel);",
+        "            XGpio_DiscreteWrite(spGpioTarget, uiChannel,",
+        "                                (uiCurrent & ~uiMask) | (spRequest->uiValue & uiMask));",
+        "        }",
+        "        /* Okuma yolunda YON DEGISTIRILMEZ: surulen bir hatti (tutulan",
+        "         * reset, enable) giris yapmak yikicidir; veri yazmaci cikis",
+        "         * pinlerinde de dogru okunur. */",
+        "        uiCurrent = ((unsigned int)XGpio_DiscreteRead(spGpioTarget, uiChannel)) & uiMask;",
+        "        spResponse->uiOk = 1U;",
+        "        spResponse->iStatus = XST_SUCCESS;",
+        "        spResponse->uiValue = uiCurrent;",
+        "        for (uiIndex = 0U; uiIndex < 4U; uiIndex++)",
+        "        {",
+        "            (void)spec2codeTestbenchDataPush(spResponse,",
+        "                (unsigned char)((uiCurrent >> ((3U - uiIndex) * 8U)) & 0xFFU));",
+        "        }",
+        "        spec2codeTestbenchMessageSet(spResponse, (iIsWrite == 1) ? \"gpio_write ok\" : \"gpio_read ok\");",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"gpio %s: %s kanal=%u maske=0x%X deger=0x%X\",",
+        "                     spRequest->cArrOperation, spRequest->cArrRegister, uiChannel, uiMask, uiCurrent);",
+        "        return XST_SUCCESS;",
+        "    }",
+    ]
+
+
 def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     project_name = spec["project"]["name"]
     app_version = _app_version()
@@ -3823,6 +4025,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        return XST_SUCCESS;",
         "    }",
         *_testbench_i2c_scan_lines(handle_types),
+        *_testbench_gpio_lines(handle_types),
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
         "                 spRequest->cArrDevice, spRequest->cArrOperation);",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,",
@@ -3983,6 +4186,12 @@ def _testbench_board_controller_entries(spec: dict) -> list[dict]:
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     used_ids = {mux.get("controller_id") for mux in spec.get("muxes", [])}
     used_ids.update(device.get("attach", {}).get("controller_id") for device in spec.get("devices", []))
+    # AXI GPIO denetleyicileri CIHAZ BAGLI OLMASA DA kurulur: denetleyici-adresli
+    # gpio_read/gpio_write op'larinin hedefi denetleyicinin KENDISIDIR (LED/reset
+    # bankasi gibi bir cihaz nesnesi olmayan hatlar). Bir bus denetleyicisi ise
+    # yalniz uzerinde mux/cihaz varsa kurulur (bos bir I2C hatti icin surucu
+    # kurmak anlamsizdir).
+    used_ids.update(c.get("id") for c in _testbench_gpio_controller_specs(spec))
     entries: list[dict] = []
     for controller_id in sorted(item for item in used_ids if item):
         controller = controllers.get(controller_id)
@@ -3992,7 +4201,7 @@ def _testbench_board_controller_entries(spec: dict) -> list[dict]:
             htype, _hvar = cmodel._handle_for(controller)
         except cmodel.CodegenError:
             continue
-        if htype not in {"XIicPs", "XSpiPs", "XQspiPsu", "XIic", "XSpi"}:
+        if htype not in {"XIicPs", "XSpiPs", "XQspiPsu", "XIic", "XSpi", "XGpio"}:
             continue
         entries.append({
             "id": controller_id,
@@ -4305,6 +4514,23 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
                 "    }",
                 "    /* Uretilen her transfer polled: kesmeler maskeli kalmali. */",
                 f"    XSpi_IntrGlobalDisable(&{handle});",
+            ])
+        elif entry["htype"] == "XGpio":
+            # AXI GPIO: XGpio_Initialize (LookupConfig + CfgInitialize) yeter -
+            # resmi xgpio_example.c de bunu yapar. YON (TRI) BURADA
+            # AYARLANMAZ: gucten sonra TRI varsayilani "hepsi giris"tir ve
+            # hangi hattin cikis olacagini op'un kendisi (gpio_write / cihaz
+            # descriptor'i) bilir; board init'te tahmin etmek bir reset
+            # hattini yanlislikla surerdi.
+            lines.extend([
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI GPIO)");',
+                f"    iStatus = XGpio_Initialize(&{handle}, {instance}_DEVICE_ID);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                f'        xil_printf("Spec2Code AXI GPIO baslatilamadi: {entry["id"]}\\r\\n");',
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} status=%d", iStatus);',
+                "        return iStatus;",
+                "    }",
             ])
     lines.extend([
         f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam ({len(entries)} controller); '
