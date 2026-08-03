@@ -84,7 +84,11 @@ const MB_PERIPHERALS: Array<{ key: MbCountKey; label: string; hint: string }> = 
 ];
 type MbCountKey = "mbAxiIic" | "mbAxiSpi" | "mbAxiUartlite" | "mbAxiGpio";
 // Vivado otomasyon sözlüğünden birebir (data/rsb/design_assist/block/microblaze/bd.tcl).
-const MB_LOCAL_MEM = ["4KB", "8KB", "16KB", "32KB", "64KB", "128KB"];
+// 128KB Vivado blok otomasyonunun TAVANIDIR; 256KB/512KB otomasyondan sonra LMB
+// adres segmenti büyütülerek kurulur (üretilen Tcl geri okuyup doğrular).
+// Ölçüm (gerçek mb-gcc link'i): tam test bench ajanı + 3 cihaz sürücüsü + BSP
+// 128KB'ye SIĞMIYOR (~156KB gerekiyor) — bu yüzden varsayılan 256KB.
+const MB_LOCAL_MEM = ["4KB", "8KB", "16KB", "32KB", "64KB", "128KB", "256KB", "512KB"];
 
 type Platform = "zynq_ultrascale" | "versal" | "microblaze_7series";
 
@@ -165,7 +169,7 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
   const [addTestIp, setAddTestIp] = useState(() => savedForm.addTestIp ?? false);
   // --- MicroBlaze (7 serisi PL) alanları ---
   const [mbClk, setMbClk] = useState(() => savedForm.mbClk ?? "100");
-  const [mbLocalMem, setMbLocalMem] = useState(() => savedForm.mbLocalMem ?? "128KB");
+  const [mbLocalMem, setMbLocalMem] = useState(() => savedForm.mbLocalMem ?? "256KB");
   const [mbCounts, setMbCounts] = useState<Record<MbCountKey, number>>(() => ({
     mbAxiIic: savedForm.mbCounts?.mbAxiIic ?? 1,
     mbAxiSpi: savedForm.mbCounts?.mbAxiSpi ?? 1,
@@ -619,7 +623,11 @@ export default function VivadoDesignPanel({ onBack }: { onBack?: () => void }) {
               >
                 {MB_LOCAL_MEM.map((size) => <option key={size} value={size}>{size}</option>)}
               </select>
-              <p className="mt-1 text-[11px] text-faint">Ajan bu bellekten koşar (DDR/MIG bu fazda yok).</p>
+              <p className="mt-1 text-[11px] text-faint">
+                Ajan bu bellekten koşar (DDR/MIG bu fazda yok). Tam test bench ajanı + birkaç
+                cihaz sürücüsü 128KB'ye sığmaz (ölçüm: ~156KB); 256KB önerilir. 512KB küçük
+                7-serisi parçalarda blok RAM'e sığmayabilir — bu ancak sentezde belli olur.
+              </p>
             </div>
             <div>
               <Label>Kısıt dosyası (XDC) — bitstream için zorunlu</Label>

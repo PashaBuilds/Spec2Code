@@ -224,6 +224,14 @@ def _handle_for(controller: dict) -> tuple[str, str]:
     return driver, _HANDLE_VARS.get(driver, var)
 
 
+#: Drivers whose "handle" is a BASE ADDRESS (value), not a driver-instance
+#: pointer. Single source of truth: ``_handle_param`` (parameter declaration),
+#: ``_test_unit`` (local variable + call site) and the Vitis self-test runner
+#: scaffold in ``backend/vitis_workspace.py`` all read this set, so a new
+#: base-address driver cannot be added to one of them and forgotten in another.
+BASE_ADDRESS_HANDLE_DRIVERS = frozenset({"XIic"})
+
+
 def _handle_param(htype: str, hvar: str) -> str:
     """C parameter declaration for a bus-controller handle.
 
@@ -236,7 +244,7 @@ def _handle_param(htype: str, hvar: str) -> str:
     what ``uintptr_t`` (== ``UINTPTR``) is on every Xilinx GCC target: 32 bit on
     MicroBlaze/Zynq-7000, 64 bit on ZynqMP/Versal PL apertures.
     """
-    if htype == "XIic":
+    if htype in BASE_ADDRESS_HANDLE_DRIVERS:
         return f"unsigned long {hvar}"
     return f"{htype}* {hvar}"
 
@@ -2232,7 +2240,7 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
 
     # AXI IIC'de "handle" TABAN ADRES'tir: yerel degisken struct degil, adres
     # sabiti olarak xparameters.h'ten alinir ve DEGERLE gecirilir.
-    is_base = htype == "XIic"
+    is_base = htype in BASE_ADDRESS_HANDLE_DRIVERS
     instance = controller.get("instance", "")
 
     def handle_decl(name: str) -> str:

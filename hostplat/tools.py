@@ -42,6 +42,19 @@ _KNOWN_BIN_DIRS_WINDOWS = [
     r"C:\msys64\mingw64\bin",
     r"C:\ProgramData\chocolatey\bin",
 ]
+# Visual Studio ("Desktop development with C++" -> optional "C++ Clang tools for
+# Windows") bundles clang-format/clang-tidy under the VS tree and does NOT put
+# them on PATH. That is a very common Windows developer machine and without this
+# fallback the QC loop silently degrades: `clang-format`/`clang-tidy` report
+# "not found", the gate still says PASSED, and nobody notices the analyzers
+# never ran. Globbed instead of hard-coded because edition (BuildTools /
+# Community / Professional / Enterprise) and year vary per install.
+_VS_LLVM_GLOBS_WINDOWS = [
+    r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin",
+    r"C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\Llvm\bin",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\x64\bin",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\bin",
+]
 _KNOWN_BIN_DIRS_LINUX = ["/usr/bin", "/usr/local/bin"]
 
 # Known libclang shared-library locations + filenames.
@@ -63,11 +76,25 @@ def _env_key(tool_name: str) -> str:
     return f"SPEC2CODE_{slug}_PATH"
 
 
+def _visual_studio_llvm_dirs() -> list[str]:
+    """LLVM bin directories bundled with Visual Studio, newest install first.
+
+    Sorted descending so a 2022 install wins over 2019 and `x64\\bin` (the
+    64-bit toolset) wins over the 32-bit `bin` sibling of the same install.
+    """
+    import glob
+
+    found: list[str] = []
+    for pattern in _VS_LLVM_GLOBS_WINDOWS:
+        found.extend(glob.glob(pattern))
+    return sorted(set(found), reverse=True)
+
+
 def _known_bin_dirs() -> list[str]:
     if _IS_MAC:
         return _KNOWN_BIN_DIRS_MAC
     if _IS_WINDOWS:
-        return _KNOWN_BIN_DIRS_WINDOWS
+        return _KNOWN_BIN_DIRS_WINDOWS + _visual_studio_llvm_dirs()
     return _KNOWN_BIN_DIRS_LINUX
 
 

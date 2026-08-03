@@ -3,6 +3,77 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.152 - 2026-08-04
+
+MICROBLAZE ARTIK BIRINCI SINIF PLATFORM (kullanici istegi: "microblaze icin
+axi i2c, axi spi, axi uart, axi gpio test kod altyapisi + coresight yerine
+microblaze debug module destegi + Vivado'da gercek proje ile tam deneme").
+
+- AXI IIC (XIic) + AXI SPI (XSpi) CIHAZ CODEGEN: cmodel emitter'lari artik
+  surucu-polimorfik. Once her govde `XIicPs_*`/`XSpiPs_*` literalini gomuyordu,
+  bu yuzden MicroBlaze'de en basit I2C cihazi bile "does not support XIic"
+  hatasiyla duruyordu. Simdi:
+  - XIic: `xiic_l.h` polled `XIic_Send`/`XIic_Recv` (BAYT SAYISI doner, XST_*
+    degil -> modul basina `<modul>BusSend/BusRecv` sarmalayicilari kisa sayimi
+    XST_FAILURE'a cevirir). Handle = taban adresi (xiic_l.h'de instance yok).
+  - XSpi: `XSpi_Initialize` -> `SetOptions(XSP_MASTER_OPTION)` -> `Start` ->
+    `IntrGlobalDisable` -> `SetSlaveSelect(1U<<cs)` -> `XSpi_Transfer` (resmi
+    polled ornek kalibi).
+  - TCA9548A mux, EEPROM, TICS Pro register cerceveleri, test bench yardimcilari
+    ve I2C hat taramasi da AXI yolunda calisir.
+  - PS (ZynqMP/Zynq-7000/Versal) CIKTISI BAYT-BAYT AYNI kaldi (82 dosya/2 proje
+    diff bos) — sahada dogrulanmis yol korundu.
+- AXI GPIO (XGpio): denetleyici-adresli `gpio_read`/`gpio_write` op'lari
+  (kanal/maske/deger) + Test Bench'te GPIO karti + `gpio` transportlu cihaz
+  codegen'i. Yon maskesi semantigi surucu kaynagindan dogrulandi (bit=1 GIRIS).
+  `gpio_read` TRI'ya DOKUNMAZ (surulen bir reset hattini tri-state'e almak
+  yikici olurdu) — bilincli, belgelenmis sapma.
+- MDM TRANSPORTU (CoreSight'in MicroBlaze ikizi): `testbench_transport: "mdm"`.
+  MDM UART'i `uartlite` surucusu surer (BSP'nin kendi uartlite.mdd'sinden
+  dogrulandi: `supported_peripherals = (mdm axi_uartlite ...)`), host tarafi
+  mevcut `xsdb jtagterminal -socket` koprusunu MicroBlaze hedef filtresiyle
+  kullanir. jtagterminal'in MDM destegi iki bagimsiz yolla teyit edildi (canli
+  `help jtagterminal` ciktisi + xsdb.tcl kaynagi).
+- VIVADO MICROBLAZE TASARIM URETIMI: Vivado sayfasi artik MicroBlaze uretir —
+  MB + LMB yerel bellek + **MDM UART ACIK** (`debug_module {Debug & UART}`,
+  literal Vivado'nun kendi otomasyon sozlugunden) + secilebilir AXI IIC / Quad
+  SPI / UARTLite / GPIO. Bitstream XDC ister: kart kisitlarini uydurmak yerine
+  XDC'siz istekte acik Turkce hatayla durur.
+  - Kritik bulgu: `apply_bd_automation` gecersiz config degerinde HATA ATMAZ,
+    sessizce hicbir sey yapar. Uretilen Tcl bu yuzden MDM + `C_USE_UART=1` +
+    saat portunu acikca dogrular.
+- RUN ON BOARD MicroBlaze dali: MB bir SOFT cekirdek — PL programlanmadan JTAG'de
+  islemci hedefi yoktur, bu yuzden bitstream ZORUNLU ve ilk adimdir (psu_init /
+  ps7_init yok). `-clear-registers` ARM'a ozel oldugundan kullanilmaz.
+- GERCEK UCTAN UCA DOGRULAMA (bu surumun asil kaniti):
+  - Gercek Vivado 2023.2 ile MicroBlaze projesi uretildi -> gercek `.xsa`
+    (xc7a100tcsg324-1; MDM XUartLite@0x41400000 subtype=mdm, AXI_IIC@0x40800000,
+    AXI_QUAD_SPI@0x44A00000, AXI_UARTLITE@0x40600000, AXI_GPIO@0x40000000).
+  - Bu XSA parse edildi -> mux arkasi I2C cihazi + SPI cihazi + GPIO + MDM
+    transportlu spec -> generate (QC kapisindan gecti) -> gercek xsct ile Vitis
+    platform+BSP+app -> **GERCEK MicroBlaze ELF** (425 KB, `elf32-microblazeel`,
+    EXEC_P; mb-objdump ve ham ELF basligi ile bagimsiz teyit edildi).
+  - Uretilen surucu kaynaklari ayrica gercek `mb-gcc -Wall -Wextra` ile
+    derlendi: 21/21 dosya, SIFIR uyari.
+- E2E SIRASINDA BULUNAN GERCEK URUN HATALARI (hepsi duzeltildi):
+  - **QC'de SESSIZ YANLIS GECIS (Windows):** clang-tidy/cppcheck cikti
+    ayristirmasindaki dosya-yolu regex'i surucu harfindeki iki noktada
+    duruyordu (`C:\...`), bu yuzden TUM bulgular sessizce dusuruluyordu —
+    arac "kurulu ve 0 ihlal" gorunuyordu. Windows'ta bugune kadarki
+    analizor gecisleri bu yuzden anlamsizdi. Duzeltildi + testle kilitlendi.
+  - Visual Studio ile gelen clang-format/clang-tidy PATH'te olmadigindan
+    bulunamiyordu; VS agacindan otomatik bulunuyor.
+  - `spec2code_cli build` artik hangi analizorun gercekten kostugunu yazar ve
+    eksik varsa "QC GECTI yalnizca kosan araclar icin gecerlidir" uyarisi verir.
+  - Vitis self-test iskeleti taban-adresli surucu handle'larini bilmiyordu
+    (`error: unknown type name 'XIic'`); handle turu tek kaynaktan okunuyor.
+  - MicroBlaze LMB tasarimlarinda sik gorulen linker tasma hatasi ("region
+    overflowed") artik "yerel bellek yetmedi" diye anlasilir sekilde raporlanir.
+- HENUZ DOGRULANMAYAN (durust sinir): gercek MicroBlaze donaniminda calistirma
+  ve bitstream uretimi yapilmadi (kart XDC'si yok; pin uydurulmadi). Platform
+  destek notu, userguide ve README bu sinirla birlikte guncellendi.
+- 407 test yesil; frontend build temiz.
+
 ## v0.1.151 - 2026-08-03
 
 - TEST FIX (Windows'ta yakalandi): v0.1.149'da eklenen

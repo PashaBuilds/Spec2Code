@@ -1444,6 +1444,107 @@ class VitisWorkspaceTests(unittest.TestCase):
             shutil.rmtree(out_dir, ignore_errors=True)
 
 
+class VitisSelfTestScaffoldTests(unittest.TestCase):
+    """`spec2code_selftest_main.c` codegen ile AYNI imzayi kullanmali.
+
+    SAHA BULGUSU (MicroBlaze Faz 5, gercek Vitis kosusu): scaffold self-test
+    prototipini ELLE yaziyordu (`int ltc2991SelfTest(XIic* spHandle);`) ve
+    `XIic`'i bildiren hicbir basligi include etmiyordu. Gercek imza ise
+    `int ltc2991SelfTest(unsigned long ulIicBase)` (AXI IIC'de handle taban
+    adrestir). Sonuc: mb-gcc `error: unknown type name 'XIic'` ile duruyor ve
+    UYGULAMA ELF'i HIC uretilmiyordu.
+    """
+
+    @staticmethod
+    def _axi_spec() -> dict:
+        return {
+            "schema_version": "1.0",
+            "project": {"name": "mb_selftest", "platform": "microblaze_7series",
+                        "target_core": "microblaze_0", "runtime": "bare_metal"},
+            "controllers": [
+                {"id": "pl_i2c_0", "type": "i2c", "instance": "XPAR_AXI_IIC_0",
+                 "base_address": "0x40800000", "driver": "XIic",
+                 "source": "xparameters", "zone": "pl"},
+                {"id": "pl_spi_0", "type": "spi", "instance": "XPAR_AXI_QUAD_SPI_0",
+                 "base_address": "0x44A00000", "driver": "XSpi",
+                 "source": "xparameters", "zone": "pl"},
+            ],
+            "devices": [
+                {"id": "u2_ltc2991", "part": "LTC2991",
+                 "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x48"},
+                 "tests_requested": ["self_test"]},
+                {"id": "u4_lmk04832", "part": "LMK04832",
+                 "attach": {"controller_id": "pl_spi_0", "spi_chip_select": 0},
+                 "tests_requested": ["self_test"]},
+            ],
+        }
+
+    def test_axi_iic_self_test_is_called_with_a_base_address(self) -> None:
+        from backend.vitis_workspace import vitis_selftest_source
+
+        source = vitis_selftest_source(self._axi_spec())
+        self.assertIn("unsigned long ulU2Ltc2991Base = (unsigned long)XPAR_AXI_IIC_0_BASEADDR;",
+                      source)
+        self.assertIn("ltc2991SelfTest(ulU2Ltc2991Base);", source)
+        # Yanlis (eski) sekil bir daha uretilmemeli.
+        self.assertNotIn("XIic ", source)
+        self.assertNotIn("XIic*", source)
+        self.assertNotIn("ltc2991SelfTest(&", source)
+
+    def test_prototypes_come_from_the_generated_test_headers(self) -> None:
+        from backend.vitis_workspace import vitis_selftest_source
+
+        source = vitis_selftest_source(self._axi_spec())
+        self.assertIn('#include "ltc2991_test.h"', source)
+        self.assertIn('#include "lmk04832_test.h"', source)
+        self.assertIn('#include "xparameters.h"', source)
+        # Elle yazilmis prototip = codegen'den sapma riski; artik uretilmiyor.
+        self.assertNotIn("int ltc2991SelfTest(", source)
+        self.assertNotIn("int lmk04832SelfTest(", source)
+
+    def test_instance_based_axi_driver_declares_a_handle_and_includes_its_header(self) -> None:
+        from backend.vitis_workspace import vitis_selftest_source
+
+        source = vitis_selftest_source(self._axi_spec())
+        self.assertIn("XSpi sU4Lmk04832Handle;", source)
+        self.assertIn("lmk04832SelfTest(&sU4Lmk04832Handle);", source)
+        self.assertIn('#include "xspi.h"', source)
+
+    def test_ps_handles_are_unchanged(self) -> None:
+        """ZynqMP (XIicPs/XSpiPs) davranisi: instance + `&handle`, aynen."""
+        from backend.vitis_workspace import vitis_selftest_source
+
+        source = vitis_selftest_source(load_sample_spec("ps_selftest"))
+        self.assertIn("XIicPs sU12Ltc2991Handle;", source)
+        self.assertIn("ltc2991SelfTest(&sU12Ltc2991Handle);", source)
+        self.assertIn("XSpiPs sU20Mt25qu02gHandle;", source)
+        self.assertIn("mt25qu02gSelfTest(&sU20Mt25qu02gHandle);", source)
+        self.assertIn('#include "xiicps.h"', source)
+        self.assertIn('#include "xspips.h"', source)
+
+    def test_duplicate_parts_get_distinct_modules(self) -> None:
+        """Ayni parcadan iki cihaz -> ikinci modul soneki (ltc2991b) test edilir."""
+        from backend.vitis_workspace import vitis_selftest_source
+
+        spec = self._axi_spec()
+        spec["devices"].append({
+            "id": "u5_ltc2991", "part": "LTC2991",
+            "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x49"},
+            "tests_requested": ["self_test"],
+        })
+        source = vitis_selftest_source(spec)
+        self.assertIn('#include "ltc2991b_test.h"', source)
+        self.assertIn("ltc2991bSelfTest(ulU5Ltc2991Base);", source)
+
+    def test_handle_shape_matches_codegen_single_source_of_truth(self) -> None:
+        from orchestrator.cmodel import BASE_ADDRESS_HANDLE_DRIVERS, _handle_param
+
+        self.assertIn("XIic", BASE_ADDRESS_HANDLE_DRIVERS)
+        self.assertNotIn("XSpi", BASE_ADDRESS_HANDLE_DRIVERS)
+        self.assertEqual(_handle_param("XIic", "ulBase"), "unsigned long ulBase")
+        self.assertEqual(_handle_param("XSpi", "spSpi"), "XSpi* spSpi")
+
+
 class XsctFatalLogDetectionTests(unittest.TestCase):
     def test_benign_output_is_not_flagged_fatal(self) -> None:
         from backend.vitis_workspace import _xsct_log_has_fatal_error

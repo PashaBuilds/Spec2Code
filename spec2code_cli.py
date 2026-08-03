@@ -99,6 +99,20 @@ def cmd_build(args: argparse.Namespace) -> int:
     files = _collect_output_files(out_dir)
     print(f"[generate] {len(files)} dosya üretildi; QC {'GEÇTİ' if report.get('passed') else 'KALDI'}",
           flush=True)
+    # Araç eşitliği: kurulu OLMAYAN bir analizör hiç koşmaz ama kapıyı da
+    # düşürmez -> "QC GEÇTİ" satırı tek başına yanıltıcıdır. Hangi aracın
+    # gerçekten koştuğunu her koşuda yaz, eksik varsa açıkça uyar.
+    tools_status: dict = report.get("tools") or {}
+    if tools_status:
+        print("[generate] QC araçları: "
+              + ", ".join(f"{name}={'var' if ok else 'YOK'}"
+                          for name, ok in sorted(tools_status.items())),
+              flush=True)
+        missing = sorted(name for name, ok in tools_status.items() if not ok)
+        if missing:
+            print(f"[generate] UYARI: {', '.join(missing)} bu makinede bulunamadı; "
+                  "o denetimler HİÇ koşmadı — 'QC GEÇTİ' yalnızca koşan araçlar için geçerlidir.",
+                  flush=True)
     if not report.get("passed"):
         print("HATA: QC geçmedi.", file=sys.stderr)
         return 3
@@ -108,6 +122,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         "out_dir": str(out_dir),
         "files": len(files),
         "qc_passed": bool(report.get("passed")),
+        "qc_tools": tools_status,
     }
 
     if vitis_requested:

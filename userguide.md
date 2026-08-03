@@ -113,7 +113,35 @@ Desteklenen platformlar:
 - Zynq-7000
 - Zynq UltraScale+ MPSoC
 - Versal ACAP
-- MicroBlaze 7-series
+- MicroBlaze 7-series (Artix-7 / Kintex-7 / Spartan-7 PL)
+
+### MicroBlaze 7-series notu (durust kapsam)
+
+Uctan uca **masa ustunde** dogrulandi: urunun Vivado akisiyla uretilen gercek
+`.xsa` -> XSA parser -> codegen + QC -> Vitis platform/BSP/app -> gercek
+MicroBlaze ELF'i (`ELF 32-bit LSB executable, Xilinx MicroBlaze 32-bit RISC`).
+Kapsam:
+
+- **AXI IIC (`XIic`)** cihazlari, TCA9548A mux arkasindakiler dahil.
+- **AXI Quad SPI (`XSpi`)** cihazlari (TICS register cihazlari dahil).
+- **AXI GPIO (`XGpio`)** — hem cihaz transportu hem denetleyici op'lari
+  (`gpio_read` / `gpio_write`).
+- Test bench ajani: **MDM UART** (`testbench_transport: "mdm"`, xsdb
+  `jtagterminal` koprusu) veya **AXI UARTLite** (fiziksel seri pin).
+- `run_on_board`: bitstream ZORUNLU (soft cekirdek, PL programlanmadan JTAG'de
+  hicbir islemci hedefi gorunmez).
+
+**Yerel bellek (LMB) siniri — onemli:** MicroBlaze firmware'i yalniz LMB (BRAM)
+icinde kosar. Olcum (gercek `mb-gcc` link'i): tam test bench ajani + 3 cihaz
+surucusu + BSP ~**156 KB**. Vivado blok otomasyonunun tavani 128 KB'dir, bu
+yuzden Spec2Code 256KB/512KB'i LMB adres segmentini buyuterek kurar ve geri
+okuyup dogrular. Vivado Tasarimi ekraninda MicroBlaze varsayilani **256KB**'dir;
+kucuk secersen link `S2C-VITIS-MEMORY-012` (yerel bellek tasmasi) ile duser.
+
+**HENUZ YAPILMADI:** gercek bir MicroBlaze kartinda calistirma ve bitstream
+uretimi. Bitstream kartin XDC'sini ZORUNLU kilar (Spec2Code pin atamasi
+uydurmaz); XDC'siz `.xsa` uretimi sorunsuz calisir. Kesme yolu (`axi_intc`) ve
+DDR/MIG yoktur.
 
 `xparameters.h` yuklediginde uygulama controller'lari cikartir. Ayni controller
 farkli macro alias'lariyla geldiyse tek controller olarak dedupe edilir.

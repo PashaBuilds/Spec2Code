@@ -38,6 +38,23 @@ ve devam geliştirme.
   `.xsa` dosyası, hedef workspace dizini ve temp/staging dizini verilince `xsct`
   otomatik bulunur, Vitis sürümü algılanır, kaynaklar staging'e alınır ve
   platform/application workspace build akışı progress bar ile izlenir.
+- **Platform destek matrisi (dürüst kapsam):**
+  - **Zynq UltraScale+ MPSoC** — tam destek; I2C/SPI/QSPI sürücüleri, lwIP + UART
+    + CoreSight DCC test bench, JTAG Build&Run; ZCU102 ile gerçek kartta doğrulandı.
+  - **Versal ACAP** — VCK190 ile gerçek kartta doğrulandı; I2C/QSPI + UART
+    (`XUartPsv`) ajanı, workspace + PDI. Ethernet/lwIP Versal'da üretilmez.
+  - **Zynq-7000** — I2C/SPI + UART ajanı + `ps7_init` ile Build&Run. PS QSPI
+    (`XQspiPs`) desteklenmez (açık hata).
+  - **MicroBlaze 7-series (Artix-7/Kintex-7/Spartan-7 PL)** — **masa üstünde**
+    uçtan uca doğrulandı: ürünün Vivado akışıyla üretilen gerçek `.xsa` →
+    codegen + QC → Vitis platform/BSP/app → gerçek MicroBlaze ELF'i. AXI IIC
+    (`XIic`, TCA9548A mux dahil), AXI Quad SPI (`XSpi`), AXI GPIO (`XGpio`,
+    denetleyici op'ları dahil), MDM UART veya AXI UARTLite ajanı. **Gerçek
+    kartta çalıştırılmadı** ve bitstream kartın XDC'sini zorunlu kılar
+    (XDC'siz üretim açık hatayla durur, `.xsa`-only akış çalışır). Firmware
+    yalnız LMB'den koşar; tam ajan + birkaç sürücü ~156KB olduğundan Vivado
+    Tasarımı ekranında 256KB yerel bellek varsayılandır (Vivado otomasyonunun
+    tavanı 128KB'dır, üstü LMB adres segmenti büyütülerek kurulur).
 - **ZynqMP PS Ethernet test bench:** `xparameters.h` içinde PS Ethernet
   (`XEmacPs`) varsa generate sonucu lwIP TCP test bench agent üretilebilir;
   Windows UI karta kalici TCP session üzerinden register/operation komutu yollar.

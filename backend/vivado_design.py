@@ -95,10 +95,30 @@ _MICROBLAZE_PERIPHERALS: dict[str, _MbPeripheral] = {
     "axi_gpio": _MbPeripheral("xilinx.com:ip:axi_gpio", "S_AXI", "GPIO", "AXI GPIO"),
 }
 
-#: ``local_mem`` icin gecerli degerler — Vivado kurulumundaki otomasyon
-#: kaynagindan BIREBIR: ``data/rsb/design_assist/block/microblaze/bd.tcl``
+#: ``local_mem`` icin OTOMASYONUN kabul ettigi degerler — Vivado kurulumundaki
+#: otomasyon kaynagindan BIREBIR:
+#: ``data/rsb/design_assist/block/microblaze/bd.tcl``
 #: ``mem [list None 4KB 8KB 16KB 32KB 64KB 128KB]``.
-_MICROBLAZE_LOCAL_MEM = ("None", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB")
+_MICROBLAZE_AUTOMATION_LOCAL_MEM = ("None", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB")
+
+#: Otomasyonun TAVANI. Bunun uzerindeki degerler otomasyondan sonra LMB adres
+#: segmentleri buyutulerek kurulur (asagi bak).
+_MICROBLAZE_AUTOMATION_MAX_LOCAL_MEM = "128KB"
+
+#: SAHA BULGUSU (Faz 5 E2E, gercek mb-gcc link'i): tam Spec2Code ajani + 3 cihaz
+#: surucusu + BSP (XIic/XSpi/XUartLite/xil_printf/newlib) 128KB LMB'ye SIGMIYOR
+#: — `.text` 24840 bayt tasti (-Os ile bile 7600 bayt tasiyor). Otomasyonun
+#: tavani 128KB oldugu icin urun bunun uzerini ADRES SEGMENTINI buyuterek kurar.
+#: CANLI PROBE ile dogrulandi (`set_property range 256K` iki LMB segmentine):
+#:   MEMRANGE HIGHVALUE 0x0001FFFF -> 0x0003FFFF ve
+#:   blk_mem_gen C_WRITE_DEPTH_A 32768 -> 65536 (32-bit kelime => 128KB -> 256KB)
+#: yani gercekten buyuyor, sessiz no-op degil. Uretilen Tcl ayrica dogrular.
+#: UST SINIR NOTU: LMB BRAM cihazin blok RAM'inden gelir; 512KB kucuk 7-serisi
+#: parcalarda implementasyona SIGMAYABILIR (XSA-only akista bu yakalanmaz,
+#: hata sentezde cikar).
+_MICROBLAZE_EXTRA_LOCAL_MEM = ("256KB", "512KB")
+
+_MICROBLAZE_LOCAL_MEM = _MICROBLAZE_AUTOMATION_LOCAL_MEM + _MICROBLAZE_EXTRA_LOCAL_MEM
 
 #: Cevre birimi basina ust sinir (mutevazi kapsam; her biri ayri AXI slave'i
 #: ve ayri harici port demektir).
@@ -595,6 +615,38 @@ proc spec2codeMbTieSpiClock {inst} {
     set spec2code_net [get_bd_nets -of_objects [get_bd_pins $inst/s_axi_aclk]]
     connect_bd_net -net $spec2code_net [get_bd_pins $inst/ext_spi_clk]
 }
+proc spec2codeMbResizeLocalMemory {wanted wanted_bytes} {
+    # Otomasyonun tavani 128KB'dir. Daha buyuk LMB, iki LMB adres segmentinin
+    # `range` ozelligi buyutulerek kurulur; Vivado lmb_bram_if_cntlr'in
+    # C_HIGHADDR'ini ve blk_mem_gen derinligini buna gore yeniden uretir.
+    # OTOMASYONA GUVENILMEZ KURALI burada da gecerli: yazdiktan sonra GERI OKU.
+    set spec2code_segs [get_bd_addr_segs -quiet -of_objects [get_bd_cells microblaze_0]]
+    set spec2code_lmb {}
+    foreach spec2code_seg $spec2code_segs {
+        if {[string match "*lmb_bram_if_cntlr*" $spec2code_seg]} {
+            lappend spec2code_lmb $spec2code_seg
+        }
+    }
+    if {[llength $spec2code_lmb] != 2} {
+        error "Spec2Code: LMB adres segmentleri bulunamadi (beklenen 2 - DLMB + ILMB, bulunan: '$spec2code_lmb'). Yerel bellek buyutulemedi."
+    }
+    foreach spec2code_seg $spec2code_lmb {
+        set_property range $wanted $spec2code_seg
+    }
+    foreach spec2code_seg $spec2code_lmb {
+        # DIKKAT: `range` GERI OKUNURKEN hex bayt sayisidir ('0x00040000'),
+        # yazarken kullanilan '256K' bicimi DEGIL - karsilastirma SAYISAL olmali
+        # (canli kosuda string kiyasi yanlis alarm verdi).
+        set spec2code_got [get_property range $spec2code_seg]
+        if {[catch {set spec2code_got_bytes [expr {$spec2code_got}]}]} {
+            error "Spec2Code: LMB segmenti '$spec2code_seg' icin range geri okunamadi ('$spec2code_got')."
+        }
+        if {$spec2code_got_bytes != $wanted_bytes} {
+            error "Spec2Code: LMB segmenti '$spec2code_seg' $wanted olarak ayarlanamadi (geri okunan: '$spec2code_got' = $spec2code_got_bytes bayt, beklenen $wanted_bytes bayt). Yerel bellek istenen boyutta DEGIL - uretim durduruldu."
+        }
+    }
+    puts "S2C-VIVADO|local_mem=$wanted|bytes=$wanted_bytes|segments=[llength $spec2code_lmb]"
+}
 proc spec2codeMbReportPorts {} {
     # Kullanicinin XDC'sinin kisitlamasi GEREKEN portlarin tam listesi. 7-serisi
     # bitstream'de kisitlanmamis IO, place asamasinda DRC hatasi (UCIO/NSTD)
@@ -607,6 +659,26 @@ proc spec2codeMbReportPorts {} {
     }
 }
 """
+
+
+def _bd_addr_range(local_mem: str) -> str:
+    """``"256KB"`` -> ``"256K"``: BD adres segmenti ``range`` sozdizimi.
+
+    Vivado'nun adres segmenti birimleri K/M/G'dir (``set_property range 256K``,
+    canli probe ile dogrulandi); ``256KB`` gecerli DEGILDIR. Otomasyonun kendi
+    sozlugu ise ``128KB`` yazar - iki farkli sozluk, tek donusum noktasi.
+    """
+    return local_mem[:-1] if local_mem.endswith("KB") else local_mem
+
+
+def _local_mem_bytes(local_mem: str) -> int:
+    """``"256KB"`` -> 262144. Geri okuma SAYISAL karsilastirilir cunku
+    ``get_property range`` hex bayt sayisi dondurur (``0x00040000``)."""
+    text = local_mem.strip().upper().removesuffix("B")
+    factors = {"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}
+    if text and text[-1] in factors:
+        return int(text[:-1]) * factors[text[-1]]
+    return int(text)
 
 
 def _microblaze_instances(cfg: VivadoDesignConfig) -> list[tuple[str, _MbPeripheral]]:
@@ -629,8 +701,13 @@ def _microblaze_design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
     xsa_bit_out = staging / f"{cfg.design_name}_bit.xsa"
     # Otomasyon config'i: her deger Vivado kurulumundaki
     # data/rsb/design_assist/block/microblaze/bd.tcl'den dogrulanmistir.
+    # Otomasyona yalnizca KABUL ETTIGI bir deger verilir; daha buyuk LMB
+    # istendiyse otomasyon tavandan (128KB) kurulur ve hemen ardindan adres
+    # segmentleri buyutulur (bkz. _MICROBLAZE_EXTRA_LOCAL_MEM).
+    oversize_mem = cfg.mb_local_mem in _MICROBLAZE_EXTRA_LOCAL_MEM
+    automation_mem = _MICROBLAZE_AUTOMATION_MAX_LOCAL_MEM if oversize_mem else cfg.mb_local_mem
     mb_config = (
-        "{ local_mem " + _tcl_brace(cfg.mb_local_mem) + " ecc {None} cache {None}"
+        "{ local_mem " + _tcl_brace(automation_mem) + " ecc {None} cache {None}"
         " debug_module " + _tcl_brace(_MICROBLAZE_DEBUG_MODULE) +
         " axi_periph {Enabled} axi_intc {0}"
         " clk " + _tcl_brace(_MICROBLAZE_CLK_AUTOMATION) + " }"
@@ -658,6 +735,11 @@ def _microblaze_design_tcl(cfg: VivadoDesignConfig, staging: Path) -> str:
         f"set_property CONFIG.FREQ_HZ {clk_hz} [get_bd_ports {_MICROBLAZE_CLK_PORT}]\n",
         "spec2codeMbExternalReset\n",
     ]
+    if oversize_mem:
+        # 128KB ustu LMB: otomasyon tavandan kurdu, simdi segmentleri buyut.
+        lines.append(
+            f"spec2codeMbResizeLocalMemory {_tcl_brace(_bd_addr_range(cfg.mb_local_mem))} "
+            f"{_local_mem_bytes(cfg.mb_local_mem)}\n")
     if instances:
         lines.append(_marker("stage=mb_peripherals"))
     for inst, spec in instances:
@@ -1054,6 +1136,13 @@ class VivadoDesignJobManager:
             result["reset_port"] = name
             job.emit({"event": "vivado.log",
                       "line": f"Harici reset portu: {name} ({polarity})"})
+        elif payload.startswith("local_mem="):
+            rest = payload[len("local_mem="):]
+            size, _, _segments = rest.partition("|")
+            result["local_mem"] = size
+            job.emit({"event": "vivado.log",
+                      "line": (f"Yerel bellek (LMB) {size} olarak büyütüldü ve geri okundu "
+                               "(Vivado otomasyonunun tavanı 128KB'dır)")})
         elif payload.startswith("external_port="):
             rest = payload[len("external_port="):]
             name, _, direction = rest.partition("|")

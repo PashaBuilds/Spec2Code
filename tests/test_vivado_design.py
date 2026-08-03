@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.vivado_design import (
     VivadoDesignConfig,
     VivadoPeripheral,
+    _local_mem_bytes,
     design_tcl,
     group_parts,
     validate_design,
@@ -483,6 +484,53 @@ class MicroBlazeDesignTclTests(unittest.TestCase):
         # XDC su an yalniz MicroBlaze akisinda kullaniliyor - sessizce yok sayilmaz.
         errors = validate_design(_zynqmp_cfg(constraints_path="x.xdc"))
         self.assertTrue(any("microblaze_7series" in e for e in errors), errors)
+
+    def test_local_mem_above_the_automation_ceiling_resizes_the_lmb_segments(self) -> None:
+        """128KB ustu LMB: otomasyon TAVANDAN kurulur, sonra segment buyutulur.
+
+        SAHA BULGUSU (Faz 5, gercek mb-gcc link'i): tam ajan + 3 cihaz surucusu
+        + BSP 128KB'ye sigmiyor (`.text` 24840 bayt tasti). Vivado otomasyonunun
+        sozlugu 128KB'de bitiyor, o yuzden buyugu adres segmenti uzerinden.
+        CANLI PROBE: `set_property range 256K` -> hwh MEMRANGE HIGHVALUE
+        0x0001FFFF -> 0x0003FFFF, blk_mem_gen derinligi 32768 -> 65536.
+        """
+        tcl = design_tcl(_mb_cfg(mb_local_mem="256KB"), Path(r"D:\tmp\s2c"))
+        # Otomasyona GECERLI bir deger gider (256KB otomasyon sozlugunde YOK).
+        self.assertIn("local_mem {128KB}", tcl)
+        self.assertNotIn("local_mem {256KB}", tcl)
+        # ... ve hemen ardindan segment buyutulur. Vivado adres birimi K'dir,
+        # geri okuma ise hex BAYT sayisidir -> beklenen bayt da gecirilir.
+        self.assertIn("\nspec2codeMbResizeLocalMemory {256K} 262144\n", tcl)
+        self.assertNotIn("spec2codeMbResizeLocalMemory {256KB}", tcl)
+        # Sira: otomasyon -> dogrulama -> buyutme.
+        self.assertLess(tcl.index("apply_bd_automation -rule xilinx.com:bd_rule:microblaze"),
+                        tcl.index("\nspec2codeMbResizeLocalMemory {256K}"))
+        # Buyutme yazip GERI OKUR (sessiz no-op'a guvenilmez doktrini) ve
+        # karsilastirmayi SAYISAL yapar (canli kosuda '256K' ne '0x00040000').
+        self.assertIn("proc spec2codeMbResizeLocalMemory", tcl)
+        self.assertIn("get_property range $spec2code_seg", tcl)
+        self.assertIn("$spec2code_got_bytes != $wanted_bytes", tcl)
+        self.assertIn("S2C-VIVADO|local_mem=", tcl)
+
+    def test_local_mem_byte_conversion(self) -> None:
+        self.assertEqual(_local_mem_bytes("128KB"), 131072)
+        self.assertEqual(_local_mem_bytes("256KB"), 262144)
+        self.assertEqual(_local_mem_bytes("512KB"), 524288)
+        tcl = design_tcl(_mb_cfg(mb_local_mem="512KB"), Path(r"D:\tmp\s2c"))
+        self.assertIn("\nspec2codeMbResizeLocalMemory {512K} 524288\n", tcl)
+
+    def test_local_mem_at_or_below_the_ceiling_does_not_resize(self) -> None:
+        for size in ("64KB", "128KB"):
+            with self.subTest(size=size):
+                tcl = design_tcl(_mb_cfg(mb_local_mem=size), Path(r"D:\tmp\s2c"))
+                self.assertIn("local_mem {" + size + "}", tcl)
+                # Proc TANIMI her zaman var; CAGRI (satir basi) olmamali.
+                self.assertNotIn("\nspec2codeMbResizeLocalMemory {", tcl)
+
+    def test_oversize_local_mem_values_are_accepted_by_validation(self) -> None:
+        for size in ("256KB", "512KB"):
+            with self.subTest(size=size):
+                self.assertEqual(validate_design(_mb_cfg(mb_local_mem=size)), [])
 
     def test_group_parts_maps_7series_families_to_microblaze(self) -> None:
         # Aile adlari kurulu Vivado 2023.2'nin get_parts FAMILY degerleridir.

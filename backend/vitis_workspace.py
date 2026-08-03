@@ -76,6 +76,7 @@ _VITIS_ERROR_CODES = {
     "xsct_tcl_command": "S2C-VITIS-XSCT-TCL-006",
     "undefined_reference": "S2C-VITIS-LINK-007",
     "missing_library": "S2C-VITIS-LIBRARY-008",
+    "memory_overflow": "S2C-VITIS-MEMORY-012",
     "missing_elf": "S2C-VITIS-ELF-009",
     "xsct_hang": "S2C-VITIS-HANG-010",
     "workspace_stale": "S2C-VITIS-WORKSPACE-011",
@@ -757,11 +758,21 @@ def _controller_handle_type(controller: dict) -> str | None:
 
 
 def _controller_header(handle_type: str) -> str | None:
+    """BSP header that declares ``handle_type``.
+
+    Kept for the AXI soft-IP drivers too (``XSpi``/``XGpio``): the self-test
+    runner declares a handle of this exact type, and without the header the app
+    fails to compile with ``unknown type name 'XSpi'``. ``XIic`` has no entry on
+    purpose - its handle is a base address, not a driver instance
+    (see ``cmodel.BASE_ADDRESS_HANDLE_DRIVERS``).
+    """
     return {
         "XIicPs": "xiicps.h",
         "XSpiPs": "xspips.h",
         "XQspiPs": "xqspips.h",
         "XQspiPsu": "xqspipsu.h",
+        "XSpi": "xspi.h",
+        "XGpio": "xgpio.h",
     }.get(handle_type)
 
 
@@ -791,10 +802,24 @@ def vitis_selftest_header() -> str:
 
 
 def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
+    """Example Vitis runner that calls every generated ``<module>SelfTest``.
+
+    The self-test prototype is NOT re-declared here: the generated
+    ``tests/<module>_test.h`` already declares it (and pulls in the driver
+    header, hence the handle type, and ``xparameters.h`` for base-address
+    drivers). Hand-writing the prototype is what silently drifted from codegen
+    before - the AXI IIC self-test takes ``unsigned long`` base address, not an
+    ``XIic*``, so the scaffold declared a signature that both mismatched the
+    real one and referenced a type nothing had included
+    (``error: unknown type name 'XIic'``, MicroBlaze Faz 5 E2E).
+    """
+    from orchestrator.cmodel import BASE_ADDRESS_HANDLE_DRIVERS, device_module_map
+
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     devices = spec.get("devices", [])
-    declarations: list[str] = []
-    declaration_keys: set[tuple[str, str]] = set()
+    # Two devices of the same part get distinct modules (ltc2991, ltc2991b);
+    # deriving the module from the part alone would test the first one twice.
+    module_of = device_module_map(spec)
     calls: list[str] = []
     includes = {
         "spec2code_selftest_main.h",
@@ -812,21 +837,31 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
         handle_type = _controller_handle_type(controller)
         if handle_type is None:
             continue
-        module = _driver_module(device.get("part", ""))
+        module = module_of.get(device.get("id", "")) or _driver_module(device.get("part", ""))
         handle_base = _pascal_identifier(device.get("id") or module)
-        handle_name = f"s{handle_base}Handle"
         header = _controller_header(handle_type)
         if header:
             includes.add(header)
-        includes.add(f"{module}.h")
+        # Prototype + types come from the generated test header (single source
+        # of truth); the driver header is pulled in transitively by it.
+        includes.add(f"{module}_test.h")
         self_test = _driver_function(module, "self_test")
-        declaration_key = (self_test, handle_type)
-        if declaration_key not in declaration_keys:
-            declaration_keys.add(declaration_key)
-            declarations.append(f"int {self_test}({handle_type}* spHandle);")
+        if handle_type in BASE_ADDRESS_HANDLE_DRIVERS:
+            # Base-address driver (AXI IIC): the "handle" is the controller
+            # aperture from xparameters.h, passed BY VALUE - mirrors
+            # cmodel._test_unit so both runners drive the same signature.
+            handle_name = f"ul{handle_base}Base"
+            handle_decl = (f"    unsigned long {handle_name} = "
+                           f"(unsigned long){controller.get('instance', '')}_BASEADDR;")
+            handle_arg = handle_name
+            includes.add("xparameters.h")
+        else:
+            handle_name = f"s{handle_base}Handle"
+            handle_decl = f"    {handle_type} {handle_name};"
+            handle_arg = f"&{handle_name}"
         calls.extend([
-            f"    {handle_type} {handle_name};",
-            f"    iStatus = {self_test}(&{handle_name});",
+            handle_decl,
+            f"    iStatus = {self_test}({handle_arg});",
             "    if (iStatus != XST_SUCCESS)",
             "    {",
             f'        xil_printf("{device.get("part", module)} self-test FAILED: %d\\r\\n", iStatus);',
@@ -837,7 +872,7 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
         ])
 
     include_lines = [f'#include "{name}"' for name in sorted(includes) if name.endswith(".h")]
-    declaration_block = "\n".join(declarations) or "/* No self-test functions were selected. */"
+    declaration_block = "/* Self-test prototypes come from the generated <module>_test.h headers. */"
     call_block = "\n".join(calls) if calls else "    xil_printf(\"No Spec2Code self-tests selected.\\r\\n\");\n"
     main_block = (
         "\n"

@@ -33,7 +33,7 @@ const PLATFORM_SUPPORT: Record<PlatformId, { tone: "ok" | "warn"; text: string }
   },
   microblaze_7series: {
     tone: "warn",
-    text: "Sınırlı destek — UARTLITE ajanı + BSP/workspace çalışır (mb ELF doğrulandı); AXI IIC/SPI cihaz üretimi henüz yok, bağlanırsa üretim açık hatayla durur.",
+    text: "Masa üstünde uçtan uca doğrulandı — Vivado'da üretilen gerçek XSA'dan AXI IIC (XIic, TCA9548A mux dahil), AXI Quad SPI (XSpi), AXI GPIO (XGpio) cihaz/denetleyici üretimi + MDM UART veya UARTLITE ajanı + Vitis platform/BSP/app ile gerçek MicroBlaze ELF'i alındı. HENÜZ YAPILMADI: gerçek kartta çalıştırma (elimizde MicroBlaze kartı yok) ve bitstream — bitstream kartın XDC'sini ZORUNLU kılar, XDC'siz üretim açık hatayla durur. Firmware yalnız LMB'den koşar: tam ajan + birkaç sürücü ~156KB'dir, bu yüzden Vivado Tasarımı'nda 256KB yerel bellek seçilmelidir (128KB'de link taşar). Kesme yolu ve DDR/MIG yok.",
   },
 };
 

@@ -72,6 +72,25 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Header bulunamadı. BSP include path, generated driver include path veya Vitis domain ayarı eksik olabilir.",
     ),
     (
+        # MicroBlaze LMB-only tasarimda en sik goruleni. `ld` yalnizca ham
+        # bolge adini yazar; kullanicinin bunu "yerel bellek yetmedi" diye
+        # okuyabilmesi icin acikca soylenmeli.
+        re.compile(r"region\s+[`'](?P<symbol>[^`']+)'\s+overflowed by\s+(?P<overflow>\d+)\s+bytes", re.I),
+        "memory_overflow",
+        "Uygulama hedefin yerel belleğine sığmadı. MicroBlaze'de firmware yalnızca LMB "
+        "(BRAM) içinde koşar: Vivado Tasarımı ekranında 'Yerel bellek (LMB)' değerini "
+        "büyüt (Vivado otomasyonunun tavanı 128KB'dır; Spec2Code 256KB/512KB'ı adres "
+        "segmentini büyüterek kurar), tasarımdaki cihaz/operasyon sayısını azalt, ya da "
+        "harici bellek (MIG/DDR) ekle. Taşma miktarı hata satırında bayt olarak yazılıdır.",
+    ),
+    (
+        re.compile(r"section\s+[`'](?P<symbol>\.[A-Za-z_.]+)'\s+will not fit in region", re.I),
+        "memory_overflow",
+        "Linker bölümü (`.text`/`.data`/`.bss`) hedef bellek bölgesine sığmadı. "
+        "MicroBlaze'de yerel belleği (LMB) büyüt veya üretilen kapsamı küçült; "
+        "hemen sonraki 'overflowed by N bytes' satırı ne kadar eksik olduğunu söyler.",
+    ),
+    (
         re.compile(r"undefined reference to [`'](?P<symbol>[^`']+)", re.I),
         "undefined_reference",
         "Link aşamasında sembol bulunamadı. İlgili `.c` dosyası application source içine eklenmemiş veya function adı değişmiş olabilir.",

@@ -9,10 +9,18 @@ ve gerçek `gcc`/`aarch64` derleme testleri koşulabildi — **canlı TCP/UART/D
 round-trip ve gerçek firmware trace davranışı bu liste ile İLK KEZ
 doğrulanacak**.
 
-Her satırı üç bağlantı tipinin **HER BİRİNDE** tekrarla: **UART (Seri)**,
-**TCP/Ethernet**, **CoreSight DCC (JTAG)**. Bir satır bir transportta
-NOK ise diğer ikisinde de tekrar dene — transport'a özgü mü, katalog/kodek
-seviyesinde mi olduğunu ayırt etmek için.
+Her satırı dört bağlantı tipinin **HER BİRİNDE** tekrarla: **UART (Seri)**,
+**TCP/Ethernet**, **CoreSight DCC (JTAG, ZynqMP)** ve **MDM UART (JTAG,
+MicroBlaze)**. Bir satır bir transportta NOK ise diğerlerinde de tekrar dene —
+transport'a özgü mü, katalog/kodek seviyesinde mi olduğunu ayırt etmek için.
+
+**MDM UART (MicroBlaze) kısaca:** CoreSight DCC'nin MicroBlaze karşılığıdır —
+aynı `xsdb jtagterminal -socket` köprüsü, ayrı bir seri pin YOK, baud kavramı
+YOK. Bağlantı kartında transport `MDM` seçilir, Vitis kurulum yolu verilir,
+çekirdek `microblaze_0` olur (hedef filtresi `"*MicroBlaze*#0"`). Kart yazılımı
+`testbench_transport: "mdm"` ile üretilmiş olmalıdır; ajan banner'ı
+`S2C-MDM-AGENT-READY` şeklindedir (`S2C-UART-AGENT-READY` DEĞİL). Bu transport
+**gerçek kartta HİÇ koşulmadı** — bu listedeki MDM sütunu ilk saha doğrulamasıdır.
 
 ## Bilinen v1 kısıtları (baştan oku)
 
@@ -36,6 +44,16 @@ seviyesinde mi olduğunu ayırt etmek için.
   (`message_catalog_crc32`) YATT sayfasındaki `kontrat CRC32 {hash}` rozeti
   ile manifest üzerinden yapılır — üretilen ajanın kullandığı katalogla
   backend'in katalogunun aynı olduğunu orada doğrula (bkz. madde 12).
+- **MicroBlaze: yerel bellek (LMB) sınırı gerçektir.** Firmware sadece LMB
+  (BRAM) içinde koşar. Ölçüm (gerçek `mb-gcc` link'i, v0.1.150): tam test bench
+  ajanı + 3 cihaz sürücüsü + BSP ≈ **156 KB** — yani 128 KB LMB'ye SIĞMAZ
+  (`.text` 24840 bayt taşar; `-Os` ile bile 7600 bayt taşar). Vivado blok
+  otomasyonunun tavanı 128 KB olduğu için Spec2Code 256KB/512KB'ı LMB adres
+  segmentini büyüterek kurar (üretilen Tcl yazdıktan sonra geri okur ve
+  tutmazsa üretimi durdurur). **Vivado Tasarımı ekranında MicroBlaze için
+  varsayılan 256KB'dır**; küçültürsen link `S2C-VITIS-MEMORY-012` ile düşer.
+- **MDM UART tek istemcilidir**: `xsdb jtagterminal` açıkken Vitis'in kendi
+  seri terminali aynı akışı paylaşamaz. Aynı anda tek bağlantı noktası kullan.
 - **ESKİ AJANLA UYUMSUZ**: karttaki önceki (metin protokolü) firmware bu
   sürümle KONUŞAMAZ. Karta yüklü eski ELF varsa Generate + Vitis workspace
   ile yeniden derleyip YÜKLEMEDEN hiçbir adım çalışmaz (bağlantı kurulur ama
@@ -48,7 +66,8 @@ seviyesinde mi olduğunu ayırt etmek için.
 
 | Adım | Beklenen sonuç | Fark (eski protokole göre) |
 |---|---|---|
-| Test Bench sayfasında bağlantı tipini seç: **TCP**/**Seri**/**CoreSight** (BoardConnectionCard, sol panel). TCP için Host/Port; Seri için Seri port + Baud; CoreSight için Vitis kurulum yolu + Çekirdek (DCC). | **Bağlan**'a basınca birkaç saniye içinde rozet `bağlı` (yeşil) olur. CoreSight'ta ilk bağlantı xsdb açılışı nedeniyle ~10-30 sn sürebilir. | Bağlantı kurulumu değişmedi; yalnızca üstünden akan çerçeve formatı binary. |
+| Test Bench sayfasında bağlantı tipini seç: **TCP**/**Seri**/**CoreSight**/**MDM** (BoardConnectionCard, sol panel). TCP için Host/Port; Seri için Seri port + Baud; CoreSight/MDM için Vitis kurulum yolu + Çekirdek (CoreSight: `psu_cortexa53_0`, MDM: `microblaze_0`). | **Bağlan**'a basınca birkaç saniye içinde rozet `bağlı` (yeşil) olur. CoreSight/MDM'de ilk bağlantı xsdb açılışı nedeniyle ~10-30 sn sürebilir. MDM'de PL önce bitstream ile programlanmış OLMALIDIR (soft çekirdek programlanmamış PL'de JTAG'de görünmez). | Bağlantı kurulumu değişmedi; yalnızca üstünden akan çerçeve formatı binary. MDM seçeneği v0.1.148+ ile geldi. |
+| **MDM'de banner doğrulaması** (yalnız MicroBlaze): bağlandıktan sonra Akış ekranında ilk satırları kontrol et. | `S2C-MDM-AGENT-READY (mdm uartlite, JTAG; baud yok)` görünmeli. `S2C-UART-AGENT-READY` görürsen kart yazılımı `testbench_transport: "uart"` ile üretilmiş demektir — MDM'in fiziksel pini yoktur, o ELF MDM üzerinden konuşamaz; `"mdm"` ile yeniden üret. `Target doesn't support Jtag Uart` hatası ise MDM'in Vivado'da `Debug Only` (UART'sız) kurulduğu anlamına gelir. | Yeni doğrulama adımı (MicroBlaze). |
 | **CoreSight DCC RX-hazır maskesi doğrulaması** (CoreSight transportunda HATA ise): Telnet log ajan + CoreSight/DCC kombinasyonunda: Agent DCC çerçevesi alamıyorsa ya da timeout'lar sık görülüyorsa, SPEC2CODE_CORESIGHT_DCC_RX_MASK makrosu (üretilen koddaki varsayılan 1U<<30) kart BSP'sindeki XCoresightPs_DccGetStatus DCC registerinin gerçek ready-bit tanımıyla eşleşmediği anlamı taşır. Bağlantı kur, yalnız DCC'ye telnet log server çerçeveleri gönderin (komut göndermeden): PuTTY ile TCP 18.2.75.121:23'e bağlanın → S2C-LOG satırları akarsa, DCC RX maskesi doğru. Hiçbir satır gelmezse ya da timeout olursa, BSP'nin xil_io.h ve xcoresightps.h dosyalarındaki DCC status register belgelerine bakarak doğru bit konumunu bulup `project.spec`'te `coresight_dcc_rx_mask` override değerini ayarlayıp yeniden Generate et (Vitis rebuild + karta yükleme gerekli). | Yeni doğrulama adımı — Telnet/DCC kombinasyonunda v0.1.140 sonrası önemlidir. |
 | **Sürüm sorgula** butonuna bas (ShieldCheck ikonlu, sol panelde). | Sonuç panelinde `ok` rozeti yeşil, `= {sürüm metni}` (örn. `v0.1.140`) çözülmüş değer olarak görünür. Request/Response kutuları artık `"VERSION (istek) sayac=N govde=NB"` gibi bir ÇERÇEVE ÖZETİ gösterir (eski `S2C|id=1|op=spec2code_version` satırı DEĞİL). | **Fark**: Request/Response artık ham komut satırı değil, binary çerçeve özeti + hex. Kontrat hash burada GÖSTERİLMEZ (bkz. kısıtlar). |
 | Agent log seviyesini bağlantı kartından değiştir (dropdown: `1 — error`.. `5 — debug`). | Seçim anında `log_level` komutu gider; hata yoksa sessizce uygulanır (ayrı bir "başarılı" bildirimi yok — Akış ekranında sonraki trace satırlarının seviyesi değişerek doğrulanır, bkz. madde 8). | Aynı UI akışı; komutun teli artık binary. |

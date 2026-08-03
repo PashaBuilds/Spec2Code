@@ -2424,6 +2424,26 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("missing_xparameter", categories)
         self.assertIn("custom_ip_bsp_driver", categories)
 
+    def test_vitis_error_mapper_classifies_microblaze_lmb_overflow(self) -> None:
+        """SAHA BULGUSU (Faz 5): LMB tasmasi ham `ld` satiri olarak geliyordu.
+
+        `region '...' overflowed by N bytes` kullaniciya hicbir sey soylemiyor;
+        MicroBlaze'de tek anlami "firmware yerel bellege sigmadi"dir.
+        """
+        issues = map_vitis_errors(
+            "ld.exe: mb_e2e_board_app.elf section `.text' will not fit in region "
+            "`microblaze_0_local_memory_ilmb_bram_if_cntlr_Mem_microblaze_0_local_memory"
+            "_dlmb_bram_if_cntlr_Mem'\n"
+            "ld.exe: region `microblaze_0_local_memory_ilmb_bram_if_cntlr_Mem_microblaze_0"
+            "_local_memory_dlmb_bram_if_cntlr_Mem' overflowed by 24840 bytes\n"
+            "collect2.exe: error: ld returned 1 exit status\n"
+        )
+        overflow = [issue for issue in issues if issue["category"] == "memory_overflow"]
+        self.assertTrue(overflow, f"LMB tasmasi siniflandirilmadi: {issues}")
+        joined = " ".join(issue["suggestion"] for issue in overflow)
+        self.assertIn("LMB", joined)
+        self.assertIn("128KB", joined)
+
     def test_vitis_error_mapper_does_not_treat_freertos_archive_tail_as_root_cause(self) -> None:
         issues = map_vitis_errors("aarch64-none-elf-ar: creating ../../lib/libfreertos.a\n")
 

@@ -90,8 +90,14 @@ def format_file(path: Path, config_dir: Path) -> tuple[bool, bool, Optional[str]
 
 # --- clang-tidy -------------------------------------------------------------------------
 
+# `(?:[A-Za-z]:)?` is load-bearing on Windows: clang-tidy/cppcheck echo the
+# absolute path they were given (`C:\...\tmp101.c:12:5: warning: ...`), and a
+# plain `[^:]+` file group stops at the drive-letter colon so the whole line
+# fails to match. Without it every finding was silently dropped on Windows and
+# the QC gate reported "tool available, 0 violations" — a false pass.
+_PATH_PREFIX = r"(?:[A-Za-z]:)?"
 _TIDY_RE = re.compile(
-    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+):\s+(?P<sev>warning|error):\s+(?P<msg>.*?)\s*(?:\[(?P<rule>[^\]]+)\])?$"
+    rf"^(?P<file>{_PATH_PREFIX}[^:]+):(?P<line>\d+):(?P<col>\d+):\s+(?P<sev>warning|error):\s+(?P<msg>.*?)\s*(?:\[(?P<rule>[^\]]+)\])?$"
 )
 
 
@@ -104,7 +110,12 @@ def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
         includes += ["-I", str(d)]
     cmd = [tool, str(path), "--quiet",
            # bugprone-easily-swappable-parameters conflicts with hardware register/value APIs.
+           # security.insecureAPI.DeprecatedOrUnsafeBufferHandling asks for the C11 Annex K
+           # `_s` functions (memset_s/snprintf_s). Annex K is OPTIONAL and the Xilinx bare-metal
+           # newlib (mb-gcc, aarch64-none-elf-gcc) does not implement it, so following the advice
+           # would not even link on the target - it is a false positive for this codebase.
            "--checks=clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters,"
+           "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,"
            "readability-braces-around-statements",
            "--", "-std=c11", *includes]
     result = proc.run(cmd, timeout=120)
@@ -127,7 +138,7 @@ def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
 
 _CPPCHECK_TEMPLATE = "{file}:{line}:{column}: {severity}: {message} [{id}]"
 _CPPCHECK_RE = re.compile(
-    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+):\s+(?P<sev>\w+):\s+(?P<msg>.*?)\s*\[(?P<rule>[^\]]+)\]$"
+    rf"^(?P<file>{_PATH_PREFIX}[^:]+):(?P<line>\d+):(?P<col>\d+):\s+(?P<sev>\w+):\s+(?P<msg>.*?)\s*\[(?P<rule>[^\]]+)\]$"
 )
 # Non-violations: stub/include limitations, not problems with the generated code.
 _CPPCHECK_IGNORE = {"missingInclude", "missingIncludeSystem", "unmatchedSuppression",
