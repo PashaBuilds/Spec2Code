@@ -142,6 +142,8 @@ gerekebilir.
 
 ## Kodlama Standardı Nasıl Çalışır?
 
+> Kuralların tamamı örneklerle: **[docs/kodlama_standardi.md](docs/kodlama_standardi.md)**
+
 Spec2Code sabit bir default kodlama standardı kullanır. `project.spec.json`
 içinde eski sürümlerden kalan farklı bir `coding_standard_ref` görülse bile
 generate/QC aşamasında şu ref'e normalize edilir:

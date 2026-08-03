@@ -490,6 +490,9 @@ Mapper raw log'u gizlemez; yalnizca ilk aksiyon alinacak ipucunu one cikarir.
 Spec2Code sabit default coding standard kullanir. Kullanici Word, Markdown veya
 ayri JSON standard dokumani vermez.
 
+Kurallarin tamami, onek bilesim tablosu ve ornekleri icin ayrintili referans:
+`docs/kodlama_standardi.md`.
+
 Ozet kurallar:
 
 - Fonksiyon isimleri camelCase: `tca9548aChannelSelect`.

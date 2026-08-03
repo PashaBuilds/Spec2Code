@@ -3,6 +3,21 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.150 - 2026-08-03
+
+- KODLAMA STANDARDI DOKUMANI (kullanici istegi): `docs/kodlama_standardi.md`
+  eklendi. Simdiye kadar standart yalnizca makine-okunur `std/default.ruleset.json`
+  olarak vardi; artik insan-okur tam referans da repo'da. Icerik: kapsam (yalniz
+  URETILEN C kodu; uygulamanin kendi Python/TS kodu tabi DEGIL), bicimlendirme,
+  isimlendirme (fonksiyon/degisken tablolari + onek bilesim kurali
+  `<storage>+<taban>+<pointer>+<dizi>` ve uretilen koddan dogrulanmis ornekler),
+  yasak tipler, pointer yildizi, printf satir sonu, Doxygen; ayrica QC denetim
+  zinciri, hangi ihlalin kapiyi dusurdugu ve arac-esitligi tuzagi (kurulu olmayan
+  arac sessizce atlanir; libclang yoksa TUM AST isim denetimi atlanir).
+- Capraz baglantilar: README "Kodlama Standardi Nasil Calisir?", userguide §13 ve
+  glm52_handoff §7 artik bu dokumana yonlendiriyor.
+- Yalnizca dokumantasyon; uretilen kod ve davranis degismedi. 310 test yesil.
+
 ## v0.1.149 - 2026-07-15
 
 - NAMING-LINTER LIBCLANG FALLBACK (air-gap Windows): resolve_libclang() artik

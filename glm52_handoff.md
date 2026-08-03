@@ -254,7 +254,7 @@ Model adı endpoint'in listelediği **birebir** ad olmalı; Spec2Code isim tahmi
 ## 7. Kodlama standardı (üretilen C kodu için)
 
 Tek kaynak: `std/default.ruleset.json`. Denetleyici: `orchestrator/qc/naming_linter.py`
-(libclang AST). Özet:
+(libclang AST). Ayrıntılı insan-okur referans: `docs/kodlama_standardi.md`. Özet:
 
 | Kural | Değer / örnek |
 |---|---|
