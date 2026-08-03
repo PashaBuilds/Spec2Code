@@ -1512,13 +1512,12 @@ class TestbenchTests(unittest.TestCase):
         self.assertNotIn("tmp101DeviceInit", test_source)
         self.assertIn("tmp101TemperatureRead", test_source)
 
-    def test_microblaze_uartlite_agent_and_axi_device_gate(self) -> None:
+    def test_microblaze_uartlite_agent_and_axi_device_codegen(self) -> None:
         # MicroBlaze: the UARTLITE agent is generated (single-call init,
-        # hardware-fixed baud), and attaching a device to an AXI IIC
-        # controller fails loudly instead of emitting XIicPs code that
-        # could never compile against the xiic BSP.
-        from orchestrator import cmodel
-
+        # hardware-fixed baud), and a device attached to an AXI IIC controller
+        # now GENERATES - against the base-address polled API from xiic_l.h.
+        # (It used to be rejected outright, because every emitter hard-coded
+        # XIicPs_* literals that could never compile against the xiic BSP.)
         spec = load_sample_spec("unit_microblaze")
         spec["project"]["platform"] = "microblaze_7series"
         spec["project"]["runtime"] = "bare_metal"
@@ -1548,7 +1547,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("uartlite", main_source)
         self.assertEqual(manifest["uart"]["driver"], "XUartLite")
 
-        # Honest gate: a device on the AXI IIC controller must be rejected.
+        # A device on the AXI IIC controller now generates a real driver.
         spec["devices"] = [{
             "id": "u1_tmp101", "part": "TMP101",
             "descriptor_ref": "descriptors/tmp101.yaml",
@@ -1558,10 +1557,17 @@ class TestbenchTests(unittest.TestCase):
             "tests_requested": [],
         }]
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(cmodel.CodegenError) as ctx:
-                codegen.generate(spec, Path(tmp) / "out")
-            self.assertIn("does not support", str(ctx.exception))
-            self.assertIn("XIic", str(ctx.exception))
+            out_dir = Path(tmp) / "out"
+            codegen.generate(spec, out_dir)
+            device_source = (out_dir / "drivers" / "tmp101.c").read_text(encoding="utf-8")
+            device_header = (out_dir / "drivers" / "tmp101.h").read_text(encoding="utf-8")
+
+        # Base-address polled API (xiic_l.h), no PS driver literals anywhere.
+        self.assertIn('#include "xiic_l.h"', device_header)
+        self.assertIn("int tmp101TemperatureRead(unsigned long ulIicBase, int* ipTemperature)",
+                      device_source)
+        self.assertIn("XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption)", device_source)
+        self.assertNotIn("XIicPs_", device_source)
 
     def test_coresight_agent_generated_when_transport_is_coresight(self) -> None:
         # JTAG DCC agent (coresightps_dcc): ayni S2C protokolu, kablo olarak
@@ -1850,7 +1856,7 @@ class TestbenchTests(unittest.TestCase):
         descriptor_dir = codegen._ROOT / "descriptors"
         for yaml_path in sorted(descriptor_dir.glob("*.yaml")):
             descriptor = get_descriptor(f"descriptors/{yaml_path.name}")
-            entry = {"module": "swp", "hvar": "spHandle",
+            entry = {"module": "swp", "hvar": "spHandle", "htype": "XIicPs",
                      "descriptor": descriptor, "device": {"id": "sweep"}}
             for op in descriptor.get("operations", []):
                 op_name = str(op.get("name", ""))

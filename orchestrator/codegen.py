@@ -2257,7 +2257,32 @@ _TESTBENCH_HANDLE_HEADERS: list[tuple[str, str]] = [
     ("XIicPs", "xiicps.h"),
     ("XSpiPs", "xspips.h"),
     ("XQspiPsu", "xqspipsu.h"),
+    # AXI soft IP (MicroBlaze ve PL'li her platform). AXI IIC'nin polled API'si
+    # xiic_l.h'tedir (taban adres tabanli); AXI Quad SPI normal xspi.h ornegini
+    # kullanir.
+    ("XIic", "xiic_l.h"),
+    ("XSpi", "xspi.h"),
 ]
+
+#: Board-handle getter return type per driver. AXI IIC has no instance struct -
+#: the "handle" IS the controller base address (see cmodel._handle_param), so
+#: its getter returns ``unsigned long`` and signals "unknown controller" with 0
+#: instead of NULL (base address 0 is never a valid AXI IIC aperture).
+_TESTBENCH_BASE_ADDRESS_HANDLES: frozenset[str] = frozenset({"XIic"})
+
+
+def _testbench_handle_is_base(htype: str) -> bool:
+    return htype in _TESTBENCH_BASE_ADDRESS_HANDLES
+
+
+def _testbench_handle_type(htype: str) -> str:
+    """C type of a board handle as returned by the getter / stored in a local."""
+    return "unsigned long" if _testbench_handle_is_base(htype) else f"{htype}*"
+
+
+def _testbench_handle_none(htype: str) -> str:
+    """The "no such controller" sentinel for this handle type."""
+    return "0U" if _testbench_handle_is_base(htype) else "NULL"
 
 
 def _testbench_used_handle_types(spec: dict) -> set[str]:
@@ -2279,7 +2304,7 @@ def _testbench_ops_header(project_name: str, handle_types: set[str]) -> str:
         if htype in handle_types
     )
     getter_prototypes = "".join(
-        f"{htype}* {_testbench_getter(htype)}(const char* cpControllerId);\n"
+        f"{_testbench_handle_type(htype)} {_testbench_getter(htype)}(const char* cpControllerId);\n"
         for htype, _header in _TESTBENCH_HANDLE_HEADERS
         if htype in handle_types
     )
@@ -2315,6 +2340,8 @@ def _testbench_getter(htype: str) -> str | None:
         "XIicPs": "spec2codeTestbenchIicPsHandleGet",
         "XSpiPs": "spec2codeTestbenchSpiPsHandleGet",
         "XQspiPsu": "spec2codeTestbenchQspiPsuHandleGet",
+        "XIic": "spec2codeTestbenchIicHandleGet",
+        "XSpi": "spec2codeTestbenchSpiHandleGet",
     }.get(htype)
 
 
@@ -2493,7 +2520,194 @@ def _c_hex(value: int) -> str:
     return f"0x{value:X}U"
 
 
-def _testbench_i2c_helpers() -> list[str]:
+def _testbench_weak_getter_lines(htype: str) -> tuple[str, ...]:
+    """Weak default board-handle getter the board application may override.
+
+    The AXI IIC variant returns the base address by value, so its weak default
+    is 0 (no such controller) rather than a NULL pointer.
+    """
+    getter = _testbench_getter(htype)
+    if _testbench_handle_is_base(htype):
+        return (
+            f"SPEC2CODE_WEAK unsigned long {getter}(const char* cpControllerId)",
+            "{",
+            # volatile okuma: board uygulamasi bu weak varsayilani guclu
+            # tanimla ezer; statik analiz "hep 0" diye katlamasin.
+            "    static unsigned long volatile S_ulWeakDefault = 0U;",
+            "",
+            "    (void)cpControllerId;",
+            "    return S_ulWeakDefault;",
+            "}",
+            "",
+        )
+    return (
+        f"SPEC2CODE_WEAK {htype}* {getter}(const char* cpControllerId)",
+        "{",
+        # volatile okuma: board uygulamasi bu weak varsayilani guclu
+        # tanimla ezer; statik analiz "hep NULL" diye katlamasin.
+        f"    static {htype}* volatile S_spWeakDefault = NULL;",
+        "",
+        "    (void)cpControllerId;",
+        "    return S_spWeakDefault;",
+        "}",
+        "",
+    )
+
+
+def _testbench_bus_helper_suffix(htype: str) -> str:
+    """Name suffix for the generic (descriptor-free) bus helpers of a driver.
+
+    PS drivers keep the historic unsuffixed names - that output is field
+    verified and must not move - while the AXI soft-IP twins get an ``Axi``
+    suffix, so a design mixing a PS and a PL controller still compiles.
+    """
+    return "Axi" if htype in {"XIic", "XSpi"} else ""
+
+
+def _testbench_i2c_helpers_axi() -> list[str]:
+    """Generic I2C register access over the AXI IIC polled API (xiic_l.h).
+
+    ``XIic_Send``/``XIic_Recv`` are BASE-ADDRESS based and report the BYTE
+    COUNT transferred (0 on a busy bus), not ``XST_*`` - the two wrappers below
+    turn that into the XST_* contract the dispatch expects. They also block
+    until the transfer completed and wait for bus-free themselves, so there is
+    no ``XIicPs_BusIsBusy`` style spin here.
+    """
+    return [
+        "static int spec2codeTestbenchI2cSendAxi(unsigned long ulBase, unsigned char ucAddress,",
+        "                                        unsigned char* ucpBuffer, unsigned int uiLength)",
+        "{",
+        "    unsigned int uiSent;",
+        "",
+        "    uiSent = (unsigned int)XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);",
+        "    if (uiSent != uiLength)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchI2cRecvAxi(unsigned long ulBase, unsigned char ucAddress,",
+        "                                        unsigned char* ucpBuffer, unsigned int uiLength)",
+        "{",
+        "    unsigned int uiGot;",
+        "",
+        "    uiGot = (unsigned int)XIic_Recv(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);",
+        "    if (uiGot != uiLength)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchI2cRegisterReadAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "                                                unsigned char ucReg, unsigned char* ucpValue)",
+        "{",
+        "    int iStatus;",
+        "",
+        "    if ((ulIicBase == 0U) || (ucpValue == NULL))",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpValue, 1U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchI2cRegisterWriteAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "                                                 unsigned char ucReg, unsigned char ucValue)",
+        "{",
+        "    unsigned char ucArrBuffer[2];",
+        "    int iStatus;",
+        "",
+        "    if (ulIicBase == 0U)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrBuffer[0] = ucReg;",
+        "    ucArrBuffer[1] = ucValue;",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 2U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "/* GENIS (16-bit) tek register: baytlar ayni adresin icindedir",
+        " * (AD7414/TMP101 TEMPERATURE gibi) - pointer bir kez yazilir,",
+        " * iki bayt TEK islemde okunur/yazilir. */",
+        "static int spec2codeTestbenchI2cRegisterReadWideAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "                                                    unsigned char ucReg, unsigned char* ucpBuffer)",
+        "{",
+        "    int iStatus;",
+        "",
+        "    if ((ulIicBase == 0U) || (ucpBuffer == NULL))",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpBuffer, 2U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchI2cRegisterWriteWideAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "                                                     unsigned char ucReg, unsigned char ucHigh,",
+        "                                                     unsigned char ucLow)",
+        "{",
+        "    unsigned char ucArrBuffer[3];",
+        "    int iStatus;",
+        "",
+        "    if (ulIicBase == 0U)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrBuffer[0] = ucReg;",
+        "    ucArrBuffer[1] = ucHigh;",
+        "    ucArrBuffer[2] = ucLow;",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 3U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    spec2codeBusTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+    ]
+
+
+def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
+    if htype == "XIic":
+        return _testbench_i2c_helpers_axi()
     return [
         "static int spec2codeTestbenchI2cRegisterRead(XIicPs* spIic, unsigned char ucAddress,",
         "                                             unsigned char ucReg, unsigned char* ucpValue)",
@@ -2624,7 +2838,94 @@ def _testbench_i2c_helpers() -> list[str]:
     ]
 
 
-def _testbench_spi_helpers() -> list[str]:
+def _testbench_spi_helpers_axi() -> list[str]:
+    """Generic 3-byte SPI register frame over the AXI Quad SPI polled API.
+
+    Same instance-based shape as XSpiPs; the one real difference is the chip
+    select - ``XSpiPs_SetSlaveSelect`` takes a slave INDEX, while
+    ``XSpi_SetSlaveSelect`` takes a one-hot ACTIVE-HIGH MASK (xspi.c: "a 32-bit
+    mask with a 1 in the bit position of the slave being selected"; the
+    official flash/EEPROM examples pass 0x01 for CS0).
+    """
+    return [
+        "static int spec2codeTestbenchSpiRegisterWriteAxi(XSpi* spSpi, unsigned char ucSelect,",
+        "                                                 unsigned int uiWord)",
+        "{",
+        "    unsigned char ucArrTx[3];",
+        "    int iStatus;",
+        "",
+        "    if (spSpi == NULL)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
+        "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
+        "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg write: word=0x%06X\", uiWord);",
+        "    iStatus = XSpi_SetSlaveSelect(spSpi, (1U << ucSelect));",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = XSpi_Transfer(spSpi, ucArrTx, NULL, 3U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    spec2codeBusTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        "static int spec2codeTestbenchSpiRegisterReadAxi(XSpi* spSpi, unsigned char ucSelect,",
+        "                                                unsigned int uiWord, unsigned int uiDataBytes,",
+        "                                                unsigned int* uipValue)",
+        "{",
+        "    unsigned char ucArrTx[3];",
+        "    unsigned char ucArrRx[3];",
+        "    int iStatus;",
+        "",
+        "    if ((spSpi == NULL) || (uipValue == NULL) || (uiDataBytes == 0U) || (uiDataBytes > 2U))",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
+        "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
+        "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
+        "    ucArrRx[0] = 0U;",
+        "    ucArrRx[1] = 0U;",
+        "    ucArrRx[2] = 0U;",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read: word=0x%06X\", uiWord);",
+        "    iStatus = XSpi_SetSlaveSelect(spSpi, (1U << ucSelect));",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        return iStatus;",
+        "    }",
+        "    iStatus = XSpi_Transfer(spSpi, ucArrTx, ucArrRx, 3U);",
+        "    if (iStatus != XST_SUCCESS)",
+        "    {",
+        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        return iStatus;",
+        "    }",
+        "    if (uiDataBytes == 2U)",
+        "    {",
+        "        *uipValue = ((unsigned int)ucArrRx[1] << 8U) | (unsigned int)ucArrRx[2];",
+        "    }",
+        "    else",
+        "    {",
+        "        *uipValue = (unsigned int)ucArrRx[2];",
+        "    }",
+        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
+        "    spec2codeBusTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+    ]
+
+
+def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
+    if htype == "XSpi":
+        return _testbench_spi_helpers_axi()
     return [
         "static int spec2codeTestbenchSpiRegisterWrite(XSpiPs* spSpi, unsigned char ucSelect,",
         "                                              unsigned int uiWord)",
@@ -2719,6 +3020,7 @@ def _testbench_push_u16_lines(var_name: str) -> list[str]:
 def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
     module = entry["module"]
     hvar = entry["hvar"]
+    sfx = _testbench_bus_helper_suffix(entry["htype"])
     descriptor = entry["descriptor"]
     op_name = op.get("name", "")
     func = f"{module}{_pascal_identifier(op_name)}"
@@ -2738,7 +3040,7 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
             lines.append(f"    /* init dogrulamasi: {status['reg']} geri okunur (value + data). */")
             if status["transport"] == "i2c":
                 lines.extend([
-                    f"    iStatus = spec2codeTestbenchI2cRegisterRead({hvar}, {MOD}_I2C_ADDR, {MOD}_REG_{status['reg']}, &ucValue);",
+                    f"    iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({hvar}, {MOD}_I2C_ADDR, {MOD}_REG_{status['reg']}, &ucValue);",
                     "    if (iStatus == XST_SUCCESS)",
                     "    {",
                     "        spResponse->uiValue = (unsigned int)ucValue;",
@@ -2756,7 +3058,7 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
                 word = (f"((unsigned int){read_value}U << {rw_bit}U) | "
                         f"(((unsigned int){MOD}_REG_{status['reg']} & {mask}) << {address_shift}U)")
                 lines.extend([
-                    f"    iStatus = spec2codeTestbenchSpiRegisterRead({hvar}, {MOD}_SPI_SELECT, {word}, {status['bytes']}U, &uiRegValue);",
+                    f"    iStatus = spec2codeTestbenchSpiRegisterRead{sfx}({hvar}, {MOD}_SPI_SELECT, {word}, {status['bytes']}U, &uiRegValue);",
                     "    if (iStatus == XST_SUCCESS)",
                     "    {",
                     "        spResponse->uiValue = uiRegValue;",
@@ -2934,6 +3236,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     MOD = module.upper()
     htype = entry["htype"]
     hvar = entry["hvar"]
+    sfx = _testbench_bus_helper_suffix(htype)
     getter = entry["getter"]
     operations = _requested_operations(device, descriptor)
     register_ops = _supports_i2c_register_ops(descriptor)
@@ -2974,7 +3277,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     lines = [
         f"    if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, \"{device.get('id', '')}\") == 1)",
         "    {",
-        f"        {htype}* {hvar};",
+        f"        {_testbench_handle_type(htype)} {hvar};",
     ]
     if needs_us_value:
         lines.append("        unsigned short usValue;")
@@ -3018,7 +3321,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
 
     lines.extend([
         f"        {hvar} = {getter}(\"{entry['controller'].get('id', '')}\");",
-        f"        if ({hvar} == NULL)",
+        f"        if ({hvar} == {_testbench_handle_none(htype)})",
         "        {",
         "            spResponse->iStatus = XST_FAILURE;",
         "            spec2codeTestbenchMessageSet(spResponse, \"board handle hook returned NULL\");",
@@ -3048,7 +3351,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 f"            ucWidthBytes = {module}TestbenchRegisterWidthBytes(spRequest->cArrRegister, spRequest->uiRegister);",
                 "            if (ucWidthBytes == 2U)",
                 "            {",
-                f"                iStatus = spec2codeTestbenchI2cRegisterReadWide({hvar}, {MOD}_I2C_ADDR, ucReg, ucArrWide);",
+                f"                iStatus = spec2codeTestbenchI2cRegisterReadWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, ucArrWide);",
                 "                spResponse->iStatus = iStatus;",
                 "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
                 ("                spResponse->uiValue = ((unsigned int)ucArrWide[0] << 8U) | (unsigned int)ucArrWide[1];"
@@ -3068,10 +3371,10 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 "            if (ucWidthBytes == 2U)",
                 "            {",
                 # Hatta ilk giden bayt: big-endian cihazda MSB, little'da LSB.
-                (f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide({hvar}, {MOD}_I2C_ADDR, ucReg, "
+                (f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, "
                  "(unsigned char)((spRequest->uiValue >> 8U) & 0xFFU), (unsigned char)(spRequest->uiValue & 0xFFU));"
                  if entry["descriptor"].get("transport", {}).get("byte_order", "big") != "little"
-                 else f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide({hvar}, {MOD}_I2C_ADDR, ucReg, "
+                 else f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, "
                  "(unsigned char)(spRequest->uiValue & 0xFFU), (unsigned char)((spRequest->uiValue >> 8U) & 0xFFU));"),
                 "                spResponse->iStatus = iStatus;",
                 "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
@@ -3090,7 +3393,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                return iStatus;",
             "            }",
             *wide_read_lines,
-            f"            iStatus = spec2codeTestbenchI2cRegisterRead({hvar}, {MOD}_I2C_ADDR, ucReg, &ucValue);",
+            f"            iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, &ucValue);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spResponse->uiValue = (unsigned int)ucValue;",
@@ -3111,7 +3414,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                return iStatus;",
             "            }",
             *wide_write_lines,
-            f"            iStatus = spec2codeTestbenchI2cRegisterWrite({hvar}, {MOD}_I2C_ADDR, ucReg, (unsigned char)spRequest->uiValue);",
+            f"            iStatus = spec2codeTestbenchI2cRegisterWrite{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, (unsigned char)spRequest->uiValue);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
@@ -3146,7 +3449,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 "        {",
                 *resolve,
                 f"            uiWord = ((unsigned int){read_value}U << {rw_bit}U) | ((uiReg & {address_mask}) << {address_shift}U);",
-                f"            iStatus = spec2codeTestbenchSpiRegisterRead({hvar}, {MOD}_SPI_SELECT, uiWord, {data_bytes}U, &uiRegValue);",
+                f"            iStatus = spec2codeTestbenchSpiRegisterRead{sfx}({hvar}, {MOD}_SPI_SELECT, uiWord, {data_bytes}U, &uiRegValue);",
                 "            spResponse->iStatus = iStatus;",
                 "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
                 "            spResponse->uiValue = uiRegValue;",
@@ -3172,7 +3475,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "        {",
             *resolve,
             f"            uiWord = {' | '.join(write_word_terms)};",
-            f"            iStatus = spec2codeTestbenchSpiRegisterWrite({hvar}, {MOD}_SPI_SELECT, uiWord);",
+            f"            iStatus = spec2codeTestbenchSpiRegisterWrite{sfx}({hvar}, {MOD}_SPI_SELECT, uiWord);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
@@ -3224,20 +3527,42 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     i2c_mux_set (address=<mux adresi>, value=<kontrol baytı>; 0x00=kapat,
     1<<kanal=seç) ile kanal kanal orkestre edilir — TCA9548A protokolü.
     """
-    if "XIicPs" not in handle_types:
+    htype = "XIicPs" if "XIicPs" in handle_types else ("XIic" if "XIic" in handle_types else "")
+    if not htype:
         return []
-    getter = _testbench_getter("XIicPs")
+    getter = _testbench_getter(htype)
+    is_axi = htype == "XIic"
+    hvar = "ulScanIic" if is_axi else "spScanIic"
+    hdecl = f"        unsigned long {hvar};" if is_axi else f"        XIicPs* {hvar};"
+    hnone = f"{hvar} == 0U" if is_axi else f"{hvar} == NULL"
+
+    def probe(buffer: str, addr_expr: str, indent: str) -> list[str]:
+        """One-byte write probe + (PS only) bus-idle spin."""
+        if is_axi:
+            # XIic_Send BAYT SAYISI dondurur: 1 bayt gitti = ACK alindi.
+            return [
+                f"{indent}iProbeStatus = ((unsigned int)XIic_Send({hvar}, (unsigned char){addr_expr}, "
+                f"{buffer}, 1U, XIIC_STOP) == 1U) ? XST_SUCCESS : XST_FAILURE;",
+            ]
+        return [
+            f"{indent}iProbeStatus = XIicPs_MasterSendPolled({hvar}, {buffer}, 1, (unsigned short){addr_expr});",
+            f"{indent}while (XIicPs_BusIsBusy({hvar}) == TRUE)",
+            f"{indent}{{",
+            f"{indent}    /* wait */",
+            f"{indent}}}",
+        ]
+
     return [
         "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_scan\") == 1)",
         "    {",
-        "        XIicPs* spScanIic;",
+        hdecl,
         "        unsigned char ucProbe;",
         "        unsigned int uiScanAddr;",
         "        unsigned int uiFound;",
         "        int iProbeStatus;",
         "",
-        f"        spScanIic = {getter}(spRequest->cArrRegister);",
-        "        if (spScanIic == NULL)",
+        f"        {hvar} = {getter}(spRequest->cArrRegister);",
+        f"        if ({hnone})",
         "        {",
         "            spResponse->iStatus = XST_FAILURE;",
         "            spec2codeTestbenchMessageSet(spResponse, \"unknown i2c controller\");",
@@ -3253,11 +3578,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "                /* Aktif switch'e 0x00 yazmak secili kanali kapatirdi. */",
         "                continue;",
         "            }",
-        "            iProbeStatus = XIicPs_MasterSendPolled(spScanIic, &ucProbe, 1, (unsigned short)uiScanAddr);",
-        "            while (XIicPs_BusIsBusy(spScanIic) == TRUE)",
-        "            {",
-        "                /* wait */",
-        "            }",
+        *probe("&ucProbe", "uiScanAddr", "            "),
         "            if (iProbeStatus == XST_SUCCESS)",
         "            {",
         "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)uiScanAddr);",
@@ -3273,23 +3594,19 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "    }",
         "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_mux_set\") == 1)",
         "    {",
-        "        XIicPs* spScanIic;",
+        hdecl,
         "        unsigned char ucControl;",
         "        int iProbeStatus;",
         "",
-        f"        spScanIic = {getter}(spRequest->cArrRegister);",
-        "        if (spScanIic == NULL)",
+        f"        {hvar} = {getter}(spRequest->cArrRegister);",
+        f"        if ({hnone})",
         "        {",
         "            spResponse->iStatus = XST_FAILURE;",
         "            spec2codeTestbenchMessageSet(spResponse, \"unknown i2c controller\");",
         "            return XST_FAILURE;",
         "        }",
         "        ucControl = (unsigned char)spRequest->uiValue;",
-        "        iProbeStatus = XIicPs_MasterSendPolled(spScanIic, &ucControl, 1, (unsigned short)spRequest->uiAddress);",
-        "        while (XIicPs_BusIsBusy(spScanIic) == TRUE)",
-        "        {",
-        "            /* wait */",
-        "        }",
+        *probe("&ucControl", "spRequest->uiAddress", "        "),
         "        spResponse->iStatus = iProbeStatus;",
         "        spResponse->uiOk = (iProbeStatus == XST_SUCCESS) ? 1U : 0U;",
         "        spResponse->uiValue = ucControl;",
@@ -3346,21 +3663,22 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
             line
             for htype, _header in _TESTBENCH_HANDLE_HEADERS
             if htype in handle_types
-            for line in (
-                f"SPEC2CODE_WEAK {htype}* {_testbench_getter(htype)}(const char* cpControllerId)",
-                "{",
-                # volatile okuma: board uygulamasi bu weak varsayilani guclu
-                # tanimla ezer; statik analiz "hep NULL" diye katlamasin.
-                f"    static {htype}* volatile S_spWeakDefault = NULL;",
-                "",
-                "    (void)cpControllerId;",
-                "    return S_spWeakDefault;",
-                "}",
-                "",
-            )
+            for line in _testbench_weak_getter_lines(htype)
         ],
-        *(_testbench_i2c_helpers() if any(entry["descriptor"].get("transport", {}).get("type") == "i2c" for entry in entries) else []),
-        *(_testbench_spi_helpers() if any(_supports_spi_register_ops(entry["descriptor"]) for entry in entries) else []),
+        *[
+            line
+            for i2c_htype in sorted({
+                entry["htype"] for entry in entries
+                if entry["descriptor"].get("transport", {}).get("type") == "i2c"})
+            for line in _testbench_i2c_helpers(i2c_htype)
+        ],
+        *[
+            line
+            for spi_htype in sorted({
+                entry["htype"] for entry in entries
+                if _supports_spi_register_ops(entry["descriptor"])})
+            for line in _testbench_spi_helpers(spi_htype)
+        ],
     ]
     emitted_resolvers: set[str] = set()
     for entry in entries:
@@ -3653,8 +3971,12 @@ def _testbench_coresight_enabled(spec: dict) -> bool:
     return _testbench_transport_agent(spec) == "coresight"
 
 
-def _controller_static_handle_name(controller: dict) -> str:
-    return f"S_s{_pascal_identifier(str(controller.get('id', 'controller')))}Handle"
+def _controller_static_handle_name(controller: dict, htype: str = "") -> str:
+    name = _pascal_identifier(str(controller.get("id", "controller")))
+    if _testbench_handle_is_base(htype):
+        # Taban adres bir struct degil: Hungarian oneki 'ul' olmali.
+        return f"S_ul{name}Base"
+    return f"S_s{name}Handle"
 
 
 def _testbench_board_controller_entries(spec: dict) -> list[dict]:
@@ -3670,13 +3992,13 @@ def _testbench_board_controller_entries(spec: dict) -> list[dict]:
             htype, _hvar = cmodel._handle_for(controller)
         except cmodel.CodegenError:
             continue
-        if htype not in {"XIicPs", "XSpiPs", "XQspiPsu"}:
+        if htype not in {"XIicPs", "XSpiPs", "XQspiPsu", "XIic", "XSpi"}:
             continue
         entries.append({
             "id": controller_id,
             "instance": controller.get("instance", ""),
             "htype": htype,
-            "handle": _controller_static_handle_name(controller),
+            "handle": _controller_static_handle_name(controller, htype),
         })
     return entries
 
@@ -3819,7 +4141,13 @@ def _testbench_lwip_header(spec: dict) -> str:
 def _testbench_board_handle_decls(entries: list[dict]) -> list[str]:
     lines: list[str] = []
     for entry in entries:
-        lines.append(f"static {entry['htype']} {entry['handle']};")
+        if _testbench_handle_is_base(entry["htype"]):
+            # AXI IIC: surucu ornegi yok; "handle" dogrudan taban adrestir ve
+            # xparameters.h'ten derleme zamaninda gelir.
+            lines.append(f"static unsigned long {entry['handle']} = "
+                         f"(unsigned long){entry['instance']}_BASEADDR;")
+        else:
+            lines.append(f"static {entry['htype']} {entry['handle']};")
     if entries:
         lines.append("")
     return lines
@@ -3837,6 +4165,8 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         lines.append("    XSpiPs_Config* spSpiConfig;")
     if any(entry["htype"] == "XQspiPsu" for entry in entries):
         lines.append("    XQspiPsu_Config* spQspiConfig;")
+    if any(entry["htype"] == "XSpi" for entry in entries):
+        lines.append("    XSpi_Config* spAxiSpiConfig;")
     lines.extend([
         "",
         "    if (S_uiBoardReady == 1U)",
@@ -3931,6 +4261,51 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
                 "    }",
                 f"    XQspiPsu_SelectFlash(&{handle}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);",
             ])
+        elif entry["htype"] == "XIic":
+            # AXI IIC polled API'si (xiic_l.h) taban adresle calisir: init
+            # edilecek surucu ornegi yok. Yine de hat gercekten bosta mi
+            # bakilir - takili SDA/SCL burada YUKSEK SESLE dusar.
+            lines.extend([
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI IIC)");',
+                f"    iStatus = (int)XIic_WaitBusFree({handle});",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                f'        xil_printf("Spec2Code AXI IIC hatti mesgul: {entry["id"]}\\r\\n");',
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} hat mesgul");',
+                "        return iStatus;",
+                "    }",
+            ])
+        elif entry["htype"] == "XSpi":
+            # Resmi polled akis (spi_v4_11/examples/xspi_polled_example.c):
+            # LookupConfig -> CfgInitialize -> SetOptions -> Start -> kesme kapat.
+            lines.extend([
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI SPI)");',
+                f"    spAxiSpiConfig = XSpi_LookupConfig({instance}_DEVICE_ID);",
+                "    if (spAxiSpiConfig == NULL)",
+                "    {",
+                f'        xil_printf("Spec2Code AXI SPI config bulunamadi: {entry["id"]}\\r\\n");',
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = XSpi_CfgInitialize(&{handle}, spAxiSpiConfig, spAxiSpiConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XSpi_SetOptions(&{handle}, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XSpi_Start(&{handle});",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                "        return iStatus;",
+                "    }",
+                "    /* Uretilen her transfer polled: kesmeler maskeli kalmali. */",
+                f"    XSpi_IntrGlobalDisable(&{handle});",
+            ])
     lines.extend([
         f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam ({len(entries)} controller); '
         'device_init otomatik KOSULMAZ");',
@@ -3943,8 +4318,9 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
 
 
 def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: str) -> list[str]:
+    is_base = _testbench_handle_is_base(htype)
     lines = [
-        f"{htype}* {func_name}(const char* cpControllerId)",
+        f"{_testbench_handle_type(htype)} {func_name}(const char* cpControllerId)",
         "{",
     ]
     matching = [entry for entry in entries if entry["htype"] == htype]
@@ -3952,11 +4328,11 @@ def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: st
         lines.extend([
             f"    if (spec2codeTestbenchStringEqual(cpControllerId, \"{entry['id']}\") == 1)",
             "    {",
-            f"        return &{entry['handle']};",
+            f"        return {entry['handle']};" if is_base else f"        return &{entry['handle']};",
             "    }",
         ])
     lines.extend([
-        "    return NULL;",
+        f"    return {_testbench_handle_none(htype)};",
         "}",
         "",
     ])

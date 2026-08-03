@@ -176,15 +176,22 @@ def device_module_map(spec: dict) -> dict[str, str]:
     return mapping
 
 
-#: Drivers the deterministic bus-op emitters actually speak. Everything the
-#: generator writes for i2c is XIicPs_* API (and so on); letting another
-#: driver (AXI XIic/XSpi, Zynq-7000 XQspiPs, Versal XOspiPsv) through here
-#: would emit code that cannot compile against that BSP - fail loudly instead.
+#: Drivers the deterministic bus-op emitters actually speak. Every bus fragment
+#: is routed through a per-driver adapter (``_I2cApi`` for i2c, the
+#: ``_is_axi_spi``/``_is_qspipsu`` branches for spi), so only the drivers that
+#: have an adapter arm may pass. Letting an unimplemented driver (XQspiPs,
+#: XOspiPsv) through would emit code that cannot compile against that BSP -
+#: fail loudly instead.
 _SUPPORTED_BUS_DRIVERS: dict[str, set[str]] = {
-    "i2c": {"XIicPs"},
-    "spi": {"XSpiPs"},
+    "i2c": {"XIicPs", "XIic"},
+    "spi": {"XSpiPs", "XSpi"},
     "qspi": {"XQspiPsu"},
 }
+
+#: Handle variable name per driver. AXI IIC is the odd one out: its polled API
+#: (xiic_l.h) takes a BASE ADDRESS, not an instance pointer, so the Hungarian
+#: prefix is ``ul`` (unsigned long) rather than ``sp`` (struct pointer).
+_HANDLE_VARS: dict[str, str] = {"XIic": "ulIicBase"}
 
 
 def _handle_for(controller: dict) -> tuple[str, str]:
@@ -206,20 +213,260 @@ def _handle_for(controller: dict) -> tuple[str, str]:
         raise CodegenError(
             f"controller '{controller.get('id', '?')}' ({ctype}) uses driver '{driver}', which "
             f"deterministic code generation does not support yet (supported: "
-            f"{', '.join(sorted(supported))}). AXI soft-IP (XIic/XSpi) and XQspiPs/XOspiPsv "
-            "paths are not implemented; attach the device to a supported PS controller.")
-    return driver, var
+            f"{', '.join(sorted(supported))}). XQspiPs/XOspiPsv paths are not implemented; "
+            "attach the device to a supported controller.")
+    return driver, _HANDLE_VARS.get(driver, var)
+
+
+def _handle_param(htype: str, hvar: str) -> str:
+    """C parameter declaration for a bus-controller handle.
+
+    KARAR (AXI IIC): the polled AXI IIC API lives in ``xiic_l.h`` and is
+    BASE-ADDRESS based - ``XIic_Send(UINTPTR BaseAddress, ...)``; there is no
+    driver instance at all (Xilinx' own ``xiic_low_level_tempsensor_example.c``
+    calls ``XIic_Recv`` with a bare ``XPAR_AXI_IIC_0_BASEADDR`` and never
+    initializes anything). So AXI IIC units carry the base address instead of a
+    handle pointer. ``unsigned long`` - not ``unsigned int`` - because that is
+    what ``uintptr_t`` (== ``UINTPTR``) is on every Xilinx GCC target: 32 bit on
+    MicroBlaze/Zynq-7000, 64 bit on ZynqMP/Versal PL apertures.
+    """
+    if htype == "XIic":
+        return f"unsigned long {hvar}"
+    return f"{htype}* {hvar}"
 
 
 def _spi_header_for(htype: str) -> str:
     return {
         "XQspiPsu": "xqspipsu.h",
         "XQspiPs": "xqspips.h",
+        "XSpi": "xspi.h",
     }.get(htype, "xspips.h")
+
+
+def _i2c_header_for(htype: str) -> str:
+    return "xiic_l.h" if htype == "XIic" else "xiicps.h"
 
 
 def _is_qspipsu(htype: str) -> bool:
     return htype == "XQspiPsu"
+
+
+def _is_axi_spi(htype: str) -> bool:
+    return htype == "XSpi"
+
+
+def _spi_select(e: "Emit", htype: str, hvar: str, sel_def: str) -> "Emit":
+    """Chip-select call for the single-transfer SPI drivers (XSpiPs / AXI XSpi).
+
+    ``XSpiPs_SetSlaveSelect`` takes a slave INDEX, while AXI ``XSpi`` takes a
+    ONE-HOT, ACTIVE-HIGH MASK - xspi.c documents it as "a 32-bit mask with a 1
+    in the bit position of the slave being selected", and the official
+    ``xspi_stm_flash_example.c`` / ``xspi_eeprom_example.c`` pass ``0x01`` for
+    CS0. The generated ``*_SPI_SELECT`` define stays the CS index either way;
+    only the shift is driver-specific.
+    """
+    if _is_axi_spi(htype):
+        e.ln(f"iStatus = XSpi_SetSlaveSelect({hvar}, (1U << {sel_def}));").check_status()
+    else:
+        e.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
+    return e
+
+
+def _spi_transfer(e: "Emit", htype: str, hvar: str, tx: str, rx: str, count: str) -> "Emit":
+    """Blocking full-duplex transfer for XSpiPs / AXI XSpi (identical argument order)."""
+    func = "XSpi_Transfer" if _is_axi_spi(htype) else "XSpiPs_PolledTransfer"
+    e.ln(f"iStatus = {func}({hvar}, {tx}, {rx}, {count});").check_status()
+    return e
+
+
+def _spi_emit_init(e: "Emit", htype: str, hvar: str, instance: str) -> "Emit":
+    """Guarded SPI controller bring-up for all three SPI-ish drivers.
+
+    The AXI arm follows the official polled flow verbatim
+    (``spi_v4_11/examples/xspi_polled_example.c`` plus the flash/EEPROM
+    examples): LookupConfig -> CfgInitialize -> SetOptions(MASTER | MANUAL_SS)
+    -> Start -> IntrGlobalDisable. Interrupts must be masked because every
+    generated transfer is polled.
+    """
+    # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden CfgInitialize
+    # etme: XQspiPsu XST_DEVICE_IS_STARTED döndürür (sahada mt25qu02g
+    # device_init status=5 olarak görüldü).
+    e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
+    if _is_qspipsu(htype):
+        e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
+    elif _is_axi_spi(htype):
+        e.ln(f"spConfig = XSpi_LookupConfig({instance}_DEVICE_ID);")
+    else:
+        e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
+    e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+    if _is_qspipsu(htype):
+        e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+        e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
+        e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
+        e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
+    elif _is_axi_spi(htype):
+        e.ln(f"iStatus = XSpi_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+        e.ln(f"iStatus = XSpi_SetOptions({hvar}, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION);").check_status()
+        e.ln(f"iStatus = XSpi_Start({hvar});").check_status()
+        e.ln("/* Uretilen her transfer polled: kesmeler maskeli kalmali. */")
+        e.ln(f"XSpi_IntrGlobalDisable({hvar});")
+    else:
+        e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
+        e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
+        e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
+    e.close()
+    return e
+
+
+class _I2cApi:
+    """Driver-polymorphic I2C fragments: PS ``XIicPs`` vs AXI soft-IP ``XIic``.
+
+    Every I2C emitter asks this adapter for its bus fragments instead of
+    hard-coding ``XIicPs_*`` literals, so the same operation logic serves a
+    ZynqMP PS controller and a MicroBlaze AXI IIC core.
+
+    The two drivers differ in three ways that matter here:
+
+    * **Handle** - XIicPs is instance based, XIic's polled API is base-address
+      based (see ``_handle_param``).
+    * **Return value** - ``XIicPs_MasterSendPolled`` returns ``XST_*``, while
+      ``XIic_Send``/``XIic_Recv`` return the NUMBER OF BYTES TRANSFERRED (0 when
+      the bus is busy). AXI units therefore get two small static wrappers
+      (``<module>BusSend`` / ``<module>BusRecv``) that compare the count against
+      the request and translate to ``XST_SUCCESS``/``XST_FAILURE``; every call
+      site keeps the familiar ``iStatus = ...; if (iStatus != XST_SUCCESS)``
+      shape.
+    * **Bus-idle wait** - XIicPs needs an explicit ``XIicPs_BusIsBusy`` spin
+      after each transfer; ``XIic_Send``/``XIic_Recv`` already block until the
+      transfer finished and wait for bus-free themselves, so nothing is emitted.
+
+    STOP vs REPEATED_START: both official polled examples
+    (``iic_v3_10/examples/xiic_low_level_eeprom_example.c`` and
+    ``..._dynamic_eeprom_example.c``) do the register-pointer write with
+    ``XIIC_STOP`` and then ``XIic_Recv(..., XIIC_STOP)``; that is also exactly
+    what the PS path does (``XIicPs_MasterSendPolled`` always emits a STOP), so
+    the generated flow is identical on both drivers. ``XIIC_REPEATED_START`` is
+    supported by the adapter (``hold_bus=True``) for sequences that must keep
+    the bus, but it is deliberately NOT the default: an error return between the
+    two halves would leave the bus held.
+    """
+
+    def __init__(self, module: str, htype: str, hvar: str) -> None:
+        self.module = module
+        self.htype = htype
+        self.hvar = hvar
+
+    @property
+    def is_axi(self) -> bool:
+        return self.htype == "XIic"
+
+    @property
+    def param(self) -> str:
+        return _handle_param(self.htype, self.hvar)
+
+    @property
+    def header(self) -> str:
+        return _i2c_header_for(self.htype)
+
+    def _count(self, count: int | str) -> str:
+        """Byte count rendered for the target API's parameter type."""
+        if isinstance(count, int):
+            return f"{count}U" if self.is_axi else str(count)
+        return count if self.is_axi else f"(int){count}"
+
+    def send(self, e: Emit, buffer: str, count: int | str, addr_def: str, *,
+             hold_bus: bool = False, status: str = "iStatus") -> Emit:
+        if self.is_axi:
+            option = "XIIC_REPEATED_START" if hold_bus else "XIIC_STOP"
+            e.ln(f"{status} = {_func_name(self.module, 'bus_send')}({self.hvar}, {addr_def}, "
+                 f"{buffer}, {self._count(count)}, {option});")
+        else:
+            e.ln(f"{status} = XIicPs_MasterSendPolled({self.hvar}, {buffer}, "
+                 f"{self._count(count)}, {addr_def});")
+        return e
+
+    def recv(self, e: Emit, buffer: str, count: int | str, addr_def: str, *,
+             status: str = "iStatus") -> Emit:
+        if self.is_axi:
+            e.ln(f"{status} = {_func_name(self.module, 'bus_recv')}({self.hvar}, {addr_def}, "
+                 f"{buffer}, {self._count(count)});")
+        else:
+            e.ln(f"{status} = XIicPs_MasterRecvPolled({self.hvar}, {buffer}, "
+                 f"{self._count(count)}, {addr_def});")
+        return e
+
+    def wait_idle(self, e: Emit, comment: str = "/* wait */") -> Emit:
+        if not self.is_axi:
+            e.open(f"while (XIicPs_BusIsBusy({self.hvar}) == TRUE)").ln(comment).close()
+        return e
+
+    def config_decl(self) -> Optional[str]:
+        return None if self.is_axi else f"{self.htype}_Config* spConfig;"
+
+    def emit_init(self, e: Emit, instance: str, sclk_def: str) -> Emit:
+        """Controller bring-up, guarded against re-initializing a live handle."""
+        if self.is_axi:
+            e.ln("/* AXI IIC'nin polled API'si (xiic_l.h) TABAN ADRES ile calisir:")
+            e.ln(" * ortada surucu ornegi yoktur, SCL hizi da IP'de sabittir - init")
+            e.ln(" * edilecek bir sey yok. Bunun yerine hat gercekten bosta mi diye")
+            e.ln(" * bakilir: takili SDA/SCL burada YUKSEK SESLE dusar, her op'ta")
+            e.ln(" * sessizce zaman asimina ugramaz. */")
+            e.ln(f"iStatus = (int)XIic_WaitBusFree({self.hvar});").check_status()
+        else:
+            # Shared, already-running controllers (test bench boot) must not
+            # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
+            # on some drivers and resets live bus settings on others.
+            e.open(f"if ({self.hvar}->IsReady != XIL_COMPONENT_IS_READY)")
+            e.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
+            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+            e.ln(f"iStatus = XIicPs_CfgInitialize({self.hvar}, spConfig, spConfig->BaseAddress);").check_status()
+            e.ln(f"iStatus = XIicPs_SetSClk({self.hvar}, {sclk_def});").check_status()
+            e.close()
+        return e
+
+    def wrapper_funcs(self) -> list[CFunc]:
+        """Byte-count -> XST_* adapters for the AXI IIC low-level API (AXI only).
+
+        ``XIic_Send``/``XIic_Recv`` report BYTES TRANSFERRED, so a short count
+        (NACK, arbitration loss, busy bus -> 0) is the only failure signal there
+        is; these wrappers turn that into the XST_* contract the rest of the
+        generated code speaks.
+        """
+        if not self.is_axi:
+            return []
+        base_param = _handle_param(self.htype, "ulBase")
+
+        snd = Emit()
+        snd.ln("unsigned int uiSent;").blank()
+        snd.ln("uiSent = (unsigned int)XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption);")
+        snd.open("if (uiSent != uiLength)")
+        snd.ln("return XST_FAILURE;")
+        snd.close()
+        snd.ln("return XST_SUCCESS;")
+        send = CFunc(
+            _func_name(self.module, "bus_send"), "int",
+            [base_param, "unsigned char ucAddress", "unsigned char* ucpBuffer",
+             "unsigned int uiLength", "unsigned char ucOption"],
+            snd.out(), static=True)
+
+        rcv = Emit()
+        rcv.ln("unsigned int uiGot;").blank()
+        rcv.ln("uiGot = (unsigned int)XIic_Recv(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);")
+        rcv.open("if (uiGot != uiLength)")
+        rcv.ln("return XST_FAILURE;")
+        rcv.close()
+        rcv.ln("return XST_SUCCESS;")
+        recv = CFunc(
+            _func_name(self.module, "bus_recv"), "int",
+            [base_param, "unsigned char ucAddress", "unsigned char* ucpBuffer",
+             "unsigned int uiLength"],
+            rcv.out(), static=True)
+        return [send, recv]
+
+
+def _i2c_api(module: str, controller: dict) -> _I2cApi:
+    htype, hvar = _handle_for(controller)
+    return _I2cApi(module, htype, hvar)
 
 
 def _hexu8(value: int) -> str:
@@ -269,7 +516,10 @@ def _is_lmk_byte_register_model(model: dict) -> bool:
     return int(model.get("address_bits", 0) or 0) == 15 and int(model.get("data_bits", 0) or 0) == 8
 
 
-def _handle_var(module: str) -> str:
+def _handle_var(module: str, htype: str = "") -> str:
+    if htype == "XIic":
+        # Taban adres bir struct degil: 'ul' oneki + "Base" adi.
+        return f"ul{_pascal_suffix(module)}Base"
     return f"s{_pascal_suffix(module)}Handle"
 
 
@@ -503,7 +753,8 @@ def _generic_i2c_init_writes(device: dict, regs: dict[str, dict]) -> list[dict]:
 
 def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     module = _module_of(mux["part"])
-    htype, hvar = _handle_for(controller)
+    api = _i2c_api(module, controller)
+    hvar = api.hvar
     MOD = module.upper()
     addr_def = f"{MOD}_I2C_ADDR"
     addr = int(str(mux["i2c_address"]), 0)
@@ -511,17 +762,17 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     sel = Emit()
     sel.ln("unsigned char ucMask;").ln("int iStatus;").blank()
     sel.ln("ucMask = (unsigned char)(1U << ucChannel);")
-    sel.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});")
+    api.send(sel, "&ucMask", 1, addr_def)
     sel.open("if (iStatus != XST_SUCCESS)")
     sel.ln("/* Sessiz hizli fail birakma: hangi switch/kanal dustu logda gorunsun. */")
     sel.ln(f"spec2codeBusTraceI2cError({addr_def}, ucChannel, 'm', iStatus);")
     sel.ln("return iStatus;")
     sel.close()
-    sel.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait for the transfer to complete */").close()
+    api.wait_idle(sel, "/* wait for the transfer to complete */")
     sel.ln("return XST_SUCCESS;")
     select = CFunc(
         name=_func_name(module, "channel_select"), ret="int",
-        params=[f"{htype}* {hvar}", "unsigned char ucChannel"], body=sel.out(),
+        params=[api.param, "unsigned char ucChannel"], body=sel.out(),
         brief="Enable exactly one downstream channel on the I2C switch.",
         doxy_params=[(hvar, "Initialized I2C controller handle the mux sits on."),
                      ("ucChannel", "Channel index 0..7 to enable.")],
@@ -530,30 +781,32 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     dis = Emit()
     dis.ln("unsigned char ucMask;").ln("int iStatus;").blank()
     dis.ln("ucMask = 0x00U;")
-    dis.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucMask, 1, {addr_def});")
+    api.send(dis, "&ucMask", 1, addr_def)
     dis.open("if (iStatus != XST_SUCCESS)")
     dis.ln(f"spec2codeBusTraceI2cError({addr_def}, 0xFFU, 'm', iStatus);")
     dis.ln("return iStatus;")
     dis.close()
-    dis.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait for the transfer to complete */").close()
+    api.wait_idle(dis, "/* wait for the transfer to complete */")
     dis.ln("return XST_SUCCESS;")
     disable = CFunc(
-        name=_func_name(module, "channel_disable"), ret="int", params=[f"{htype}* {hvar}"], body=dis.out(),
+        name=_func_name(module, "channel_disable"), ret="int", params=[api.param], body=dis.out(),
         brief="Disable all downstream channels on the I2C switch.",
         doxy_params=[(hvar, "Initialized I2C controller handle the mux sits on.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code.")
 
     return CUnit(
         module=module, part=mux["part"], summary=descriptor.get("summary", ""), transport="i2c_mux",
-        header_includes=["xil_types.h", "xiicps.h"],
+        header_includes=["xil_types.h", api.header],
         driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=[(addr_def, _hexu8(addr), f"{mux['part']} I2C address")],
-        funcs=[select, disable], public_names=[select.name, disable.name])
+        funcs=_prune_unused_static_funcs([*api.wrapper_funcs(), select, disable]),
+        public_names=[select.name, disable.name])
 
 
 # --- I2C device unit --------------------------------------------------------------------
 
-def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CFunc]:
+def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
+    hvar = api.hvar
     # Basarisizlik noktalari SESSIZ kalmaz (SAHA: DS1682 hizli fail tek
     # "failed" satiriyla dondu, iz/asama yoktu): her NACK/timeout hata
     # kancasina adres+register+asama ile raporlanir.
@@ -566,26 +819,26 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     w = Emit()
     w.ln("unsigned char ucArrBuffer[2];").ln("int iStatus;").blank()
     w.ln("ucArrBuffer[0] = ucReg;").ln("ucArrBuffer[1] = ucValue;")
-    w.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 2, {addr_def});")
+    api.send(w, "ucArrBuffer", 2, addr_def)
     check_traced(w, "ucReg", "w")
-    w.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.wait_idle(w)
     w.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'w', &ucValue, 1U);")
     w.ln("return XST_SUCCESS;")
     write = CFunc(_func_name(module, "register_write"), "int",
-                  [f"{htype}* {hvar}", "unsigned char ucReg", "unsigned char ucValue"], w.out(), static=True)
+                  [api.param, "unsigned char ucReg", "unsigned char ucValue"], w.out(), static=True)
 
     r = Emit()
     r.ln("int iStatus;").blank()
-    r.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});")
+    api.send(r, "&ucReg", 1, addr_def)
     check_traced(r, "ucReg", "p")
-    r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    r.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpValue, 1, {addr_def});")
+    api.wait_idle(r)
+    api.recv(r, "ucpValue", 1, addr_def)
     check_traced(r, "ucReg", "r")
-    r.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.wait_idle(r)
     r.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpValue, 1U);")
     r.ln("return XST_SUCCESS;")
     read = CFunc(_func_name(module, "register_read"), "int",
-                 [f"{htype}* {hvar}", "unsigned char ucReg", "unsigned char* ucpValue"], r.out(), static=True)
+                 [api.param, "unsigned char ucReg", "unsigned char* ucpValue"], r.out(), static=True)
 
     # SAHA BULGUSU (2026-07-05): DS1682'de tek pointer + COK BAYTLI recv
     # (blok okuma) aninda dusuyordu; ayni karttaki register snapshot ise
@@ -601,7 +854,7 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     once.close()
     once.ln("return XST_SUCCESS;")
     read_once = CFunc(_func_name(module, "registers_read_once"), "int",
-                      [f"{htype}* {hvar}", "unsigned char ucReg",
+                      [api.param, "unsigned char ucReg",
                        "unsigned char* ucpBuffer", "unsigned int uiLength"],
                       once.out(), static=True)
 
@@ -614,16 +867,16 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     wide.open("if ((ucpBuffer == NULL) || (uiLength == 0U))")
     wide.ln("return XST_FAILURE;")
     wide.close()
-    wide.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, &ucReg, 1, {addr_def});")
+    api.send(wide, "&ucReg", 1, addr_def)
     check_traced(wide, "ucReg", "p")
-    wide.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    wide.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});")
+    api.wait_idle(wide)
+    api.recv(wide, "ucpBuffer", "uiLength", addr_def)
     check_traced(wide, "ucReg", "r")
-    wide.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.wait_idle(wide)
     wide.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
     wide.ln("return XST_SUCCESS;")
     read_wide = CFunc(_func_name(module, "register_read_wide"), "int",
-                      [f"{htype}* {hvar}", "unsigned char ucReg",
+                      [api.param, "unsigned char ucReg",
                        "unsigned char* ucpBuffer", "unsigned int uiLength"],
                       wide.out(), static=True)
 
@@ -648,10 +901,10 @@ def _i2c_low_level(module: str, htype: str, hvar: str, addr_def: str) -> list[CF
     rb.close()
     rb.ln("return XST_SUCCESS;")
     read_block = CFunc(_func_name(module, "registers_read"), "int",
-                       [f"{htype}* {hvar}", "unsigned char ucReg",
+                       [api.param, "unsigned char ucReg",
                         "unsigned char* ucpBuffer", "unsigned int uiLength"],
                        rb.out(), static=True)
-    return [write, read, read_wide, read_once, read_block]
+    return [*api.wrapper_funcs(), write, read, read_wide, read_once, read_block]
 
 
 def convert_config_issue(device: dict, op: dict) -> str | None:
@@ -704,7 +957,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
                      module: Optional[str] = None) -> CUnit:
     module = module or _module_of(device["part"])
-    htype, hvar = _handle_for(controller)
+    api = _i2c_api(module, controller)
+    hvar = api.hvar
     MOD = module.upper()
     attach = device["attach"]
     addr_def, sclk_def, to_def = f"{MOD}_I2C_ADDR", f"{MOD}_I2C_SCLK_HZ", f"{MOD}_POLL_TIMEOUT"
@@ -727,7 +981,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     defines += [(f"{MOD}_REG_{n}", _hexu8(rg["offset"]), "") for n, rg in regs.items()]
     private_decls = _private_i2c_init_sequence(module, MOD, profile_writes)
 
-    funcs = _i2c_low_level(module, htype, hvar, addr_def)
+    funcs = _i2c_low_level(module, api, addr_def)
     public: list[str] = []
     ops_by_name = {op["name"]: op for op in descriptor["operations"]}
     requested = device.get("operations_requested") or list(ops_by_name)
@@ -744,7 +998,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             continue
         returns = op.get("returns", "")
         is_init = op_name == "device_init"
-        params = [f"{htype}* {hvar}"]
+        params = [api.param]
         out_c_type = ""
         out_param = None
         if returns:
@@ -767,7 +1021,9 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         # declarations (top of block, embedded C style)
         e.ln("int iStatus;")
         if is_init:
-            e.ln(f"{htype}_Config* spConfig;")
+            config_decl = api.config_decl()
+            if config_decl:
+                e.ln(config_decl)
             if profile_writes:
                 e.ln("unsigned int uiIndex;")
         if has_channels:
@@ -784,15 +1040,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         e.blank()
 
         if is_init:
-            # Shared, already-running controllers (test bench boot) must not
-            # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
-            # on some drivers and resets live bus settings on others.
-            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
-            e.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
-            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-            e.ln(f"iStatus = XIicPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-            e.ln(f"iStatus = XIicPs_SetSClk({hvar}, {sclk_def});").check_status()
-            e.close()
+            api.emit_init(e, instance, sclk_def)
 
         inject_mux(e)
 
@@ -893,7 +1141,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c",
-        header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
+        header_includes=["xil_types.h", api.header], driver_includes=includes_c,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public,
         private_decls=private_decls)
 
@@ -902,7 +1150,8 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
                      module: Optional[str] = None) -> CUnit:
     module = module or _module_of(device["part"])
-    htype, hvar = _handle_for(controller)
+    api = _i2c_api(module, controller)
+    hvar = api.hvar
     MOD = module.upper()
     attach = device["attach"]
     instance = controller["instance"]
@@ -929,23 +1178,20 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         if mux_module is not None:
             e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({hvar}, {mux_channel}U);").check_status()
 
-    funcs: list[CFunc] = []
+    funcs: list[CFunc] = [*api.wrapper_funcs()]
     public: list[str] = []
 
     init = Emit()
     init.ln("int iStatus;")
-    init.ln(f"{htype}_Config* spConfig;")
+    config_decl = api.config_decl()
+    if config_decl:
+        init.ln(config_decl)
     init.blank()
     # Paylaşılan/başlatılmış denetleyicide yeniden init yok (test bench).
-    init.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
-    init.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
-    init.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-    init.ln(f"iStatus = XIicPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-    init.ln(f"iStatus = XIicPs_SetSClk({hvar}, {sclk_def});").check_status()
-    init.close()
+    api.emit_init(init, instance, sclk_def)
     init.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
-        name=_func_name(module, "device_init"), ret="int", params=[f"{htype}* {hvar}"], body=init.out(),
+        name=_func_name(module, "device_init"), ret="int", params=[api.param], body=init.out(),
         brief="Initialize the I2C controller for EEPROM access.",
         doxy_params=[(hvar, "Initialized I2C controller handle.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code."))
@@ -960,9 +1206,9 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     ack.ln("ucArrAddress[1] = (unsigned char)(uiAddress & 0xFFU);")
     ack.ln(f"uiTimeout = {to_def};")
     ack.open("do")
-    ack.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrAddress, 2, {addr_def});")
+    api.send(ack, "ucArrAddress", 2, addr_def)
     ack.open("if (iStatus == XST_SUCCESS)")
-    ack.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.wait_idle(ack)
     ack.ln("return XST_SUCCESS;")
     ack.close()
     ack.open("if (uiTimeout == 0U)").ln("return XST_FAILURE;").close()
@@ -971,7 +1217,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     ack.ln("return XST_FAILURE;")
     funcs.append(CFunc(
         name=_func_name(module, "ack_poll"), ret="int",
-        params=[f"{htype}* {hvar}", "unsigned int uiAddress"], body=ack.out(),
+        params=[api.param, "unsigned int uiAddress"], body=ack.out(),
         brief="Poll until the EEPROM internal write cycle accepts I2C traffic again.",
         doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "Word address used for the harmless pointer write.")],
         doxy_return="XST_SUCCESS when the EEPROM acknowledges, else XST_FAILURE.", static=True))
@@ -986,14 +1232,14 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     inject_mux(read)
     read.ln("ucArrAddress[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
     read.ln("ucArrAddress[1] = (unsigned char)(uiAddress & 0xFFU);")
-    read.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrAddress, 2, {addr_def});").check_status()
-    read.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
-    read.ln(f"iStatus = XIicPs_MasterRecvPolled({hvar}, ucpBuffer, (int)uiLength, {addr_def});").check_status()
-    read.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.send(read, "ucArrAddress", 2, addr_def).check_status()
+    api.wait_idle(read)
+    api.recv(read, "ucpBuffer", "uiLength", addr_def).check_status()
+    api.wait_idle(read)
     read.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
         name=_func_name(module, "data_read"), ret="int",
-        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "unsigned char* ucpBuffer", "unsigned int uiLength"],
+        params=[api.param, "unsigned int uiAddress", "unsigned char* ucpBuffer", "unsigned int uiLength"],
         body=read.out(),
         brief="Read bytes from the EEPROM using random-read addressing followed by sequential read.",
         doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
@@ -1010,13 +1256,13 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     byte.ln("ucArrBuffer[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
     byte.ln("ucArrBuffer[1] = (unsigned char)(uiAddress & 0xFFU);")
     byte.ln("ucArrBuffer[2] = ucValue;")
-    byte.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, 3, {addr_def});").check_status()
-    byte.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.send(byte, "ucArrBuffer", 3, addr_def).check_status()
+    api.wait_idle(byte)
     byte.ln(f"iStatus = {_func_name(module, 'ack_poll')}({hvar}, uiAddress);").check_status()
     byte.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
         name=_func_name(module, "byte_write"), ret="int",
-        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "unsigned char ucValue"],
+        params=[api.param, "unsigned int uiAddress", "unsigned char ucValue"],
         body=byte.out(),
         brief="Write one EEPROM byte and poll until the internal write cycle finishes.",
         doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
@@ -1041,13 +1287,13 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     page.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)")
     page.ln("ucArrBuffer[uiIndex + 2U] = ucpBuffer[uiIndex];")
     page.close()
-    page.ln(f"iStatus = XIicPs_MasterSendPolled({hvar}, ucArrBuffer, (int)(uiLength + 2U), {addr_def});").check_status()
-    page.open(f"while (XIicPs_BusIsBusy({hvar}) == TRUE)").ln("/* wait */").close()
+    api.send(page, "ucArrBuffer", "(uiLength + 2U)", addr_def).check_status()
+    api.wait_idle(page)
     page.ln(f"iStatus = {_func_name(module, 'ack_poll')}({hvar}, uiAddress);").check_status()
     page.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
         name=_func_name(module, "page_write"), ret="int",
-        params=[f"{htype}* {hvar}", "unsigned int uiAddress", "const unsigned char* ucpBuffer", "unsigned int uiLength"],
+        params=[api.param, "unsigned int uiAddress", "const unsigned char* ucpBuffer", "unsigned int uiLength"],
         body=page.out(),
         brief="Write up to one EEPROM page without crossing a physical page boundary.",
         doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
@@ -1060,7 +1306,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c_eeprom",
-        header_includes=["xil_types.h", "xiicps.h"], driver_includes=includes_c,
+        header_includes=["xil_types.h", api.header], driver_includes=includes_c,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
@@ -1082,8 +1328,8 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         send.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
         send.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
-        send.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        send.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, 1);").check_status()
+        _spi_select(send, htype, hvar, sel_def)
+        _spi_transfer(send, htype, hvar, "ucArrTx", "NULL", "1")
     send.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, 1U);")
     send.ln("return XST_SUCCESS;")
     f_send = CFunc(_func_name(module, "command_send"), "int",
@@ -1139,8 +1385,8 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         rd.ln("spec2codeBusTraceSpi(0U, NULL, ucArrRx, uiLength);")
     else:
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucArrTx[uiHeader + uiIndex] = 0x00U;").close()
-        rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, uiHeader + uiLength);").check_status()
+        _spi_select(rd, htype, hvar, sel_def)
+        _spi_transfer(rd, htype, hvar, "ucArrTx", "ucArrRx", "uiHeader + uiLength")
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiHeader + uiIndex];").close()
         rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
     rd.ln("return XST_SUCCESS;")
@@ -1189,8 +1435,8 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         wr.close()
         wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, uiMsgCount);").check_status()
     else:
-        wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        wr.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, uiHeader + uiLength);").check_status()
+        _spi_select(wr, htype, hvar, sel_def)
+        _spi_transfer(wr, htype, hvar, "ucArrTx", "NULL", "uiHeader + uiLength")
     wr.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader + uiLength);")
     wr.ln("return XST_SUCCESS;")
     f_write = CFunc(_func_name(module, "command_write"), "int",
@@ -1218,8 +1464,8 @@ def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, f
         wr.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX;")
         wr.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
-        wr.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        wr.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, NULL, {frame_def});").check_status()
+        _spi_select(wr, htype, hvar, sel_def)
+        _spi_transfer(wr, htype, hvar, "ucArrTx", "NULL", frame_def)
     wr.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, NULL, {frame_def});")
     wr.ln("return XST_SUCCESS;")
     return CFunc(
@@ -1268,8 +1514,8 @@ def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
         rd.ln("sArrMessage[0].Flags = XQSPIPSU_MSG_FLAG_TX | XQSPIPSU_MSG_FLAG_RX;")
         rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 1U);").check_status()
     else:
-        rd.ln(f"iStatus = XSpiPs_SetSlaveSelect({hvar}, {sel_def});").check_status()
-        rd.ln(f"iStatus = XSpiPs_PolledTransfer({hvar}, ucArrTx, ucArrRx, {frame_def});").check_status()
+        _spi_select(rd, htype, hvar, sel_def)
+        _spi_transfer(rd, htype, hvar, "ucArrTx", "ucArrRx", frame_def)
     rd.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, ucArrRx, {frame_def});")
     rd.ln("*ucpValue = ucArrRx[2];")
     rd.ln("return XST_SUCCESS;")
@@ -1383,24 +1629,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
             e.open(f"if ({out_param} == NULL)").ln("return XST_FAILURE;").close()
 
         if is_init:
-            # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden
-            # CfgInitialize etme (XST_DEVICE_IS_STARTED / canlı ayar kaybı).
-            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
-            if _is_qspipsu(htype):
-                e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
-            else:
-                e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
-            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-            if _is_qspipsu(htype):
-                e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-                e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
-                e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
-                e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
-            else:
-                e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-                e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
-                e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
-            e.close()
+            _spi_emit_init(e, htype, hvar, instance)
 
         if is_init and words and byte_config:
             e.open(f"for (uiIndex = 0U; uiIndex < {count_def}; uiIndex += 3U)")
@@ -1545,25 +1774,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
         e.blank()
 
         if is_init:
-            # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden
-            # CfgInitialize etme: XQspiPsu XST_DEVICE_IS_STARTED döndürür
-            # (sahada mt25qu02g device_init status=5 olarak görüldü).
-            e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
-            if _is_qspipsu(htype):
-                e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
-            else:
-                e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
-            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-            if _is_qspipsu(htype):
-                e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-                e.ln(f"iStatus = XQspiPsu_SetOptions({hvar}, XQSPIPSU_MANUAL_START_OPTION);").check_status()
-                e.ln(f"iStatus = XQspiPsu_SetClkPrescaler({hvar}, XQSPIPSU_CLK_PRESCALE_8);").check_status()
-                e.ln(f"XQspiPsu_SelectFlash({hvar}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);")
-            else:
-                e.ln(f"iStatus = XSpiPs_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
-                e.ln(f"iStatus = XSpiPs_SetOptions({hvar}, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);").check_status()
-                e.ln(f"iStatus = XSpiPs_SetClkPrescaler({hvar}, XSPIPS_CLK_PRESCALE_8);").check_status()
-            e.close()
+            _spi_emit_init(e, htype, hvar, instance)
 
         for step in op["steps"]:
             sop = step["op"]
@@ -1802,18 +2013,31 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln('xil_printf("' + part + ' data[0] = %02X\\r\\n", ucArrBuffer[0]);')
     st.ln("return XST_SUCCESS;")
     self_test = CFunc(
-        name=_func_name(module, "self_test"), ret="int", params=[f"{htype}* {hvar}"], body=st.out(),
+        name=_func_name(module, "self_test"), ret="int", params=[_handle_param(htype, hvar)], body=st.out(),
         brief=f"Non-destructive self-test for the {part}: init + reads.",
         doxy_params=[(hvar, "Uninitialized controller handle; this routine initializes it.")],
         doxy_return="XST_SUCCESS if all checks pass, else an XST_* error code.")
 
+    # AXI IIC'de "handle" TABAN ADRES'tir: yerel degisken struct degil, adres
+    # sabiti olarak xparameters.h'ten alinir ve DEGERLE gecirilir.
+    is_base = htype == "XIic"
+    instance = controller.get("instance", "")
+
+    def handle_decl(name: str) -> str:
+        if is_base:
+            return f"unsigned long {name} = (unsigned long){instance}_BASEADDR;"
+        return f"{htype} {name};"
+
+    def handle_arg(name: str) -> str:
+        return name if is_base else f"&{name}"
+
     wr = Emit()
     if runtime == "freertos":
-        handle_name = _handle_var(module)
-        wr.ln(f"{htype} {handle_name};").ln("int iStatus;").blank()
+        handle_name = _handle_var(module, htype)
+        wr.ln(handle_decl(handle_name)).ln("int iStatus;").blank()
         wr.ln("(void) vpParameters;")
         wr.open("for (;;)")
-        wr.ln(f"iStatus = {_func_name(module, 'self_test')}(&{handle_name});")
+        wr.ln(f"iStatus = {_func_name(module, 'self_test')}({handle_arg(handle_name)});")
         wr.open("if (iStatus != XST_SUCCESS)")
         wr.ln('xil_printf("' + part + ' self-test FAILED: %d\\r\\n", iStatus);')
         wr.close()
@@ -1827,11 +2051,13 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             brief=f"FreeRTOS task: repeatedly run the {part} self-test.",
             doxy_params=[("vpParameters", "Unused FreeRTOS task parameter.")], doxy_return="")
         includes = ["FreeRTOS.h", "task.h", "xil_printf.h", "xil_types.h", "xstatus.h", f"{module}.h"]
+        if is_base:
+            includes.insert(-1, "xparameters.h")
     else:
-        handle_name = _handle_var(module)
-        wr.ln(f"{htype} {handle_name};").ln("int iStatus;").ln("unsigned int uiIter;").ln("volatile unsigned int uiDelay;").blank()
+        handle_name = _handle_var(module, htype)
+        wr.ln(handle_decl(handle_name)).ln("int iStatus;").ln("unsigned int uiIter;").ln("volatile unsigned int uiDelay;").blank()
         wr.open("for (uiIter = 0U; uiIter < 3U; uiIter++)")
-        wr.ln(f"iStatus = {_func_name(module, 'self_test')}(&{handle_name});")
+        wr.ln(f"iStatus = {_func_name(module, 'self_test')}({handle_arg(handle_name)});")
         wr.open("if (iStatus != XST_SUCCESS)")
         wr.ln('xil_printf("' + part + ' self-test FAILED: %d\\r\\n", iStatus);')
         wr.close()
@@ -1847,6 +2073,8 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             brief=f"Bare-metal harness: run the {part} self-test a few times with busy-wait.",
             doxy_params=[], doxy_return="XST_SUCCESS if the last run passed, else an XST_* error code.")
         includes = ["xil_printf.h", "xil_types.h", "xstatus.h", f"{module}.h"]
+        if is_base:
+            includes.insert(-1, "xparameters.h")
 
     return CTest(runtime=runtime, module=module, includes=includes, funcs=[self_test, wrapper])
 
