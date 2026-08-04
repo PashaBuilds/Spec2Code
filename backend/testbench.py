@@ -854,6 +854,11 @@ class _TestbenchJtagBridgeSession(_TestbenchSerialSession):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # Yerel ayara birakilirsa (Turkce Windows -> cp1254) xsdb ciktisindaki
+            # tek bir cozulemeyen bayt okuma is parcacigini UnicodeDecodeError ile
+            # oldurur; kopru sessizce olur. Bks. hostplat/proc.py modul basligi.
+            encoding="utf-8",
+            errors="replace",
             creationflags=creationflags,
         )
         port_queue: "queue.Queue[int]" = queue.Queue()

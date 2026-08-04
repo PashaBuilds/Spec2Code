@@ -73,16 +73,25 @@ def run_qc(
     for rnd in range(1, max_rounds + 1):
         # 1) format (also our CRLF re-write path)
         fmt_available = True
+        # Arac VAR ama dosyayi bicimlendiremediyse (`available=True` + `reason`)
+        # bu sessizce yutulurdu; oysa o dosya bicimlendirilmemistir ve yazma
+        # kalkani devreye girmis olabilir. Kapiyi DUSUREN ihlale cevrilir.
+        format_failures: list[runners.Violation] = []
         for f in fmt_files:
             available, _changed, reason = runners.format_file(f, out_dir)
             fmt_available = fmt_available and available
             if not available:
                 emit({"event": "qc.tool_missing", "tool": "clang-format", "reason": reason})
                 break
+            if reason:
+                emit({"event": "qc.format_failed", "file": str(f), "reason": reason})
+                format_failures.append(runners.Violation(
+                    file=str(f), line=0, column=0, rule="clang-format.failed",
+                    severity="error", message=reason, source="clang-format"))
         tool_status["clang-format"] = fmt_available
 
         # 2) checks
-        violations: list[runners.Violation] = []
+        violations: list[runners.Violation] = list(format_failures)
         for f in c_files:
             nl = naming_linter.lint_file(f, ruleset, include_dirs)
             violations += nl

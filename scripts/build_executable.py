@@ -64,11 +64,15 @@ def _version(explicit: str | None) -> str:
     if explicit:
         return explicit
     try:
+        # encoding/errors acik: yerel ayara birakilirsa git ciktisindaki non-ASCII
+        # (etiket/yazar adi) cozme hatasi verip ciktiyi sessizce bosaltabilir.
         completed = subprocess.run(
             ["git", "describe", "--tags", "--exact-match"],
             cwd=ROOT,
             check=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
         )
         return completed.stdout.strip()
@@ -78,6 +82,8 @@ def _version(explicit: str | None) -> str:
             cwd=ROOT,
             check=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
         )
         return f"snapshot-{completed.stdout.strip()}"

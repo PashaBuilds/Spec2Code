@@ -94,16 +94,37 @@ def format_file(path: Path, config_dir: Path) -> tuple[bool, bool, Optional[str]
     """Format *path* in place (via stdout capture + hostplat.io write).
 
     Returns (available, changed, skipped_reason).
+
+    **Yazma kalkani (derinlemesine savunma).** Bu fonksiyon bir aracin stdout'unu
+    KAYNAK DOSYANIN uzerine yazar; yani arac ne donerse dosyanin yeni icerigi odur.
+    Sahada gorulen veri kaybinda `proc.run` yerel ayar yuzunden cozemedigi ciktiyi
+    `returncode=0` + `stdout=""` olarak dondurmus, burasi da o bosu geri yazip
+    `spec2code_cit.c` / `spec2code_cit.h` / `spec2code_testbench_trace.c`
+    dosyalarini 0 bayta dusurmustu - ustelik "basarili" raporlayarak.
+
+    Kok neden `hostplat.proc` tarafinda giderildi. Buradaki kalkan ondan BAGIMSIZDIR:
+    dolu bir girdi bos/yalniz-bosluk bir ciktiya format'lanamaz, dolayisiyla bu
+    durum HER ZAMAN arac hatasidir. Boyle bir durumda dosyaya DOKUNULMAZ ve sebep
+    acikca dondurulur; gelecekte baska bir arac arizasi da dosyayi bosaltamaz.
     """
     tool = tools.resolve("clang-format", required=False)
     if tool is None:
         return False, False, "clang-format not found"
-    before = Path(path).read_bytes()
-    result = proc.run([tool, "-style=file", str(path)], cwd=config_dir, timeout=60)
+    target = Path(path)
+    before = target.read_bytes()
+    result = proc.run([tool, "-style=file", str(target)], cwd=config_dir, timeout=60)
     if not result.ok:
         return True, False, result.stderr.strip() or "clang-format failed"
-    hio.write_output(path, result.stdout)
-    after = Path(path).read_bytes()
+    # Dolu girdi -> bos cikti: imkansiz. Yaz-ma, bildir. (Bos girdi icin mesru.)
+    if before.strip() and not result.stdout.strip():
+        detail = result.stderr.strip()
+        return True, False, (
+            "clang-format bos cikti dondu (girdi {n} bayt) - dosya KORUNDU, "
+            "yazilmadi{extra}".format(
+                n=len(before), extra=f": {detail}" if detail else "")
+        )
+    hio.write_output(target, result.stdout)
+    after = target.read_bytes()
     return True, (before != after), None
 
 

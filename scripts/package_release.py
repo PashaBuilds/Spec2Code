@@ -18,7 +18,10 @@ DEFAULT_OUT = ROOT / "release-assets"
 
 
 def _run(args: list[str]) -> str:
-    completed = subprocess.run(args, cwd=ROOT, check=True, text=True, capture_output=True)
+    # encoding/errors acik: yerel ayara birakilirsa git ciktisindaki non-ASCII
+    # (etiket/yazar adi) cozme hatasi verip ciktiyi sessizce bosaltabilir.
+    completed = subprocess.run(args, cwd=ROOT, check=True, text=True,
+                               encoding="utf-8", errors="replace", capture_output=True)
     return completed.stdout.strip()
 
 
