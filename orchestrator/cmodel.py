@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from orchestrator.device_profiles import registry as device_profiles
-from orchestrator import tics
+from orchestrator import boards, tics
 
 _IND = "    "  # 4 spaces
 
@@ -115,6 +115,8 @@ class CUnit:
     funcs: list[CFunc]
     public_names: list[str]
     private_decls: list[str] = field(default_factory=list)
+    #: Fiziksel kart kimligi (spec `boards` tanimsizken herkes ortuk ana kartta).
+    board_id: str = boards.MAIN_BOARD_ID
     test: Optional[CTest] = None
 
 
@@ -2313,7 +2315,9 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
         controller = controllers.get(mux["controller_id"])
         if controller is None:
             raise CodegenError(f"mux {mux['id']} references unknown controller {mux['controller_id']}")
-        units.append(_mux_unit(mux, controller, get_descriptor(mux["part"])))
+        mux_unit = _mux_unit(mux, controller, get_descriptor(mux["part"]))
+        mux_unit.board_id = boards.board_id_of(mux)
+        units.append(mux_unit)
 
     for device in spec.get("devices", []):
         attach = device["attach"]
@@ -2352,6 +2356,7 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                 f"device {device['id']}: transport '{transport}' not supported by codegen yet "
                 f"(supported: i2c, spi, gpio). Extend cmodel.py to add it.")
 
+        unit.board_id = boards.board_id_of(device)
         unit.test = _test_unit(unit, device, controller, runtime)
         units.append(unit)
 

@@ -46,6 +46,10 @@ def _out_dir_for(path: Path) -> Path:
     path = Path(path)
     if path.parent.name in {"drivers", "tests"}:
         return path.parent.parent
+    # Kart tanimliyken surucu yolu drivers/<kart>/<modul>.c olur; bir seviye
+    # daha yukari cikilmazsa .clang-format kart klasorune yazilirdi.
+    if path.parent.parent.name == "drivers":
+        return path.parent.parent.parent
     return path.parent
 
 
@@ -102,7 +106,7 @@ def _check_candidate(path: Path, original: str, candidate: str, ruleset: dict) -
     text = _preflight_candidate_text(path, original, candidate)
     out_dir = _out_dir_for(path)
     drivers_dir = out_dir / "drivers"
-    include_dirs = [drivers_dir]
+    include_dirs = runners.driver_include_dirs(drivers_dir)
     temp_path = _candidate_path_for(path)
     tools: dict[str, bool | None] = {"clang-format": None, "clang-tidy": None, "cppcheck": None, "libclang": None}
     try:

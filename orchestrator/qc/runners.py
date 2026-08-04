@@ -43,6 +43,25 @@ class RunnerResult:
     skipped_reason: Optional[str] = None
 
 
+# --- kaynak agaci ------------------------------------------------------------------------
+
+def driver_include_dirs(drivers_dir: Path) -> list[Path]:
+    """`drivers/` + basligi olan her ALT klasoru (kart klasorleri).
+
+    Kart tanimliyken suruculer `drivers/<kart>/` altina yazilir; nitelenmemis
+    ``#include "tmp101.h"`` cozulsun diye her kart klasoru include yoluna girer.
+    Kart tanimsiz projelerde alt klasor yoktur -> sonuc bugunku ``[drivers]``.
+    """
+    drivers_dir = Path(drivers_dir)
+    dirs = [drivers_dir]
+    if drivers_dir.is_dir():
+        dirs.extend(sorted({
+            header.parent for header in drivers_dir.rglob("*.h")
+            if header.parent != drivers_dir
+        }))
+    return dirs
+
+
 # --- clang-format -----------------------------------------------------------------------
 
 def clang_format_config(ruleset: dict) -> str:

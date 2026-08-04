@@ -48,15 +48,20 @@ def run_qc(
     out_dir = Path(out_dir)
     drivers_dir = out_dir / "drivers"
     tests_dir = out_dir / "tests"
-    include_dirs = [drivers_dir]
+    # Kart tanimliyken suruculer drivers/<kart>/ altindadir; DUZ glob onlari
+    # sessizce atlar ve QC kapisi hicbir suruculu dosyayi denetlemez olurdu.
+    # tests/ de yolda: kart modulu (drivers/<kart>/<kart>.h) CIT olcumu varken
+    # tests/spec2code_cit.h'i include eder; bulunamazsa clang-tidy TU'yu
+    # cozemez ve sahte tani (unknown type 'SBoardCit') uretir.
+    include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir]
 
     # Write the clang-format config derived from the ruleset, so `-style=file` finds it.
     hio.write_output(out_dir / ".clang-format", runners.clang_format_config(ruleset))
 
-    c_files = sorted([*drivers_dir.glob("*.c"), *tests_dir.glob("*.c")])
+    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c")])
     fmt_files = sorted([
-        *drivers_dir.glob("*.c"),
-        *drivers_dir.glob("*.h"),
+        *drivers_dir.rglob("*.c"),
+        *drivers_dir.rglob("*.h"),
         *tests_dir.glob("*.c"),
         *tests_dir.glob("*.h"),
     ])
