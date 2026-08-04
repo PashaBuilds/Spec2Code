@@ -47,6 +47,7 @@ export interface Device {
   attach: DeviceAttach;
   operations_requested?: string[];
   tests_requested?: string[];
+  board_id?: string;
 }
 export interface InitSequenceWrite {
   reg: string;
@@ -79,6 +80,25 @@ export interface Mux {
   controller_id: string;
   i2c_address: string;
   channels: number;
+  board_id?: string;
+}
+export interface Board {
+  id: string;
+  name: string;
+  role: "main" | "peripheral";
+  notes?: string;
+}
+export interface ConnectorBus {
+  controller_id: string;
+  via_mux?: ViaMux | null;
+}
+export interface Connector {
+  id: string;
+  name: string;
+  from_board: string;
+  to_board: string;
+  bus: ConnectorBus;
+  notes?: string;
 }
 export interface ProjectMeta {
   name: string;

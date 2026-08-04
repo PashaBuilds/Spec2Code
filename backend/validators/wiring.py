@@ -98,6 +98,72 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
             return
         seen_i2c[key] = owner
 
+    from orchestrator import boards as boards_mod
+
+    board_list = spec.get("boards") or []
+    board_ids = {str(b.get("id")) for b in board_list}
+    if board_list:
+        mains = [b for b in board_list if str(b.get("role")) == "main"]
+        if len(mains) != 1:
+            add("error", "/boards",
+                f"tam olarak bir 'main' kart olmali (bulunan: {len(mains)})")
+        try:
+            boards_mod.assert_unique_identifiers(board_list)
+        except ValueError as exc:
+            add("error", "/boards", str(exc))
+        seen_ids: set[str] = set()
+        for index, board in enumerate(board_list):
+            bid = str(board.get("id", ""))
+            if bid in seen_ids:
+                add("error", f"/boards/{index}/id", f"kart kimligi tekrar ediyor: {bid}")
+            seen_ids.add(bid)
+
+    controller_ids = {str(c.get("id")) for c in spec.get("controllers", [])}
+    mux_by_id = {str(m.get("id")): m for m in spec.get("muxes", [])}
+    for index, connector in enumerate(spec.get("connectors", []) or []):
+        path = f"/connectors/{index}"
+        for side in ("from_board", "to_board"):
+            value = str(connector.get(side, ""))
+            if value not in board_ids:
+                add("error", f"{path}/{side}", f"tanimsiz kart: {value}")
+        if connector.get("from_board") == connector.get("to_board"):
+            add("error", f"{path}/to_board", "konnektorun iki ucu ayni kart olamaz")
+        bus = connector.get("bus") or {}
+        if str(bus.get("controller_id", "")) not in controller_ids:
+            add("error", f"{path}/bus/controller_id",
+                f"tanimsiz denetleyici: {bus.get('controller_id')}")
+        via = bus.get("via_mux")
+        if via:
+            mux = mux_by_id.get(str(via.get("mux_id", "")))
+            if mux is None:
+                add("error", f"{path}/bus/via_mux/mux_id",
+                    f"tanimsiz switch: {via.get('mux_id')}")
+            else:
+                channels = _int_value(mux.get("channels")) or 0
+                channel = _int_value(via.get("channel"))
+                if channel is None or not (0 <= channel < channels):
+                    add("error", f"{path}/bus/via_mux/channel",
+                        f"kanal 0..{channels - 1} araliginda olmali (verilen: {via.get('channel')})")
+
+    # Cihaz/mux board_id'leri var olan karti gostermeli.
+    if board_list:
+        for index, device in enumerate(spec.get("devices", [])):
+            bid = device.get("board_id")
+            if bid is not None and str(bid) not in board_ids:
+                add("error", f"/devices/{index}/board_id", f"tanimsiz kart: {bid}")
+        for index, mux in enumerate(spec.get("muxes", [])):
+            bid = mux.get("board_id")
+            if bid is not None and str(bid) not in board_ids:
+                add("error", f"/muxes/{index}/board_id", f"tanimsiz kart: {bid}")
+        # Ana kart disindaki bir kartta cihaz var ama o hatti belgeleyen
+        # konnektor yoksa UYARI (hata degil — model calisir, dokuman eksik).
+        documented = {str(c.get("to_board")) for c in (spec.get("connectors") or [])}
+        main_id = boards_mod.main_board_id(spec)
+        populated = {boards_mod.board_id_of(d) for d in spec.get("devices", [])}
+        for bid in sorted(populated - {main_id} - documented):
+            add("warning", "/connectors",
+                f"'{bid}' kartinda cihaz var ama baglantisini belgeleyen konnektor yok")
+
     for idx, mux in enumerate(spec.get("muxes", [])):
         owner = f"mux {mux.get('id') or idx}"
         path = f"muxes/{idx}"

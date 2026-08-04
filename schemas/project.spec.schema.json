@@ -119,7 +119,8 @@
             }
           },
           "operations_requested": { "type": "array", "items": { "type": "string" } },
-          "tests_requested": { "type": "array", "items": { "type": "string" } }
+          "tests_requested": { "type": "array", "items": { "type": "string" } },
+          "board_id": { "type": "string", "description": "Cihazin bulundugu kart; verilmezse ana kart." }
         }
       }
     },
@@ -134,7 +135,56 @@
           "part": { "type": "string", "minLength": 1 },
           "controller_id": { "type": "string", "minLength": 1 },
           "i2c_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
-          "channels": { "type": "integer", "minimum": 1, "maximum": 8 }
+          "channels": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "board_id": { "type": "string", "description": "Cihazin bulundugu kart; verilmezse ana kart." }
+        }
+      }
+    },
+    "boards": {
+      "type": "array",
+      "description": "Fiziksel kartlar. Verilmezse sistem tek ortuk ana karttan ibaret sayilir.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "role"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "name": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "enum": ["main", "peripheral"] },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "connectors": {
+      "type": "array",
+      "description": "Kartlar arasi fiziksel baglanti (belgeleyicidir; elektriksel yolu degistirmez).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "from_board", "to_board", "bus"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "name": { "type": "string", "minLength": 1 },
+          "from_board": { "type": "string" },
+          "to_board": { "type": "string" },
+          "bus": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["controller_id"],
+            "properties": {
+              "controller_id": { "type": "string" },
+              "via_mux": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mux_id", "channel"],
+                "properties": {
+                  "mux_id": { "type": "string" },
+                  "channel": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          },
+          "notes": { "type": "string" }
         }
       }
     },
