@@ -3,6 +3,32 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.153 - 2026-08-05
+
+- KRITIK SESSIZ VERI KAYBI FIX'I (cok-kartli calisma sirasinda yakalandi):
+  Windows Turkce yerelde (cp1254) uretilen dosyalar QC format asamasinda
+  SESSIZCE BOSALIYORDU. `hostplat/proc.py::run()` subprocess'i acik encoding
+  vermeden metin modunda calistiriyordu; cozme hatasi subprocess'in okuyucu
+  thread'inde patlayip DISARI SIZMIYOR, cagirana `returncode=0, ok=True,
+  stdout=''` doniyordu. `runners.format_file` bu bos ciktiyi dosyaya yazinca
+  kaynak sifirlaniyordu. Depoda 6 kurban dosya bulundu (spec2code_cit.c/.h,
+  spec2code_testbench_trace.c ...) ve onarildi.
+  - Kok neden iki asamali: em dash cp1254'te TANIMLI, ilk gecistes sessizce
+    `â€”` mojibake'ine donuyor; bu mojibake'in icindeki 0x9D bayti cp1254'te
+    tanimsiz oldugu icin IKINCI QC gecisinde cozme hatasi veriyor.
+  - UC KATMAN duzeltildi: (1) `hostplat/proc.py` acik `encoding="utf-8",
+    errors="replace"`; (2) `format_file` dolu girdi + bos cikti durumunda
+    dosyaya DOKUNMAZ ve sebebi bildirir (kodlama katmani bilerek yeniden
+    bozularak bagimsizligi kanitlandi); (3) `qc/loop.py` bu sebebi artik
+    error-severity ihlal olarak yukseltir, QC kapisi duser.
+- YAN BULGU (ayni kokten, daha sinsi): clang-tidy ve cppcheck ciktilari da ayni
+  yoldan sessizce cozulemiyor, TUM bulgular dusuyor ve QC yanlislikla "GECTI"
+  diyordu. Katman 1 bunu da kapatti. **Windows'ta bu surumden onceki "QC GECTI"
+  sonuclari guvenilir degildir; kritik projeleri yeniden uretip QC'den gecirin.**
+- Ayni sinifta 3 yer daha duzeltildi: `backend/testbench.py` xsdb DCC koprusu
+  (sessizce olurdu), `scripts/build_executable.py`, `scripts/package_release.py`.
+- 450 test gecti (15 yeni: encoding + format-koruma + regresyon).
+
 ## v0.1.152 - 2026-08-04
 
 MICROBLAZE ARTIK BIRINCI SINIF PLATFORM (kullanici istegi: "microblaze icin
