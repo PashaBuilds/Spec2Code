@@ -3,6 +3,74 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.154 - 2026-08-05
+
+COK-KARTLI (MULTI-BOARD) SISTEM TOPOLOJISI (kullanici istegi: "gercek projelerde
+sistem tek karttan ibaret degil; FPGA'in oldugu ana karttan I2C/SPI hatlari
+konnektorlerle baska kartlara cikiyor"). Kartlar artik birinci sinif: sematikte
+kutu, uretimde klasor + kart fonksiyonlari, CIT/Test Bench'te grup, YATT'ta
+topoloji bolumu.
+
+- **DEGISMEZLIK GARANTISI (en kritik madde):** `boards` TANIMSIZ bir projede
+  uretilen cikti bugunkuyle **bayt-bayt aynidir**. Iki tam PS projesi (FreeRTOS
+  + eth ve bare_metal + uart, mux'lu, CIT olcumlu) degisiklik ONCESI HEAD'den ve
+  SONRASI koddan uretilip karsilastirildi: 50/50 dosya birebir ayni (`diff -r` ve
+  md5 manifesti, ikisi de bos). Sahada dogrulanmis tek-kartli akislar (ZynqMP
+  kullanici karti dahil) hic etkilenmez. Uc regresyon testi bunu kilitliyor.
+- **Veri modeli:** spec'e opsiyonel `boards[]` (`id`/`name`/`role`/`notes`; tam
+  olarak bir `main`) ve `connectors[]` (`from_board`/`to_board`/`bus.controller_id`
+  + opsiyonel `bus.via_mux{mux_id,channel}`) eklendi; `devices[]` ve `muxes[]`
+  opsiyonel `board_id` alir. Kart, elektriksel modele DIK bir konum katmanidir:
+  `attach.controller_id` ve `via_mux` DEGISMEZ. Denetleyiciler her zaman ana
+  karttadir (tek FPGA ilkesi). Tek dogruluk kaynagi `orchestrator/boards.py`.
+- **Dogrulama:** tanimsiz `board_id`, birden fazla/eksik ana kart, ayni kartin iki
+  ucu, tanimsiz denetleyici/switch, kanal araligi -> HATA. Ana kart disinda cihaz
+  var ama o hatti belgeleyen konnektor yok -> UYARI (model calisir, dokuman eksik).
+- **Kod uretimi:** kart tanimliyken surucu dosyalari `drivers/<kart>/` altina
+  ayrilir ve kart basina bir modul uretilir: `<kart>Init()` (butun cihazlari
+  sirayla ilklendirir; bir cihaz hata verse de DEVAM eder, ILK hatayi dondurur -
+  kismi ilklendirme sahada degerlidir), `<kart>CitRun(SBoardCit*)` (yalniz o
+  kartin olcumlerini sistem geneli struct'taki KENDI slotlarina yazar) ve
+  `<kart>SelfTest()`. Klasor/tanimlayici kart ADINDAN turer (Turkce harfler
+  katlanir): "RF Kart" -> `rf_kart` / `rfKart`; iki kart ayni C tanimlayiciya
+  duserse uretim ACIK hatayla durur.
+- **Sozlesme korundu:** sistem geneli `boardCitRun()` ve `SBoardCit` bit sirasi
+  DEGISMEDI (`boardCit*` adlarindaki "board" SISTEM demektir, fiziksel kart
+  degil). Kart bilgisi manifest uzerinden tasinir; gruplama tuketici tarafinda.
+- **Sematik:** kart = yeniden boyutlandirilabilir kutu (ana kartta rozet), cihaz/
+  mux surukle-birak ile karta atanir (disari birakilan ana karta doner), kartlar
+  arasi konnektor kesikli etiketli ok (`ad - hat - mux ch N`). Kart silinince
+  cihazlar ana karta duser. Tek kartli projede kanvas bugunkunun AYNISI.
+- **CIT / Test Bench:** olcumler ve entegre listesi kart basliklari altinda
+  gruplanir, kart basina ozet rozeti gosterilir; sistem toplamlari korunur.
+- **YATT:** yeni "Sistem Topolojisi" bolumu - kart tablosu (ad/rol/not/cihaz
+  sayisi) + konnektor tablosu (ad/kartlar/hat/mux kanali/not). Kartsiz projede
+  YATT ciktisi (MD bayt-bayt, HTML govdesi bayt-bayt) degismedi.
+- **Manifest:** `boards[]` (+ turetilmis `dirname`/`identifier`), `connectors[]`,
+  `devices[].board_id` ve `cit.olcumler[].board_id`. Kart tanimsizken manifest
+  metninde `board_id` dizesi bile gecmez.
+- **QC kapisi kart klasorlerini goruyor:** QC dongusu suruculeri DUZ `glob` ile
+  topluyordu; kart tanimliyken hicbir surucu dosyasi denetlenmeyecekti (sessiz
+  kalite deligi). `rglob` + `driver_include_dirs()` ile duzeltildi; `tests/` de
+  include yoluna alindi (kart modulu CIT varken `spec2code_cit.h` include eder).
+- **Ornek proje + kilavuz:** `specs/samples/multi_board_demo.spec.json` (ana
+  kartta ZynqMP PS I2C + TCA9548A + LTC2991, RF kartta TMP101 + SHT21 switch
+  kanal 3 arkasinda, gecisi `J7 -> J1` konnektoru belgeler) ve userguide'da yeni
+  "Cok-kartli Sistemler" bolumu.
+- **Uctan uca dogrulama (bu surumde):** ornek spec sema + wiring dogrulamasindan
+  0 hata 0 uyari ile gecti; `spec2code_cli.py build` -> **QC GECTI** (35 dosya);
+  uretilen 15 `.c` dosyasi gercek Vitis BSP include'lariyla aarch64 capraz
+  derleyicide 15 nesne, **0 uyari 0 hata**; kart alt dizinlerinin include yoluna
+  girmesinin sart oldugu negatif kontrolle kanitlandi (`-I drivers/rf_kart`
+  cikarilinca `tmp101.h: No such file or directory`); urunun kendi
+  `stage_vitis_sources`/`staged_header_dirs` cagrisi her iki kart klasorunu de
+  app include yoluna koyuyor. 464 test gecti.
+- DURUST KAPSAM: dogrulamanin yapildigi makinede **cppcheck kurulu degil**, o
+  denetimler hic kosmadi ("QC GECTI" clang-format + clang-tidy + libclang
+  isimlendirme linteri icin gecerlidir; ucu de kasitli ihlal enjekte edilerek
+  gercekten rapor ettikleri dogrulandi). Cok-kartli bir sistem **gercek fiziksel
+  donanimda kosturulmadi**; kart katmani derleme/uretim seviyesinde dogrulandi.
+
 ## v0.1.153 - 2026-08-05
 
 - KRITIK SESSIZ VERI KAYBI FIX'I (cok-kartli calisma sirasinda yakalandi):
