@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "multi_board_demo",
+    "platform": "zynq_ultrascale",
+    "target_core": "a53_0",
+    "runtime": "bare_metal",
+    "output_mode": "dropin"
+  },
+  "coding_standard_ref": "std/default.ruleset.json",
+  "llm": { "enabled": false },
+  "boards": [
+    { "id": "main", "name": "Ana Kart", "role": "main",
+      "notes": "ZynqMP PS: I2C denetleyici, TCA9548A switch ve guc izleme burada." },
+    { "id": "rf", "name": "RF Kart", "role": "peripheral",
+      "notes": "Anten yakini olcum karti; ana karta J7-J1 FFC ile baglanir." }
+  ],
+  "connectors": [
+    { "id": "j7_j1", "name": "J7 -> J1", "from_board": "main", "to_board": "rf",
+      "bus": {
+        "controller_id": "ps_i2c_0",
+        "via_mux": { "mux_id": "u10_tca9548a", "channel": 3 }
+      },
+      "notes": "10 pinli FFC: I2C0 (SCL/SDA) + 3V3 + GND; hat U10 switch kanal 3'ten geciyor." }
+  ],
+  "controllers": [
+    { "id": "ps_i2c_0", "type": "i2c", "instance": "XPAR_XIICPS_0",
+      "base_address": "0xFF020000", "device_id": 0, "driver": "XIicPs",
+      "source": "xparameters", "zone": "ps" }
+  ],
+  "muxes": [
+    { "id": "u10_tca9548a", "part": "TCA9548A", "controller_id": "ps_i2c_0",
+      "i2c_address": "0x70", "channels": 8, "board_id": "main" }
+  ],
+  "devices": [
+    {
+      "id": "u12_ltc2991", "part": "LTC2991",
+      "descriptor_ref": "descriptors/ltc2991.yaml",
+      "board_id": "main",
+      "attach": {
+        "controller_id": "ps_i2c_0",
+        "i2c_address": "0x48",
+        "via_mux": null,
+        "reset_gpio": null, "irq_line": null
+      },
+      "config": {
+        "pairs": {
+          "v1_v2": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v3_v4": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v5_v6": { "mode": "single_ended_voltage", "shunt_milliohm": null },
+          "v7_v8": { "mode": "single_ended_voltage", "shunt_milliohm": null }
+        },
+        "internal_temperature": true,
+        "vcc_read": false
+      },
+      "operations_requested": ["device_init", "voltage_read", "temperature_read"],
+      "tests_requested": ["self_test"]
+    },
+    {
+      "id": "u30_tmp101", "part": "TMP101",
+      "descriptor_ref": "descriptors/tmp101.yaml",
+      "board_id": "rf",
+      "attach": {
+        "controller_id": "ps_i2c_0",
+        "i2c_address": "0x49",
+        "via_mux": { "mux_id": "u10_tca9548a", "channel": 3 },
+        "reset_gpio": null, "irq_line": null
+      },
+      "operations_requested": ["device_init", "temperature_read", "config_read"],
+      "tests_requested": ["self_test"]
+    },
+    {
+      "id": "u31_sht21", "part": "SHT21",
+      "descriptor_ref": "descriptors/sht21.yaml",
+      "board_id": "rf",
+      "attach": {
+        "controller_id": "ps_i2c_0",
+        "i2c_address": "0x40",
+        "via_mux": { "mux_id": "u10_tca9548a", "channel": 3 },
+        "reset_gpio": null, "irq_line": null
+      },
+      "operations_requested": ["device_init", "temperature_read", "humidity_read"],
+      "tests_requested": ["self_test"]
+    }
+  ],
+  "generation_options": { "qc_max_rounds": 3, "include_doxygen": true, "line_ending": "crlf" }
+}

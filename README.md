@@ -12,6 +12,12 @@ ve devam geliştirme.
 
 - **Vivado benzeri şema ekranı:** `xparameters.h` içinden controller'ları çıkarır,
   PS/PL bölgelerine yerleştirir ve harici cihazları görsel olarak bağlatır.
+- **Çok-kartlı sistem topolojisi:** Sistem tek karttan ibaret değilse kartlar
+  birinci sınıf olur — şematikte kutu, üretimde `drivers/<kart>/` klasörü ve kart
+  başına `<kart>Init` / `<kart>CitRun` / `<kart>SelfTest` API'si, CİT ve Test
+  Bench'te kart grupları, YATT'ta "Sistem Topolojisi" bölümü. Kartlar arası
+  geçişler isimli konnektörlerle (hat + I2C mux kanalı) belgelenir. Kart
+  tanımlanmayan projelerde üretilen çıktı **bayt-bayt** değişmez.
 - **Descriptor tabanlı deterministik üretim:** Cihaz davranışı YAML descriptor'lardan
   gelir; template'ler aynı input için aynı çıktıyı üretir.
 - **Generate öncesi wiring validation:** controller referansları, I2C adres

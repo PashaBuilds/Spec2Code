@@ -176,7 +176,128 @@ Baglanti validasyonu generate oncesinde yapilir. Ornegin:
 - Var olmayan controller referansi.
 - Descriptor ile uyumsuz transport tipi.
 
-## 7. Catalog ve Knowledge
+## 7. Cok-kartli Sistemler
+
+Gercek projelerde sistem tek karttan ibaret degildir: FPGA'in bulundugu bir ana
+kart vardir, I2C/SPI hatlari fiziksel konnektorlerle baska kartlara cikar.
+Spec2Code kartlari birinci sinif olarak modeller: sematikte kutu, uretimde klasor
+ve kart fonksiyonlari, CIT/Test Bench'te grup, YATT'ta topoloji bolumu.
+
+Onemli kural: kart tanimlamadigin surece hicbir sey degismez. Kart tanimsiz bir
+projede uretilen cikti bugunku duzeniyle bayt-bayt aynidir. Kart katmani yalnizca
+sen kart tanimlayinca devreye girer.
+
+### Kart olusturma
+
+Schematic ekraninin sag panelindeki **Kartlar** kutusunda "Kart ekle" dugmesi
+vardir.
+
+- Ilk eklenen kart **ana karttir** ve o ana kadar eklenmis butun controller, mux
+  ve entegreler ona tasinir. Sonraki kartlar cevre karti olur.
+- Tam olarak bir ana kart olmalidir. Controller'lar her zaman ana karttadir (tek
+  FPGA ilkesi), onlar icin kart secilemez.
+- Kart kimligi ilk verilen addan turer (`RF Kart` -> `rf_kart`). Adi sonradan
+  degistirmek kimligi degistirmez, cunku cihazlar ve konnektorler o kimlige
+  referans verir. Uretilen klasor ve C fonksiyon adlari ise her zaman GUNCEL
+  addan turer.
+- Kart kutulari sematikte yeniden boyutlandirilabilir; ana kartta "ana" rozeti
+  gorunur.
+- Bir karti silersen icindeki cihazlar ana karta duser ve o karta degen
+  konnektorler silinir. Silme onaylidir.
+
+### Cihaz atama
+
+Entegre veya mux'u fare ile hedef kart kutusunun icine surukle; birakildiginda
+`board_id` o karta ayarlanir. Kutularin disina birakilan cihaz ana karta doner.
+
+Cihazin elektriksel baglantisi (`attach.controller_id` ve `via_mux`) bundan
+ETKILENMEZ. Kart, elektriksel modele dik bir konum katmanidir: yalnizca cihazin
+fiziksel olarak hangi PCB uzerinde oldugunu soyler.
+
+### Konnektor tanimlama
+
+Kart kutusuna tiklayip sag paneldeki **Konnektorler** bolumunden ekle:
+
+- **Ad**: serbest metin, ornegin `J7 -> J1`.
+- **Kaynak kart / Hedef kart**: iki uc farkli kart olmalidir.
+- **Hat (denetleyici)**: hattin ciktigi controller.
+- **Switch (ops.) + Kanal**: hat bir I2C mux kanalindan geciyorsa.
+- **Not**: saha bilgisi, ornegin `10-pin FFC`.
+
+Konnektor hattin kartlar arasi gecisini BELGELER, elektriksel yolu degistirmez.
+Sematikte kesikli ok olarak cizilir; etiketi `ad - hat - mux ch N` seklindedir.
+
+Ana kart disindaki bir kartta cihaz varsa ama o baglantiyi belgeleyen konnektor
+yoksa validasyon uyari verir (hata degil): "... kartinda cihaz var ama
+baglantisini belgeleyen konnektor yok".
+
+### Uretilen ciktida ne degisir?
+
+Kart tanimliyken surucu dosyalari kart klasorlerine ayrilir ve her kart icin bir
+modul uretilir:
+
+```text
+drivers/ana_kart/ltc2991.c    (+ .h)
+drivers/ana_kart/tca9548a.c   (+ .h)
+drivers/ana_kart/ana_kart.c   (+ .h)   -> anaKartInit / anaKartCitRun / anaKartSelfTest
+drivers/rf_kart/tmp101.c      (+ .h)
+drivers/rf_kart/sht21.c       (+ .h)
+drivers/rf_kart/rf_kart.c     (+ .h)   -> rfKartInit / rfKartCitRun / rfKartSelfTest
+tests/...                              (degismez: ajan/mesaj/CIT katmani SISTEM genelidir)
+```
+
+Klasor ve fonksiyon adi kart ADINDAN turetilir:
+
+- Turkce harfler ASCII karsiligina katlanir (`i I s S g G u U o O c C`).
+- Alfanumerik olmayan her karakter ayrac sayilir.
+- Klasor adi `snake_case`, C tanimlayici `camelCase` olur:
+  `"RF Kart"` -> klasor `rf_kart`, tanimlayici `rfKart`.
+- Iki kart ayni C tanimlayiciya duserse uretim sessizce devam etmez, acik hata
+  ile durur.
+
+Kart basina uretilen API (`<kart>` yukaridaki camelCase tanimlayicidir):
+
+- `int <kart>Init(void)` - o kartin butun cihazlarini sirayla ilklendirir. Bir
+  cihaz hata verse de digerlerine devam eder ve ILK hatanin kodunu dondurur;
+  kismi ilklendirme sahada degerlidir.
+- `void <kart>CitRun(SBoardCit* spCit)` - yalniz o kartin olcumlerini sistem
+  geneli `SBoardCit` icindeki kendi slotlarina yazar. Yalnizca o kartta CIT
+  olcumu varsa uretilir.
+- `int <kart>SelfTest(void)` - o kartin self-test destekleyen cihazlarini kosar.
+
+Cihaz surucu dosyalarinin ICERIGI ve fonksiyon adlari degismez; sembol onekleme
+yoktur, yalniz klasor degisir. Sistem geneli `boardCitRun()` ve `SBoardCit` bit
+sirasi da DEGISMEZ - `boardCit*` adlarindaki "board" SISTEM anlamindadir,
+fiziksel kart degil. Kart bilgisi manifest uzerinden tasinir.
+
+`drivers/<kart>/` klasorleri Vitis workspace uretiminde application include
+yoluna otomatik eklenir; bu yuzden nitelenmemis `#include "tmp101.h"` calismaya
+devam eder.
+
+### CIT, Test Bench ve YATT
+
+- **CIT** ekrani olcumleri kart basliklari altinda gruplar ve her kart icin ozet
+  rozeti gosterir. Ustteki sistem toplamlari korunur.
+- **Test Bench** entegre listesini kart basliklari altinda gruplar; "butun
+  cihazlari ilklendir" kart kart ilerler ve ozet kart bazinda gosterilir.
+- **YATT** dokumanina **Sistem Topolojisi** bolumu eklenir: kart tablosu
+  (ad, rol, not, cihaz sayisi) ve konnektor tablosu (ad, kartlar, hat, mux
+  kanali, not).
+- Test bench manifesti `boards[]` ve `connectors[]` bolumlerini, ayrica her cihaz
+  ve her CIT olcumu icin `board_id` alanini tasir.
+
+### Ornek proje
+
+`specs/samples/multi_board_demo.spec.json` calisan iki kartli bir ornektir: ana
+kartta ZynqMP PS I2C controller, TCA9548A switch ve LTC2991; RF kartta TMP101 ve
+SHT21 (ikisi de switch kanal 3'un arkasinda). Aradaki gecisi `J7 -> J1`
+konnektoru belgeler. Headless uretmek icin:
+
+```powershell
+python spec2code_cli.py build --spec specs/samples/multi_board_demo.spec.json
+```
+
+## 8. Catalog ve Knowledge
 
 Catalog ekrani desteklenen entegreleri listeler. Arama ve protokol filtreleri ile
 I2C/SPI cihazlari daraltabilirsin.
@@ -195,7 +316,7 @@ Bu bilgiler runtime'da LLM'e yazdirilmaz. Repo icindeki dogrulanmis statik bilgi
 paketlerinden gelir. LLM soru merkezi de cevap verirken bu dogrulanmis context'i
 kullanir.
 
-## 8. Bilgi Soru Merkezi
+## 9. Bilgi Soru Merkezi
 
 Bilgi soru merkezi, catalog knowledge uzerinden lokal OpenAI-compatible modele
 soru sormak icindir.
@@ -215,7 +336,7 @@ disi bilgi varsa hata verir.
 Qwen 3.5 397B gibi 256K context destekli modeller icin context limiti yuksek
 tutulmustur. Daha kucuk modellerde soru daha dar sorulmalidir.
 
-## 9. Generate Ekrani
+## 10. Generate Ekrani
 
 Generate basladiginda pipeline console su asamalari gosterir:
 
@@ -241,7 +362,7 @@ README.md
 Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test ve Test Bench
 agent dosyalari da bu kurala dahildir.
 
-## 10. Code Viewer ve Download
+## 11. Code Viewer ve Download
 
 Code viewer'da:
 
@@ -252,7 +373,7 @@ Code viewer'da:
 - QC bulgularini aktif dosya ozelinde gorebilirsin.
 - Test bench manifest ve agent kaynaklarini `tests/` altinda gorebilirsin.
 
-## 11. Test Bench
+## 12. Test Bench
 
 Test Bench sayfasi, generate sonucu uretilen su manifest dosyasindan beslenir:
 
@@ -375,7 +496,7 @@ Karti test etmeden once tum akislarin gercek donanimda dogrulanmasi icin
 `docs/s2cmsg_parite_listesi.md` kontrol listesini kullan (uc tasiyicinin
 ucunde de tekrarlanmasi gereken adimlar + bilinen v1 kisitlari orada).
 
-## 12. Vitis Workspace Uretimi
+## 13. Vitis Workspace Uretimi
 
 Generate tamamlandiktan sonra **Vitis workspace** paneli gorunur.
 
@@ -513,7 +634,7 @@ ayri liste olarak gosterir:
 
 Mapper raw log'u gizlemez; yalnizca ilk aksiyon alinacak ipucunu one cikarir.
 
-## 13. Kodlama Standardi
+## 14. Kodlama Standardi
 
 Spec2Code sabit default coding standard kullanir. Kullanici Word, Markdown veya
 ayri JSON standard dokumani vermez.
@@ -545,7 +666,7 @@ Ozet kurallar:
 - Allman brace stili kullanilir.
 - Bitfield uyelerinde Hungarian prefix kullanilmaz.
 
-## 14. LLM Kullanimi
+## 15. LLM Kullanimi
 
 LLM varsayilan olarak kapali gelir. Acmak icin OpenAI-compatible endpoint,
 tam model adi ve gerekirse API key girilir.
@@ -560,7 +681,7 @@ LLM generate akisi icinde yardimci roldedir:
 - Aday dosya deterministic QC'den gecmeden kabul edilmez.
 - Aday reddedilirse mevcut deterministic output korunur.
 
-## 15. Air-gap Notlari
+## 16. Air-gap Notlari
 
 Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
 
@@ -576,7 +697,7 @@ Source uzerinden gelistirme yapacaksan GitHub Release icindeki source archive ve
 offline dependency cache gerekir. Bu kullanici paketinin konusu degildir; source
 developer akisi icin repo dokumanlarina bakilmalidir.
 
-## 16. Desteklenen Entegreler
+## 17. Desteklenen Entegreler
 
 Bu surumde desteklenen baslica entegreler:
 
@@ -600,7 +721,7 @@ Bu surumde desteklenen baslica entegreler:
 Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
 deterministik descriptor/codegen destegi yoktur.
 
-## 17. Sorun Giderme
+## 18. Sorun Giderme
 
 **Browser aciliyor ama eski surum gibi davranıyor**
 
@@ -645,7 +766,7 @@ deterministik descriptor/codegen destegi yoktur.
   Vitis workspace ile yeniden derleyip YUKLEMEK gerekir).
 - UI once **Baglan** demeden **Gonder** komutunu aktif etmez; baglanti durumu kopuksa yeniden baglan.
 
-## 18. Release Dosyalari
+## 19. Release Dosyalari
 
 Executable release zip'i sade tutulur:
 
