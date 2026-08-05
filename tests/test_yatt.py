@@ -42,6 +42,32 @@ def _fake_manifest(n: int = 2) -> dict:
     }
 
 
+def _fake_boarded_manifest(n: int = 2) -> dict:
+    """_fake_manifest() + kart topolojisi — gercek codegen ciktisiyla BIREBIR sekil
+    (orchestrator/codegen.py _testbench_manifest'ten gercek 2-kartli bir proje
+    uretilip tests/spec2code_testbench_manifest.json okunarak dogrulandi; ayrica
+    bkz. tests/test_board_codegen.py test_manifest_carries_connectors_and_generated_names).
+    boards[]: id/name/role/notes/dirname/identifier. connectors[] spec.connectors'i
+    HAM tasir: id/name/from_board/to_board/bus{controller_id,via_mux{mux_id,channel}}/notes.
+    """
+    manifest = _fake_manifest(n)
+    manifest["boards"] = [
+        {"id": "main", "name": "Ana Kart", "role": "main", "notes": "FPGA + PS",
+         "dirname": "ana_kart", "identifier": "anaKart"},
+        {"id": "rf", "name": "RF Kart", "role": "peripheral", "notes": None,
+         "dirname": "rf_kart", "identifier": "rfKart"},
+    ]
+    manifest["connectors"] = [
+        {"id": "j7_j1", "name": "J7 → J1", "from_board": "main", "to_board": "rf",
+         "bus": {"controller_id": "ps_i2c_0",
+                 "via_mux": {"mux_id": "u10_tca9548a", "channel": 3}},
+         "notes": "10-pin FFC"},
+    ]
+    for i, device in enumerate(manifest["devices"]):
+        device["board_id"] = "main" if i == 0 else "rf"
+    return manifest
+
+
 class YattContentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.catalog = load_catalog()
@@ -150,6 +176,105 @@ class YattManifestEnrichmentTests(unittest.TestCase):
     def test_html_without_manifest_still_builds(self) -> None:
         html = build_yatt_html(load_catalog(), None)
         self.assertTrue(html.strip())
+
+
+class YattSystemTopologyTests(unittest.TestCase):
+    """Task 5 (cok-kartli topoloji): YATT'a 'Sistem Topolojisi' bolumu.
+
+    Kart tanimliyken kart tablosu (ad/rol/not/cihaz sayisi) + konnektor tablosu
+    (ad/kartlar/hat/mux kanali/not); kart tanimsizken (manifest yok ya da
+    manifest["boards"] yok) bolum HIC gorunmemeli (geriye uyum/determinizm —
+    docs/superpowers/specs/2026-08-04-multi-board-topology-design.md §7).
+    """
+
+    def test_html_with_boards_includes_board_and_connector_details(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertIn("Sistem Topolojisi", html)
+        # Her iki kart adi.
+        self.assertIn("Ana Kart", html)
+        self.assertIn("RF Kart", html)
+        # Her iki rol (ana kart gorsel vurgulu rozet + cevre karti).
+        self.assertIn("ana kart", html)
+        self.assertIn("çevre kartı", html)
+        # Konnektor adi, hat (denetleyici kimligi), mux kanali.
+        self.assertIn("J7 → J1", html)
+        self.assertIn("ps_i2c_0", html)
+        self.assertIn("u10_tca9548a", html)
+        self.assertIn("ch 3", html)
+
+    def test_markdown_with_boards_includes_board_and_connector_details(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        md = build_yatt_markdown(load_catalog(), manifest)
+        self.assertIn("Sistem Topolojisi", md)
+        self.assertIn("Ana Kart", md)
+        self.assertIn("RF Kart", md)
+        self.assertIn("ana kart", md)
+        self.assertIn("çevre kartı", md)
+        self.assertIn("J7 → J1", md)
+        self.assertIn("ps_i2c_0", md)
+        self.assertIn("u10_tca9548a", md)
+        self.assertIn("ch 3", md)
+
+    def test_html_without_boards_omits_topology_section_even_with_manifest(self) -> None:
+        # Manifest VAR (devices/cit dolu) ama "boards" YOK -> bolum hic gorunmemeli.
+        manifest = _fake_manifest(2)
+        self.assertNotIn("boards", manifest)
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertNotIn("Sistem Topolojisi", html)
+        self.assertNotIn("sistem-topolojisi", html)
+
+    def test_html_without_manifest_omits_topology_section(self) -> None:
+        html = build_yatt_html(load_catalog(), None)
+        self.assertNotIn("Sistem Topolojisi", html)
+
+    def test_markdown_without_boards_omits_topology_section(self) -> None:
+        manifest = _fake_manifest(2)
+        md = build_yatt_markdown(load_catalog(), manifest)
+        self.assertNotIn("Sistem Topolojisi", md)
+
+    def test_markdown_without_manifest_omits_topology_section(self) -> None:
+        md = build_yatt_markdown(load_catalog(), None)
+        self.assertNotIn("Sistem Topolojisi", md)
+
+    def test_html_with_boards_is_still_deterministic(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        first = build_yatt_html(load_catalog(), manifest)
+        second = build_yatt_html(load_catalog(), manifest)
+        self.assertEqual(first, second)
+
+    def test_markdown_with_boards_is_still_deterministic(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        first = build_yatt_markdown(load_catalog(), manifest)
+        second = build_yatt_markdown(load_catalog(), manifest)
+        self.assertEqual(first, second)
+
+    def test_html_with_boards_is_still_self_contained(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertNotIn("http://", html)
+        self.assertNotIn("https://", html)
+
+    def test_html_boards_toc_entry_present(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertIn('href="#sistem-topolojisi"', html)
+        self.assertIn("Sistem Topolojisi</a>", html)
+
+    def test_html_boards_connector_without_mux_shows_dash_not_crash(self) -> None:
+        # via_mux opsiyonel: konnektor mux'suz dogrudan hatta olabilir.
+        manifest = _fake_boarded_manifest(2)
+        manifest["connectors"][0]["bus"] = {"controller_id": "ps_i2c_0"}
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertIn("Sistem Topolojisi", html)
+        self.assertIn("ps_i2c_0", html)
+
+    def test_html_boards_without_connectors_still_shows_board_table_only(self) -> None:
+        manifest = _fake_boarded_manifest(2)
+        manifest["connectors"] = []
+        html = build_yatt_html(load_catalog(), manifest)
+        self.assertIn("Sistem Topolojisi", html)
+        self.assertIn("Ana Kart", html)
 
 
 class YattCitOffsetCrossCheckTests(unittest.TestCase):

@@ -93,7 +93,13 @@ export default function YattPanel() {
     );
   }
 
-  const hasManifestExtras = Boolean(manifest?.devices?.length || manifest?.cit?.olcumler?.length);
+  // Kart topolojisi de export'a "Sistem Topolojisi" bolumu olarak eklenir
+  // (bkz. backend/yatt.py _system_topology_rows) — rozet bunu da yansitmali,
+  // aksi halde kart-tanimli-ama-cihazsiz bir projede rozet yanlislikla
+  // "manifest yok" gosterirdi.
+  const hasManifestExtras = Boolean(
+    manifest?.devices?.length || manifest?.cit?.olcumler?.length || manifest?.boards?.length,
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -106,9 +112,9 @@ export default function YattPanel() {
           <Badge tone="accent" className="font-mono">kontrat CRC32 {catalog.crc32}</Badge>
           <Badge tone="neutral">{messages.length} mesaj</Badge>
           {hasManifestExtras ? (
-            <Badge tone="ok" title="Export'a cihaz/CİT tabloları dahil edilecek">manifest zenginleştirmesi hazır</Badge>
+            <Badge tone="ok" title="Export'a cihaz/CİT/kart topolojisi tabloları dahil edilecek">manifest zenginleştirmesi hazır</Badge>
           ) : (
-            <Badge tone="neutral" title="Generate çalıştırılınca cihaz/CİT tabloları export'a eklenir">manifest yok — katalog-yalın</Badge>
+            <Badge tone="neutral" title="Generate çalıştırılınca cihaz/CİT/kart topolojisi tabloları export'a eklenir">manifest yok — katalog-yalın</Badge>
           )}
           <span className="ml-auto flex items-center gap-2">
             <Button size="sm" onClick={() => void doExport("html")} disabled={exporting !== ""}>

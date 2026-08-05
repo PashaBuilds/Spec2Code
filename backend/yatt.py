@@ -15,6 +15,10 @@ ile CIT yerlesimi tutarlidir (bkz. _cit_layout_rows).
 
 Manifest verilirse (opsiyonel zenginlestirme): cihaz tablosu (devices[]) ve
 CIT olcum tablosu + SBoardCit yerlesimi N'e gore hesaplanmis offset'lerle.
+Kullanici kart (fiziksel PCB) tanimladiysa manifest["boards"]/["connectors"]
+de doluyken "Sistem Topolojisi" bolumu (kart + konnektor tablolari) eklenir
+(bkz. docs/superpowers/specs/2026-08-04-multi-board-topology-design.md §7);
+kart tanimsizken bu bolum HIC yazilmaz (geriye uyum/determinizm).
 
 Determinizm: uretim tarihi/timestamp YOK — testler sabit cikti bekler; surum
 bilgisi olarak katalog CRC32 yeterli.
@@ -156,6 +160,81 @@ def _cit_layout_rows(n: int) -> list[dict]:
     return rows
 
 
+def _system_topology_rows(manifest: dict | None) -> tuple[list[dict], list[dict]] | None:
+    """Manifest'ten (kart tanimliyken) kart + konnektor tablo satirlarini turetir.
+
+    Kullanici kart TANIMLAMADIYSA (manifest yok ya da manifest["boards"] bos/yok)
+    None doner; cagiran taraf "Sistem Topolojisi" bolumunu (basligi dahil) TAMAMEN
+    atlar — boylece kartsiz projelerin YATT ciktisi bugunkuyle bayt-bayt ayni
+    kalir. Alan adlari orchestrator/codegen.py _testbench_manifest ve
+    schemas/project.spec.schema.json ile birebir (gercek 2-kartli bir proje
+    uretilip dogrulandi): boards[] = {id,name,role,notes,dirname,identifier},
+    connectors[] = spec.connectors HAM gecer ({id,name,from_board,to_board,
+    bus:{controller_id,via_mux?:{mux_id,channel}},notes?}).
+    """
+    if not manifest:
+        return None
+    board_list = manifest.get("boards") or []
+    if not board_list:
+        return None
+
+    device_counts: dict[str, int] = {}
+    for device in manifest.get("devices") or []:
+        # orchestrator.boards.MAIN_BOARD_ID ile ayni varsayilan ("main"); dongusel
+        # import olmasin diye literal (bkz. backend/cit.py ayni desen/yorum).
+        board_id = str(device.get("board_id") or "main")
+        device_counts[board_id] = device_counts.get(board_id, 0) + 1
+
+    board_rows: list[dict] = []
+    board_names: dict[str, str] = {}
+    for board in board_list:
+        board_id = str(board.get("id", ""))
+        name = str(board.get("name", ""))
+        board_names[board_id] = name
+        board_rows.append({
+            "id": board_id,
+            "name": name,
+            "role": str(board.get("role", "")),
+            "notes": board.get("notes") or "",
+            "device_count": device_counts.get(board_id, 0),
+        })
+
+    connector_rows: list[dict] = []
+    for conn in manifest.get("connectors") or []:
+        bus = conn.get("bus") or {}
+        via_mux = bus.get("via_mux") or {}
+        from_id = str(conn.get("from_board", ""))
+        to_id = str(conn.get("to_board", ""))
+        connector_rows.append({
+            "id": str(conn.get("id", "")),
+            "name": str(conn.get("name", "")),
+            "from_name": board_names.get(from_id, from_id),
+            "to_name": board_names.get(to_id, to_id),
+            "controller_id": str(bus.get("controller_id", "")),
+            "mux_id": via_mux.get("mux_id"),
+            "channel": via_mux.get("channel"),
+            "notes": conn.get("notes") or "",
+        })
+
+    return board_rows, connector_rows
+
+
+def _role_label(role: str) -> str:
+    """Kart rolu -> Turkce goruntu etiketi (HTML rozeti ve MD hucresinin ortak kaynagi)."""
+    if role == "main":
+        return "ana kart"
+    if role == "peripheral":
+        return "çevre kartı"
+    return role or "—"
+
+
+def _mux_channel_text(row: dict) -> str:
+    """Konnektor satirinin mux kanali metni; via_mux yoksa bos dizeye duser."""
+    if row.get("mux_id") is None or row.get("channel") is None:
+        return ""
+    return f'{row["mux_id"]} · ch {row["channel"]}'
+
+
 # --------------------------------------------------------------------------- #
 # HTML
 # --------------------------------------------------------------------------- #
@@ -196,6 +275,17 @@ def _severity_badge_html(severity: str) -> str:
     if severity:
         return f'<span class="sev-badge">{_esc(severity)}</span>'
     return '<span class="sev-badge sev-yok">—</span>'
+
+
+def _role_badge_html(role: str) -> str:
+    """Kart rolu rozeti: ana kart bakir-ton (gorsel vurgu), cevre karti notr."""
+    if role == "main":
+        return f'<span class="role-badge role-main">{_esc(_role_label(role))}</span>'
+    if role == "peripheral":
+        return f'<span class="role-badge role-peripheral">{_esc(_role_label(role))}</span>'
+    if role:
+        return f'<span class="role-badge">{_esc(role)}</span>'
+    return '<span class="limitsiz">—</span>'
 
 
 def _html_table(headers: list[str], rows: list[list[str]]) -> str:
@@ -308,6 +398,42 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
             used_bodies.append(name)
     body_layout_sections = "\n".join(_body_layout_table_html(name, _BODY_LAYOUTS[name]) for name in used_bodies)
 
+    # Sistem Topolojisi: YALNIZ kullanici kart tanimladiysa (manifest["boards"] dolu).
+    # topology_html "" kalirsa bolum (basligi dahil) HIC yazilmaz -> kartsiz/tek
+    # kartli YATT ciktisi bugunkuyle bayt-bayt ayni kalir.
+    topology = _system_topology_rows(manifest)
+    topology_html = ""
+    if topology:
+        board_rows, connector_rows = topology
+        board_table_rows = [
+            [_esc(row["name"]), _role_badge_html(row["role"]), _esc(row["notes"] or "—"),
+             f'<span class="mono">{_esc(row["device_count"])}</span>']
+            for row in board_rows
+        ]
+        board_table = _html_table(["kart", "rol", "not", "cihaz sayısı"], board_table_rows)
+        topology_html = (
+            f'<section id="kart-tablosu">\n<h3>Kartlar</h3>\n<div class="tablo-sar">{board_table}</div>\n</section>\n'
+        )
+
+        if connector_rows:
+            def _mux_channel_cell(row: dict) -> str:
+                text = _mux_channel_text(row)
+                return f'<span class="mono">{_esc(text)}</span>' if text else '<span class="limitsiz">—</span>'
+
+            connector_table_rows = [
+                [_esc(row["name"]),
+                 f'{_esc(row["from_name"])} <span class="topo-arrow">→</span> {_esc(row["to_name"])}',
+                 f'<span class="mono">{_esc(row["controller_id"])}</span>',
+                 _mux_channel_cell(row),
+                 _esc(row["notes"] or "—")]
+                for row in connector_rows
+            ]
+            connector_table = _html_table(["ad", "kartlar", "hat", "mux kanalı", "not"], connector_table_rows)
+            topology_html += (
+                f'<section id="konnektor-tablosu">\n<h3>Konnektörler</h3>\n'
+                f'<div class="tablo-sar">{connector_table}</div>\n</section>\n'
+            )
+
     # Manifest zenginlestirme: cihaz tablosu + CIT
     manifest_html = ""
     if manifest:
@@ -386,8 +512,18 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
     )
     notes_html = f'<div class="callout-list">\n{note_cards}\n</div>'
 
-    # Sol TOC (Bolumler). Manifest yoksa Cihazlar/CIT baglantisi gizlenir.
-    notes_no = "6" if manifest_html else "5"
+    # Sol TOC (Bolumler). Sirali numaralandirma: opsiyonel bolumlerden (Sistem
+    # Topolojisi / Cihazlar-CIT) hangisi VARSA sirayla numara alir, yoksa atlanir.
+    section_no = 5
+    topology_no = None
+    if topology_html:
+        topology_no = str(section_no)
+        section_no += 1
+    manifest_no = None
+    if manifest_html:
+        manifest_no = str(section_no)
+        section_no += 1
+    notes_no = str(section_no)
     toc_items = [
         ("#genel-kurallar", "1", "Genel Kurallar"),
         ("#baslik", "2", "Başlık formatı"),
@@ -395,8 +531,10 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
         ("#mesaj-katalogu", "4", "Mesaj kataloğu"),
         ("#govde-yerlesimleri", "4·b", "Gövde yerleşimleri"),
     ]
+    if topology_html:
+        toc_items.append(("#sistem-topolojisi", topology_no, "Sistem Topolojisi"))
     if manifest_html:
-        toc_items.append(("#cihazlar-cit-kok", "5", "Cihazlar / CİT"))
+        toc_items.append(("#cihazlar-cit-kok", manifest_no, "Cihazlar / CİT"))
     toc_items.append(("#notlar", notes_no, "Notlar / Kısıtlar"))
     toc_html = "\n".join(
         f'<a class="toc-link" href="{href}"><span class="toc-no mono">{_esc(no)}</span>{_esc(label)}</a>'
@@ -407,10 +545,22 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
         f'<span class="hero-badge badge-proje">{_esc(project_name)}</span>' if project_name else ""
     )
 
+    topology_section = (
+        f'<section id="sistem-topolojisi"><h2>{topology_no}. Sistem Topolojisi</h2>{topology_html}</section>'
+        if topology_html else ''
+    )
+
     manifest_section = (
-        f'<section id="cihazlar-cit-kok"><h2>5. Manifest zenginleştirmesi</h2>{manifest_html}</section>'
+        f'<section id="cihazlar-cit-kok"><h2>{manifest_no}. Manifest zenginleştirmesi</h2>{manifest_html}</section>'
         if manifest_html else ''
     )
+
+    # Tek sablon yuvasi: topology_section + manifest_section BIRLESIK. Ikisi de
+    # bosken (kartsiz/manifestsiz) bu tam olarak eski (Task 5 ONCESI) tek
+    # {manifest_section} yuvasiyla BAYT-BAYT ayni metni uretir — golden-diff ile
+    # dogrulandi (bkz. rapor). Boylece kartsiz/manifestsiz YATT ciktisinda
+    # topology_section icin fazladan bos satir bile SIZMAZ.
+    extra_sections = "\n\n".join(part for part in (topology_section, manifest_section) if part)
 
     return f"""<!doctype html>
 <html lang="tr">
@@ -509,14 +659,17 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
   a.govde-link:hover {{ color: var(--teal); border-bottom-color: var(--teal); }}
   .limitsiz {{ color: var(--ink-faint); }}
 
-  /* --- Yon / onem rozetleri --- */
-  .dir-badge, .sev-badge {{ display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
+  /* --- Yon / onem / rol rozetleri --- */
+  .dir-badge, .sev-badge, .role-badge {{ display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
                             font-weight: 600; border: 1px solid var(--hair-2); white-space: nowrap; }}
   .dir-req {{ color: #e8b878; background: var(--copper-bg); border-color: var(--copper-line); }}
   .dir-unsolicited {{ color: #8fd8ce; background: var(--teal-bg); border-color: var(--teal-line); }}
   .sev-critical {{ color: #eea099; background: var(--err-bg); border-color: var(--err-line); }}
   .sev-warning {{ color: #e6b877; background: var(--amber-bg); border-color: var(--amber-line); }}
   .sev-yok {{ color: var(--ink-faint); border-color: var(--hair); background: transparent; }}
+  .role-main {{ color: #e8b878; background: var(--copper-bg); border-color: var(--copper-line); }}
+  .role-peripheral {{ color: var(--ink-dim); background: var(--panel-2); border-color: var(--hair-2); }}
+  .topo-arrow {{ color: var(--teal); font-weight: 700; }}
 
   /* --- Hata kodu cip izgarasi --- */
   .chip-izgara {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 14px 0 6px; }}
@@ -639,10 +792,10 @@ def build_yatt_html(catalog: dict, manifest: dict | None) -> str:
 {body_layout_sections}
 </section>
 
-{manifest_section}
+{extra_sections}
 
 <section id="notlar">
-<h2>{'6' if manifest_html else '5'}. Notlar / Kısıtlar (v1)</h2>
+<h2>{notes_no}. Notlar / Kısıtlar (v1)</h2>
 {notes_html}
 </section>
 
@@ -727,6 +880,37 @@ def build_yatt_markdown(catalog: dict, manifest: dict | None) -> str:
         lines.append("")
 
     section_no = 5
+
+    # Sistem Topolojisi: YALNIZ kullanici kart tanimladiysa (manifest["boards"] dolu).
+    # Aksi halde bu blok hic satir eklemez -> kartsiz/tek kartli YATT MD ciktisi
+    # bugunkuyle ayni kalir.
+    topology = _system_topology_rows(manifest)
+    if topology:
+        board_rows, connector_rows = topology
+        lines.append(f"## {section_no}. Sistem Topolojisi")
+        lines.append("")
+        section_no += 1
+        lines.append("### Kartlar")
+        lines.append("")
+        lines.append(_md_table(
+            ["kart", "rol", "not", "cihaz sayısı"],
+            [[row["name"],
+              f'**{_role_label(row["role"])}**' if row["role"] == "main" else _role_label(row["role"]),
+              row["notes"] or "-", str(row["device_count"])]
+             for row in board_rows],
+        ))
+        lines.append("")
+        if connector_rows:
+            lines.append("### Konnektörler")
+            lines.append("")
+            lines.append(_md_table(
+                ["ad", "kartlar", "hat", "mux kanalı", "not"],
+                [[row["name"], f'{row["from_name"]} → {row["to_name"]}', row["controller_id"],
+                  _mux_channel_text(row) or "-", row["notes"] or "-"]
+                 for row in connector_rows],
+            ))
+            lines.append("")
+
     if manifest:
         devices = manifest.get("devices") or []
         cit_section = manifest.get("cit") or {}
