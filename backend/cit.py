@@ -76,6 +76,11 @@ def decode_board_cit(body: bytes, manifest: dict) -> dict:
             "cname": meta.get("cname", ""),
             "part": meta.get("part", ""),
             "device": meta.get("device", ""),
+            # Kart tanimliyken manifest'ten gelir (bkz. orchestrator/codegen.py
+            # _testbench_cit_section); kart tanimsiz projelerde/eski manifestlerde
+            # anahtar yok -> tek ortuk ana kart varsayilir (orchestrator/boards.py
+            # MAIN_BOARD_ID ile ayni deger, dongusel import olmasin diye duz yazildi).
+            "board_id": meta.get("board_id") or "main",
             "op": meta.get("op", ""),
             "unit": meta.get("unit"),
             "raw": uiHam,

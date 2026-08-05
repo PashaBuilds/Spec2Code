@@ -328,10 +328,28 @@ export interface TestbenchRegister {
 export interface TestbenchManifestDevice {
   id: string;
   part: string;
+  /** Fiziksel kart kimliği — YALNIZ proje kart tanımlıyken manifestte bulunur
+   * (bkz. orchestrator/codegen.py _testbench_manifest_devices). Kart tanımsız
+   * projelerde alan hiç yok; UI "main" varsaymalı (TestbenchManifest.boards da
+   * o durumda boş/yok). */
+  board_id?: string;
   transport: string;
   attach?: DeviceAttach;
   registers: TestbenchRegister[];
   operations: TestbenchOperation[];
+}
+
+/** Manifest boards[] girdisi (Task 2 codegen): spec Board'a ek olarak üretilen
+ * dirname/identifier taşır — UI/derleme betikleri bunları yeniden türetmez.
+ * Kart tanımsız projelerde bu anahtar manifestte hiç yok (bkz.
+ * orchestrator/codegen.py _testbench_manifest — boards_declared kapısı). */
+export interface TestbenchManifestBoard {
+  id: string;
+  name: string;
+  role: "main" | "peripheral" | string;
+  notes?: string | null;
+  dirname: string;
+  identifier: string;
 }
 
 export interface TestbenchManifest {
@@ -363,6 +381,10 @@ export interface TestbenchManifest {
     muxes: Array<{ id: string; part: string; controller_id: string; address: number; channels: number }>;
   };
   devices: TestbenchManifestDevice[];
+  /** Fiziksel kartlar (Task 2 codegen). Kart tanımsız projelerde bu anahtar
+   * manifestte hiç yok — UI tek örtük ana kart varsayıp gruplama göstermemeli
+   * (bkz. docs/superpowers/specs/2026-08-04-multi-board-topology-design.md §4.1). */
+  boards?: TestbenchManifestBoard[];
   /** CIT (cihaz ici test) duz olcum listesi (Task 6); bit i == olcumler[i]
    * (Task 7 codegen + Task 8 decode ayni sirayi kullanir). */
   cit?: TestbenchCitSection;
@@ -397,6 +419,8 @@ export interface TestbenchCitMeasurement {
   max: number | null;
   severity: "critical" | "warning" | string;
   enabled: boolean;
+  /** YALNIZ kart tanımlıyken vardır (bkz. _testbench_cit_section). */
+  board_id?: string;
 }
 
 export interface TestbenchCitSection {
@@ -412,6 +436,7 @@ export interface CitDecodeMeasurement {
   cname: string;
   part: string;
   device: string;
+  board_id: string; // kart tanimliyken manifestten; yoksa backend "main" varsayar
   op: string;
   unit: string | null;
   raw: number;

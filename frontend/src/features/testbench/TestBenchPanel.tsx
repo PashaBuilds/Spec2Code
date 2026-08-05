@@ -8,6 +8,7 @@ import I2cScanCard from "./I2cScanCard";
 import InitAllCard from "./InitAllCard";
 import VersionQueryCard from "./VersionQueryCard";
 import { api } from "@/lib/api";
+import { groupByBoardId, MAIN_BOARD_ID } from "@/lib/boards";
 import { timeLabelMs } from "@/lib/console";
 import { formatConvertedValue } from "@/lib/units";
 import { cn } from "@/lib/utils";
@@ -332,6 +333,43 @@ export default function TestBenchPanel() {
     );
   }
 
+  // Entegre listesi kart başlıkları altında gruplanır — YALNIZ proje kart
+  // tanımlıyken (manifest.boards dolu). Kart tanımsızken (bugünkü tüm
+  // projeler) bu dal hiç çalışmaz, liste aşağıda düz `manifest.devices.map`
+  // ile bugünküyle birebir aynı render edilir.
+  const deviceBoardList = manifest.boards ?? [];
+  const devicesGroupedByBoard = deviceBoardList.length > 0;
+  const deviceBoardGroups = devicesGroupedByBoard
+    ? groupByBoardId(manifest.devices, (d) => d.board_id || MAIN_BOARD_ID, deviceBoardList)
+    : [];
+
+  function renderDeviceButton(device: TestbenchManifestDevice) {
+    return (
+      <button
+        key={device.id}
+        type="button"
+        onClick={() => {
+          setView("device");
+          setSelectedDeviceId(device.id);
+          setResult(null);
+          setResultMeta(null);
+        }}
+        className={cn(
+          "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+          view === "device" && selectedDevice?.id === device.id
+            ? "border-accent/50 bg-accent/10 text-text"
+            : "border-border bg-inset text-muted hover:text-text",
+        )}
+      >
+        <span className="min-w-0">
+          <span className="block truncate font-mono text-xs">{device.id}</span>
+          <span className="block truncate text-[11px] text-faint">{device.part}</span>
+        </span>
+        <Badge tone="neutral">{device.transport.toUpperCase()}</Badge>
+      </button>
+    );
+  }
+
   return (
     <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="min-h-0 overflow-auto rounded-lg border border-border bg-elev">
@@ -417,6 +455,7 @@ export default function TestBenchPanel() {
 
           <InitAllCard
             devices={manifest.devices}
+            boards={manifest.boards}
             connected={isConnected}
             transport={board.transport}
             host={board.host}
@@ -427,30 +466,17 @@ export default function TestBenchPanel() {
 
           <div className="space-y-1.5">
             <Label>Entegre</Label>
-            {manifest.devices.map((device) => (
-              <button
-                key={device.id}
-                type="button"
-                onClick={() => {
-                  setView("device");
-                  setSelectedDeviceId(device.id);
-                  setResult(null);
-                  setResultMeta(null);
-                }}
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                  view === "device" && selectedDevice?.id === device.id
-                    ? "border-accent/50 bg-accent/10 text-text"
-                    : "border-border bg-inset text-muted hover:text-text",
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-mono text-xs">{device.id}</span>
-                  <span className="block truncate text-[11px] text-faint">{device.part}</span>
-                </span>
-                <Badge tone="neutral">{device.transport.toUpperCase()}</Badge>
-              </button>
-            ))}
+            {devicesGroupedByBoard
+              ? deviceBoardGroups.map((group) => (
+                  <div key={`board-${group.boardId}`} className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 pt-1.5 first:pt-0">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-faint">{group.boardName}</span>
+                      <span className="h-px flex-1 bg-border" aria-hidden />
+                    </div>
+                    {group.items.map(renderDeviceButton)}
+                  </div>
+                ))
+              : manifest.devices.map(renderDeviceButton)}
           </div>
         </div>
       </aside>

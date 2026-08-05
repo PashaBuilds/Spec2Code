@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
+import { groupByBoardId, MAIN_BOARD_ID, type BoardGroup } from "@/lib/boards";
 import type { CitDecodeMeasurement, CitDecodeResult, Device, DeviceCitMeasurement, TestbenchManifest } from "@/lib/types";
 
 const AUTO_REFRESH_MS = 5000;
@@ -83,6 +84,22 @@ function badgeTone(measurement: CitDecodeMeasurement, eff: Effective): "danger" 
 function badgeLabel(measurement: CitDecodeMeasurement, eff: Effective): string {
   if (measurement.durum !== 0) return statusLabel(measurement.durum);
   return eff.ok ? "OK" : "NOK";
+}
+
+type Row = { m: CitDecodeMeasurement; eff: Effective };
+
+/** Kart başına özet rozeti: en kötü durum kazanır (kritik > uyarı > OK), kapalı-only
+ * grup "kapalı" gösterir. Aktif olmayan (enabled:false) ölçümler sayıma girmez —
+ * üst şeritteki sistem toplamlarıyla aynı kural. */
+function boardSummaryOf(groupRows: Row[]): { label: string; tone: "danger" | "warn" | "ok" | "neutral" } {
+  const active = groupRows.filter((r) => r.eff.enabled);
+  const critical = active.filter((r) => !r.eff.ok && r.eff.severity === "critical").length;
+  const warning = active.filter((r) => !r.eff.ok && r.eff.severity !== "critical").length;
+  if (critical > 0) return { label: `${critical} kritik NOK`, tone: "danger" };
+  if (warning > 0) return { label: `${warning} uyarı NOK`, tone: "warn" };
+  if (active.length === 0) return { label: "kapalı", tone: "neutral" };
+  const ok = active.filter((r) => r.eff.ok).length;
+  return { label: `${ok}/${active.length} OK`, tone: "ok" };
 }
 
 export default function CitPanel() {
@@ -226,12 +243,135 @@ export default function CitPanel() {
   }
 
   const measurements = result?.olcumler ?? [];
-  const rows = measurements.map((m) => ({ m, eff: effectiveOf(m, deviceForMeasurement(m)) }));
+  const rows: Row[] = measurements.map((m) => ({ m, eff: effectiveOf(m, deviceForMeasurement(m)) }));
   const activeRows = rows.filter((r) => r.eff.enabled);
   const disabledCount = rows.length - activeRows.length;
   const criticalNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity === "critical").length;
   const warningNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity !== "critical").length;
   const okCount = activeRows.filter((r) => r.eff.ok).length;
+
+  // Kart başlıkları altında gruplama — YALNIZ proje kart tanımlıyken (manifest.boards
+  // dolu). Kart tanımsızken (bugünkü tüm projeler) bu dal hiç çalışmaz, tablo aşağıda
+  // düz `rows.map(renderRow)` ile bugünküyle birebir aynı render edilir.
+  const boardList = manifest.boards ?? [];
+  const boardsDeclared = boardList.length > 0;
+  const boardGroups: BoardGroup<Row>[] = boardsDeclared
+    ? groupByBoardId(rows, (r) => r.m.board_id || MAIN_BOARD_ID, boardList)
+    : [];
+
+  function renderBoardHeading(group: BoardGroup<Row>) {
+    const summary = boardSummaryOf(group.items);
+    return (
+      <tr key={`board-${group.boardId}`} className="bg-inset/60">
+        <td colSpan={8} className="px-3 py-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-text">{group.boardName}</span>
+            <Badge tone={summary.tone}>{summary.label}</Badge>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderRow({ m: measurement, eff }: Row) {
+    const device = deviceForMeasurement(measurement);
+    const editKey = measurement.op + "|" + measurement.device;
+    const editing = editingOp === editKey;
+    return (
+      <tr key={editKey} className={cn(!eff.enabled && "opacity-50")}>
+        <td className="px-3 py-1.5 font-mono text-text">{eff.name}</td>
+        <td className="px-3 py-1.5 font-mono text-faint">
+          {measurement.part} · {measurement.device}
+        </td>
+        <td className="px-3 py-1.5 font-mono text-faint">{hex(measurement.raw)}</td>
+        <td className="px-3 py-1.5 font-mono text-text">
+          {measurement.value}
+          {measurement.unit ? <span className="text-faint"> {measurement.unit}</span> : null}
+        </td>
+        <td className="px-3 py-1.5 font-mono text-muted">
+          {editing ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={editDraft.min}
+                onChange={(e) => setEditDraft((d) => ({ ...d, min: e.target.value }))}
+                placeholder="min"
+                className="h-6 w-16 px-1 text-[11px]"
+              />
+              <span>..</span>
+              <Input
+                value={editDraft.max}
+                onChange={(e) => setEditDraft((d) => ({ ...d, max: e.target.value }))}
+                placeholder="max"
+                className="h-6 w-16 px-1 text-[11px]"
+              />
+            </div>
+          ) : eff.min !== null && eff.max !== null ? (
+            `${eff.min}..${eff.max}`
+          ) : (
+            "limitsiz"
+          )}
+        </td>
+        <td className="px-3 py-1.5">
+          {editing ? (
+            <select
+              value={editDraft.severity}
+              onChange={(e) => setEditDraft((d) => ({ ...d, severity: e.target.value as "critical" | "warning" }))}
+              className="h-6 rounded-md border border-border bg-inset px-1 font-mono text-[11px] text-text"
+            >
+              <option value="warning">warning</option>
+              <option value="critical">critical</option>
+            </select>
+          ) : (
+            <Badge tone={eff.severity === "critical" ? "danger" : "neutral"}>{eff.severity}</Badge>
+          )}
+        </td>
+        <td className="px-3 py-1.5">
+          <Badge tone={badgeTone(measurement, eff)}>{badgeLabel(measurement, eff)}</Badge>
+        </td>
+        <td className="px-3 py-1.5">
+          {editing ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={editDraft.name}
+                onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="isim"
+                className="h-6 w-28 px-1 text-[11px]"
+              />
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-ok" onClick={() => saveEdit(measurement)}>
+                kaydet
+              </Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-faint" onClick={cancelEdit}>
+                iptal
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-muted hover:text-accent"
+                onClick={() => startEdit(measurement)}
+                disabled={!device}
+                title={device ? "isim/limit/önem düzenle (anında uygulanır)" : "cihaz spec'te bulunamadı"}
+              >
+                düzenle
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-faint"
+                onClick={() => toggleEnabled(measurement)}
+                disabled={!device}
+                title={eff.enabled ? "devre dışı bırak" : "etkinleştir"}
+              >
+                {eff.enabled ? "kapat" : "aç"}
+              </Button>
+            </div>
+          )}
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -304,105 +444,9 @@ export default function CitPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {rows.map(({ m: measurement, eff }) => {
-                const device = deviceForMeasurement(measurement);
-                const editKey = measurement.op + "|" + measurement.device;
-                const editing = editingOp === editKey;
-                return (
-                  <tr key={editKey} className={cn(!eff.enabled && "opacity-50")}>
-                    <td className="px-3 py-1.5 font-mono text-text">{eff.name}</td>
-                    <td className="px-3 py-1.5 font-mono text-faint">
-                      {measurement.part} · {measurement.device}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-faint">{hex(measurement.raw)}</td>
-                    <td className="px-3 py-1.5 font-mono text-text">
-                      {measurement.value}
-                      {measurement.unit ? <span className="text-faint"> {measurement.unit}</span> : null}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-muted">
-                      {editing ? (
-                        <div className="flex items-center gap-1">
-                          <Input
-                            value={editDraft.min}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, min: e.target.value }))}
-                            placeholder="min"
-                            className="h-6 w-16 px-1 text-[11px]"
-                          />
-                          <span>..</span>
-                          <Input
-                            value={editDraft.max}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, max: e.target.value }))}
-                            placeholder="max"
-                            className="h-6 w-16 px-1 text-[11px]"
-                          />
-                        </div>
-                      ) : eff.min !== null && eff.max !== null ? (
-                        `${eff.min}..${eff.max}`
-                      ) : (
-                        "limitsiz"
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      {editing ? (
-                        <select
-                          value={editDraft.severity}
-                          onChange={(e) => setEditDraft((d) => ({ ...d, severity: e.target.value as "critical" | "warning" }))}
-                          className="h-6 rounded-md border border-border bg-inset px-1 font-mono text-[11px] text-text"
-                        >
-                          <option value="warning">warning</option>
-                          <option value="critical">critical</option>
-                        </select>
-                      ) : (
-                        <Badge tone={eff.severity === "critical" ? "danger" : "neutral"}>{eff.severity}</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <Badge tone={badgeTone(measurement, eff)}>{badgeLabel(measurement, eff)}</Badge>
-                    </td>
-                    <td className="px-3 py-1.5">
-                      {editing ? (
-                        <div className="flex items-center gap-1">
-                          <Input
-                            value={editDraft.name}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
-                            placeholder="isim"
-                            className="h-6 w-28 px-1 text-[11px]"
-                          />
-                          <Button size="sm" variant="ghost" className="h-6 px-2 text-ok" onClick={() => saveEdit(measurement)}>
-                            kaydet
-                          </Button>
-                          <Button size="sm" variant="ghost" className="h-6 px-2 text-faint" onClick={cancelEdit}>
-                            iptal
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-2 text-muted hover:text-accent"
-                            onClick={() => startEdit(measurement)}
-                            disabled={!device}
-                            title={device ? "isim/limit/önem düzenle (anında uygulanır)" : "cihaz spec'te bulunamadı"}
-                          >
-                            düzenle
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-2 text-faint"
-                            onClick={() => toggleEnabled(measurement)}
-                            disabled={!device}
-                            title={eff.enabled ? "devre dışı bırak" : "etkinleştir"}
-                          >
-                            {eff.enabled ? "kapat" : "aç"}
-                          </Button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {boardsDeclared
+                ? boardGroups.flatMap((group) => [renderBoardHeading(group), ...group.items.map(renderRow)])
+                : rows.map(renderRow)}
             </tbody>
           </table>
         )}

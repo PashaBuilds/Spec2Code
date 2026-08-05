@@ -2,8 +2,9 @@ import { useState } from "react";
 import { CheckCircle2, Loader2, Zap, XCircle } from "lucide-react";
 import { Badge, Button } from "@/components/ui";
 import { api } from "@/lib/api";
+import { groupByBoardId, MAIN_BOARD_ID } from "@/lib/boards";
 import type { BoardTransport } from "@/store/connection";
-import type { TestbenchManifestDevice } from "@/lib/types";
+import type { TestbenchManifestBoard, TestbenchManifestDevice } from "@/lib/types";
 
 interface InitStepResult {
   deviceId: string;
@@ -16,9 +17,13 @@ interface InitStepResult {
  * device_init koşar. Saha isteği: CIT/YATT'tan önce her entegrenin
  * "device init uygula"sına tek tek basmak gerekiyordu, tek tuşla toplu
  * ilklendirme okumaların fail olmasını önler. Bir cihaz fail olsa da
- * devam eder — kısmi ilklendirme yine de değerlidir. */
+ * devam eder — kısmi ilklendirme yine de değerlidir.
+ * Kart tanımlıyken (`boards` dolu) koşu sırası kart kart ilerler ve sonuç
+ * özeti kart bazında da raporlanır (spec §6); kart tanımsızken sıra ve özet
+ * bugünküyle birebir aynı kalır (manifest.devices sırası, tek rozet). */
 export default function InitAllCard({
   devices,
+  boards,
   connected,
   transport,
   host,
@@ -27,6 +32,7 @@ export default function InitAllCard({
   timeoutSeconds,
 }: {
   devices: TestbenchManifestDevice[];
+  boards?: TestbenchManifestBoard[];
   connected: boolean;
   transport: BoardTransport;
   host: string;
@@ -41,6 +47,14 @@ export default function InitAllCard({
   const initDevices = devices.filter((device) => device.operations.some((op) => op.name === "device_init"));
   if (initDevices.length === 0) return null;
 
+  // Kart tanımlıyken çalışma sırası kart kart ilerler; kart tanımsızken
+  // manifest.devices sırası (initDevices) DEĞİŞMEZ (bugünkü davranış).
+  const boardList = boards ?? [];
+  const boardsDeclared = boardList.length > 0;
+  const orderedInitDevices = boardsDeclared
+    ? groupByBoardId(initDevices, (d) => d.board_id || MAIN_BOARD_ID, boardList).flatMap((g) => g.items)
+    : initDevices;
+
   function parsePort(): number {
     const parsed = Number.parseInt(port.trim(), 10);
     return Number.isFinite(parsed) ? parsed : 0;
@@ -51,9 +65,9 @@ export default function InitAllCard({
     setRunning(true);
     setResults(null);
     const collected: InitStepResult[] = [];
-    for (let i = 0; i < initDevices.length; i += 1) {
-      const device = initDevices[i];
-      setProgress({ index: i + 1, total: initDevices.length, label: `${device.part} · ${device.id}` });
+    for (let i = 0; i < orderedInitDevices.length; i += 1) {
+      const device = orderedInitDevices[i];
+      setProgress({ index: i + 1, total: orderedInitDevices.length, label: `${device.part} · ${device.id}` });
       try {
         // eslint-disable-next-line no-await-in-loop -- bilerek sıralı: bus disiplini, paralel koşmaz.
         const response = await api.testbenchCommand({
@@ -87,6 +101,23 @@ export default function InitAllCard({
 
   const passed = results?.filter((r) => r.ok).length ?? 0;
 
+  // Kart bazlı özet — YALNIZ kart tanımlıyken: "Ana Kart: 5/5 · RF Kart: 2/3 (u7_tmp101 HATA)".
+  // deviceId ile eşleşir (index ile DEĞİL) — bir regenerate sonrası devices/boards prop'u
+  // değişse bile eski `results`'daki her satır kendi id'sinden doğru karta düşer.
+  let boardSummaryLine: string | null = null;
+  if (results && boardsDeclared) {
+    const deviceBoardId = new Map(devices.map((d) => [d.id, d.board_id || MAIN_BOARD_ID]));
+    const groups = groupByBoardId(results, (r) => deviceBoardId.get(r.deviceId) || MAIN_BOARD_ID, boardList);
+    boardSummaryLine = groups
+      .map((group) => {
+        const boardPassed = group.items.filter((r) => r.ok).length;
+        const failedIds = group.items.filter((r) => !r.ok).map((r) => r.deviceId);
+        const suffix = failedIds.length ? ` (${failedIds.join(", ")} HATA)` : "";
+        return `${group.boardName}: ${boardPassed}/${group.items.length}${suffix}`;
+      })
+      .join(" · ");
+  }
+
   return (
     <div className="rounded-md border border-accent/30 bg-accent/5 p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -112,6 +143,8 @@ export default function InitAllCard({
       ) : null}
 
       {!connected ? <p className="mt-2 text-[11px] text-faint">Önce karta bağlan.</p> : null}
+
+      {boardSummaryLine ? <p className="mt-2 font-mono text-[11px] text-muted">{boardSummaryLine}</p> : null}
 
       {results ? (
         <ul className="mt-2 space-y-1">

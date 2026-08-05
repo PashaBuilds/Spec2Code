@@ -68,3 +68,41 @@ export function boardIdFromNode(nodeId: string | null | undefined): string | nul
   if (!nodeId || !nodeId.startsWith(BOARD_NODE_PREFIX)) return null;
   return nodeId.slice(BOARD_NODE_PREFIX.length);
 }
+
+export interface BoardGroup<T> {
+  boardId: string;
+  boardName: string;
+  items: T[];
+}
+
+/** Ogeleri kart kimligine gore gruplar (CIT/Test Bench panelleri — Task 4).
+ *  Grup sirasi `boardList` sirasini izler (manifest.boards sirasi = kullanicinin
+ *  ekleme sirasi, ana kart en basta gelir — bkz. store addBoard). `boardList`'te
+ *  TANIMLI OLMAYAN bir board_id (beklenmez ama dogrulayici atlanmis/eski
+ *  manifest olabilir) sessizce KAYBOLMAZ: kendi id'siyle ayri bir grup olarak,
+ *  ilk gorulme sirasiyla sona eklenir. */
+export function groupByBoardId<T>(
+  items: T[],
+  boardIdOf: (item: T) => string,
+  boardList: Array<{ id: string; name: string }>,
+): BoardGroup<T>[] {
+  const byId = new Map<string, T[]>();
+  for (const item of items) {
+    const id = boardIdOf(item);
+    const bucket = byId.get(id);
+    if (bucket) bucket.push(item);
+    else byId.set(id, [item]);
+  }
+  const groups: BoardGroup<T>[] = [];
+  for (const board of boardList) {
+    const bucket = byId.get(board.id);
+    if (bucket) {
+      groups.push({ boardId: board.id, boardName: board.name, items: bucket });
+      byId.delete(board.id);
+    }
+  }
+  for (const [id, bucket] of byId) {
+    groups.push({ boardId: id, boardName: id, items: bucket });
+  }
+  return groups;
+}

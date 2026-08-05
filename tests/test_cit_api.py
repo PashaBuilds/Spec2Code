@@ -149,6 +149,64 @@ class DecodeBoardCitTests(unittest.TestCase):
         result = decode_board_cit(body, manifest)
         self.assertTrue(result["olcumler"][0]["read_ok"])
 
+    def test_decode_carries_board_id_from_manifest_when_present(self) -> None:
+        # Kart tanimliyken manifest cit.olcumler[i].board_id decode ciktisina tasinir
+        # (bkz. orchestrator/codegen.py _testbench_cit_section).
+        manifest = {
+            "cit": {
+                "olcumler": [
+                    {
+                        "index": 0, "device": "u1_ltc2991", "device_index": 0, "part": "LTC2991",
+                        "op": "voltage_read", "name": "VCC_MAIN", "cname": "VccMain",
+                        "unit": "mV", "min": None, "max": None, "severity": "warning",
+                        "enabled": True, "board_id": "main",
+                    },
+                    {
+                        "index": 1, "device": "u2_tmp101", "device_index": 1, "part": "TMP101",
+                        "op": "temperature_read", "name": "TEMP_RF", "cname": "TempRf",
+                        "unit": "0.01 C", "min": None, "max": None, "severity": "warning",
+                        "enabled": True, "board_id": "rf",
+                    },
+                ],
+                "bit_sirasi": ["VccMain", "TempRf"],
+            },
+        }
+        cit_bytes = _sboard_cit_bytes(
+            sayac=1, zaman=1,
+            olcumler=[
+                {"iDeger": 3300, "uiHam": 3300, "uiDurum": 0},
+                {"iDeger": 2500, "uiHam": 2500, "uiDurum": 0},
+            ],
+            flag_bits=[0, 1],
+        )
+        body = _cit_response_body(istek_sayac=1, durum=0, cit_bytes=cit_bytes)
+
+        result = decode_board_cit(body, manifest)
+
+        self.assertEqual(result["olcumler"][0]["board_id"], "main")
+        self.assertEqual(result["olcumler"][1]["board_id"], "rf")
+
+    def test_decode_defaults_board_id_to_main_when_absent(self) -> None:
+        # Kart tanimsiz projeler/eski manifestler: board_id anahtari hic yok ->
+        # "main" varsayilir (tek ortuk ana kart, orchestrator/boards.py ile ayni kural).
+        manifest = _fake_manifest_cit(2)  # bu manifestte board_id anahtari YOK
+        for meta in manifest["cit"]["olcumler"]:
+            self.assertNotIn("board_id", meta)
+        cit_bytes = _sboard_cit_bytes(
+            sayac=1, zaman=1,
+            olcumler=[
+                {"iDeger": 1, "uiHam": 1, "uiDurum": 0},
+                {"iDeger": 2, "uiHam": 2, "uiDurum": 0},
+            ],
+            flag_bits=[0, 1],
+        )
+        body = _cit_response_body(istek_sayac=1, durum=0, cit_bytes=cit_bytes)
+
+        result = decode_board_cit(body, manifest)
+
+        self.assertEqual(result["olcumler"][0]["board_id"], "main")
+        self.assertEqual(result["olcumler"][1]["board_id"], "main")
+
     def test_decode_short_body_raises_clear_error(self) -> None:
         manifest = _fake_manifest_cit(2)
         with self.assertRaises(ValueError) as ctx:
