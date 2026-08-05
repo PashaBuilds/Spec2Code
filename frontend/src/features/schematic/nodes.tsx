@@ -13,6 +13,7 @@ import {
 import { cn, zoneColor } from "@/lib/utils";
 import { busBadgeStyle, busColor, busLabel } from "@/lib/busColors";
 import { channelColor } from "./channelColors";
+import { BoardNode } from "./BoardNode";
 import type { Ltc2991ModeTone } from "@/features/device-config/ltc2991Model";
 
 const CTRL_ICON: Record<string, typeof Cpu> = {
@@ -320,6 +321,7 @@ function summaryToneClass(tone: Ltc2991ModeTone): string {
 
 export const nodeTypes = {
   zone: ZoneNode,
+  board: BoardNode,
   controller: ControllerNode,
   mux: MuxNode,
   device: DeviceNode,

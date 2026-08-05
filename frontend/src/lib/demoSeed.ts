@@ -74,5 +74,17 @@ export function maybeSeedDemo(): void {
     },
   ];
 
-  useStore.setState({ step: "schematic", zones, controllers, muxes, devices });
+  // Kart katmani da sifirlanir: `?demo` her zaman AYNI (kartsiz) tabloyu
+  // yukler, onceki oturumdan kalan kartlar sizmaz.
+  useStore.setState({
+    step: "schematic",
+    zones,
+    controllers,
+    muxes,
+    devices,
+    boards: [],
+    connectors: [],
+    boardSizes: {},
+    selectedId: null,
+  });
 }

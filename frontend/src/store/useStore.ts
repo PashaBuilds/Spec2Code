@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
+  Board,
   CatalogDevice,
+  Connector,
   Controller,
   Core,
   DescriptorMeta,
@@ -17,6 +19,7 @@ import type {
   Runtime,
   Zone,
 } from "@/lib/types";
+import { MAIN_BOARD_ID, boardNodeId, boardSlug, mainBoardId, uniqueId } from "@/lib/boards";
 
 export type Step = "setup" | "schematic" | "generate";
 
@@ -49,6 +52,13 @@ interface StoreState {
   unmatched: { instance: string; base_address: string; reason: string }[];
   muxes: Mux[];
   devices: Device[];
+  /** Fiziksel kartlar. BOS = kart katmani kapali (kanvas ve uretilen cikti
+   *  bugunkuyle birebir ayni kalir). Ilk kart eklendiginde ANA kart olur. */
+  boards: Board[];
+  connectors: Connector[];
+  /** Yalniz UI: kullanicinin buyuttugu kart kutusu olculeri. Spec'e GITMEZ
+   *  (sema boards[] icin additionalProperties:false). */
+  boardSizes: Record<string, { w: number; h: number }>;
 
   catalog: CatalogDevice[];
   descriptors: DescriptorMeta[];
@@ -88,6 +98,17 @@ interface StoreState {
   updateDeviceAttach: (id: string, patch: Partial<Device["attach"]>) => void;
   removeNode: (id: string) => void;
 
+  addBoard: (name: string) => string;
+  renameBoard: (id: string, name: string) => void;
+  updateBoard: (id: string, patch: Partial<Omit<Board, "id">>) => void;
+  deleteBoard: (id: string) => void;
+  /** Cihaz VEYA mux'u bir karta tasir (sematikte surukle-birak). */
+  setDeviceBoard: (deviceId: string, boardId: string) => void;
+  setBoardSize: (id: string, size: { w: number; h: number }) => void;
+  addConnector: (c: Omit<Connector, "id">) => string;
+  updateConnector: (id: string, patch: Partial<Omit<Connector, "id">>) => void;
+  deleteConnector: (id: string) => void;
+
   buildSpec: () => ProjectSpec;
 
   setJob: (patch: Partial<JobState>) => void;
@@ -124,6 +145,37 @@ const DEFAULT_LLM: LlmConfig = {
   retries: 0,
 };
 const slug = (part: string) => part.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** `board_id` alanini tamamen kaldirir (undefined birakmak yerine) — kart
+ *  tanimsiz projede spec'e bu anahtar HIC girmemeli. */
+function withoutBoardId<T extends { board_id?: string }>(item: T): T {
+  if (item.board_id === undefined) return item;
+  const next = { ...item };
+  delete next.board_id;
+  return next;
+}
+
+/** Sema boards[]/connectors[] icin additionalProperties:false; bos notlar ve
+ *  null via_mux gonderilmez (null, "type: object" dogrulamasini kirar). */
+function specBoard(board: Board): Board {
+  const clean: Board = { id: board.id, name: board.name, role: board.role };
+  if (board.notes && board.notes.trim()) clean.notes = board.notes.trim();
+  return clean;
+}
+
+function specConnector(connector: Connector): Connector {
+  const clean: Connector = {
+    id: connector.id,
+    name: connector.name,
+    from_board: connector.from_board,
+    to_board: connector.to_board,
+    bus: { controller_id: connector.bus.controller_id },
+  };
+  const via = connector.bus.via_mux;
+  if (via) clean.bus.via_mux = { mux_id: via.mux_id, channel: via.channel };
+  if (connector.notes && connector.notes.trim()) clean.notes = connector.notes.trim();
+  return clean;
+}
 
 function inferCounter(muxes: Mux[], devices: Device[]): number {
   return Math.max(
@@ -176,6 +228,9 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   unmatched: [],
   muxes: [],
   devices: [],
+  boards: [],
+  connectors: [],
+  boardSizes: {},
 
   catalog: [],
   descriptors: [],
@@ -205,6 +260,10 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       cores: r.cores ?? [],
       muxes: [],
       devices: [],
+      // Yeni tasarim = yeni topoloji: kartlar da sifirlanir.
+      boards: [],
+      connectors: [],
+      boardSizes: {},
       selectedId: null,
     }),
 
@@ -221,6 +280,9 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       controllers: spec.controllers ?? [],
       muxes: spec.muxes ?? [],
       devices: withDefaultSafeOperations(spec.devices ?? [], get().descriptors),
+      boards: spec.boards ?? [],
+      connectors: spec.connectors ?? [],
+      boardSizes: {},
       unmatched: [],
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
@@ -233,17 +295,23 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     set((s) => ({ descriptors, devices: withDefaultSafeOperations(s.devices, descriptors) })),
   select: (selectedId) => set({ selectedId }),
 
+  // Kart tanimliyken yeni birim varsayilan olarak ANA KARTA duser; kart
+  // tanimsizken board_id anahtari hic yazilmaz (kartsiz cikti degismez).
   addMux: (m) => {
-    const n = get().counter + 1;
+    const s0 = get();
+    const n = s0.counter + 1;
     const id = `u${n}_${slug(m.part)}`;
-    set((s) => ({ muxes: [...s.muxes, { ...m, id }], counter: n, selectedId: id }));
+    const board = s0.boards.length ? { board_id: mainBoardId(s0.boards) } : {};
+    set((s) => ({ muxes: [...s.muxes, { ...m, ...board, id }], counter: n, selectedId: id }));
     return id;
   },
 
   addDevice: (d) => {
-    const n = get().counter + 1;
+    const s0 = get();
+    const n = s0.counter + 1;
     const id = `u${n}_${slug(d.part)}`;
-    set((s) => ({ devices: [...s.devices, { ...d, id }], counter: n, selectedId: id }));
+    const board = s0.boards.length ? { board_id: mainBoardId(s0.boards) } : {};
+    set((s) => ({ devices: [...s.devices, { ...d, ...board, id }], counter: n, selectedId: id }));
     return id;
   },
 
@@ -271,9 +339,97 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       selectedId: s.selectedId === id ? null : s.selectedId,
     })),
 
+  // İlk "Kart ekle" ANA kartı yaratır ve mevcut her şeyi ona taşır: kartsız
+  // proje ile birebir aynı topoloji, artık adı var.
+  addBoard: (name) => {
+    const s0 = get();
+    const first = s0.boards.length === 0;
+    const label = (name ?? "").trim() || (first ? "Ana Kart" : `Kart ${s0.boards.length + 1}`);
+    const id = first
+      ? MAIN_BOARD_ID
+      : uniqueId(boardSlug(label, `kart_${s0.boards.length + 1}`), s0.boards.map((b) => b.id));
+    const board: Board = { id, name: label, role: first ? "main" : "peripheral" };
+    set((s) => ({
+      boards: [...s.boards, board],
+      devices: first ? s.devices.map((d) => ({ ...d, board_id: id })) : s.devices,
+      muxes: first ? s.muxes.map((m) => ({ ...m, board_id: id })) : s.muxes,
+      selectedId: boardNodeId(id),
+    }));
+    return id;
+  },
+
+  renameBoard: (id, name) =>
+    set((s) => ({
+      boards: s.boards.map((b) => (b.id === id ? { ...b, name: name.trim() || b.name } : b)),
+    })),
+
+  updateBoard: (id, patch) =>
+    set((s) => ({ boards: s.boards.map((b) => (b.id === id ? { ...b, ...patch } : b)) })),
+
+  // Silinen kartin cihazlari ANA KARTA duser (asla kaybolmaz). Son kart da
+  // silinirse proje kartsiz duruma geri doner: board_id anahtarlari temizlenir.
+  deleteBoard: (id) =>
+    set((s) => {
+      const remaining = s.boards.filter((b) => b.id !== id);
+      if (!remaining.length) {
+        return {
+          boards: [],
+          connectors: [],
+          boardSizes: {},
+          devices: s.devices.map(withoutBoardId),
+          muxes: s.muxes.map(withoutBoardId),
+          selectedId: null,
+        };
+      }
+      // "Tam olarak bir main kart" degismezi: ana kart silindiyse ilk kalan
+      // kart ana kart olur (denetleyiciler tanimi geregi orada sayilir).
+      const boards = remaining.some((b) => b.role === "main")
+        ? remaining
+        : remaining.map((b, i) => (i === 0 ? { ...b, role: "main" as const } : b));
+      const fallback = mainBoardId(boards);
+      const boardSizes = Object.fromEntries(
+        Object.entries(s.boardSizes).filter(([key]) => key !== id),
+      );
+      return {
+        boards,
+        boardSizes,
+        connectors: s.connectors.filter((c) => c.from_board !== id && c.to_board !== id),
+        devices: s.devices.map((d) => (d.board_id === id ? { ...d, board_id: fallback } : d)),
+        muxes: s.muxes.map((m) => (m.board_id === id ? { ...m, board_id: fallback } : m)),
+        selectedId: null,
+      };
+    }),
+
+  setDeviceBoard: (deviceId, boardId) =>
+    set((s) => ({
+      devices: s.devices.map((d) => (d.id === deviceId ? { ...d, board_id: boardId } : d)),
+      muxes: s.muxes.map((m) => (m.id === deviceId ? { ...m, board_id: boardId } : m)),
+    })),
+
+  setBoardSize: (id, size) => set((s) => ({ boardSizes: { ...s.boardSizes, [id]: size } })),
+
+  addConnector: (c) => {
+    const s0 = get();
+    const id = uniqueId(
+      boardSlug(c.name, `konnektor_${s0.connectors.length + 1}`),
+      s0.connectors.map((x) => x.id),
+    );
+    set((s) => ({ connectors: [...s.connectors, { ...c, id }] }));
+    return id;
+  },
+
+  updateConnector: (id, patch) =>
+    set((s) => ({ connectors: s.connectors.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+
+  deleteConnector: (id) => set((s) => ({ connectors: s.connectors.filter((c) => c.id !== id) })),
+
   buildSpec: () => {
     const s = get();
-    return {
+    // Kart tanimsizken spec'te ne boards/connectors anahtari ne de board_id
+    // bulunur — uretilen cikti bugunkuyle bayt-bayt ayni kalir (tasarim §4.1).
+    const boardsOn = s.boards.length > 0;
+    const devices = withDefaultSafeOperations(s.devices, s.descriptors);
+    const spec: ProjectSpec = {
       schema_version: "1.0",
       project: s.project,
       coding_standard_ref: DEFAULT_CODING_STANDARD,
@@ -281,10 +437,15 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
         ? s.llm
         : { enabled: false },
       controllers: s.controllers,
-      devices: withDefaultSafeOperations(s.devices, s.descriptors),
-      muxes: s.muxes,
+      devices: boardsOn ? devices : devices.map(withoutBoardId),
+      muxes: boardsOn ? s.muxes : s.muxes.map(withoutBoardId),
       generation_options: { qc_max_rounds: 3, include_doxygen: true, line_ending: "crlf" },
     };
+    if (boardsOn) {
+      spec.boards = s.boards.map(specBoard);
+      if (s.connectors.length) spec.connectors = s.connectors.map(specConnector);
+    }
+    return spec;
   },
 
   setJob: (patch) => set((s) => ({ job: { ...s.job, ...patch } })),
@@ -306,6 +467,9 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     unmatched: s.unmatched,
     muxes: s.muxes,
     devices: s.devices,
+    boards: s.boards,
+    connectors: s.connectors,
+    boardSizes: s.boardSizes,
     counter: s.counter,
   }),
 }));

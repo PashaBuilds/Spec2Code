@@ -694,6 +694,10 @@ export interface ProjectSpec {
   controllers: Controller[];
   devices: Device[];
   muxes: Mux[];
+  /** Fiziksel kartlar. Kart tanimlanmamissa ANAHTAR HIC YAZILMAZ — uretilen
+   *  cikti o zaman bugunkuyle bayt-bayt ayni kalir (tasarim §4.1). */
+  boards?: Board[];
+  connectors?: Connector[];
   generation_options: {
     qc_max_rounds: number;
     include_doxygen: boolean;

@@ -1,10 +1,12 @@
-import { Plus, Trash2 } from "lucide-react";
+import { CircuitBoard, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import type { CatalogDevice } from "@/lib/types";
+import { boardIdFromNode, boardNodeId, effectiveBoardId } from "@/lib/boards";
 import { Badge, Button, Card } from "@/components/ui";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
 import DeviceParams from "@/features/device-params/DeviceParams";
+import BoardPanel from "@/features/schematic/BoardPanel";
 import { defaultDeviceConfig } from "@/features/device-config/DeviceConfigEditor";
 
 export default function SidePanel() {
@@ -15,10 +17,12 @@ export default function SidePanel() {
   const addMux = useStore((s) => s.addMux);
   const addDevice = useStore((s) => s.addDevice);
   const removeNode = useStore((s) => s.removeNode);
+  const boards = useStore((s) => s.boards);
 
   const device = devices.find((d) => d.id === selectedId);
   const mux = muxes.find((m) => m.id === selectedId);
   const controller = controllers.find((c) => c.id === selectedId);
+  const board = boards.find((b) => b.id === boardIdFromNode(selectedId));
 
   async function handlePick(dev: CatalogDevice) {
     if (!controller) return;
@@ -49,6 +53,8 @@ export default function SidePanel() {
       tests_requested: ["self_test"],
     });
   }
+
+  if (board) return <BoardPanel board={board} />;
 
   if (device) return <DeviceParams />;
 
@@ -93,12 +99,65 @@ export default function SidePanel() {
   }
 
   return (
+    <div className="space-y-3">
+      <Card className="p-4">
+        <p className="text-sm text-text">Seçim yok</p>
+        <p className="mt-1 text-xs text-faint">
+          Click a controller in the schematic to attach a device (sensor, flash, or an I2C mux). Click
+          a device to edit its protocol parameters.
+        </p>
+      </Card>
+      <BoardsCard />
+    </div>
+  );
+}
+
+/** Kart listesi + "Kart ekle". Kart tanimli degilken kanvas bugunku gibidir;
+ *  ILK kart ana karttir ve mevcut tum entegreler ona tasinir. */
+function BoardsCard() {
+  const boards = useStore((s) => s.boards);
+  const devices = useStore((s) => s.devices);
+  const muxes = useStore((s) => s.muxes);
+  const connectors = useStore((s) => s.connectors);
+  const addBoard = useStore((s) => s.addBoard);
+  const select = useStore((s) => s.select);
+
+  const count = (boardId: string) =>
+    devices.filter((d) => effectiveBoardId(d, boards) === boardId).length +
+    muxes.filter((m) => effectiveBoardId(m, boards) === boardId).length;
+
+  return (
     <Card className="p-4">
-      <p className="text-sm text-text">Seçim yok</p>
-      <p className="mt-1 text-xs text-faint">
-        Click a controller in the schematic to attach a device (sensor, flash, or an I2C mux). Click
-        a device to edit its protocol parameters.
-      </p>
+      <div className="mb-2 flex items-center gap-2">
+        <CircuitBoard className="h-4 w-4 text-accent" />
+        <span className="text-sm text-text">Kartlar</span>
+        {connectors.length > 0 && <Badge tone="neutral">{connectors.length} konnektör</Badge>}
+      </div>
+      {boards.length === 0 ? (
+        <p className="mb-3 text-xs text-faint">
+          Sistem tek karttan ibaret sayılıyor. "Kart ekle" ilk kartı <b>ana kart</b> olarak
+          oluşturur ve mevcut tüm entegreleri ona taşır; sonraki kartlar şematikte ayrı kutu olur.
+        </p>
+      ) : (
+        <div className="mb-3 space-y-1.5">
+          {boards.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => select(boardNodeId(b.id))}
+              className="flex w-full items-center justify-between gap-2 rounded border border-border bg-inset px-2 py-1.5 text-left hover:border-accent"
+            >
+              <span className="min-w-0 truncate text-xs text-text">{b.name}</span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {b.role === "main" && <Badge tone="accent">ana</Badge>}
+                <span className="font-mono text-[10px] text-faint">{count(b.id)} birim</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <Button variant="outline" size="sm" onClick={() => addBoard("")}>
+        <Plus className="h-4 w-4" /> Kart ekle
+      </Button>
     </Card>
   );
 }

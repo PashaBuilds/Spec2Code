@@ -1,4 +1,5 @@
-import type { Controller, Device, Mux, Zone } from "@/lib/types";
+import type { Board, Controller, Device, Mux, Zone } from "@/lib/types";
+import { effectiveBoardId, mainBoardId } from "@/lib/boards";
 
 // Auto-layout for the schematic (Brief 9). A deterministic 3-column layered layout
 // (controllers -> muxes/direct-devices -> mux-devices). Chosen over dagre because dagre's
@@ -158,6 +159,104 @@ export function computeLayout(
   placeOrderedGroups(pos, muxDeviceItems, COL_X[2]);
 
   return pos;
+}
+
+/* --- Kart (fiziksel PCB) kutulari -------------------------------------------
+ *
+ * Kart tanimliyken kanvas KART SERITLERINE bolunur: her kart kendi icerigini
+ * bugunku 3 kolonlu duzenle (computeLayout) yerlestirir, seritler dikey olarak
+ * ust uste binmeyecek sekilde siralanir. Boylece:
+ *  - tek kartli (yalniz ana kart) projede yerlesim BUGUNKUNUN AYNISI kalir,
+ *  - kart kutusu icindeki cihazlarda delik/bosluk olusmaz (baska kartin
+ *    cihazlari araya girmez),
+ *  - kolon X'leri korunur, yani elektriksel soldan-saga akis bozulmaz.
+ *
+ * BOARD_PAD, computeZoneRects'in kullandigi 24px paddan buyuk; BOARD_HEADER de
+ * zone etiketinin 18px payini kapsar. Bu yuzden ana karttaki zone kutulari her
+ * zaman kart kutusunun ICINDE kalir (ayri bir kesisim hesabina gerek yok).
+ */
+const BOARD_PAD = 30;
+const BOARD_HEADER = 42;
+const BOARD_GAP = 74;
+const EMPTY_BOARD = { w: 380, h: 150 };
+
+export interface BoardRect {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Icerigi saran en kucuk olcu — kullanici kutuyu bunun altina kucultemez. */
+  minW: number;
+  minH: number;
+}
+
+export interface BoardLayout {
+  /** Tum dugumlerin GLOBAL kanvas konumu (serit kaydirmasi uygulanmis). */
+  pos: Map<string, Pos>;
+  rects: BoardRect[];
+  /** dugum kimligi -> kart kimligi (React Flow parentId'si bundan turer). */
+  boardOf: Map<string, string>;
+}
+
+function boundsOf(items: Iterable<Pos>): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let seen = false;
+  for (const p of items) {
+    seen = true;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w);
+    maxY = Math.max(maxY, p.y + p.h);
+  }
+  return seen ? { minX, minY, maxX, maxY } : null;
+}
+
+export function computeBoardLayout(
+  boards: Board[],
+  controllers: Controller[],
+  muxes: Mux[],
+  devices: Device[],
+  sizes: Record<string, { w: number; h: number }> = {},
+): BoardLayout {
+  const pos = new Map<string, Pos>();
+  const rects: BoardRect[] = [];
+  const boardOf = new Map<string, string>();
+  const mainId = mainBoardId(boards);
+  // Ana kart her zaman en ustte: denetleyiciler (dolayisiyla zone kutulari)
+  // orada durur, kartlar arasi hatlar yukaridan asagi okunur.
+  const ordered = [...boards].sort((a, b) => Number(b.id === mainId) - Number(a.id === mainId));
+
+  let nextTop = 0;
+  for (const board of ordered) {
+    const isMain = board.id === mainId;
+    const boardMuxes = muxes.filter((m) => effectiveBoardId(m, boards) === board.id);
+    const boardDevices = devices.filter((d) => effectiveBoardId(d, boards) === board.id);
+    // Denetleyiciler tanimi geregi ANA KARTTADIR (tasarim §3, tek FPGA ilkesi).
+    const local = computeLayout(isMain ? controllers : [], boardMuxes, boardDevices);
+    const bounds = boundsOf(local.values());
+
+    const rectX = bounds ? bounds.minX - BOARD_PAD : 60;
+    const innerTop = bounds ? bounds.minY - BOARD_PAD - BOARD_HEADER : 0;
+    const minW = bounds ? bounds.maxX + BOARD_PAD - rectX : EMPTY_BOARD.w;
+    const minH = bounds ? bounds.maxY + BOARD_PAD - innerTop : EMPTY_BOARD.h;
+    const size = sizes[board.id];
+    const w = Math.max(minW, size?.w ?? 0);
+    const h = Math.max(minH, size?.h ?? 0);
+
+    const dy = nextTop - innerTop;
+    for (const [id, p] of local) {
+      pos.set(id, { ...p, y: p.y + dy });
+      boardOf.set(id, board.id);
+    }
+    rects.push({ id: board.id, x: rectX, y: nextTop, w, h, minW, minH });
+    nextTop += h + BOARD_GAP;
+  }
+
+  return { pos, rects, boardOf };
 }
 
 // Bounding boxes for the platform zones, sized to enclose their controllers (Brief 9.2).
