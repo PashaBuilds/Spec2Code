@@ -19,7 +19,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
-from orchestrator import boards, cmodel, tics
+from orchestrator import boards, cit_layer, cmodel, tics
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -7041,7 +7041,16 @@ def generate(
             written.append(str(hio.write_output(bdir / f"{stem}.c",
                                                 _apply_default_identifier_style(source))))
 
-    readme = readme_t.render(spec=spec, units=units)
+    # CIT entegre katmani (cit/): HAL + entegre CIT + sistem toplayici. Mevcut
+    # drivers/ ve tests/ ciktilarina DOKUNMAZ, yalniz eklenir (tasarim:
+    # docs/superpowers/specs/2026-09-05-cit-hal-layer-design.md).
+    cit_written, cit_readme = cit_layer.write_cit_layer(
+        spec, out_dir, get_descriptor, _testbench_manifest_devices(spec, get_descriptor))
+    if cit_written:
+        emit({"event": "codegen.cit_layer", "files": len(cit_written)})
+        written.extend(cit_written)
+
+    readme = readme_t.render(spec=spec, units=units) + cit_readme
     written.append(str(hio.write_output(out_dir / "README.md", readme)))
 
     written.extend(write_testbench_harness(spec, out_dir, root=root))

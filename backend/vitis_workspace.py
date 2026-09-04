@@ -205,7 +205,10 @@ def _clean_user_path(value: str) -> Path:
     text = value.strip().strip('"').strip("'")
     if not text:
         raise ValueError("path is empty")
-    return Path(os.path.expandvars(os.path.expanduser(text)))
+    # MUTLAK yol: XSCT workspace klasorunden (cwd) kosar; goreli bir temp/xsa
+    # yolu orada cozulemez ("couldn't read file ...tcl") ve XSCT bunu exit 0 ile
+    # sessizce gecistirir. CLI'dan goreli yol gelmesi sahada yasandi (2026-09-05).
+    return Path(os.path.expandvars(os.path.expanduser(text))).resolve()
 
 
 def _version_key(path: Path) -> tuple[int, ...]:
@@ -923,7 +926,7 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
             continue
 
         display = _relative_output_name(rel_posix, out_dir)
-        if display.startswith(("drivers/", "tests/", "reference_sources/")):
+        if display.startswith(("drivers/", "tests/", "cit/", "reference_sources/")):
             target = source_root / display
         else:
             continue
@@ -1520,9 +1523,15 @@ class CustomIpMakeLibsWatcher:
             self._stop.wait(self.interval_s)
 
 
+#: XSCT'nin script'i hic acamadigi durum: Tcl "couldn't read file" der ama
+#: surec 0 ile cikar. Bu, build "gecti" sayilamaz - ELF de olmaz.
+_XSCT_SCRIPT_UNREADABLE_RE = re.compile(r"couldn't read file\b", re.IGNORECASE)
+
+
 def _xsct_log_has_fatal_error(stdout: str, stderr: str) -> bool:
     log = f"{stdout}\n{stderr}"
-    return bool(_XSCT_FATAL_RE.search(log) or _VITIS_BUILD_FATAL_RE.search(log))
+    return bool(_XSCT_FATAL_RE.search(log) or _VITIS_BUILD_FATAL_RE.search(log)
+                or _XSCT_SCRIPT_UNREADABLE_RE.search(log))
 
 
 def _issue_error_codes(issues: list[dict]) -> list[str]:
@@ -2169,7 +2178,7 @@ def render_xsct_update_script(
 #: Staged kaynaklarin app src/ altinda yasadigi konumlar. Update modunda
 #: bunlar silinip yeniden import edilir - kaldirilan dosyalar (ör. transport
 #: degisince eski agent main'i) workspace'te bayat kalmasin.
-_STAGED_SRC_SUBDIRS = ("drivers", "tests", "reference_sources")
+_STAGED_SRC_SUBDIRS = ("drivers", "tests", "cit", "reference_sources")
 _STAGED_SRC_ROOT_FILES = ("spec2code_selftest_main.c", "spec2code_selftest_main.h")
 
 

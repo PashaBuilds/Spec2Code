@@ -34,7 +34,8 @@ ve devam geliştirme.
 - **Statik cihaz bilgi paketleri:** Desteklenen entegreler için datasheet'ten
   süzülmüş register map, tipik kullanım reçeteleri, kritik uyarılar ve codegen
   notları arayüzde gösterilir; bu bilgiler LLM ile runtime'da tekrar üretilmez.
-- **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, raporlar ve
+- **İndirilebilir çıktı ağacı:** Generate sonrası `drivers/`, `tests/`, `cit/` (taşınabilir CİT
+  entegre katmanı: HAL + entegre `S<Mod>Cit` struct'ları), raporlar ve
   varsa `reference_sources/` hiyerarşik gösterilir; tek dosya veya tüm çıktı zip
   olarak indirilebilir.
 - **Vitis-ready export:** Ayrı Vitis paketi, `src/drivers`, `src/tests`,

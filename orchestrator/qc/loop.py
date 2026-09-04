@@ -53,17 +53,24 @@ def run_qc(
     # tests/ de yolda: kart modulu (drivers/<kart>/<kart>.h) CIT olcumu varken
     # tests/spec2code_cit.h'i include eder; bulunamazsa clang-tidy TU'yu
     # cozemez ve sahte tani (unknown type 'SBoardCit') uretir.
-    include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir]
+    # cit/ katmani (HAL + entegre CIT) da kapidan gecer: cit/ ve cit/hal/
+    # include yoluna girer (spec2code_cit_sistem.c hem hal hem entegre basliklarini
+    # nitelenmemis include eder).
+    cit_dir = out_dir / "cit"
+    include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir,
+                    *runners.driver_include_dirs(cit_dir)]
 
     # Write the clang-format config derived from the ruleset, so `-style=file` finds it.
     hio.write_output(out_dir / ".clang-format", runners.clang_format_config(ruleset))
 
-    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c")])
+    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"), *cit_dir.rglob("*.c")])
     fmt_files = sorted([
         *drivers_dir.rglob("*.c"),
         *drivers_dir.rglob("*.h"),
         *tests_dir.glob("*.c"),
         *tests_dir.glob("*.h"),
+        *cit_dir.rglob("*.c"),
+        *cit_dir.rglob("*.h"),
     ])
 
     tool_status = {"clang-format": None, "clang-tidy": None, "cppcheck": None, "libclang": None}

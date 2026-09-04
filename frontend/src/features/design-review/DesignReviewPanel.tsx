@@ -169,6 +169,7 @@ function FilePill({ file }: { file: ReviewFilePlan }) {
   const tone: Record<ReviewFilePlan["kind"], Tone> = {
     driver: "accent",
     test: "neutral",
+    cit: "accent",
     meta: "warn",
   };
   return (

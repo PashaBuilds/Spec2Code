@@ -19,7 +19,7 @@ export type ReviewInitWrite = {
 
 export type ReviewFilePlan = {
   path: string;
-  kind: "driver" | "test" | "meta";
+  kind: "driver" | "test" | "cit" | "meta";
 };
 
 export type DesignReview = {
@@ -67,6 +67,35 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
     });
     pushUnitFiles(files, device.part, moduleCounts);
     initWrites.push(...deviceInitWrites(device));
+    if (citEligible(device, controller?.type)) {
+      const module = moduleNameFor(device.part, moduleCounts, false);
+      files.push({ path: `cit/${module}_cit.h`, kind: "cit" }, { path: `cit/${module}_cit.c`, kind: "cit" });
+    }
+  }
+  // CIT entegre katmani (cit/): HAL + sistem toplayici, en az bir uygun cihaz varsa.
+  if (files.some((file) => file.kind === "cit")) {
+    const busTypes = new Set(
+      spec.devices
+        .map((device) => controllers.get(device.attach.controller_id)?.type)
+        .filter((type): type is string => type === "i2c" || type === "spi"),
+    );
+    files.push({ path: "cit/hal/spec2code_cit_port.h", kind: "cit" });
+    if (busTypes.has("i2c")) {
+      files.push(
+        { path: "cit/hal/spec2code_i2c_bus.h", kind: "cit" },
+        { path: "cit/hal/spec2code_i2c_bus.c", kind: "cit" },
+      );
+    }
+    if (busTypes.has("spi")) {
+      files.push(
+        { path: "cit/hal/spec2code_spi_bus.h", kind: "cit" },
+        { path: "cit/hal/spec2code_spi_bus.c", kind: "cit" },
+      );
+    }
+    files.push(
+      { path: "cit/spec2code_cit_sistem.h", kind: "cit" },
+      { path: "cit/spec2code_cit_sistem.c", kind: "cit" },
+    );
   }
 
   files.push(
@@ -96,14 +125,28 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
   };
 }
 
-function pushUnitFiles(files: ReviewFilePlan[], part: string, counts?: Map<string, number>) {
+/** codegen ile ayni sonek duzeni (ltc2991, ltc2991b, ...). `advance=false` sayaci ilerletmez
+ *  (ayni cihaz icin ikinci dosya grubu: cit/<module>_cit.*). */
+function moduleNameFor(part: string, counts: Map<string, number> | undefined, advance: boolean): string {
   const base = moduleOf(part);
-  let module = base;
-  if (counts) {
-    const n = counts.get(base) ?? 0;
-    counts.set(base, n + 1);
-    if (n > 0) module = n <= 25 ? `${base}${String.fromCharCode(97 + n)}` : `${base}x${n}`;
-  }
+  if (!counts) return base;
+  const seen = counts.get(base) ?? 0;
+  const n = advance ? seen : Math.max(seen - 1, 0);
+  if (advance) counts.set(base, seen + 1);
+  if (n === 0) return base;
+  return n <= 25 ? `${base}${String.fromCharCode(97 + n)}` : `${base}x${n}`;
+}
+
+/** cit/ katmani yalniz register tabanli I2C/SPI entegreler icin uretilir: komut tabanli SPI
+ *  flash, I2C EEPROM ve GPIO hat cihazlari kapsam disidir (backend ile ayni kural; parca adi
+ *  sezgisi yalniz onizleme icindir, gercek liste Generate sonrasi dosya agacindan gelir). */
+function citEligible(device: Device, controllerType: string | undefined): boolean {
+  if (controllerType !== "i2c" && controllerType !== "spi") return false;
+  return !/^(MT25Q|N25Q|W25Q|AT25|24LC|24AA|24FC|AT24)/i.test(device.part.trim());
+}
+
+function pushUnitFiles(files: ReviewFilePlan[], part: string, counts?: Map<string, number>) {
+  const module = moduleNameFor(part, counts, true);
   files.push(
     { path: `drivers/${module}.h`, kind: "driver" },
     { path: `drivers/${module}.c`, kind: "driver" },

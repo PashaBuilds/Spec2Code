@@ -1576,6 +1576,28 @@ class XsctFatalLogDetectionTests(unittest.TestCase):
         )
         self.assertTrue(_xsct_log_has_fatal_error("make[1]: *** [x.o] Error 2", ""))
 
+    def test_unreadable_script_is_fatal_even_with_exit_zero(self) -> None:
+        """SAHA (2026-09-05): XSCT script dosyasini acamayinca Tcl "couldn't read
+        file" der ama surec 0 ile cikar; bu 'build gecti ama ELF yok' sanilmamali."""
+        from backend.vitis_workspace import _xsct_log_has_fatal_error
+
+        self.assertTrue(_xsct_log_has_fatal_error(
+            "", 'couldn\'t read file "test\\0_temp\\cli_vitis\\spec2code_create_workspace.tcl": '
+                "no such file or directory"))
+
+
+class UserPathCleaningTests(unittest.TestCase):
+    def test_relative_user_paths_become_absolute(self) -> None:
+        """XSCT workspace klasorunden (cwd) kosar: goreli temp/xsa yolu orada cozulemez."""
+        from backend.vitis_workspace import _clean_user_path
+
+        cleaned = _clean_user_path("test/0_temp_rel/cli_vitis")
+        self.assertTrue(cleaned.is_absolute(), cleaned)
+        self.assertEqual(cleaned, (Path.cwd() / "test/0_temp_rel/cli_vitis").resolve())
+        quoted = _clean_user_path('"D:/tmp/ws"' if os.name == "nt" else '"/tmp/ws"')
+        self.assertTrue(quoted.is_absolute())
+        self.assertNotIn('"', str(quoted))
+
 
 class XsctStreamingRunnerTests(unittest.TestCase):
     def test_streaming_runner_writes_logs_and_returns_exit_code(self) -> None:

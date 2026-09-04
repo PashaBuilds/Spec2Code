@@ -1,5 +1,7 @@
 # Minimal MicroBlaze design for Spec2Code platform validation:
-# MB + 128KB local BRAM + MDM + AXI UARTLITE + AXI IIC + AXI Quad SPI.
+# NOT (2026-09-05): 128KB ile -O0 -g3 Debug uygulamasi (UART test bench ajani + 3 surucu +
+# BSP; cit/ --gc-sections ile dusuyor) 21952 bayt tasti; 256KB secildi (xc7a100t 4.8 Mb BRAM).
+# MB + 256KB local BRAM (automation 128KB + LMB segment 256K) + MDM + AXI UARTLITE + AXI IIC + AXI Quad SPI.
 # Exported without synthesis (same pattern as make_custom_ip_xsa.tcl).
 set proj_dir D:/Projects/claude/Spec2Code/test/0_temp_dbg/vivado_mb
 set xsa_out D:/Projects/claude/Spec2Code/test/0_dosyalar/microblaze_ax7a100.xsa
@@ -41,6 +43,12 @@ make_bd_intf_pins_external [get_bd_intf_pins axi_iic_0/IIC]
 make_bd_intf_pins_external [get_bd_intf_pins axi_quad_spi_0/SPI_0]
 
 assign_bd_address
+# Blok otomasyonu en fazla 128KB sunar (256KB gecersiz secenek: otomasyon sessizce geri
+# alinir ve sonraki AXI otomasyonu "No interface associated with /microblaze_0" ile duser).
+# Yerel bellegi buyutmenin belgelenmis yolu LMB adres segmentlerinin RANGE'ini buyutmektir;
+# blk_mem_gen "BRAM Controller" modunda kendini denetleyiciden boyutlar.
+set_property range 256K [get_bd_addr_segs {microblaze_0/Data/SEG_dlmb_bram_if_cntlr_Mem}]
+set_property range 256K [get_bd_addr_segs {microblaze_0/Instruction/SEG_ilmb_bram_if_cntlr_Mem}]
 validate_bd_design
 save_bd_design
 

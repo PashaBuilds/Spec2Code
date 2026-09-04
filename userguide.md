@@ -353,6 +353,8 @@ Output klasor yapisi tipik olarak:
 ```text
 drivers/
 tests/
+cit/
+  hal/
 reference_sources/
 qc_report.json
 README.md
@@ -361,6 +363,47 @@ README.md
 
 Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test ve Test Bench
 agent dosyalari da bu kurala dahildir.
+
+### CIT entegre katmani (`cit/`)
+
+`cit/` klasoru, kendi gomulu yazilimina **oldugu gibi kopyalanabilen**, hiyerarsik bir
+CIT (cihaz ici test) katmanidir. `drivers/` ve `tests/` ciktilarina dokunmaz; onlarin
+yanina eklenir.
+
+| Katman | Dosya | Ne yapar |
+|---|---|---|
+| Port | `cit/hal/spec2code_cit_port.h` | Platform secimi: `SPEC2CODE_CIT_PORT_XIICPS/XIIC/XSPIPS/XSPI/KULLANICI` (spec'ten turer, `#ifndef` korumali; `-D` ile ezilebilir) + durum kodlari |
+| HAL | `cit/hal/spec2code_i2c_bus.h/.c` | `SSpec2codeI2cBus`: `spec2codeI2cBusInit/Write/Read/RegisterRead/RegisterWrite/RegisterReadWide/RegistersRead/MuxSelect` - PS XIicPs, AXI XIic ya da kullanici portu |
+| HAL | `cit/hal/spec2code_spi_bus.h/.c` | `SSpec2codeSpiBus`: `spec2codeSpiBusInit/Transfer` - PS XSpiPs, AXI XSpi ya da kullanici portu (CS indeks; AXI one-hot cevrimi icerde) |
+| Entegre | `cit/<mod>_cit.h/.c` | `S<Mod>CitConfig` (adres / switch adresi+kanali / poll timeout ya da CS - **calisma zamaninda degistirilebilir**, varsayilan `<MOD>_CIT_CONFIG_VARSAYILAN` spec'ten), `S<Mod>Cit` (durum registerleri **bit bit**, olcumler bayt/kelime), `<mod>CitInit()`, `<mod>CitRead()` |
+| Sistem | `cit/spec2code_cit_sistem.h/.c` | `SSistemCitBus` (denetleyici basina bir HAL bus), `SSistemCit` (cihaz basina bir alt struct), `sistemCitBusVarsayilan()`, `sistemCitInit()`, `sistemCitRead()` |
+
+`S<Mod>Cit` icerigi descriptor'dan turer: `access: ro` olan ya da `post_init_status`
+ile isaretli, alan tanimli (<= 16 bit) her register icin bir `ui<Alan> : n` bit alani
+ve ham `uc/us<Register>` bayti; `returns` tanimli, risk `safe` her op icin bir deger
+alani (`usArrVoltageRead[8]`, `iTemperatureRead`, ...). Her register ve olcum icin bir
+`ui...Ok : 1` okuma-basari biti vardir; `uiHataSayac` o okumadaki dusen erisim
+sayisidir. Bir okuma dusse de digerlerine devam edilir. Kart LIMIT degerlendirmez (mevcut
+ilke: limit karari host/ust katmanda).
+
+Tipik kullanim:
+
+```c
+static SSistemCitBus S_sBus;
+static SSistemCit S_sCit;
+
+sistemCitBusVarsayilan(&S_sBus); /* spec'ten surucu turu, device id, taban adres */
+sistemCitInit(&S_sBus);          /* bus'lar + entegre ilklendirmeleri (ilk hata doner, devam eder) */
+sistemCitRead(&S_sBus, &S_sCit); /* periyodik: S_sCit.sU2Ltc2991.sBayraklar.uiV1Ready ... */
+```
+
+Xilinx disi bir MCU'ya tasirken `spec2code_cit_port.h` icinde `SPEC2CODE_CIT_PORT_KULLANICI 1`
+yapip HAL basliklarinin sonundaki `spec2codeI2cPortWrite/Read` ve `spec2codeSpiPortTransfer`
+fonksiyonlarini gerceklemek yeterlidir; entegre ve sistem katmani degismez.
+
+Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
+tabanli SPI flash, I2C EEPROM. Mux'lar ayri dosya almaz; cihazin config'inde switch
+adresi + kanal olarak tasinir.
 
 ## 11. Code Viewer ve Download
 

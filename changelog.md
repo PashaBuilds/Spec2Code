@@ -3,6 +3,64 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.155 - 2026-09-05
+
+CIT ENTEGRE KATMANI (`cit/`) + MICROBLAZE E2E YENIDEN DOGRULAMA (kullanici istegi:
+"i2c/spi wrapper alt katmanda, ustunde entegre CIT fonksiyonlari; struct pointer'i
+bit bit / bayt bayt dolduran, kendi gomulu yazilimima oldugu gibi alabilecegim,
+portlanabilir kod; mevcut yapiyi bozma").
+
+- **Yeni cikti agaci `outputs/<proje>/cit/`** (uretici `orchestrator/cit_layer.py`,
+  tasarim `docs/superpowers/specs/2026-09-05-cit-hal-layer-design.md`):
+  - `hal/spec2code_cit_port.h`: platform secimi `SPEC2CODE_CIT_PORT_XIICPS/XIIC/XSPIPS/
+    XSPI/KULLANICI` (spec'teki denetleyicilerden turer, `#ifndef` korumali, `-D` ile
+    ezilebilir) + katman durum kodlari (XST ile uyumlu 0/1).
+  - `hal/spec2code_i2c_bus.h/.c`: `SSpec2codeI2cBus` + `spec2codeI2cBusInit/Write/Read/
+    RegisterRead/RegisterWrite/RegisterReadWide/RegistersRead/MuxSelect`; arka uclar PS
+    XIicPs (ornek tabanli), AXI XIic (taban adres, bayt sayisi -> durum cevrimi) ve
+    kullanici portu (`spec2codeI2cPortWrite/Read`, Xilinx disi MCU).
+  - `hal/spec2code_spi_bus.h/.c`: `SSpec2codeSpiBus` + `spec2codeSpiBusInit/Transfer`; PS
+    XSpiPs, AXI XSpi (CS indeks -> one-hot cevrimi icerde, kesmeler maskeli) ve kullanici
+    portu.
+  - `<mod>_cit.h/.c` (entegre basina): `S<Mod>CitConfig` (I2C adresi / switch adresi+kanali /
+    poll timeout ya da CS - CALISMA ZAMANINDA degistirilebilir, varsayilan
+    `<MOD>_CIT_CONFIG_VARSAYILAN` spec'ten), `S<Mod>CitBayraklar` (her durum registeri ve
+    olcum icin `ui...Ok : 1` + descriptor alanlariyla birebir `ui<Alan> : n` bit alanlari,
+    `_Static_assert` ile boyut kilidi), `S<Mod>Cit` (bayraklar + ham `uc/us<Register>` +
+    `usArrVoltageRead[8]` / `iTemperatureRead` gibi olcumler + `uiHataSayac`),
+    `<mod>CitInit()` (spec profil/TICS yazimlari HAL uzerinden) ve `<mod>CitRead()` (bir
+    okuma dusse de digerlerine DEVAM eder). Durum registeri kurali: alan tanimli,
+    <=16 bit, `access: ro` ya da `post_init_status.reg`.
+  - `spec2code_cit_sistem.h/.c`: `SSistemCitBus` (denetleyici basina HAL bus),
+    `SSistemCit` (cihaz basina alt struct), `sistemCitBusVarsayilan()` (spec'ten surucu
+    turu/device id/taban adres), `sistemCitInit()` (ilk hatayi dondurur, devam eder),
+    `sistemCitRead()`.
+  - Kapsam disi (README'de listelenir): GPIO hat cihazlari, komut tabanli SPI flash, I2C
+    EEPROM. Mux ayri dosya almaz (config'de adres+kanal).
+- **DEGISMEZLIK:** `drivers/`, `tests/` ve `SBoardCit`/`boardCitRun` sozlesmesi
+  DOKUNULMADI; `cit/` yalniz eklenir, README'ye bir bolum gelir. Test kilitliyor.
+- **Dogrulama:** host gcc round-trip (kullanici portu ile sahte LTC2991/TMP101/LMK04832:
+  bitler, degerler, hata yolu), 16 descriptor'un tamami tek spec'te mb-gcc -Werror ve
+  aarch64 gcc (Versal BSP, XIicPs) ile derlendi; QC (clang-format/tidy + naming linter)
+  `cit/` klasorunu de kapsar; Vitis staging `cit/` klasorunu app'e alir (include yollari
+  `cit/`, `cit/hal/`).
+- **MicroBlaze E2E (Vitis 2023.2, bu makine):** `scripts/make_microblaze_xsa.tcl` ile
+  Vivado 2023.2'de yeniden uretilen XSA (MicroBlaze + AXI UARTLite + AXI IIC + AXI Quad
+  SPI) -> XSA parser -> generate -> platform/BSP/app -> `mb_cit_board_app.elf`
+  (`ELF 32-bit LSB, Xilinx MicroBlaze`); `cit/` nesneleri BSP ile derlendi. Uygulama
+  `--gc-sections` ile linklendiginden referanssiz CIT kodu ELF'e girmez; ayrica
+  `sistemCitInit/Read` cagiran kucuk bir main ile cit nesneleri ayni BSP'ye karsi
+  MicroBlaze ELF'ine LINKLENDI (21.6 KB text; `XIic_Send`/`XSpi_Transfer` cozuldu).
+  Saha notu: 128KB LMB ile -O0 -g3 UART ajani uygulamasi 21952 bayt tasti; script
+  artik LMB adres segmentlerini 256K yapar (blok otomasyonuna 256KB verilemez; sessizce
+  geri alinir ve AXI otomasyonu "No interface associated with /microblaze_0" ile duser).
+- **Vitis CLI fix (saha):** `--temp/--workspace/--xsa` goreli verilince XSCT (workspace
+  klasorunden kosar) script'i bulamiyor, "couldn't read file" deyip exit 0 donuyordu ve
+  akis "build gecti ama ELF yok" sanilip yanlis teshis veriyordu. `_clean_user_path`
+  artik mutlak yola cozer; "couldn't read file" fatal sayilir. Regresyon testleri eklendi.
+- UI: Tasarim Incelemesi dosya plani `cit/` dosyalarini gosterir; Docs paneli, README ve
+  kullanim kilavuzu (10. bolum) katmani anlatir.
+
 ## v0.1.154 - 2026-08-05
 
 COK-KARTLI (MULTI-BOARD) SISTEM TOPOLOJISI (kullanici istegi: "gercek projelerde

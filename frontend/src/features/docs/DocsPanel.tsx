@@ -301,7 +301,10 @@ const SECTIONS: DocSection[] = [
       <>
         <P>
           <B>Generate</B> düğmesi spec'i doğrular, sürücüleri (<M>drivers/</M>), testleri ve kart
-          test ajanını (<M>tests/</M>) üretir, ardından QC (stil + statik analiz) koşar. Sol kolonda
+          test ajanını (<M>tests/</M>), ayrıca kendi gömülü yazılımına taşınabilir CİT entegre
+          katmanını (<M>cit/</M>: I2C/SPI HAL sarmalayıcıları + entegre başına <M>S&lt;Mod&gt;Cit</M>
+          struct'ı ve <M>Init/Read</M> fonksiyonları + sistem toplayıcı) üretir, ardından QC (stil +
+          statik analiz) koşar. Sol kolonda
           canlı olay akışı, sağda üç sekme: <B>Üretilen kod</B> (dosya ağacı, editör, QC bulguları,
           önceki koşuma göre diff), <B>Vitis</B> (workspace kurulumu) ve <B>Board</B> (JTAG ile
           karta yükleme).
