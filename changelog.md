@@ -36,8 +36,11 @@ bulunup duzeltildi.
   (cit/ katmani + BSP'ye link): ayni AXI IIC hattinda ADT7420 GERCEK + LTC2991 SANAL
   (`sistemCitRead` bit bit doldu: idok/tok, 31.35 C; sanal 3299/1199 mV, 42.75 C); sanal
   cihaz cikarilinca 0x48 gercek hatta gidip NACK aldi, ADT7420 etkilenmedi.
-- QSPI'dan acilis: `updatemem` ile ajan ELF'i BRAM'e gomulu bitstream, `write_cfgmem` +
-  hardware manager ile S25FL128S programlama (`test/0_temp_nexys/program_flash.tcl`).
+- **QSPI'dan acilis DOGRULANDI:** `updatemem` ile ajan ELF'i BRAM'e gomulu bitstream,
+  `write_cfgmem` + hardware manager ile S25FL128S programlama (`test/0_temp_nexys/
+  program_flash.tcl`, Program/Verify OK). JP1=QSPI + guc cevrimi sonrasi JTAG yuklemesi
+  olmadan ajan UART'tan cevap verdi (ADT7420 0xCB / 30.68 C, flash JEDEC 01 20 18,
+  0xF00000'deki test verisi korunmus); MicroBlaze JTAG'da "Running".
 
 ## v0.1.157 - 2026-09-05
 
