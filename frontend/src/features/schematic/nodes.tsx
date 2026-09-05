@@ -247,12 +247,13 @@ export function DeviceNode({ id, data, selected }: NodeProps) {
     <div
       className={cn(
         "relative w-[230px] rounded-lg border px-3 py-2.5 transition-shadow",
-        // Sanal cihaz: farkli arka plan + kesikli cerceve — sematige bakmak yeterli.
-        simulate ? "border-dashed bg-warn/15" : "bg-chip-body",
+        // Sanal cihaz: EFLATUN arka plan + kesikli cerceve — sematige bakmak yeterli
+        // (sari ton kanvas arka planina karisiyordu; kullanici istegi: mor/eflatun).
+        simulate ? "border-dashed bg-[#5b2a86]/70" : "bg-chip-body",
         selected
           ? "border-accent shadow-copper-glow"
           : simulate
-            ? "border-warn/70 shadow-node"
+            ? "border-[#c084fc]/80 shadow-node"
             : "border-chip-body-edge shadow-node",
       )}
     >
@@ -276,8 +277,8 @@ export function DeviceNode({ id, data, selected }: NodeProps) {
         className={cn(
           "nodrag nopan absolute -top-2 right-3 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide transition-colors",
           simulate
-            ? "border-warn/70 bg-warn/25 text-warn"
-            : "border-chip-body-edge bg-chip-body text-faint hover:border-warn/60 hover:text-warn",
+            ? "border-[#c084fc] bg-[#7c3aed]/60 text-[#f3e8ff]"
+            : "border-chip-body-edge bg-chip-body text-faint hover:border-[#c084fc]/70 hover:text-[#d8b4fe]",
         )}
         title={simulate ? "SANAL cihaz: kartta takılı değil, simülatörden cevaplar. Gerçeğe çevirmek için tıkla." : "Gerçek cihaz. Sanal (simülatör) yapmak için tıkla."}
         onClick={(event) => {

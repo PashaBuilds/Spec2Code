@@ -7,8 +7,8 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 - **Sematik - sanal cihaz anahtari kutuda:** her entegre kutusunun sag ustunde "gercek / sanal"
   pili; tiklayinca `simulate` degisir (sag paneldeki onay kutusu kaldirildi). Sanal cihaz kutusu
-  farkli arka plan (sari ton) + kesikli cerceveyle gorunur - yalniz sematige bakmak yeterli
-  (kullanici istegi).
+  EFLATUN/mor arka plan + kesikli cerceveyle gorunur - yalniz sematige bakmak yeterli
+  (kullanici istegi; sari ton kanvasa karisiyordu).
 
 ## v0.1.161 - 2026-09-05
 
