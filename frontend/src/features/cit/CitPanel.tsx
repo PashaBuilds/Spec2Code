@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Cpu, HeartPulse, Loader2, Pause, Pencil, Play, Power, RefreshCw } from "lucide-react";
+import { Activity, Check, Cpu, HeartPulse, Loader2, Pause, Pencil, Play, Power, RefreshCw, X } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { useBoardConnection } from "@/store/connection";
 import { api } from "@/lib/api";
@@ -340,8 +340,8 @@ export default function CitPanel() {
   function saveEdit(measurement: CitDecodeMeasurement) {
     const min = editDraft.min.trim() === "" ? undefined : Number(editDraft.min);
     const max = editDraft.max.trim() === "" ? undefined : Number(editDraft.max);
+    // Isim formda yok: mevcut override adi (varsa) korunur, varsayilan ad spec'ten gelmeye devam eder.
     writeOverride(measurement, {
-      name: editDraft.name.trim() || undefined,
       min: Number.isFinite(min as number) ? min : undefined,
       max: Number.isFinite(max as number) ? max : undefined,
       severity: editDraft.severity,
@@ -416,43 +416,41 @@ export default function CitPanel() {
     : [{ boardId: MAIN_BOARD_ID, boardName: "", groups: deviceGroups }];
 
   function renderEditForm(measurement: CitDecodeMeasurement) {
+    // Tek satir: min .. max | onem | kaydet / iptal (isim tekrar yazilmaz; ad ustte zaten gorunur).
     return (
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-accent/30 bg-inset/70 p-2">
-        <Input
-          value={editDraft.name}
-          onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
-          placeholder="isim"
-          className="h-6 w-32 px-1 font-mono text-[11px]"
-        />
+      <div className="mt-2 flex flex-nowrap items-center gap-1 rounded-md border border-accent/30 bg-inset/70 px-1.5 py-1">
         <Input
           value={editDraft.min}
           onChange={(e) => setEditDraft((d) => ({ ...d, min: e.target.value }))}
           placeholder="min"
-          className="h-6 w-16 px-1 font-mono text-[11px]"
+          className="h-6 w-14 min-w-0 px-1 font-mono text-[11px]"
         />
         <span className="text-[11px] text-faint">..</span>
         <Input
           value={editDraft.max}
           onChange={(e) => setEditDraft((d) => ({ ...d, max: e.target.value }))}
           placeholder="max"
-          className="h-6 w-16 px-1 font-mono text-[11px]"
+          className="h-6 w-14 min-w-0 px-1 font-mono text-[11px]"
         />
         <select
           value={editDraft.severity}
           onChange={(e) => setEditDraft((d) => ({ ...d, severity: e.target.value as "critical" | "warning" }))}
-          className="h-6 rounded-md border border-border bg-inset px-1 font-mono text-[11px] text-text"
+          className="h-6 min-w-0 flex-1 rounded-md border border-border bg-inset px-1 font-mono text-[11px] text-text"
         >
           <option value="warning">warning</option>
           <option value="critical">critical</option>
         </select>
-        <span className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-ok" onClick={() => saveEdit(measurement)}>
-            kaydet
-          </Button>
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-faint" onClick={cancelEdit}>
-            iptal
-          </Button>
-        </span>
+        <button
+          type="button"
+          className="rounded p-1 text-ok hover:bg-inset"
+          onClick={() => saveEdit(measurement)}
+          title="kaydet"
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden />
+        </button>
+        <button type="button" className="rounded p-1 text-faint hover:bg-inset" onClick={cancelEdit} title="iptal">
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
       </div>
     );
   }

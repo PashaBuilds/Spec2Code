@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.166 - 2026-09-06
+
+- **CIT duzenleme seridi (kullanici geri bildirimi):** isim alani kaldirildi (ad zaten satirin
+  ustunde), min .. max | warning/critical | kaydet(✓) / iptal(✕) TEK satira sigar.
+  Var olan isim override'lari korunur.
+
 ## v0.1.165 - 2026-09-06
 
 - **CIT paneli duzeltmeleri (kullanici geri bildirimi):** olcum satiri iki satirli oldu - isim
