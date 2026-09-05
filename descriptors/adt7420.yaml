@@ -1,0 +1,66 @@
+descriptor_version: "1.0"
+part: "ADT7420"
+manufacturer: "Analog Devices"
+summary: "16-bit I2C digital temperature sensor (0.0078 C resolution, +-0.25 C accuracy)."
+transport:
+  type: i2c
+  address_width: 8
+  default_address: 0x4B      # 0x48..0x4B via A1/A0; Digilent Nexys A7 kart ustu: 0x4B
+  byte_order: big
+access_primitives:
+  read_register:  { pattern: write_addr_then_read, width_bytes: 1 }
+  write_register: { pattern: write_addr_then_data, width_bytes: 1 }
+# ADT7420 datasheet (Rev. E) Table 8 register map. TEMPERATURE 16-bit register
+# 0x00 (MSB) / 0x01 (LSB): 16-bit modda tam 16 bit ikili tumleyen, LSB = 1/128 C;
+# 13-bit modda (varsayilan) D2..D0 alarm bayraklari olur. device_init 16-bit modu
+# secer (CONFIG bit 7 = 1) ki donusum tek formulle yapilsin.
+registers:
+  - { name: TEMPERATURE, offset: 0x00, width: 16, access: ro, reset: 0x0000,
+      fields: [ { name: TEMP_CODE, bits: "15:0" } ] }
+  - { name: STATUS, offset: 0x02, width: 8, access: ro, reset: 0x80,
+      fields: [
+        { name: RDY_N, bits: "7" },
+        { name: T_CRIT, bits: "6" },
+        { name: T_HIGH, bits: "5" },
+        { name: T_LOW, bits: "4" } ] }
+  - { name: CONFIGURATION, offset: 0x03, width: 8, access: rw, reset: 0x00,
+      fields: [
+        { name: RESOLUTION_16BIT, bits: "7" },
+        { name: OPERATION_MODE, bits: "6:5" },
+        { name: INT_CT_MODE, bits: "4" },
+        { name: CT_POLARITY, bits: "3" },
+        { name: INT_POLARITY, bits: "2" },
+        { name: FAULT_QUEUE, bits: "1:0" } ] }
+  - { name: T_HIGH_SETPOINT, offset: 0x04, width: 16, access: rw, reset: 0x2000 }
+  - { name: T_LOW_SETPOINT, offset: 0x06, width: 16, access: rw, reset: 0x0500 }
+  - { name: T_CRIT_SETPOINT, offset: 0x08, width: 16, access: rw, reset: 0x4980 }
+  - { name: T_HYST_SETPOINT, offset: 0x0A, width: 8, access: rw, reset: 0x05 }
+  - { name: ID, offset: 0x0B, width: 8, access: ro, reset: 0xCB,
+      fields: [
+        { name: MANUFACTURER_ID, bits: "7:3" },
+        { name: SILICON_REVISION, bits: "2:0" } ] }
+  - { name: SOFTWARE_RESET, offset: 0x2F, width: 8, access: wo }
+operations:
+  - name: device_init
+    description: "Select 16-bit resolution, continuous conversion (CONFIGURATION = 0x80)."
+    steps:
+      - { op: write_register, reg: CONFIGURATION, value: 0x80 }
+  - name: id_read
+    returns: "uint8"
+    description: "Read the ID register (expected 0xCB: manufacturer 0x19, revision 3)."
+    steps:
+      - { op: read_register, reg: ID }
+  - name: status_read
+    returns: "uint8"
+    description: "Read STATUS (RDY_N=0 means a new conversion result is available)."
+    steps:
+      - { op: read_register, reg: STATUS }
+  - name: temperature_read
+    returns: "int32"
+    description: "Read the temperature converted to santi-Celsius (16-bit two's complement, LSB 1/128 C; integer division truncates toward zero, <=0.01 C)."
+    convert: { mask: 0xFFFF, signed_bits: 16, scale_num: 100, scale_den: 128, unit: "0.01 C" }
+    steps:
+      - { op: read_registers, reg: TEMPERATURE, length: 2 }
+test_hints:
+  post_init_status: { reg: STATUS }
+  self_test: { description: "Read ID (expect 0xCB) and one temperature sample." }

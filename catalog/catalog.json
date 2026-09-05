@@ -218,6 +218,32 @@
         "MFR_SPECIAL_ID",
         "READ_VOUT"
       ]
+    },
+    {
+      "part": "ADT7420",
+      "transport": "i2c",
+      "status": "builtin",
+      "descriptor": "descriptors/adt7420.yaml",
+      "summary": "16-bit I2C temperature sensor (Nexys A7 on-board, 0x4B)",
+      "match_tokens": [
+        "ADT7420",
+        "adt7420_",
+        "T_CRIT_SETPOINT",
+        "0xCB"
+      ]
+    },
+    {
+      "part": "S25FL128S",
+      "transport": "spi",
+      "status": "builtin",
+      "descriptor": "descriptors/s25fl128s.yaml",
+      "summary": "128 Mbit SPI NOR flash, 3-byte addressing (Nexys A7 configuration flash)",
+      "match_tokens": [
+        "S25FL128S",
+        "s25fl128s_",
+        "CLEAR_STATUS",
+        "0x30"
+      ]
     }
   ]
 }

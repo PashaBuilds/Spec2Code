@@ -139,22 +139,20 @@ class AxiI2cCodegenTests(unittest.TestCase):
         # XIic_Send/XIic_Recv return BYTES TRANSFERRED (0 on a busy bus), never
         # XST_*: a short count is the only failure signal there is.
         self.assertIn(
-            "uiSent = (unsigned int)XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption);",
+            "uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,",
             source)
         self.assertIn(
-            "uiGot = (unsigned int)XIic_Recv(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);",
+            "uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);",
             source)
         for guard in ("if (uiSent != uiLength)", "if (uiGot != uiLength)"):
             self.assertIn(guard, source)
         self.assertIn("return XST_FAILURE;", source)
 
-        # Transfer option: the register-pointer write ends with a STOP, exactly
-        # like Xilinx' own xiic_low_level_eeprom_example.c and like the PS path
-        # (XIicPs_MasterSendPolled always emits a STOP). REPEATED_START is
-        # available in the adapter but is not the default - an error return
-        # between the two halves would leave the bus held.
-        self.assertIn("XIIC_STOP);", source)
-        self.assertNotIn("XIIC_REPEATED_START", source)
+        # Yazimlar STOP ile biter; register-pointer yazimi ise REPEATED_START ile
+        # (SAHA Nexys A7: dinamik modda STOP'lu pointer + DynRecv IP'de takilir).
+        # (Bu spec'te yazim yok: STOP'lu yazim mux testinde dogrulanir.)
+        # Register okumalarinda pointer REPEATED_START ile gider (SAHA: Nexys A7).
+        self.assertIn("tmp101BusSend(ulIicBase, TMP101_I2C_ADDR, &ucReg, 1U, XIIC_REPEATED_START);", source)
 
     def test_axi_iic_device_init_probes_the_bus_instead_of_faking_a_controller_init(self) -> None:
         spec = _microblaze_spec("unit_axi_iic_init")
@@ -166,6 +164,7 @@ class AxiI2cCodegenTests(unittest.TestCase):
         # do something honest: confirm the AXI IIC core answers and SDA/SCL are
         # not stuck, so a dead bus fails loudly at init.
         self.assertIn("int tmp101DeviceInit(unsigned long ulIicBase)", source)
+        self.assertIn("iStatus = XIic_DynInit(ulIicBase);", source)
         self.assertIn("iStatus = (int)XIic_WaitBusFree(ulIicBase);", source)
         self.assertNotIn("XIic_LookupConfig", source)
         self.assertNotIn("XIic_CfgInitialize", source)
@@ -184,7 +183,7 @@ class AxiI2cCodegenTests(unittest.TestCase):
 
         self.assertIn("int tca9548aChannelSelect(unsigned long ulIicBase, unsigned char ucChannel)",
                       mux_source)
-        self.assertIn("XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption)", mux_source)
+        self.assertIn("XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,", mux_source)
         self.assertNotIn("XIicPs_", mux_source)
         # The mux select is still injected before every device access, with the
         # base address handed straight through.
@@ -205,7 +204,7 @@ class AxiI2cCodegenTests(unittest.TestCase):
         # Generic register helpers and the muxed-line bus scan both run on the
         # AXI API; no PS driver may leak into a MicroBlaze application.
         self.assertIn("spec2codeTestbenchI2cRegisterReadAxi", ops)
-        self.assertIn("XIic_Send(ulScanIic, (unsigned char)uiScanAddr, &ucProbe, 1U, XIIC_STOP)", ops)
+        self.assertIn("XIic_DynSend(ulScanIic, (unsigned short)uiScanAddr, &ucProbe, 1U, XIIC_STOP)", ops)
         self.assertNotIn("XIicPs_", ops)
 
     def test_axi_iic_controllers_are_published_for_scanning_in_the_manifest(self) -> None:

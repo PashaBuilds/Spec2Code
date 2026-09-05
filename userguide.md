@@ -138,10 +138,17 @@ yuzden Spec2Code 256KB/512KB'i LMB adres segmentini buyuterek kurar ve geri
 okuyup dogrular. Vivado Tasarimi ekraninda MicroBlaze varsayilani **256KB**'dir;
 kucuk secersen link `S2C-VITIS-MEMORY-012` (yerel bellek tasmasi) ile duser.
 
-**HENUZ YAPILMADI:** gercek bir MicroBlaze kartinda calistirma ve bitstream
-uretimi. Bitstream kartin XDC'sini ZORUNLU kilar (Spec2Code pin atamasi
-uydurmaz); XDC'siz `.xsa` uretimi sorunsuz calisir. Kesme yolu (`axi_intc`) ve
-DDR/MIG yoktur.
+**Gercek kart (2026-09-05, Digilent Nexys A7-100T):** `scripts/make_nexys_a7_design.tcl`
+ile uretilen bitstream (MB 256K LMB + AXI UARTLite 115200 + AXI IIC + AXI Quad SPI
+STARTUPE2 uzerinden konfigurasyon flash'ina) kartta kosuldu: UART ajani, kart ustu
+ADT7420 (ID 0xCB, sicaklik), I2C tarama, S25FL128S flash sil/yaz/oku (0xF00000) ve
+karisik-mod CIT (ADT7420 gercek + LTC2991 sanal) uctan uca dogrulandi. Kartta bulunan
+saha bug'i: AXI IIC standart modda tek baytlik STOP yazimi bayti dusuruyor - uretilen
+kod artik DINAMIK mod (`XIic_DynInit/DynSend/DynRecv`) kullanir ve register
+okumalarinda pointer'i `XIIC_REPEATED_START` ile gonderir (STOP'lu pointer + DynRecv
+IP'de takilir). Nexys A7 pinleri: saat E3, CPU_RESETN C12 (aktif-dusuk), UART C4/D4,
+I2C C14/C15, QSPI CS L13 / DQ0 K17 / DQ1 K18 (SCK STARTUPE2). Kesme yolu (`axi_intc`)
+ve DDR/MIG yoktur.
 
 `xparameters.h` yuklediginde uygulama controller'lari cikartir. Ayni controller
 farkli macro alias'lariyla geldiyse tek controller olarak dedupe edilir.
@@ -819,6 +826,8 @@ Bu surumde desteklenen baslica entegreler:
 - LMX1204
 - LMX1205
 - LTM4681
+- ADT7420 (I2C sicaklik sensoru; Digilent Nexys A7 kart ustu, 0x4B)
+- S25FL128S (SPI NOR flash, 3-bayt adres; Nexys A7 konfigurasyon flash'i)
 
 Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
 deterministik descriptor/codegen destegi yoktur.

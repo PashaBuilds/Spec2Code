@@ -1,0 +1,54 @@
+descriptor_version: "1.0"
+part: "S25FL128S"
+manufacturer: "Infineon (Cypress / Spansion)"
+summary: "128 Mbit (16 MB) SPI NOR flash, 3-byte (24-bit) addressing; Digilent Nexys A7 configuration flash."
+transport:
+  type: spi
+  address_width: 24          # 3-byte addressing (4-byte mode optional via BAR, unused here)
+  byte_order: big
+access_primitives:
+  read_command:  { pattern: opcode_then_read }
+  write_command: { pattern: opcode_then_write }
+# S25FL128S datasheet (001-98282) Table 11.2 command set - JEDEC-standard single-SPI subset.
+# JEDEC ID: 0x01 (Cypress/Spansion) 0x20 0x18 (128 Mbit). Uniform 64 KB sectors (hybrid
+# variants also carry 4 KB parameter sectors at one end; P4E 0x20 only applies there).
+commands:
+  - { name: READ_ID,         opcode: 0x9F, address_bytes: 0, description: "RDID (0x01 0x20 0x18 ...)" }
+  - { name: READ_STATUS,     opcode: 0x05, address_bytes: 0, description: "RDSR1 (WIP bit 0, WEL bit 1)" }
+  - { name: WRITE_ENABLE,    opcode: 0x06, address_bytes: 0, description: "WREN" }
+  - { name: WRITE_DISABLE,   opcode: 0x04, address_bytes: 0, description: "WRDI" }
+  - { name: READ_DATA,       opcode: 0x03, address_bytes: 3, description: "READ (<= 50 MHz)" }
+  - { name: FAST_READ,       opcode: 0x0B, address_bytes: 3, description: "FAST_READ (8 dummy cycles; unused by generated ops)" }
+  - { name: PAGE_PROGRAM,    opcode: 0x02, address_bytes: 3, description: "PP (256 B / 512 B page)" }
+  - { name: SECTOR_ERASE,    opcode: 0xD8, address_bytes: 3, description: "SE (64 KB uniform sector)" }
+  - { name: PARAMETER_SECTOR_ERASE, opcode: 0x20, address_bytes: 3, description: "P4E (4 KB, only in parameter-sector region of hybrid parts)" }
+  - { name: CLEAR_STATUS,    opcode: 0x30, address_bytes: 0, description: "CLSR (clear P_ERR/E_ERR)" }
+operations:
+  - name: device_init
+    description: "3-byte (24-bit) addressing - no address-mode switch required."
+    steps:
+      - { op: comment, note: "Default 3-byte addressing; configuration flash shares the bus with FPGA configuration - stay above the bitstream region when programming." }
+  - name: id_read
+    description: "Read the 3-byte JEDEC device ID (RDID): 0x01 0x20 0x18."
+    steps:
+      - { op: read_command_address, cmd: READ_ID, length: 3 }
+  - name: status_read
+    description: "Read Status Register 1 (bit 0 WIP = write in progress, bit 1 WEL)."
+    steps:
+      - { op: read_command_address, cmd: READ_STATUS, length: 1 }
+  - name: data_read
+    description: "Read length bytes starting at a 24-bit address."
+    steps:
+      - { op: read_command_address, cmd: READ_DATA }
+  - name: page_program
+    description: "Program length bytes at a 24-bit address (do not cross a 256-byte page); poll status_read WIP=0 before the next command."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: PAGE_PROGRAM }
+  - name: sector_erase
+    description: "Erase the 64 KB sector containing a 24-bit address (typ. 130 ms; poll status_read WIP=0)."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: SECTOR_ERASE, length: 0 }
+test_hints:
+  self_test: { description: "Read JEDEC ID, verify manufacturer byte 0x01 and density 0x18." }

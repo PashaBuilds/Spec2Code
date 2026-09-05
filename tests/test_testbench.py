@@ -1566,7 +1566,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('#include "xiic_l.h"', device_header)
         self.assertIn("int tmp101TemperatureRead(unsigned long ulIicBase, int* ipTemperature)",
                       device_source)
-        self.assertIn("XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption)", device_source)
+        self.assertIn("XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,", device_source)
         self.assertNotIn("XIicPs_", device_source)
 
     def test_coresight_agent_generated_when_transport_is_coresight(self) -> None:

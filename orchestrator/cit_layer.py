@@ -609,9 +609,11 @@ def i2c_bus_source() -> str:
  * Arka uc farklari (tek yerde):
  *  - XIicPs_MasterSendPolled/RecvPolled XST_* dondurur ve sonrasinda BusIsBusy
  *    beklenir; SCL hizi SetSClk ile kurulur.
- *  - XIic_Send/XIic_Recv (xiic_l.h) TABAN ADRES alir ve AKTARILAN BAYT SAYISINI
- *    dondurur (mesgul hatta 0): kisa sayim tek hata isaretidir; kendileri
- *    transfer bitene kadar bloklar, ayrica bekleme gerekmez.
+ *  - XIic_DynSend/XIic_DynRecv (xiic_l.h, DINAMIK mod) TABAN ADRES alir ve
+ *    AKTARILAN BAYT SAYISINI dondurur (mesgul hatta 0): kisa sayim tek hata
+ *    isaretidir; kendileri transfer bitene kadar bloklar. Standart-mod XIic_Send
+ *    tek baytlik STOP yaziminda bayti dusurdugu icin (SAHA: Nexys A7) dinamik mod
+ *    secildi; XIic_DynInit BusInit'te kosar.
  *  - Kullanici portu: spec2codeI2cPortWrite/Read.
  */
 #include "spec2code_i2c_bus.h"
@@ -736,6 +738,10 @@ int spec2codeI2cBusInit(SSpec2codeI2cBus* spBus)
         {
             return SPEC2CODE_CIT_PARAMETRE;
         }
+        if (XIic_DynInit((UINTPTR)spBus->ulTabanAdres) != XST_SUCCESS)
+        {
+            return SPEC2CODE_CIT_HATA;
+        }
         if (XIic_WaitBusFree((UINTPTR)spBus->ulTabanAdres) != XST_SUCCESS)
         {
             return SPEC2CODE_CIT_HATA;
@@ -760,12 +766,18 @@ int spec2codeI2cBusInit(SSpec2codeI2cBus* spBus)
     }
 }
 
-int spec2codeI2cWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres, const unsigned char* ucpVeri,
-                      unsigned int uiBoy)
+/* ucTut: 1 = transfer STOP yerine REPEATED_START ile biter (register pointer yazimi;
+ * ardindan spec2codeI2cRead STOP'la bitirir). Yalniz AXI IIC'de anlamlidir: dinamik
+ * modda STOP'lu pointer + DynRecv IP'de takilir (SAHA: Nexys A7). PS ve kullanici
+ * portu STOP'lu yazim + ayri okuma yapar (PS'te sahada kanitli). */
+static int spec2codeI2cWriteOpsiyon(SSpec2codeI2cBus* spBus, unsigned char ucAdres,
+                                    const unsigned char* ucpVeri, unsigned int uiBoy,
+                                    unsigned int uiTut)
 {
     unsigned char ucArrTx[SPEC2CODE_I2C_TX_MAX];
     unsigned int uiIndex;
 
+    (void)uiTut;
     if ((spBus == (SSpec2codeI2cBus*)0) || (ucpVeri == (const unsigned char*)0) ||
         (uiBoy == 0U) || (uiBoy > SPEC2CODE_I2C_TX_MAX))
     {
@@ -824,8 +836,9 @@ int spec2codeI2cWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres, const unsi
     {
         unsigned int uiGiden;
 
-        uiGiden = (unsigned int)XIic_Send((UINTPTR)spBus->ulTabanAdres, ucAdres, ucArrTx, uiBoy,
-                                          XIIC_STOP);
+        uiGiden = (unsigned int)XIic_DynSend((UINTPTR)spBus->ulTabanAdres, (unsigned short)ucAdres,
+                                             ucArrTx, (unsigned char)uiBoy,
+                                             (uiTut != 0U) ? XIIC_REPEATED_START : XIIC_STOP);
         if (uiGiden != uiBoy)
         {
             return spec2codeI2cHata(spBus, SPEC2CODE_CIT_HATA);
@@ -844,6 +857,12 @@ int spec2codeI2cWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres, const unsi
     default:
         return SPEC2CODE_CIT_DESTEK_YOK;
     }
+}
+
+int spec2codeI2cWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres, const unsigned char* ucpVeri,
+                      unsigned int uiBoy)
+{
+    return spec2codeI2cWriteOpsiyon(spBus, ucAdres, ucpVeri, uiBoy, 0U);
 }
 
 int spec2codeI2cRead(SSpec2codeI2cBus* spBus, unsigned char ucAdres, unsigned char* ucpVeri,
@@ -900,8 +919,8 @@ int spec2codeI2cRead(SSpec2codeI2cBus* spBus, unsigned char ucAdres, unsigned ch
     {
         unsigned int uiGelen;
 
-        uiGelen = (unsigned int)XIic_Recv((UINTPTR)spBus->ulTabanAdres, ucAdres, ucpVeri, uiBoy,
-                                          XIIC_STOP);
+        uiGelen = (unsigned int)XIic_DynRecv((UINTPTR)spBus->ulTabanAdres, ucAdres, ucpVeri,
+                                             (unsigned char)uiBoy);
         if (uiGelen != uiBoy)
         {
             return spec2codeI2cHata(spBus, SPEC2CODE_CIT_HATA);
@@ -944,10 +963,10 @@ int spec2codeI2cRegisterReadWide(SSpec2codeI2cBus* spBus, unsigned char ucAdres,
 {
     int iStatus;
 
-    /* Pointer yazimi STOP ile biter, ardindan ayri bir okuma: her iki resmi Xilinx
-     * polled ornegi de (PS ve AXI) bu akisi kullanir; REPEATED_START bilerek
-     * secilmedi (iki yarim arasinda hata donerse hat tutulu kalirdi). */
-    iStatus = spec2codeI2cWrite(spBus, ucAdres, &ucReg, 1U);
+    /* Pointer yazimi: AXI IIC'de REPEATED_START ile hat tutulur ve DynRecv STOP'la
+     * bitirir (STOP'lu pointer + DynRecv IP'de takilir - SAHA Nexys A7); PS ve
+     * kullanici portunda STOP + ayri okuma (PS'te sahada kanitli). */
+    iStatus = spec2codeI2cWriteOpsiyon(spBus, ucAdres, &ucReg, 1U, 1U);
     if (iStatus != SPEC2CODE_CIT_OK)
     {
         return iStatus;

@@ -358,8 +358,12 @@ class _I2cApi:
     * **Handle** - XIicPs is instance based, XIic's polled API is base-address
       based (see ``_handle_param``).
     * **Return value** - ``XIicPs_MasterSendPolled`` returns ``XST_*``, while
-      ``XIic_Send``/``XIic_Recv`` return the NUMBER OF BYTES TRANSFERRED (0 when
-      the bus is busy). AXI units therefore get two small static wrappers
+      ``XIic_DynSend``/``XIic_DynRecv`` return the NUMBER OF BYTES TRANSFERRED (0
+      when the bus is busy). DYNAMIC mode is used on purpose: the standard-mode
+      ``XIic_Send`` clears MSMS before the last byte of a STOP transfer, so a
+      single-byte write (register pointer, TCA9548A control byte) generates STOP
+      right after the address and the byte never leaves the FIFO (FIELD: Nexys A7
+      ADT7420 always answered from register 0). ``XIic_DynInit`` runs in init. AXI units therefore get two small static wrappers
       (``<module>BusSend`` / ``<module>BusRecv``) that compare the count against
       the request and translate to ``XST_SUCCESS``/``XST_FAILURE``; every call
       site keeps the familiar ``iStatus = ...; if (iStatus != XST_SUCCESS)``
@@ -368,15 +372,14 @@ class _I2cApi:
       after each transfer; ``XIic_Send``/``XIic_Recv`` already block until the
       transfer finished and wait for bus-free themselves, so nothing is emitted.
 
-    STOP vs REPEATED_START: both official polled examples
-    (``iic_v3_10/examples/xiic_low_level_eeprom_example.c`` and
-    ``..._dynamic_eeprom_example.c``) do the register-pointer write with
-    ``XIIC_STOP`` and then ``XIic_Recv(..., XIIC_STOP)``; that is also exactly
-    what the PS path does (``XIicPs_MasterSendPolled`` always emits a STOP), so
-    the generated flow is identical on both drivers. ``XIIC_REPEATED_START`` is
-    supported by the adapter (``hold_bus=True``) for sequences that must keep
-    the bus, but it is deliberately NOT the default: an error return between the
-    two halves would leave the bus held.
+    STOP vs REPEATED_START: the PS path writes the register pointer with a
+    STOP and then reads (``XIicPs_MasterSendPolled`` always emits a STOP; field
+    proven on ZynqMP). On AXI IIC in dynamic mode that sequence HANGS inside
+    ``XIic_DynRecv`` (FIELD, Nexys A7 + ADT7420, six-variant probe: after a
+    STOP transfer the next dynamic read START is never issued), so AXI register
+    reads send the pointer with ``XIIC_REPEATED_START`` (``hold_bus=True``) and
+    let ``XIic_DynRecv`` finish with the STOP. Writes stay STOP (1..N bytes are
+    delivered; verified through the ADT7420 software-reset register).
     """
 
     def __init__(self, module: str, htype: str, hvar: str) -> None:
@@ -435,10 +438,12 @@ class _I2cApi:
         """Controller bring-up, guarded against re-initializing a live handle."""
         if self.is_axi:
             e.ln("/* AXI IIC'nin polled API'si (xiic_l.h) TABAN ADRES ile calisir:")
-            e.ln(" * ortada surucu ornegi yoktur, SCL hizi da IP'de sabittir - init")
-            e.ln(" * edilecek bir sey yok. Bunun yerine hat gercekten bosta mi diye")
-            e.ln(" * bakilir: takili SDA/SCL burada YUKSEK SESLE dusar, her op'ta")
-            e.ln(" * sessizce zaman asimina ugramaz. */")
+            e.ln(" * ortada surucu ornegi yoktur, SCL hizi da IP'de sabittir. Cekirdek")
+            e.ln(" * DINAMIK moda alinir (XIic_DynInit): standart-mod XIic_Send tek")
+            e.ln(" * baytlik STOP yaziminda bayti dusuruyor (SAHA: Nexys A7 ADT7420,")
+            e.ln(" * register pointer hic ulasmadi). Ardindan hat gercekten bosta mi")
+            e.ln(" * diye bakilir: takili SDA/SCL burada YUKSEK SESLE dusar. */")
+            e.ln(f"iStatus = XIic_DynInit({self.hvar});").check_status()
             e.ln(f"iStatus = (int)XIic_WaitBusFree({self.hvar});").check_status()
         else:
             # Shared, already-running controllers (test bench boot) must not
@@ -466,7 +471,8 @@ class _I2cApi:
 
         snd = Emit()
         snd.ln("unsigned int uiSent;").blank()
-        snd.ln("uiSent = (unsigned int)XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, ucOption);")
+        snd.ln("uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,")
+        snd.ln("                                     (unsigned char)uiLength, ucOption);")
         snd.open("if (uiSent != uiLength)")
         snd.ln("return XST_FAILURE;")
         snd.close()
@@ -479,7 +485,7 @@ class _I2cApi:
 
         rcv = Emit()
         rcv.ln("unsigned int uiGot;").blank()
-        rcv.ln("uiGot = (unsigned int)XIic_Recv(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);")
+        rcv.ln("uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);")
         rcv.open("if (uiGot != uiLength)")
         rcv.ln("return XST_FAILURE;")
         rcv.close()
@@ -857,7 +863,10 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
 
     r = Emit()
     r.ln("int iStatus;").blank()
-    api.send(r, "&ucReg", 1, addr_def)
+    # AXI IIC (dinamik mod): STOP'lu pointer yazimi + DynRecv IP'de takilir (SAHA:
+    # Nexys A7); pointer REPEATED_START ile gonderilir, DynRecv okumayi STOP'la bitirir.
+    # PS XIicPs'te STOP'lu akis sahada kanitli - degismez.
+    api.send(r, "&ucReg", 1, addr_def, hold_bus=api.is_axi)
     check_traced(r, "ucReg", "p")
     api.wait_idle(r)
     api.recv(r, "ucpValue", 1, addr_def)
@@ -895,7 +904,7 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     wide.open("if ((ucpBuffer == NULL) || (uiLength == 0U))")
     wide.ln("return XST_FAILURE;")
     wide.close()
-    api.send(wide, "&ucReg", 1, addr_def)
+    api.send(wide, "&ucReg", 1, addr_def, hold_bus=api.is_axi)
     check_traced(wide, "ucReg", "p")
     api.wait_idle(wide)
     api.recv(wide, "ucpBuffer", "uiLength", addr_def)
@@ -1260,7 +1269,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     inject_mux(read)
     read.ln("ucArrAddress[0] = (unsigned char)((uiAddress >> 8U) & 0x0FU);")
     read.ln("ucArrAddress[1] = (unsigned char)(uiAddress & 0xFFU);")
-    api.send(read, "ucArrAddress", 2, addr_def).check_status()
+    api.send(read, "ucArrAddress", 2, addr_def, hold_bus=api.is_axi).check_status()
     api.wait_idle(read)
     api.recv(read, "ucpBuffer", "uiLength", addr_def).check_status()
     api.wait_idle(read)
@@ -2070,6 +2079,17 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             for param in funcs_by_name.get(name, CFunc("", "", [], [])).params
         )
 
+    def has_uchar_id_out(name: str) -> bool:
+        # TEK BAYTLIK id_read (I2C `returns: uint8`, or. ADT7420 ID registeri): out
+        # parametresi `unsigned char* ucpId`. SPI flash'in 3 baytlik JEDEC id_read'i
+        # ise `ucpBuffer` alir - ikisi ayni "IdRead" sonekini tasir (SAHA 2026-09-05:
+        # ADT7420 self-test'i tanimsiz `ucArrId` ile derlenmiyordu).
+        # Flash id_read de `ucpId` adini tasir ama 3 baytlik tampondur: ayrim TRANSPORT'la.
+        return unit.transport in {"i2c", "i2c_eeprom"} and any(
+            param.strip().startswith("unsigned char*") and param.strip().endswith("ucpId")
+            for param in funcs_by_name.get(name, CFunc("", "", [], [])).params
+        )
+
     st = Emit()
     st.ln("int iStatus;")
     if unit.transport in {"i2c", "i2c_eeprom"}:
@@ -2081,6 +2101,8 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned short usStatusWord;")
         if any(n.endswith("IdRead") and has_ushort_out(n) for n in read_ops):
             st.ln("unsigned short usId;")
+        if any(n.endswith("IdRead") and has_uchar_id_out(n) for n in read_ops):
+            st.ln("unsigned char ucId;")
         if any(n.endswith("VoltageRead") and is_array_read(n) for n in read_ops):
             st.ln("unsigned short usArrVoltages[8];")
         if any(n.endswith("VoltageRead") and not is_array_read(n) and has_int_out(n) for n in read_ops):
@@ -2131,6 +2153,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     else:
         if any(n.endswith("IdRead") for n in read_ops):
             st.ln("unsigned char ucArrId[3];")
+        # Flash status_read (RDSR, 1 bayt): SPI komut cihazinda da `ucpStatus` alir.
+        if any(n.endswith("StatusRead") and not has_ushort_out(n) for n in read_ops):
+            st.ln("unsigned char ucStatus;")
         if any(n.endswith("DataRead") for n in read_ops):
             st.ln("unsigned char ucArrBuffer[16];")
     st.blank()
@@ -2224,6 +2249,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             if has_ushort_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &usId);").check_status()
                 st.ln('xil_printf("' + part + ' id = %04X\\r\\n", (unsigned int)usId);')
+            elif has_uchar_id_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &ucId);").check_status()
+                st.ln('xil_printf("' + part + ' id = %02X\\r\\n", ucId);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, ucArrId);").check_status()
                 st.ln('xil_printf("' + part + ' JEDEC id = %02X %02X %02X\\r\\n", ucArrId[0], ucArrId[1], ucArrId[2]);')

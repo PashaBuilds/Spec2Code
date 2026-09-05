@@ -3080,12 +3080,16 @@ def _testbench_i2c_helpers_axi() -> list[str]:
     no ``XIicPs_BusIsBusy`` style spin here.
     """
     return [
+        "/* ucOption: XIIC_STOP (yazim) | XIIC_REPEATED_START (register pointer; ardindan",
+        " * RecvAxi okumayi STOP ile bitirir). STOP'lu pointer + DynRecv IP'de takilir (SAHA). */",
         "static int spec2codeTestbenchI2cSendAxi(unsigned long ulBase, unsigned char ucAddress,",
-        "                                        unsigned char* ucpBuffer, unsigned int uiLength)",
+        "                                        unsigned char* ucpBuffer, unsigned int uiLength,",
+        "                                        unsigned char ucOption)",
         "{",
         "    unsigned int uiSent;",
         "",
-        "    uiSent = (unsigned int)XIic_Send(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);",
+        "    uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,",
+        "                                         (unsigned char)uiLength, ucOption);",
         "    if (uiSent != uiLength)",
         "    {",
         "        return XST_FAILURE;",
@@ -3098,7 +3102,7 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "{",
         "    unsigned int uiGot;",
         "",
-        "    uiGot = (unsigned int)XIic_Recv(ulBase, ucAddress, ucpBuffer, uiLength, XIIC_STOP);",
+        "    uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);",
         "    if (uiGot != uiLength)",
         "    {",
         "        return XST_FAILURE;",
@@ -3116,7 +3120,7 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "        return XST_FAILURE;",
         "    }",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -3146,7 +3150,7 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucValue;",
         "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 2U);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 2U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -3168,7 +3172,7 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    {",
         "        return XST_FAILURE;",
         "    }",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -3198,7 +3202,7 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucHigh;",
         "    ucArrBuffer[2] = ucLow;",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 3U);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 3U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -4045,9 +4049,10 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     def probe(buffer: str, addr_expr: str, indent: str) -> list[str]:
         """One-byte write probe + (PS only) bus-idle spin."""
         if is_axi:
-            # XIic_Send BAYT SAYISI dondurur: 1 bayt gitti = ACK alindi.
+            # XIic_DynSend BAYT SAYISI dondurur: 1 bayt gitti = ACK alindi (dinamik mod;
+            # standart XIic_Send tek bayti dusuruyordu - bkz. cmodel._I2cApi).
             return [
-                f"{indent}iProbeStatus = ((unsigned int)XIic_Send({hvar}, (unsigned char){addr_expr}, "
+                f"{indent}iProbeStatus = ((unsigned int)XIic_DynSend({hvar}, (unsigned short){addr_expr}, "
                 f"{buffer}, 1U, XIIC_STOP) == 1U) ? XST_SUCCESS : XST_FAILURE;",
             ]
         return [
@@ -4964,7 +4969,13 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # edilecek surucu ornegi yok. Yine de hat gercekten bosta mi
             # bakilir - takili SDA/SCL burada YUKSEK SESLE dusar.
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI IIC)");',
+                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI IIC, dinamik mod)");',
+                f"    iStatus = XIic_DynInit({handle});",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} XIic_DynInit");',
+                "        return iStatus;",
+                "    }",
                 f"    iStatus = (int)XIic_WaitBusFree({handle});",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",

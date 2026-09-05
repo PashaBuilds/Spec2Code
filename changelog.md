@@ -3,6 +3,42 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.158 - 2026-09-05
+
+GERCEK KART DOGRULAMASI: DIGILENT NEXYS A7-100T (MicroBlaze, AXI IIC + AXI Quad SPI +
+AXI UARTLite) - kartin uc arayuzu de gercek donanimda uctan uca kosuldu; iki saha bug'i
+bulunup duzeltildi.
+
+- **Yeni descriptor'lar:** `ADT7420` (I2C sicaklik sensoru, 16-bit mod, ID 0xCB; Nexys A7
+  kart ustu 0x4B) ve `S25FL128S` (128 Mbit SPI NOR, 3-bayt adres; Nexys A7 konfigurasyon
+  flash'i, RDID 01 20 18). Katalog + kilavuz guncellendi.
+- **Nexys A7 referans tasarimi:** `scripts/make_nexys_a7_design.tcl` - MB 256K LMB, UARTLite
+  115200 (USB-UART C4/D4), AXI IIC (ADT7420 C14/C15), AXI Quad SPI **STARTUPE2 uzerinden**
+  konfigurasyon flash'ina (C_USE_STARTUP=1; CS L13, DQ0 K17, DQ1 K18), CPU_RESETN aktif-dusuk,
+  gomulu XDC, synth/impl/bitstream, .mmi. Dis arayuz adlari acikca sabitlenir (UART/IIC/SPI_0).
+- **SAHA BUG 1 - AXI IIC (XIic) standart mod:** `XIic_Send` tek baytlik STOP yaziminda MSMS'i
+  veri baytindan once temizliyor; bayt hic cikmiyor (register pointer yazimlari, TCA9548A
+  kanal secimi) - ADT7420 her zaman register 0'dan cevap veriyordu, donus sayisi yine 1.
+  Cozum: AXI IIC yolu DINAMIK moda alindi (`XIic_DynInit` + `XIic_DynSend/DynRecv`). Alti
+  varyantli kart probu ile kanitlandi: dinamik modda STOP'lu pointer + `DynRecv` IP'de
+  SONSUZA KADAR takilir; pointer `XIIC_REPEATED_START` ile gonderilip `DynRecv` STOP'la
+  bitirilince 1/2 baytlik okumalar, NACK tespiti ve toparlanma dogru; 1..N baytlik STOP
+  yazimlari iletiliyor (ADT7420 yazilim reset registeri ile dogrulandi). Surucu uretici,
+  test bench ajani ve cit/ HAL ayni kurali uygular; PS XIicPs yolu DEGISMEDI.
+- **SAHA BUG 2 - self-test uretici:** I2C'de tek baytlik `id_read` (`returns: uint8`) SPI
+  flash'in 3 baytlik JEDEC `id_read` kalibiyla karisip tanimsiz `ucArrId` uretiyordu;
+  flash `status_read` (RDSR) icin `ucStatus` bildirimi de eksikti. Transport'a gore ayrildi.
+- **Kart uzerinde dogrulanan (Nexys A7-100T, Vitis 2023.2, USB-UART COM12 @115200):**
+  UART test bench ajani; ADT7420 device_init (CONFIG=0x80 geri okundu), id_read=0xCB,
+  temperature_read ~31.3 C; I2C tarama -> yalniz 0x4B; LTC2991 (kartta yok) NACK;
+  S25FL128S id 01 20 18, status, sector_erase -> FF, page_program -> geri okuma
+  "SPEC2CODE-NEXYS-A7" (0xF00000, bitstream bolgesi disinda). **Karisik mod CIT demosu**
+  (cit/ katmani + BSP'ye link): ayni AXI IIC hattinda ADT7420 GERCEK + LTC2991 SANAL
+  (`sistemCitRead` bit bit doldu: idok/tok, 31.35 C; sanal 3299/1199 mV, 42.75 C); sanal
+  cihaz cikarilinca 0x48 gercek hatta gidip NACK aldi, ADT7420 etkilenmedi.
+- QSPI'dan acilis: `updatemem` ile ajan ELF'i BRAM'e gomulu bitstream, `write_cfgmem` +
+  hardware manager ile S25FL128S programlama (`test/0_temp_nexys/program_flash.tcl`).
+
 ## v0.1.157 - 2026-09-05
 
 LTC2945 VE DS1682 DAVRANISLI SIMULATORLER + KART VERISI EDITORU.
