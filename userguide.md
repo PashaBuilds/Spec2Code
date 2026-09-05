@@ -283,8 +283,17 @@ devam eder.
 
 ### CIT, Test Bench ve YATT
 
-- **CIT** ekrani olcumleri kart basliklari altinda gruplar ve her kart icin ozet
-  rozeti gosterir. Ustteki sistem toplamlari korunur.
+- **CIT** ekrani (Bring-up sekmesinin yanindadir) her entegreyi KENDI kutusunda
+  gosterir: baslik (parca, cihaz id, adres/CS, mux, SANAL rozeti, ozet), dizi
+  donuslu op'lar icin kanal karolari (LTC2991 V1..V8 / I1..I8), skaler olcumler
+  icin deger satirlari. Kart tanimliysa kutular kart basliklari altinda gruplanir;
+  ustteki sistem toplamlari korunur. Kanal karosuna tiklayinca o kanalin
+  isim/limit/onem duzenleme seridi acilir; kalem = duzenle, guc = ac/kapa.
+- **Dizi donuslu olcumler (voltages[8] gibi):** CIT'te her kanal AYRI bir olcum
+  slotudur (manifest `cit.olcumler[].channel`, `channel_label` = "V1".."V8";
+  varsayilan isim `<PART>_V<k>_<i>`). Kart op'u BIR kez okur, kanallari yanittan
+  ayristirir. `config.cit.measurements[]` girdisinde `channel` verilirse yalniz o
+  kanala, verilmezse (isim haric) butun kanallara uygulanir.
 - **Test Bench** entegre listesini kart basliklari altinda gruplar; "butun
   cihazlari ilklendir" kart kart ilerler ve ozet kart bazinda gosterilir.
 - **YATT** dokumanina **Sistem Topolojisi** bolumu eklenir: kart tablosu

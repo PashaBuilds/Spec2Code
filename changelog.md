@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.164 - 2026-09-06
+
+CIT EKRANI: ENTEGRE BASINA KUTU + LTC2991 BUTUN VOLTAJ KANALLARI (kullanici istegi).
+
+- **Sekme sirasi:** CIT sekmesi Bring-up'in hemen yanina alindi.
+- **Kanal acilimi (codegen):** dizi donuslu olcum op'lari (`voltages[8]`, `currents[8]`)
+  CIT'te kanal basina ayri slot/bit olur: manifest `cit.olcumler[].channel/channels/
+  channel_label`, varsayilan isim `<PART>_V<k>_<i>` (`..._I<k>_..`). `boardCitRun` /
+  kart `..CitRun` op'u yalniz kanal 0'da dispatch eder, k>0 ayni yaniti kullanir
+  (`S_uiArrCitKanal`, big-endian 16 bit ayristirma). Dizi op'u olmayan projelerde
+  uretilen C bayt-bayt ayni. `config.cit.measurements[].channel` ile kanal bazli
+  isim/limit; kanalsiz girdi limit/onem/enabled'i butun kanallara uygular (isim haric).
+- **CIT paneli:** tablo yerine entegre kartlari (parca, id, adres/CS, mux, SANAL rozeti
+  ve eflatun ton, bus rengine gore sol serit, ozet rozeti). Kanal karolari 4x2 (V1..V8),
+  tiklayinca duzenleme seridi; skaler olcumler deger satiri (sicaklik 0.01 C -> °C,
+  >=1000 mV -> V). Kosu oncesi de kutular yerinde durur (degerler "-").
+- Backend `decode_board_cit` kanal alanlarini gecirir; testler guncellendi (+2 test).
+
 ## v0.1.163 - 2026-09-05
 
 - **Sematik - sanal cihaz rengi:** sanal isaretli entegre kutusu EFLATUN/mor arka plan

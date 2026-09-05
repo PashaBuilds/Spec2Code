@@ -37,10 +37,11 @@ def _find_cc() -> str | None:
 def _cit_spec(project_name: str) -> dict:
     """LTC2991 (I2C, mux arkasinda) + AD7414 (I2C, dogrudan) iceren CIT test speci.
 
-    Olcum sirasi (manifest cit.olcumler ile birebir):
-      0: u12_ltc2991 voltage_read     -> VCC_3V3_RF (limit 3135..3465, critical)
-      1: u12_ltc2991 temperature_read -> varsayilan isim, limitsiz
-      2: u13_ad7414  temperature_read -> varsayilan isim, limit 2000..3000
+    Olcum sirasi (manifest cit.olcumler ile birebir; voltage_read dizi donuslu
+    (voltages[8]) oldugundan KANAL BASINA olcum acilir):
+      0..7: u12_ltc2991 voltage_read V1..V8 -> V1 = VCC_3V3_RF (limit 3135..3465, critical)
+      8:    u12_ltc2991 temperature_read    -> varsayilan isim, limitsiz
+      9:    u13_ad7414  temperature_read    -> varsayilan isim, limit 2000..3000
     """
     spec = load_sample_spec(project_name)
     spec["devices"] = [
@@ -68,6 +69,7 @@ def _cit_spec(project_name: str) -> dict:
                     "measurements": [
                         {
                             "op": "voltage_read",
+                            "channel": 0,
                             "name": "VCC_3V3_RF",
                             "min": 3135,
                             "max": 3465,
@@ -135,9 +137,11 @@ class CitHeaderTest(unittest.TestCase):
         self.assertIn("unsigned int uiVcc3v3RfOk : 1;", header)
         # AD_TEMP -> AdTemp.
         self.assertIn("unsigned int uiAdTempOk : 1;", header)
-        # Olcum sayisi 3.
-        self.assertIn("#define BOARD_CIT_OLCUM_SAYISI 3U", header)
-        # Bayrak word sayisi ((3+31)/32)*4 == 4 bayt.
+        # Olcum sayisi 10 (8 voltaj kanali + 2 sicaklik); kanal isimleri V2..V8.
+        self.assertIn("#define BOARD_CIT_OLCUM_SAYISI 10U", header)
+        self.assertIn("unsigned int uiLtc2991V20Ok : 1;", header)
+        self.assertIn("unsigned int uiLtc2991V80Ok : 1;", header)
+        # Bayrak word sayisi ((10+31)/32)*4 == 4 bayt.
         self.assertIn("_Static_assert(sizeof(SBoardCitBayraklar) == 4U", header)
         self.assertIn("_Static_assert(sizeof(SBoardCit) % 4U == 0U", header)
         # Prototipler.
@@ -170,6 +174,47 @@ class CitHeaderTest(unittest.TestCase):
         # Dispatch koprusu (cihaz/op tablolari) yerinde.
         self.assertIn("S_cpArrCitCihaz", source)
         self.assertIn("S_cpArrCitOp", source)
+
+    def test_array_op_expands_to_channel_slots_with_single_dispatch(self) -> None:
+        spec = _cit_spec("unit_cit_channels")
+        with tempfile.TemporaryDirectory() as tmp:
+            tests_dir = self._generate(spec, tmp)
+            source = (tests_dir / "spec2code_cit.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        olcumler = manifest["cit"]["olcumler"]
+        kanallar = [m for m in olcumler if m["op"] == "voltage_read"]
+        self.assertEqual([m["channel"] for m in kanallar], list(range(8)))
+        self.assertEqual([m["channel_label"] for m in kanallar], [f"V{i}" for i in range(1, 9)])
+        self.assertTrue(all(m["channels"] == 8 for m in kanallar))
+        self.assertEqual(kanallar[0]["name"], "VCC_3V3_RF")
+        self.assertEqual(kanallar[1]["name"], "LTC2991_V2_0")
+        # Skaler olcumlerde kanal anahtari YOK (eski manifest sekli korunur).
+        self.assertNotIn("channel", olcumler[8])
+        # Kanal tablosu: 0xFF.. skaler, 0x00..0x07 kanallar; tek dispatch (kanal 0).
+        self.assertIn("S_uiArrCitKanal[BOARD_CIT_OLCUM_SAYISI]", source)
+        self.assertIn("    0x07U,\n    0xFFFFFFFFU,", source)
+        self.assertIn("if ((uiKanal == SPEC2CODE_CIT_KANAL_YOK) || (uiKanal == 0U))", source)
+        self.assertIn("uiOfset = uiKanal * SPEC2CODE_CIT_KANAL_BOY;", source)
+
+    def test_channelless_override_applies_limits_to_all_channels(self) -> None:
+        spec = _cit_spec("unit_cit_channel_generic")
+        spec["devices"][0]["config"]["cit"] = {"measurements": [
+            {"op": "voltage_read", "name": "GENEL", "min": 100, "max": 200, "severity": "critical"},
+            {"op": "voltage_read", "channel": 2, "name": "VCC_IO", "max": 999},
+        ]}
+        with tempfile.TemporaryDirectory() as tmp:
+            tests_dir = self._generate(spec, tmp)
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        kanallar = [m for m in manifest["cit"]["olcumler"] if m["op"] == "voltage_read"]
+        # Kanalsiz override: isim HARIC her sey butun kanallara (cname benzersiz kalir).
+        self.assertEqual([m["name"] for m in kanallar][:2], ["LTC2991_V1_0", "LTC2991_V2_0"])
+        self.assertTrue(all(m["min"] == 100 and m["severity"] == "critical" for m in kanallar
+                            if m["channel"] != 2))
+        # Kanal eslesmesi ustune yazar (min genelden kalir, max/isim kanaldan).
+        self.assertEqual(kanallar[2]["name"], "VCC_IO")
+        self.assertEqual((kanallar[2]["min"], kanallar[2]["max"]), (100, 999))
 
     def test_measureless_spec_omits_cit_files(self) -> None:
         spec = _measureless_spec("unit_cit_none")
@@ -217,9 +262,9 @@ class CitHostRoundTripTest(unittest.TestCase):
             self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
             return subprocess.run([str(binary)], capture_output=True, text=True).stdout
 
-    # Dispatch stub: olcum 0 (voltage_read) -> 3300, olcum 1 (temperature_read,
-    # LTC2991) -> 5000, olcum 2 (temperature_read, AD7414) -> 9999. Kart LIMIT
-    # DEGERLENDIRMEZ: uc okuma da basarili -> uc bayrak biti de 1 (okuma basarisi).
+    # Dispatch stub: voltage_read -> 8 kanal BE 16-bit data (V1=3300, Vk=1000+k),
+    # olcum 8 (temperature_read, LTC2991) -> 5000, olcum 9 (temperature_read, AD7414)
+    # -> 9999. Kart LIMIT DEGERLENDIRMEZ: her okuma basarili -> bayrak bitleri 1.
     # Limit gecti/kaldi karari host'ta. Cihaza gore ayrilir cunku iki temperature_read var.
     _STUB = (
         'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
@@ -231,6 +276,13 @@ class CitHostRoundTripTest(unittest.TestCase):
         '    spResponse->iStatus = 0;\n'
         '    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, "voltage_read") == 1)\n'
         '    {\n'
+        '        unsigned int uiK;\n'
+        '        for (uiK = 0U; uiK < 8U; uiK++)\n'
+        '        {\n'
+        '            unsigned int uiV = (uiK == 0U) ? 3300U : (1000U + uiK);\n'
+        '            (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiV >> 8U) & 0xFFU));\n'
+        '            (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)(uiV & 0xFFU));\n'
+        '        }\n'
         '        spResponse->uiValue = 3300U;\n'
         '    }\n'
         '    else if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, "u13_ad7414") == 1)\n'
@@ -321,27 +373,33 @@ class CitHostRoundTripTest(unittest.TestCase):
         lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
         self.assertEqual(len(lines), 2, output)
 
-        run = self._decode_cit_response(lines[0], 3)
+        run = self._decode_cit_response(lines[0], 10)
         self.assertEqual(run["istek_sayac"], 101)
         self.assertEqual(run["durum"], 0)  # OK genel kosu
         self.assertEqual(run["uiSayac"], 1)
-        # Kart limit degerlendirmez: uc okuma da basarili -> uc bayrak biti de 1.
+        # Kart limit degerlendirmez: her okuma basarili -> butun bayrak bitleri 1.
         self.assertTrue(run["olcumler"][0]["read_ok"])
         self.assertEqual(run["olcumler"][0]["iDeger"], 3300)
+        self.assertEqual(run["olcumler"][0]["uiHam"], 3300)
         self.assertEqual(run["olcumler"][0]["uiDurum"], 0)
-        self.assertTrue(run["olcumler"][1]["read_ok"])
-        self.assertEqual(run["olcumler"][1]["iDeger"], 5000)
-        # Olcum 2: 9999 (host'ta limit disi olabilir) ama KART icin okuma basarili -> bit 1.
-        self.assertTrue(run["olcumler"][2]["read_ok"])
-        self.assertEqual(run["olcumler"][2]["iDeger"], 9999)
-        self.assertEqual(run["olcumler"][2]["uiDurum"], 0)
+        # Kanallar V2..V8 tek dispatch'ten ayristirilir (BE 16 bit).
+        for k in range(1, 8):
+            self.assertTrue(run["olcumler"][k]["read_ok"])
+            self.assertEqual(run["olcumler"][k]["iDeger"], 1000 + k)
+        self.assertTrue(run["olcumler"][8]["read_ok"])
+        self.assertEqual(run["olcumler"][8]["iDeger"], 5000)
+        # Olcum 9: 9999 (host'ta limit disi olabilir) ama KART icin okuma basarili -> bit 1.
+        self.assertTrue(run["olcumler"][9]["read_ok"])
+        self.assertEqual(run["olcumler"][9]["iDeger"], 9999)
+        self.assertEqual(run["olcumler"][9]["uiDurum"], 0)
 
         # CIT_READ: yeniden kosmadan ayni kopya (uiSayac degismez).
-        read = self._decode_cit_response(lines[1], 3)
+        read = self._decode_cit_response(lines[1], 10)
         self.assertEqual(read["istek_sayac"], 202)
         self.assertEqual(read["uiSayac"], 1)
         self.assertEqual(read["olcumler"][0]["iDeger"], 3300)
-        self.assertEqual(read["olcumler"][2]["iDeger"], 9999)
+        self.assertEqual(read["olcumler"][7]["iDeger"], 1007)
+        self.assertEqual(read["olcumler"][9]["iDeger"], 9999)
 
     def test_disabled_measurement_still_read_by_board(self) -> None:
         # enabled artik HOST tarafinda (CIT ekrani gizler); kart config'teki
@@ -349,8 +407,8 @@ class CitHostRoundTripTest(unittest.TestCase):
         spec = _cit_spec("unit_cit_disabled_rt")
         spec["devices"][0]["config"]["cit"] = {
             "measurements": [
-                {"op": "voltage_read", "name": "VCC_3V3_RF", "min": 3135, "max": 3465,
-                 "severity": "critical"},
+                {"op": "voltage_read", "channel": 0, "name": "VCC_3V3_RF", "min": 3135,
+                 "max": 3465, "severity": "critical"},
                 {"op": "temperature_read", "name": "LTC_TEMP", "enabled": False},
             ],
         }
@@ -363,13 +421,13 @@ class CitHostRoundTripTest(unittest.TestCase):
         output = self._build_and_run(spec, self._main_for(run_extra), [])
         lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
         self.assertEqual(len(lines), 1, output)
-        run = self._decode_cit_response(lines[0], 3)
-        # Olcum 1 config'te disabled ama kart yine de OKUDU (DESTEKLENMIYOR degil).
-        self.assertEqual(run["olcumler"][1]["uiDurum"], 0)
-        self.assertTrue(run["olcumler"][1]["read_ok"])
+        run = self._decode_cit_response(lines[0], 10)
+        # Olcum 8 (LTC_TEMP) config'te disabled ama kart yine de OKUDU (DESTEKLENMIYOR degil).
+        self.assertEqual(run["olcumler"][8]["uiDurum"], 0)
+        self.assertTrue(run["olcumler"][8]["read_ok"])
         # Digerleri de okundu.
         self.assertTrue(run["olcumler"][0]["read_ok"])
-        self.assertTrue(run["olcumler"][2]["read_ok"])
+        self.assertTrue(run["olcumler"][9]["read_ok"])
 
     def test_measureless_spec_cit_run_returns_desteklenmiyor(self) -> None:
         spec = _measureless_spec("unit_cit_none_rt")

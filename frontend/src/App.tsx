@@ -200,9 +200,9 @@ export default function App() {
           ["testbench", PlugZap, "Test Bench"],
           ["traffic", Activity, "Akış"],
           ["bringup", Rocket, "Bring-up"],
+          ["cit", HeartPulse, "CİT"],
           ["registers", Grid3X3, "Registers"],
           ["regmap", Cpu, "Register Map"],
-          ["cit", HeartPulse, "CİT"],
           ["yatt", FileText, "Arayüz/YATT"],
           ["docs", BookOpenText, "Kılavuz"],
         ] as const).map(([id, Icon, label]) => (

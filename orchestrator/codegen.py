@@ -1465,6 +1465,28 @@ _CIT_MEASUREMENT_OP_WHITELIST: frozenset[str] = frozenset({
 })
 
 
+#: Dizi donuslu olcum op'lari ("voltages[8]" gibi): CIT'te her kanal AYRI olcum
+#: olur (kanal basina slot/bit). Kart op'u BIR kez dispatch eder, kanallari yanit
+#: data'sindan (big-endian 16 bit) ayristirir.
+_CIT_ARRAY_RETURNS_RE = re.compile(r"^([A-Za-z_]+)\[(\d+)\]$")
+_CIT_CHANNEL_PREFIX = {"voltages": "V", "currents": "I"}
+_CIT_KANAL_YOK = "0xFFFFFFFFU"
+_CIT_KANAL_ELEMAN_BOY = 2
+
+
+def _cit_channel_rows(olcumler: list[dict]) -> str | None:
+    """Olcum -> kanal indeksi tablosu satirlari (hex); dizi op'u yoksa None.
+
+    Kanal 0 ve skaler olcumler dispatch eder; kanal k>0 bir onceki olcumun
+    (ayni cihaz/op, ardisik uretim garantisi) yanitini yeniden kullanir.
+    """
+    if not any(m.get("channel") is not None for m in olcumler):
+        return None
+    return "\n".join(
+        f"    {_CIT_KANAL_YOK}," if m.get("channel") is None else f"    0x{int(m['channel']):02X}U,"
+        for m in olcumler)
+
+
 def _testbench_log_header() -> str:
     return (
         "/**\n"
@@ -1794,14 +1816,14 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
             if with_boards and device_index < len(spec.get("devices", []))
             else None
         )
-        user_measurements = {
-            str(m.get("op", "")): m
+        user_measurements = [
+            m
             for m in (
                 ((spec.get("devices", [])[device_index].get("config") or {}).get("cit") or {})
                 .get("measurements") or []
             )
             if isinstance(m, dict) and m.get("op")
-        } if device_index < len(spec.get("devices", [])) else {}
+        ] if device_index < len(spec.get("devices", [])) else []
         for op in device_manifest.get("operations", []):
             op_name = str(op.get("name", ""))
             if op_name not in _CIT_MEASUREMENT_OP_WHITELIST:
@@ -1812,39 +1834,68 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
                 continue
             if op.get("requires_address") or op.get("requires_data") or op.get("requires_value"):
                 continue
-            user = user_measurements.get(op_name, {})
-            default_name = f"{part}_{op_name}_{device_index}".upper()
-            name = str(user.get("name") or default_name)
-            # _pascal_identifier yalnizca her parcanin ILK harfini buyutur; CIT
-            # isimleri genelde BUYUK_HARFLI (VCC_3V3_RF / varsayilan <PART>_<OP>_<i>)
-            # geldiginden once kucuk harfe cevrilir (Vcc3v3Rf, VCC3V3RF degil).
-            cname = _pascal_identifier(name.lower())
-            if cname in seen_cnames and seen_cnames[cname] != name:
-                raise cmodel.CodegenError(
-                    f"CIT olcum cname catismasi: '{cname}' hem '{seen_cnames[cname]}' hem '{name}' "
-                    "icin uretiliyor — isimleri benzersiz secin.")
-            seen_cnames[cname] = name
-            severity = str(user.get("severity") or "warning")
-            enabled = bool(user.get("enabled", True))
-            min_value = user.get("min")
-            max_value = user.get("max")
-            olcum = {
-                "index": len(olcumler),
-                "device": device_id,
-                "device_index": device_index,
-                "part": part,
-                "op": op_name,
-                "name": name,
-                "cname": cname,
-                "unit": op.get("result_unit") or None,
-                "min": min_value if isinstance(min_value, (int, float)) else None,
-                "max": max_value if isinstance(max_value, (int, float)) else None,
-                "severity": severity,
-                "enabled": enabled,
-            }
-            if board_id is not None:
-                olcum["board_id"] = board_id
-            olcumler.append(olcum)
+            # Dizi donuslu op (voltages[8]) -> kanal basina olcum; skaler -> tek olcum.
+            array_match = _CIT_ARRAY_RETURNS_RE.match(str(op.get("result_returns") or ""))
+            channel_count = int(array_match.group(2)) if array_match else 0
+            channel_prefix = ""
+            if channel_count > 1:
+                if int(op.get("fixed_read_length") or 0) != channel_count * _CIT_KANAL_ELEMAN_BOY:
+                    raise cmodel.CodegenError(
+                        f"CIT: {device_id}/{op_name} dizi donusu {op.get('result_returns')} icin "
+                        f"eleman boyu {_CIT_KANAL_ELEMAN_BOY} bayt olmali (fixed_read_length="
+                        f"{op.get('fixed_read_length')}).")
+                channel_prefix = _CIT_CHANNEL_PREFIX.get(
+                    array_match.group(1).lower(), f"{op_name}_CH")
+            channels: list[int | None] = list(range(channel_count)) if channel_count > 1 else [None]
+            op_overrides = [m for m in user_measurements if str(m.get("op", "")) == op_name]
+            generic = next((m for m in op_overrides if m.get("channel") is None), {})
+            for channel in channels:
+                if channel is None:
+                    user = generic
+                    default_name = f"{part}_{op_name}_{device_index}".upper()
+                else:
+                    # Kanalsiz override limit/onem/enabled'i BUTUN kanallara uygular
+                    # (isim haric: cname benzersiz kalmali); kanal eslesmesi ustune yazar.
+                    exact = next((m for m in op_overrides if m.get("channel") == channel), None)
+                    user = {k: v for k, v in generic.items() if k != "name"}
+                    if exact:
+                        user.update(exact)
+                    default_name = f"{part}_{channel_prefix}{channel + 1}_{device_index}".upper()
+                name = str(user.get("name") or default_name)
+                # _pascal_identifier yalnizca her parcanin ILK harfini buyutur; CIT
+                # isimleri genelde BUYUK_HARFLI (VCC_3V3_RF / varsayilan <PART>_<OP>_<i>)
+                # geldiginden once kucuk harfe cevrilir (Vcc3v3Rf, VCC3V3RF degil).
+                cname = _pascal_identifier(name.lower())
+                if cname in seen_cnames and seen_cnames[cname] != name:
+                    raise cmodel.CodegenError(
+                        f"CIT olcum cname catismasi: '{cname}' hem '{seen_cnames[cname]}' hem '{name}' "
+                        "icin uretiliyor — isimleri benzersiz secin.")
+                seen_cnames[cname] = name
+                severity = str(user.get("severity") or "warning")
+                enabled = bool(user.get("enabled", True))
+                min_value = user.get("min")
+                max_value = user.get("max")
+                olcum = {
+                    "index": len(olcumler),
+                    "device": device_id,
+                    "device_index": device_index,
+                    "part": part,
+                    "op": op_name,
+                    "name": name,
+                    "cname": cname,
+                    "unit": op.get("result_unit") or None,
+                    "min": min_value if isinstance(min_value, (int, float)) else None,
+                    "max": max_value if isinstance(max_value, (int, float)) else None,
+                    "severity": severity,
+                    "enabled": enabled,
+                }
+                if channel is not None:
+                    olcum["channel"] = channel
+                    olcum["channels"] = channel_count
+                    olcum["channel_label"] = f"{channel_prefix}{channel + 1}"
+                if board_id is not None:
+                    olcum["board_id"] = board_id
+                olcumler.append(olcum)
     return {
         "olcumler": olcumler,
         "bit_sirasi": [m["cname"] for m in olcumler],
@@ -2105,6 +2156,86 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     )
 
 
+def _cit_dispatch_block(channels: bool, olcum_var: str, slot_var: str, device_table: str,
+                        op_table: str, kanal_table: str, copy_fn: str) -> str:
+    """CitRun dongu govdesinin dispatch + ham/islenmis deger ayristirma kismi.
+
+    ``channels`` False ise bugunku (skaler) metin BIREBIR uretilir. True ise
+    dizi donuslu op'lar icin kanal 0 dispatch eder, k>0 onceki yaniti kullanir ve
+    kanal degeri data[2k..2k+1] (big-endian 16 bit) olarak ayristirilir;
+    ``uiOkundu`` okuma basarisini (uiOk + yeterli data) tasir.
+    """
+    copy_indent = " " * (8 + len(copy_fn) + 1)
+    dispatch = (
+        "        spec2codeTestbenchRequestClear(&sIstek);\n"
+        f"        sIstek.uiId = {slot_var};\n"
+        f"        {copy_fn}(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+        f"{copy_indent}{device_table}[{olcum_var}]);\n"
+        f"        {copy_fn}(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
+        f"{copy_indent}{op_table}[{olcum_var}]);\n"
+        "        spec2codeTestbenchResponseClear(&sYanit);\n"
+        "        (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
+    )
+    if not channels:
+        return (
+            dispatch +
+            "        /* Ham deger: yanit data'nin ilk 4B'i (>=4 ise LE) yoksa uiValue. */\n"
+            "        if (sYanit.uiDataLength >= 4U)\n"
+            "        {\n"
+            "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
+            "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
+            "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
+            "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
+            "        }\n"
+            "        else\n"
+            "        {\n"
+            "            uiHam = sYanit.uiValue;\n"
+            "        }\n"
+            "        iDeger = (int)sYanit.uiValue;\n"
+        )
+    inner = "\n".join(("    " + l) if l else l for l in dispatch.split("\n"))
+    return (
+        f"        uiKanal = {kanal_table}[{olcum_var}];\n"
+        "        /* Dizi donuslu op: yalniz kanal 0 (ve skaler olcumler) dispatch eder;\n"
+        "         * sonraki kanallar ayni yaniti kullanir (tek okuma, N slot). */\n"
+        "        if ((uiKanal == SPEC2CODE_CIT_KANAL_YOK) || (uiKanal == 0U))\n"
+        "        {\n"
+        f"{inner}"
+        "        }\n"
+        "        uiOkundu = sYanit.uiOk;\n"
+        "        if (uiKanal != SPEC2CODE_CIT_KANAL_YOK)\n"
+        "        {\n"
+        "            /* Kanal degeri: data[2k..2k+1] big-endian (surucu dizi paketi). */\n"
+        "            uiOfset = uiKanal * SPEC2CODE_CIT_KANAL_BOY;\n"
+        "            if (sYanit.uiDataLength >= (uiOfset + SPEC2CODE_CIT_KANAL_BOY))\n"
+        "            {\n"
+        "                uiHam = ((unsigned int)sYanit.ucArrData[uiOfset] << 8U)\n"
+        "                      | (unsigned int)sYanit.ucArrData[uiOfset + 1U];\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                uiHam = 0U;\n"
+        "                uiOkundu = 0U;\n"
+        "            }\n"
+        "            iDeger = (int)uiHam;\n"
+        "        }\n"
+        "        else if (sYanit.uiDataLength >= 4U)\n"
+        "        {\n"
+        "            /* Ham deger: yanit data'nin ilk 4B'i (LE). */\n"
+        "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
+        "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
+        "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
+        "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
+        "            iDeger = (int)sYanit.uiValue;\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            uiHam = sYanit.uiValue;\n"
+        "            iDeger = (int)sYanit.uiValue;\n"
+        "        }\n"
+    )
+
+
 def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     """Üretilen `spec2code_cit.c`: dispatch köprüsü + boardCitRun (saf sensör).
 
@@ -2113,6 +2244,7 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     canlı yapılır — kullanıcı limitleri kod üretmeden ekrandan değiştirir.
     """
     olcumler = _cit_measurements(spec, get_descriptor)
+    kanal_rows = _cit_channel_rows(olcumler)
 
     # Cihaz id + op adi string tablolari (dispatch koprusu; MesajIsle ile ayni
     # alanlar: cArrDevice = cihaz id string, cArrOperation = op adi string).
@@ -2120,6 +2252,16 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         f'    "{_c_string_escape(m["device"])}",' for m in olcumler) or '    ""'
     op_rows = "\n".join(
         f'    "{_c_string_escape(m["op"])}",' for m in olcumler) or '    ""'
+    kanal_table = (
+        "/* Olcum -> kanal indeksi (dizi donuslu op; skaler olcum icin KANAL_YOK).\n"
+        " * Kanal 0 dispatch eder, k>0 bir onceki yaniti (ayni cihaz/op) yeniden kullanir. */\n"
+        f"#define SPEC2CODE_CIT_KANAL_YOK {_CIT_KANAL_YOK}\n"
+        f"#define SPEC2CODE_CIT_KANAL_BOY {_CIT_KANAL_ELEMAN_BOY}U\n"
+        "static const unsigned int S_uiArrCitKanal[BOARD_CIT_OLCUM_SAYISI] =\n"
+        "{\n"
+        f"{kanal_rows}\n"
+        "};\n\n"
+    ) if kanal_rows is not None else ""
 
     # Her olcum icin uye adiyla atama (switch): bit alani uyeleri adreslenemez,
     # bit-index aritmetigi YOK — uye adiyla dogrudan atama.
@@ -2148,6 +2290,7 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "{\n"
         f"{op_rows}\n"
         "};\n\n"
+        f"{kanal_table}"
         "/* Son kosu kopyasi (CIT_READ + boardCitSon dondurur). */\n"
         "static SBoardCit S_sCitSonKopya;\n"
         "static unsigned int S_uiCitKosuSayac = 0U;\n\n"
@@ -2183,7 +2326,11 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "    unsigned int uiOlcum;\n"
         "    unsigned int uiHam;\n"
         "    int iDeger;\n"
-        "    unsigned int uiOk;\n\n"
+        "    unsigned int uiOk;\n"
+        + ("    unsigned int uiKanal;\n"
+           "    unsigned int uiOfset;\n"
+           "    unsigned int uiOkundu;\n" if kanal_rows is not None else "") +
+        "\n"
         "    if (spCit == (SBoardCit*)0)\n"
         "    {\n"
         "        return;\n"
@@ -2195,34 +2342,18 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "    spCit->uiZaman = 0U;  /* ms tick kaynagi uretilen kodda yok (v1). */\n"
         "    /* Kart LIMIT/ENABLED GOMMEZ: her olcumu okur; host (CIT ekrani) hangi\n"
         "     * olcumu gosterecegine ve limit gecti/kaldi'ya CANLI karar verir. */\n"
+        + ("    spec2codeTestbenchResponseClear(&sYanit);\n" if kanal_rows is not None else "") +
         "    for (uiOlcum = 0U; uiOlcum < BOARD_CIT_OLCUM_SAYISI; uiOlcum++)\n"
         "    {\n"
-        "        spec2codeTestbenchRequestClear(&sIstek);\n"
-        "        sIstek.uiId = uiOlcum;\n"
-        "        spec2codeCitMetinKopya(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        "                               S_cpArrCitCihaz[uiOlcum]);\n"
-        "        spec2codeCitMetinKopya(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        "                               S_cpArrCitOp[uiOlcum]);\n"
-        "        spec2codeTestbenchResponseClear(&sYanit);\n"
-        "        (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
-        "        /* Ham deger: yanit data'nin ilk 4B'i (>=4 ise LE) yoksa uiValue. */\n"
-        "        if (sYanit.uiDataLength >= 4U)\n"
-        "        {\n"
-        "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
-        "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
-        "        }\n"
-        "        else\n"
-        "        {\n"
-        "            uiHam = sYanit.uiValue;\n"
-        "        }\n"
-        "        iDeger = (int)sYanit.uiValue;\n"
+        + _cit_dispatch_block(kanal_rows is not None, "uiOlcum", "uiOlcum",
+                              "S_cpArrCitCihaz", "S_cpArrCitOp", "S_uiArrCitKanal",
+                              "spec2codeCitMetinKopya") +
         "        spCit->arrOlcum[uiOlcum].iDeger = iDeger;\n"
         "        spCit->arrOlcum[uiOlcum].uiHam = uiHam;\n"
         "        /* Bayrak biti = OKUMA BASARISI (limit DEGERLENDIRMESI YOK — o host'ta).\n"
         "         * uiOk==1 -> uiDurum OK, bit 1; aksi -> BUS_HATASI, bit 0. */\n"
-        "        if (sYanit.uiOk == 1U)\n"
+        + ("        if (uiOkundu == 1U)\n" if kanal_rows is not None else
+           "        if (sYanit.uiOk == 1U)\n") +
         "        {\n"
         "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
         "            uiOk = 1U;\n"
@@ -2430,8 +2561,18 @@ def _board_cit_function(board: dict, olcumler: list[dict]) -> str:
     bit_case_lines = "\n".join(
         f"        case {m['index']}U: spCit->sBayraklar.ui{m['cname']}Ok = uiOk; break;"
         for m in olcumler)
-    # Cagri devam satiri acilis parantezinin ALTINA hizalanir (8 girinti + ad + "(").
-    copy_indent = " " * (8 + len(copy_fn) + 1)
+    kanal_rows = _cit_channel_rows(olcumler)
+    kanal_table = (
+        "/* Kart olcumu -> kanal indeksi (dizi donuslu op; skaler icin KANAL_YOK). */\n"
+        "#ifndef SPEC2CODE_CIT_KANAL_YOK\n"
+        f"#define SPEC2CODE_CIT_KANAL_YOK {_CIT_KANAL_YOK}\n"
+        f"#define SPEC2CODE_CIT_KANAL_BOY {_CIT_KANAL_ELEMAN_BOY}U\n"
+        "#endif\n"
+        f"static const unsigned int S_uiArrKartCitKanal[{count_define}] =\n"
+        "{\n"
+        f"{kanal_rows}\n"
+        "};\n\n"
+    ) if kanal_rows is not None else ""
     return (
         f"/* Bu kartin CIT olcum sayisi (sistem BOARD_CIT_OLCUM_SAYISI'nin alt kumesi). */\n"
         f"#define {count_define} {len(olcumler)}U\n\n"
@@ -2450,6 +2591,7 @@ def _board_cit_function(board: dict, olcumler: list[dict]) -> str:
         "{\n"
         f"{op_rows}\n"
         "};\n\n"
+        f"{kanal_table}"
         f"static void {copy_fn}(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
         "{\n"
         "    unsigned int uiIndex;\n\n"
@@ -2486,40 +2628,30 @@ def _board_cit_function(board: dict, olcumler: list[dict]) -> str:
         "    unsigned int uiIndex;\n"
         "    unsigned int uiSlot;\n"
         "    unsigned int uiHam;\n"
-        "    unsigned int uiOk;\n\n"
+        "    int iDeger;\n"
+        "    unsigned int uiOk;\n"
+        + ("    unsigned int uiKanal;\n"
+           "    unsigned int uiOfset;\n"
+           "    unsigned int uiOkundu;\n" if kanal_rows is not None else "") +
+        "\n"
         "    if (spCit == (SBoardCit*)0)\n"
         "    {\n"
         "        return;\n"
         "    }\n"
         "    /* Sifirlama/sayac SISTEM boardCitRun'a aittir: burada yalniz bu kartin\n"
         "     * slotlari ustune yazilir, diger kartlarin degerleri korunur. */\n"
+        + ("    spec2codeTestbenchResponseClear(&sYanit);\n" if kanal_rows is not None else "") +
         f"    for (uiIndex = 0U; uiIndex < {count_define}; uiIndex++)\n"
         "    {\n"
         "        uiSlot = S_uiArrKartCitSlot[uiIndex];\n"
-        "        spec2codeTestbenchRequestClear(&sIstek);\n"
-        "        sIstek.uiId = uiSlot;\n"
-        f"        {copy_fn}(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        f"{copy_indent}S_cpArrKartCitCihaz[uiIndex]);\n"
-        f"        {copy_fn}(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        f"{copy_indent}S_cpArrKartCitOp[uiIndex]);\n"
-        "        spec2codeTestbenchResponseClear(&sYanit);\n"
-        "        (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
-        "        /* Ham deger: yanit data'nin ilk 4B'i (>=4 ise LE) yoksa uiValue. */\n"
-        "        if (sYanit.uiDataLength >= 4U)\n"
-        "        {\n"
-        "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
-        "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
-        "        }\n"
-        "        else\n"
-        "        {\n"
-        "            uiHam = sYanit.uiValue;\n"
-        "        }\n"
-        "        spCit->arrOlcum[uiSlot].iDeger = (int)sYanit.uiValue;\n"
+        + _cit_dispatch_block(kanal_rows is not None, "uiIndex", "uiSlot",
+                              "S_cpArrKartCitCihaz", "S_cpArrKartCitOp", "S_uiArrKartCitKanal",
+                              copy_fn) +
+        "        spCit->arrOlcum[uiSlot].iDeger = iDeger;\n"
         "        spCit->arrOlcum[uiSlot].uiHam = uiHam;\n"
         "        /* Bayrak biti = OKUMA BASARISI (limit degerlendirmesi host'ta). */\n"
-        "        if (sYanit.uiOk == 1U)\n"
+        + ("        if (uiOkundu == 1U)\n" if kanal_rows is not None else
+           "        if (sYanit.uiOk == 1U)\n") +
         "        {\n"
         "            spCit->arrOlcum[uiSlot].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
         "            uiOk = 1U;\n"

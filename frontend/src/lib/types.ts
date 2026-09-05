@@ -64,6 +64,9 @@ export interface InitSequenceWrite {
  * (bit sirasi/slot stabil kalsin diye), yalnizca disable edilir. */
 export interface DeviceCitMeasurement {
   op: string;
+  /** Dizi donuslu op (voltages[8]) icin kanal indeksi (0 tabanli). Yoksa override
+   * skaler olcume; kanalli op'ta ise limit/onem/enabled BUTUN kanallara uygulanir. */
+  channel?: number;
   name?: string;
   min?: number;
   max?: number;
@@ -425,6 +428,10 @@ export interface TestbenchCitMeasurement {
   enabled: boolean;
   /** YALNIZ kart tanımlıyken vardır (bkz. _testbench_cit_section). */
   board_id?: string;
+  /** Dizi dönüşlü op (voltages[8]) kanalı — yalnız kanallı ölçümlerde. */
+  channel?: number;
+  channels?: number;
+  channel_label?: string;
 }
 
 export interface TestbenchCitSection {
@@ -451,6 +458,10 @@ export interface CitDecodeMeasurement {
   max: number | null;
   severity: "critical" | "warning" | string; // manifest varsayilani; canli deger store'dan
   enabled: boolean; // manifest varsayilani; canli deger store'dan
+  /** Dizi donuslu op'un kanali (0 tabanli) — yalniz kanalli olcumlerde. */
+  channel?: number;
+  channels?: number;
+  channel_label?: string; // "V1".."V8"
 }
 
 export interface CitDecodeResult {

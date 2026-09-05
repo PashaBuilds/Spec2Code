@@ -2703,6 +2703,7 @@ class TestbenchTests(unittest.TestCase):
                         "measurements": [
                             {
                                 "op": "voltage_read",
+                                "channel": 0,
                                 "name": "VCC_3V3_RF",
                                 "min": 3135,
                                 "max": 3465,
@@ -2745,8 +2746,12 @@ class TestbenchTests(unittest.TestCase):
         # Global index'ler ardisik 0..N-1.
         self.assertEqual([m["index"] for m in olcumler], list(range(len(olcumler))))
 
-        # Named entry (LTC2991 voltage_read) -> config.cit'ten isim/limit/onem.
-        named = next(m for m in olcumler if m["op"] == "voltage_read" and m["device"] == "u12_ltc2991")
+        # Named entry (LTC2991 voltage_read, kanal 0 = V1) -> config.cit'ten isim/limit/onem.
+        # voltage_read dizi donuslu (voltages[8]): 8 kanal ayri olcum, ilki V1.
+        kanallar = [m for m in olcumler if m["op"] == "voltage_read" and m["device"] == "u12_ltc2991"]
+        self.assertEqual(len(kanallar), 8)
+        self.assertEqual([m["channel_label"] for m in kanallar], [f"V{i}" for i in range(1, 9)])
+        named = kanallar[0]
         self.assertEqual(named["name"], "VCC_3V3_RF")
         self.assertEqual(named["cname"], "Vcc3v3Rf")
         self.assertEqual(named["min"], 3135)

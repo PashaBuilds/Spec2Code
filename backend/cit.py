@@ -91,6 +91,9 @@ def decode_board_cit(body: bytes, manifest: dict) -> dict:
             "max": meta.get("max"),
             "severity": meta.get("severity", "warning"),
             "enabled": bool(meta.get("enabled", True)),
+            **({"channel": meta["channel"], "channels": meta.get("channels"),
+                "channel_label": meta.get("channel_label")}
+               if meta.get("channel") is not None else {}),
         })
 
     return {
