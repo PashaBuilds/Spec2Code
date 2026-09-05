@@ -46,17 +46,17 @@ function hex(value: number): string {
   return `0x${(value >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
 }
 
-/** Değer + birim: "0.01 C" gibi ölçekli birimler okunur biçime çevrilir. */
+/** Değer + birim: sıcaklık "0.01 C" -> °C; voltajlar TAM SAYI mV (unsigned short, ondalık yok). */
 function formatValue(value: number, unit: string | null): { text: string; unit: string } {
   if (unit === "0.01 C") return { text: (value / 100).toFixed(2), unit: "°C" };
-  if (unit === "mV" && Math.abs(value) >= 1000) return { text: (value / 1000).toFixed(3), unit: "V" };
+  if (unit === "mV") return { text: String(Math.round(value)), unit: "mV" };
   return { text: String(value), unit: unit ?? "" };
 }
 
 /** Op adı -> kanal grubu başlığı (dizi dönüşlü op'lar için). */
 function channelGroupTitle(op: string, unit: string | null): string {
   const base = op === "voltage_read" ? "Voltaj kanalları" : op === "current_read" ? "Akım kanalları" : op;
-  return unit ? `${base} (${unit})` : base;
+  return unit ? `${base} · ${unit}` : base;
 }
 
 /** Op adı -> kısa okunur etiket (skaler ölçüm satırı için). */
@@ -493,26 +493,26 @@ export default function CitPanel() {
     const editing = editingKey === key;
     return (
       <div key={key} className={cn("rounded-md border border-border/60 bg-inset/40 px-2.5 py-2", !eff.enabled && "opacity-50")}>
-        <div className="flex items-center gap-2">
-          <span className={cn("h-2 w-2 shrink-0 rounded-full", TONE_DOT[tone])} aria-hidden />
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-[11px] text-text" title={measurement.name}>
-              {eff.name}
-            </div>
-            <div className="truncate text-[10px] text-faint">
-              {opLabel(measurement.op)}
-              {eff.min !== null && eff.max !== null ? ` · ${eff.min}..${eff.max}` : " · limitsiz"}
-              {eff.severity === "critical" ? " · kritik" : ""}
-            </div>
+        {/* 1. satır: durum noktası + tam isim (kırpılmaz, gerekirse kırılır) + rozet + eylemler */}
+        <div className="flex items-start gap-2">
+          <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", TONE_DOT[tone])} aria-hidden />
+          <div className="min-w-0 flex-1 break-all font-mono text-[11px] leading-4 text-text">{eff.name}</div>
+          <Badge tone={tone} className="shrink-0 justify-center">{badgeLabel(measurement, eff)}</Badge>
+          {renderActions(measurement, eff, device)}
+        </div>
+        {/* 2. satır: op etiketi + limit (sol) · değer (sağ) */}
+        <div className="mt-0.5 flex items-baseline gap-2 pl-4">
+          <div className="min-w-0 flex-1 text-[10px] text-faint">
+            {opLabel(measurement.op)}
+            {eff.min !== null && eff.max !== null ? ` · ${eff.min}..${eff.max}` : " · limitsiz"}
+            {eff.severity === "critical" ? " · kritik" : ""}
           </div>
-          <div className="text-right" title={eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`}>
+          <div className="shrink-0 text-right" title={eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`}>
             <span className={cn("font-mono text-base font-semibold tabular-nums", TONE_TEXT[tone])}>
               {eff.pending ? "—" : shown.text}
             </span>
             {!eff.pending && shown.unit ? <span className="ml-1 text-[10px] text-faint">{shown.unit}</span> : null}
           </div>
-          <Badge tone={tone} className="w-14 justify-center">{badgeLabel(measurement, eff)}</Badge>
-          {renderActions(measurement, eff, device)}
         </div>
         {editing ? renderEditForm(measurement) : null}
       </div>
@@ -546,7 +546,6 @@ export default function CitPanel() {
         </span>
         <span className={cn("font-mono text-sm font-semibold tabular-nums", TONE_TEXT[tone])}>
           {eff.pending ? "—" : shown.text}
-          {!eff.pending && shown.unit ? <span className="ml-0.5 text-[9px] font-normal text-faint">{shown.unit}</span> : null}
         </span>
         {customName ? (
           <span className="w-full truncate font-mono text-[9px] text-faint" title={eff.name}>
@@ -612,11 +611,11 @@ export default function CitPanel() {
 
         {[...channelOps.entries()].map(([op, list]) => (
           <div key={op} className="rounded-md border border-border/60 bg-inset/30 p-2">
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted">
                 {channelGroupTitle(op, list[0]?.m.unit ?? null)}
               </span>
-              <span className="text-[10px] text-faint">{list.length} kanal · karoya tıkla: düzenle</span>
+              <span className="shrink-0 text-[10px] text-faint" title="karoya tıkla: isim/limit düzenle">{list.length} kanal</span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">{list.map(renderChannelTile)}</div>
             {editingChannelRow && editingChannelRow.m.op === op ? (

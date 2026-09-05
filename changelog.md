@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.165 - 2026-09-06
+
+- **CIT paneli duzeltmeleri (kullanici geri bildirimi):** olcum satiri iki satirli oldu - isim
+  artik kirpilmiyor (tam ad, gerekirse kirilir), op etiketi + limit solda, deger sagda.
+  Voltajlar V'ye cevrilmeden TAM SAYI mV gosterilir (unsigned short; ondalik yok); kanal
+  karolarinda yalniz sayi, birim grup basliginda ("Voltaj kanallari - mV").
+- **Codegen:** kanal degeri `unsigned short usKanalDeger` olarak ayristirilir (uiHam/iDeger
+  bundan turer); uretilen davranis ayni.
+
 ## v0.1.164 - 2026-09-06
 
 CIT EKRANI: ENTEGRE BASINA KUTU + LTC2991 BUTUN VOLTAJ KANALLARI (kullanici istegi).
