@@ -11,6 +11,7 @@ import {
   ToggleRight,
 } from "lucide-react";
 import { cn, zoneColor } from "@/lib/utils";
+import { useStore } from "@/store/useStore";
 import { busBadgeStyle, busColor, busLabel } from "@/lib/busColors";
 import { channelColor } from "./channelColors";
 import { BoardNode } from "./BoardNode";
@@ -228,7 +229,7 @@ export function MuxNode({ data, selected }: NodeProps) {
   );
 }
 
-export function DeviceNode({ data, selected }: NodeProps) {
+export function DeviceNode({ id, data, selected }: NodeProps) {
   const d = data as unknown as {
     part: string;
     sub: string;
@@ -240,11 +241,19 @@ export function DeviceNode({ data, selected }: NodeProps) {
   };
   const Icon = d.transport === "spi" || d.transport === "qspi" ? HardDrive : Box;
   const detailed = useDetailed();
+  const updateDevice = useStore((s) => s.updateDevice);
+  const simulate = Boolean(d.simulate);
   return (
     <div
       className={cn(
-        "relative w-[230px] rounded-lg border bg-chip-body px-3 py-2.5 transition-shadow",
-        selected ? "border-accent shadow-copper-glow" : "border-chip-body-edge shadow-node",
+        "relative w-[230px] rounded-lg border px-3 py-2.5 transition-shadow",
+        // Sanal cihaz: farkli arka plan + kesikli cerceve — sematige bakmak yeterli.
+        simulate ? "border-dashed bg-warn/15" : "bg-chip-body",
+        selected
+          ? "border-accent shadow-copper-glow"
+          : simulate
+            ? "border-warn/70 shadow-node"
+            : "border-chip-body-edge shadow-node",
       )}
     >
       <PinOneDot />
@@ -260,14 +269,24 @@ export function DeviceNode({ data, selected }: NodeProps) {
           title={d.hasDescriptor ? "descriptor available" : "no descriptor"}
         />
       </div>
-      {d.simulate && (
-        <span
-          className="absolute -top-2 right-3 rounded border border-warn/60 bg-warn/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-warn"
-          title="Sanal cihaz: kartta takılı değil, simülatörden cevaplar"
-        >
-          sanal
-        </span>
-      )}
+      {/* Sanal/gercek anahtari dogrudan kutuda: tiklaninca simulate degisir,
+          secim akisina karismaz (stopPropagation). */}
+      <button
+        type="button"
+        className={cn(
+          "nodrag nopan absolute -top-2 right-3 rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide transition-colors",
+          simulate
+            ? "border-warn/70 bg-warn/25 text-warn"
+            : "border-chip-body-edge bg-chip-body text-faint hover:border-warn/60 hover:text-warn",
+        )}
+        title={simulate ? "SANAL cihaz: kartta takılı değil, simülatörden cevaplar. Gerçeğe çevirmek için tıkla." : "Gerçek cihaz. Sanal (simülatör) yapmak için tıkla."}
+        onClick={(event) => {
+          event.stopPropagation();
+          updateDevice(id, { simulate: simulate ? undefined : true });
+        }}
+      >
+        {simulate ? "sanal" : "gerçek"}
+      </button>
       {detailed && (
         <>
           <div className="mt-1.5 flex items-center justify-between pl-2">

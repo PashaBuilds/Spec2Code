@@ -268,26 +268,6 @@ export default function DeviceParams() {
         )}
       </Section>
 
-      {/* Simulasyon */}
-      <Section title="Simülasyon">
-        <label className="flex cursor-pointer items-start gap-2 text-sm text-text">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-3.5 w-3.5 accent-accent"
-            checked={Boolean(device.simulate)}
-            onChange={(e) => updateDevice(device.id, { simulate: e.target.checked || undefined })}
-          />
-          <span>
-            <span className="font-mono text-xs">sanal cihaz</span>
-            <span className="block text-[11px] text-faint">
-              Kartta takılı değil: test bench ajanı ve CİT bu cihazı cit/ simülatöründen cevaplar
-              (descriptor register modeli; LTC2991/LTC2945/DS1682/LMK04832 davranışlı). Aynı
-              hattaki diğer cihazlar gerçek kalır.
-            </span>
-          </span>
-        </label>
-      </Section>
-
       {/* Tests */}
       <Section title="Tests">
         <label className="flex cursor-pointer items-center gap-2 text-sm text-text">

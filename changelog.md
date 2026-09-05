@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.162 - 2026-09-05
+
+- **Sematik - sanal cihaz anahtari kutuda:** her entegre kutusunun sag ustunde "gercek / sanal"
+  pili; tiklayinca `simulate` degisir (sag paneldeki onay kutusu kaldirildi). Sanal cihaz kutusu
+  farkli arka plan (sari ton) + kesikli cerceveyle gorunur - yalniz sematige bakmak yeterli
+  (kullanici istegi).
+
 ## v0.1.161 - 2026-09-05
 
 SEMATIKTE "SANAL CIHAZ" ISARETI + TEST BENCH AJANINDA SIMULASYON (kullanici istegi: sanal
