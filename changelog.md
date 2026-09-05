@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.159 - 2026-09-05
+
+SPI SIMULATORU + LMK04832 SANAL MODU (Nexys A7'de dogrulandi).
+
+- **HAL (`spec2code_spi_bus.*`):** chip-select INDEKSINE gore sanal cihaz zinciri
+  (`SSpec2codeSpiSimCihaz`, `spec2codeSpiSimEkle/Kaldir/Bul`); eslesen CS simulatore, digerleri
+  gercek donanima gider (karisik mod). `SPEC2CODE_SPI_SURUCU_SIM` donanimsiz kosum.
+  Simulator hata kodlari `SPEC2CODE_SIM_HATA_*` artik `spec2code_cit_port.h`'ta (I2C+SPI ortak).
+- **`cit/sim/<mod>_sim.*` SPI TICS-register cihazlari icin:** descriptor `register_model`
+  cercevesi cozulur (R/W biti, adres kaydirmasi, veri bitleri), register dosyasi descriptor
+  reset'leriyle kurulur, yazimlar saklanir, okumalar ayni cercevenin veri bitlerinde doner;
+  `SimKur(select)`, `SimHataAyarla`, `SimRegisterYaz`. **LMK04832 davranisi:**
+  `lmk04832SimKilitAyarla(pll1, pll2)` -> RB_PLL_STATUS (0x183) DLD/LOST bitleri.
+- Sistem toplayici SPI simulatorlerini de kurar/takar; UI dosya plani SPI sim dosyalarini gosterir.
+- **Kartta (Nexys A7-100T):** ayni AXI Quad SPI'da CS0 S25FL128S GERCEK (uretilen surucu,
+  HAL'in XSpi ornegi paylasildi: JEDEC 01 20 18, 0xF00000 verisi) + CS1 LMK04832 SANAL:
+  TICS init dizisi (4 yazma) simulatore ulasti, RB_PLL_STATUS 0x05 (iki PLL kilitli) ->
+  PLL1 kaybi 0x09 (dld1=0, lost1=1) -> NACK'te 3 erisim dustu -> sanal cihaz cikarilinca CS1
+  gercek hatta gidip 0xFF okudu; flash her adimda okunmaya devam etti.
+- Host round-trip testi tam sanal kosumda SPI simulatorunu de kapsar (PLL1 kilitsiz -> pll1=0).
+
 ## v0.1.158 - 2026-09-05
 
 GERCEK KART DOGRULAMASI: DIGILENT NEXYS A7-100T (MicroBlaze, AXI IIC + AXI Quad SPI +

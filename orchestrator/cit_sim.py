@@ -22,8 +22,8 @@ SIM_HATA_HAZIR_YOK = "SPEC2CODE_SIM_HATA_HAZIR_YOK"
 
 
 def sim_plans(plans: list[_ChipPlan]) -> list[_ChipPlan]:
-    """Simulatoru uretilen cihazlar: I2C register cihazlari (SPI simulasyonu sonraki faz)."""
-    return [p for p in plans if p.transport == "i2c"]
+    """Simulatoru uretilen cihazlar: I2C register cihazlari + SPI TICS-register cihazlari."""
+    return [p for p in plans if p.transport in {"i2c", "spi"}]
 
 
 def _reg_table(plan: _ChipPlan) -> tuple[int, int, list[tuple[int, int, int, int, str]]]:
@@ -65,10 +65,7 @@ def i2c_sim_header() -> str:
 
 #if SPEC2CODE_CIT_SIM
 
-/* Hata enjeksiyon modlari (her simulatorun uiHataModu alani) */
-#define SPEC2CODE_SIM_HATA_YOK 0U       /* normal cevap                                  */
-#define SPEC2CODE_SIM_HATA_NACK 1U      /* cihaz hatta yok gibi: her transfer NACK        */
-#define SPEC2CODE_SIM_HATA_HAZIR_YOK 2U /* hazir/veri-gecerli bitleri hic kurulmaz (timeout) */
+/* Hata enjeksiyon modlari: SPEC2CODE_SIM_HATA_* (spec2code_cit_port.h) */
 
 /**
  * @brief Sanal I2C switch (TCA9548A): kontrol bayti yazilir/okunur, kanal kaydedilir.
@@ -633,12 +630,14 @@ _BEHAVIOR: dict[str, dict[str, Callable]] = {
 
 
 def has_behavior(plan: _ChipPlan) -> bool:
-    return plan.part.upper() in _BEHAVIOR
+    return plan.part.upper() in _BEHAVIOR or plan.part.upper() in _SPI_BEHAVIOR
 
 
 # --- entegre simulatoru ----------------------------------------------------------------
 
 def sim_header(plan: _ChipPlan) -> str:
+    if plan.transport == "spi":
+        return spi_sim_header(plan)
     mod, pas, module = plan.mod, plan.pascal, plan.module
     reg_count, max_bytes, _rows = _reg_table(plan)
     beh = _BEHAVIOR.get(plan.part.upper())
@@ -713,6 +712,8 @@ def sim_header(plan: _ChipPlan) -> str:
 
 
 def sim_source(plan: _ChipPlan) -> str:
+    if plan.transport == "spi":
+        return spi_sim_source(plan)
     mod, pas, module = plan.mod, plan.pascal, plan.module
     reg_count, max_bytes, rows = _reg_table(plan)
     beh = _BEHAVIOR.get(plan.part.upper())
@@ -895,6 +896,322 @@ def sim_source(plan: _ChipPlan) -> str:
     return e.text()
 
 
+
+# --- SPI TICS-register cihazi simulatoru ---------------------------------------------------
+
+def _spi_model(plan: _ChipPlan) -> dict:
+    from orchestrator import tics
+    model = tics.register_model(plan.descriptor)
+    frame_bits = int(model.get("frame_bits", 24) or 24)
+    return {
+        "frame_bytes": frame_bits // 8,
+        "address_bits": int(model.get("address_bits", 15) or 15),
+        "address_shift": int(model.get("address_shift", 8) or 8),
+        "data_bits": int(model.get("data_bits", 8) or 8),
+        "rw_bit": int(model.get("rw_bit", frame_bits - 1) or (frame_bits - 1)),
+        "read_value": 0 if int(model.get("write_value", 0) or 0) else 1,
+    }
+
+
+def _spi_reg_rows(plan: _ChipPlan) -> tuple[int, list[tuple[int, int, int, str]]]:
+    rows: list[tuple[int, int, int, str]] = []
+    max_off = 0
+    for rg in plan.descriptor.get("registers", []):
+        off = int(rg.get("offset", 0))
+        if off > 0x7FFF:
+            continue
+        access = str(rg.get("access", "rw")).lower()
+        rows.append((off, 1 if "w" in access else 0, int(rg.get("reset", 0) or 0), str(rg.get("name", ""))))
+        max_off = max(max_off, off)
+    return max_off + 1, rows
+
+
+def _lmk04832_state(e: _E) -> None:
+    e.ln("    unsigned int uiPll1Kilit; /* PLL1 dijital kilit (RB_PLL_STATUS bit 2)      */")
+    e.ln("    unsigned int uiPll2Kilit; /* PLL2 dijital kilit (RB_PLL_STATUS bit 0)      */")
+
+
+def _lmk04832_api_header(e: _E, mod: str, pas: str, module: str) -> None:
+    e.ln("/**")
+    e.ln(" * @brief PLL kilit durumlarini kurar; her okumada RB_PLL_STATUS (0x183) buna gore uretilir:")
+    e.ln(" *        bit2 RB_PLL1_DLD, bit0 RB_PLL2_DLD, bit3/bit1 kilit-kaybi bayraklari (kilit yoksa 1).")
+    e.ln(" * @param spSim Simulator.")
+    e.ln(" * @param uiPll1 1 = PLL1 kilitli.")
+    e.ln(" * @param uiPll2 1 = PLL2 kilitli.")
+    e.ln(" */")
+    e.ln(f"void {module}SimKilitAyarla(S{pas}Sim* spSim, unsigned int uiPll1, unsigned int uiPll2);")
+    e.blank()
+    _ = mod
+
+
+def _lmk04832_behavior(e: _E, mod: str, pas: str, module: str) -> None:
+    e.ln(f"void {module}SimKilitAyarla(S{pas}Sim* spSim, unsigned int uiPll1, unsigned int uiPll2)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiPll1Kilit = (uiPll1 != 0U) ? 1U : 0U;")
+    e.ln("        spSim->uiPll2Kilit = (uiPll2 != 0U) ? 1U : 0U;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("/* Her okuma cercevesinden once: RB_PLL_STATUS kilit durumundan uretilir. */")
+    e.ln(f"static void {module}SimOncesiOku(S{pas}Sim* spSim)")
+    e.ln("{")
+    e.ln("    unsigned short usDurum = 0U;")
+    e.blank()
+    e.ln("    if (spSim->uiHataModu == SPEC2CODE_SIM_HATA_HAZIR_YOK)")
+    e.ln("    {")
+    e.ln("        spSim->usArrReg[0x183U] = 0x0AU; /* iki PLL de kilit kaybi */")
+    e.ln("        return;")
+    e.ln("    }")
+    e.ln("    usDurum |= (unsigned short)((spSim->uiPll1Kilit != 0U) ? 0x04U : 0x08U);")
+    e.ln("    usDurum |= (unsigned short)((spSim->uiPll2Kilit != 0U) ? 0x01U : 0x02U);")
+    e.ln("    spSim->usArrReg[0x183U] = usDurum;")
+    e.ln("}")
+    e.blank()
+    _ = mod
+
+
+def _lmk04832_kur(e: _E) -> None:
+    e.ln("    spSim->uiPll1Kilit = 1U;")
+    e.ln("    spSim->uiPll2Kilit = 1U;")
+
+
+_SPI_BEHAVIOR: dict[str, dict[str, Callable]] = {
+    "LMK04832": {
+        "state": _lmk04832_state,
+        "api_header": _lmk04832_api_header,
+        "behavior": _lmk04832_behavior,
+        "kur": _lmk04832_kur,
+    },
+}
+
+
+def spi_sim_header(plan: _ChipPlan) -> str:
+    mod, pas, module = plan.mod, plan.pascal, plan.module
+    reg_count, _rows = _spi_reg_rows(plan)
+    m = _spi_model(plan)
+    beh = _SPI_BEHAVIOR.get(plan.part.upper())
+    e = _E(0)
+    e.ln("/**")
+    e.ln(f" * @file {module}_sim.h")
+    e.ln(f" * @brief {plan.part} sanal SPI cihazi: descriptor register modeli ({m['frame_bytes'] * 8}-bit cerceve,")
+    e.ln(f" *        {m['address_bits']}-bit adres, {m['data_bits']}-bit veri) + hata enjeksiyonu"
+         + (" + davranis (PLL kilit bitleri)." if beh else "."))
+    e.ln(" *")
+    e.ln(" * Kullanim (karisik mod, kart uzerinde cihaz henuz yokken):")
+    e.ln(f" *   static S{pas}Sim S_sSim;")
+    e.ln(f" *   {module}SimKur(&S_sSim, {mod}_CIT_SPI_SELECT);")
+    e.ln(" *   spec2codeSpiSimEkle(&sBus, &S_sSim.sCihaz);   -- bu chip-select artik sanal, digerleri gercek")
+    e.ln(" * Generated by Spec2Code. Do not edit by hand.")
+    e.ln(" */")
+    e.ln(f"#ifndef {mod}_SIM_H")
+    e.ln(f"#define {mod}_SIM_H")
+    e.blank()
+    e.ln('#include "spec2code_spi_bus.h"')
+    e.blank()
+    e.ln("#if SPEC2CODE_CIT_SIM")
+    e.blank()
+    e.ln(f"#define {mod}_SIM_REG_SAYISI {reg_count}U /* en yuksek register adresi + 1 */")
+    e.ln(f"#define {mod}_SIM_FRAME_BYTES {m['frame_bytes']}U")
+    e.blank()
+    e.ln("/**")
+    e.ln(f" * @brief {plan.part} simulator durumu. sCihaz ILK alandir (HAL zinciri).")
+    e.ln(" */")
+    e.ln("typedef struct")
+    e.ln("{")
+    e.ln("    SSpec2codeSpiSimCihaz sCihaz;")
+    e.ln(f"    unsigned short usArrReg[{mod}_SIM_REG_SAYISI]; /* register dosyasi (veri {m['data_bits']} bit) */")
+    e.ln("    unsigned int uiHataModu;   /* SPEC2CODE_SIM_HATA_*                    */")
+    e.ln("    unsigned int uiYazmaSayac; /* kac yazma cercevesi geldi               */")
+    e.ln("    unsigned int uiOkumaSayac; /* kac okuma cercevesi geldi               */")
+    e.ln("    unsigned int uiSonAdres;   /* son cercevenin adresi (teshis)           */")
+    if beh:
+        beh["state"](e)
+    e.ln("}" + f" S{pas}Sim;")
+    e.blank()
+    e.ln("/**")
+    e.ln(" * @brief Simulatoru descriptor reset degerleriyle kurar ve HAL dugumunu doldurur.")
+    e.ln(" * @param spSim Simulator.")
+    e.ln(" * @param ucSelect Chip-select indeksi (spec: <MOD>_CIT_SPI_SELECT).")
+    e.ln(" */")
+    e.ln(f"void {module}SimKur(S{pas}Sim* spSim, unsigned char ucSelect);")
+    e.blank()
+    e.ln("/**")
+    e.ln(" * @brief Hata enjeksiyonu: SPEC2CODE_SIM_HATA_YOK / _NACK (transfer basarisiz) / _HAZIR_YOK.")
+    e.ln(" * @param spSim Simulator.")
+    e.ln(" * @param uiHataModu Mod.")
+    e.ln(" */")
+    e.ln(f"void {module}SimHataAyarla(S{pas}Sim* spSim, unsigned int uiHataModu);")
+    e.blank()
+    e.ln("/**")
+    e.ln(" * @brief Bir registeri dogrudan yazar (senaryo kurmak icin; ro registerlere de yazar).")
+    e.ln(" * @param spSim Simulator.")
+    e.ln(" * @param uiAdres Register adresi.")
+    e.ln(" * @param usDeger Deger.")
+    e.ln(" */")
+    e.ln(f"void {module}SimRegisterYaz(S{pas}Sim* spSim, unsigned int uiAdres, unsigned short usDeger);")
+    e.blank()
+    if beh:
+        beh["api_header"](e, mod, pas, module)
+    e.ln("#endif /* SPEC2CODE_CIT_SIM */")
+    e.blank()
+    e.ln(f"#endif /* {mod}_SIM_H */")
+    return e.text()
+
+
+def spi_sim_source(plan: _ChipPlan) -> str:
+    mod, pas, module = plan.mod, plan.pascal, plan.module
+    reg_count, rows = _spi_reg_rows(plan)
+    m = _spi_model(plan)
+    beh = _SPI_BEHAVIOR.get(plan.part.upper())
+    addr_mask = (1 << m["address_bits"]) - 1
+    data_mask = (1 << m["data_bits"]) - 1
+    e = _E(0)
+    e.ln("/**")
+    e.ln(f" * @file {module}_sim.c")
+    e.ln(f" * @brief {plan.part} sanal SPI cihazi gerceklemesi. Generated by Spec2Code.")
+    e.ln(" *")
+    e.ln(f" * Cerceve (descriptor register_model): {m['frame_bytes'] * 8} bit MSB-once; R/W biti {m['rw_bit']}")
+    e.ln(f" * ({m['read_value']} = okuma), adres bit {m['address_shift']}.., veri son {m['data_bits']} bit. Okumada")
+    e.ln(" * cevap ayni cercevenin veri bitlerinde doner (MISO), yazimda yazilabilir register saklanir.")
+    e.ln(" */")
+    e.ln(f'#include "{module}_sim.h"')
+    e.blank()
+    e.ln("#if SPEC2CODE_CIT_SIM")
+    e.blank()
+    e.ln("typedef struct")
+    e.ln("{")
+    e.ln("    unsigned short usAdres;")
+    e.ln("    unsigned short usReset;")
+    e.ln("    unsigned char ucYazilabilir;")
+    e.ln("}" + f" S{pas}SimRegTanim;")
+    e.blank()
+    e.ln(f"#define {mod}_SIM_TANIM_SAYISI {max(1, len(rows))}U")
+    e.blank()
+    e.ln(f"static const S{pas}SimRegTanim S_sArr{pas}SimTanim[{mod}_SIM_TANIM_SAYISI] = " + "{")
+    if rows:
+        for off, w, reset, name in rows:
+            e.ln(f"    {{{_hex(off, 16)}, {_hex(reset & 0xFFFF, 16)}, {w}U}}, /* {name} */")
+    else:
+        e.ln("    {0x0000U, 0x0000U, 1U},")
+    e.ln("};")
+    e.blank()
+    e.ln(f"static unsigned char {module}SimYazilabilir(unsigned int uiAdres)")
+    e.ln("{")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln(f"    for (uiIndex = 0U; uiIndex < {mod}_SIM_TANIM_SAYISI; uiIndex++)")
+    e.ln("    {")
+    e.ln(f"        if (S_sArr{pas}SimTanim[uiIndex].usAdres == uiAdres)")
+    e.ln("        {")
+    e.ln(f"            return S_sArr{pas}SimTanim[uiIndex].ucYazilabilir;")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    return 1U; /* descriptor'da tanimsiz adres: TICS dizisi yazabilsin diye yazilabilir */")
+    e.ln("}")
+    e.blank()
+    if beh:
+        beh["behavior"](e, mod, pas, module)
+    e.ln(f"static int {module}SimTransfer(void* vpDurum, const unsigned char* ucpTx, unsigned char* ucpRx,")
+    e.ln("                               unsigned int uiBoy)")
+    e.ln("{")
+    e.ln(f"    S{pas}Sim* spSim = (S{pas}Sim*)vpDurum;")
+    e.ln("    unsigned int uiWord = 0U;")
+    e.ln("    unsigned int uiAdres;")
+    e.ln("    unsigned int uiVeri;")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln("    if (spSim->uiHataModu == SPEC2CODE_SIM_HATA_NACK)")
+    e.ln("    {")
+    e.ln("        return 1;")
+    e.ln("    }")
+    e.ln(f"    if (uiBoy != {mod}_SIM_FRAME_BYTES)")
+    e.ln("    {")
+    e.ln("        return 1; /* yalniz register cercevesi modellenir */")
+    e.ln("    }")
+    e.ln("    for (uiIndex = 0U; uiIndex < uiBoy; uiIndex++)")
+    e.ln("    {")
+    e.ln("        uiWord = (uiWord << 8U) | (unsigned int)ucpTx[uiIndex];")
+    e.ln("    }")
+    e.ln(f"    uiAdres = (uiWord >> {m['address_shift']}U) & {_hex(addr_mask, 16)};")
+    e.ln("    spSim->uiSonAdres = uiAdres;")
+    e.ln(f"    if (((uiWord >> {m['rw_bit']}U) & 0x1U) == {m['read_value']}U)")
+    e.ln("    {")
+    e.ln("        spSim->uiOkumaSayac++;")
+    if beh:
+        e.ln(f"        {module}SimOncesiOku(spSim);")
+    e.ln(f"        uiVeri = (uiAdres < {mod}_SIM_REG_SAYISI) ? (unsigned int)spSim->usArrReg[uiAdres] : 0U;")
+    e.ln(f"        uiWord = (uiWord & ~{_hex(data_mask, 32)}) | (uiVeri & {_hex(data_mask, 32)});")
+    e.ln("    }")
+    e.ln("    else")
+    e.ln("    {")
+    e.ln("        spSim->uiYazmaSayac++;")
+    e.ln(f"        if ((uiAdres < {mod}_SIM_REG_SAYISI) && ({module}SimYazilabilir(uiAdres) != 0U))")
+    e.ln("        {")
+    e.ln(f"            spSim->usArrReg[uiAdres] = (unsigned short)(uiWord & {_hex(data_mask, 32)});")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    if (ucpRx != (unsigned char*)0)")
+    e.ln("    {")
+    e.ln("        for (uiIndex = 0U; uiIndex < uiBoy; uiIndex++)")
+    e.ln("        {")
+    e.ln("            ucpRx[uiIndex] = (unsigned char)((uiWord >> (8U * (uiBoy - 1U - uiIndex))) & 0xFFU);")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    return 0;")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimKur(S{pas}Sim* spSim, unsigned char ucSelect)")
+    e.ln("{")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln(f"    if (spSim == (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        return;")
+    e.ln("    }")
+    e.ln(f"    for (uiIndex = 0U; uiIndex < {mod}_SIM_REG_SAYISI; uiIndex++)")
+    e.ln("    {")
+    e.ln("        spSim->usArrReg[uiIndex] = 0U;")
+    e.ln("    }")
+    e.ln(f"    for (uiIndex = 0U; uiIndex < {mod}_SIM_TANIM_SAYISI; uiIndex++)")
+    e.ln("    {")
+    e.ln(f"        if (S_sArr{pas}SimTanim[uiIndex].usAdres < {mod}_SIM_REG_SAYISI)")
+    e.ln("        {")
+    e.ln(f"            spSim->usArrReg[S_sArr{pas}SimTanim[uiIndex].usAdres] = S_sArr{pas}SimTanim[uiIndex].usReset;")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    spSim->uiHataModu = SPEC2CODE_SIM_HATA_YOK;")
+    e.ln("    spSim->uiYazmaSayac = 0U;")
+    e.ln("    spSim->uiOkumaSayac = 0U;")
+    e.ln("    spSim->uiSonAdres = 0U;")
+    if beh:
+        beh["kur"](e)
+    e.ln("    spSim->sCihaz.ucSelect = ucSelect;")
+    e.ln("    spSim->sCihaz.vpDurum = spSim;")
+    e.ln(f"    spSim->sCihaz.pfTransfer = {module}SimTransfer;")
+    e.ln("    spSim->sCihaz.spSonraki = (SSpec2codeSpiSimCihaz*)0;")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimHataAyarla(S{pas}Sim* spSim, unsigned int uiHataModu)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiHataModu = uiHataModu;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimRegisterYaz(S{pas}Sim* spSim, unsigned int uiAdres, unsigned short usDeger)")
+    e.ln("{")
+    e.ln(f"    if ((spSim != (S{pas}Sim*)0) && (uiAdres < {mod}_SIM_REG_SAYISI))")
+    e.ln("    {")
+    e.ln("        spSim->usArrReg[uiAdres] = usDeger;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("#endif /* SPEC2CODE_CIT_SIM */")
+    return e.text()
+
 # --- sistem toplayici: sim bolumu -------------------------------------------------------
 
 def sistem_sim_header_section(spec: dict, plans: list[_ChipPlan], controller_field: Callable[[dict], str],
@@ -903,7 +1220,7 @@ def sistem_sim_header_section(spec: dict, plans: list[_ChipPlan], controller_fie
     sims = sim_plans(plans)
     if not sims:
         return []
-    used_i2c = {p.controller["id"] for p in sims}
+    used_i2c = {p.controller["id"] for p in sims if p.transport == "i2c"}
     muxes = [m for m in spec.get("muxes", []) if m.get("controller_id") in used_i2c]
     e = _E(0)
     e.ln("#if SPEC2CODE_CIT_SIM")
@@ -955,7 +1272,7 @@ def sistem_sim_source_section(spec: dict, plans: list[_ChipPlan], controller_fie
     sims = sim_plans(plans)
     if not sims:
         return []
-    used_i2c = {p.controller["id"] for p in sims}
+    used_i2c = {p.controller["id"] for p in sims if p.transport == "i2c"}
     muxes = [m for m in spec.get("muxes", []) if m.get("controller_id") in used_i2c]
     controllers = {c["id"]: c for c in spec.get("controllers", [])}
     e = _E(0)
@@ -969,7 +1286,8 @@ def sistem_sim_source_section(spec: dict, plans: list[_ChipPlan], controller_fie
     for m in muxes:
         e.ln(f"    spec2codeI2cSimSwitchKur(&spSim->{device_field(m)}, {_hex(int(str(m['i2c_address']), 0))});")
     for p in sims:
-        e.ln(f"    {p.module}SimKur(&spSim->{device_field(p.device)}, {p.mod}_CIT_I2C_ADDR);")
+        anahtar = f"{p.mod}_CIT_I2C_ADDR" if p.transport == "i2c" else f"{p.mod}_CIT_SPI_SELECT"
+        e.ln(f"    {p.module}SimKur(&spSim->{device_field(p.device)}, {anahtar});")
     e.ln("}")
     e.blank()
     e.ln("int sistemCitSimEkle(SSistemCitBus* spBus, SSistemCitSim* spSim)")
@@ -982,7 +1300,8 @@ def sistem_sim_source_section(spec: dict, plans: list[_ChipPlan], controller_fie
     e.ln("        return SPEC2CODE_CIT_PARAMETRE;")
     e.ln("    }")
     for p in sims:
-        e.ln(f"    iStatus = spec2codeI2cSimEkle(&spBus->{controller_field(p.controller)}, "
+        ekle = "spec2codeI2cSimEkle" if p.transport == "i2c" else "spec2codeSpiSimEkle"
+        e.ln(f"    iStatus = {ekle}(&spBus->{controller_field(p.controller)}, "
              f"&spSim->{device_field(p.device)}.sCihaz);")
         e.ln("    if ((iStatus != SPEC2CODE_CIT_OK) && (iIlkHata == SPEC2CODE_CIT_OK))")
         e.ln("    {")

@@ -532,7 +532,9 @@ int main(void)
     /* --- Tam sanal: donanim yok, switch + iki entegre sanal --- */
     sistemCitBusVarsayilan(&S_sSanalBus);
     S_sSanalBus.sPlI2c0.eSurucu = SPEC2CODE_I2C_SURUCU_SIM;
+    S_sSanalBus.sPlSpi0.eSurucu = SPEC2CODE_SPI_SURUCU_SIM; /* SPI de sanal: LMK04832 simulatoru */
     sistemCitSimKur(&S_sSim);
+    lmk04832SimKilitAyarla(&S_sSim.sU4Lmk04832, 0U, 1U);   /* PLL1 kilitsiz, PLL2 kilitli */
     (void)sistemCitSimSwitchEkle(&S_sSanalBus, &S_sSim);
     (void)sistemCitSimEkle(&S_sSanalBus, &S_sSim);
     iStatus = sistemCitInit(&S_sSanalBus);
@@ -554,7 +556,12 @@ class CitLayerSimulationTests(unittest.TestCase):
             for rel in ("hal/spec2code_i2c_sim.h", "hal/spec2code_i2c_sim.c",
                         "sim/ltc2991_sim.h", "sim/ltc2991_sim.c", "sim/tmp101_sim.h", "sim/tmp101_sim.c"):
                 self.assertTrue((cit / rel).is_file(), rel)
-            self.assertFalse((cit / "sim/lmk04832_sim.h").exists())  # SPI simulasyonu sonraki faz
+            lmk = (cit / "sim/lmk04832_sim.h").read_text(encoding="utf-8")
+            self.assertIn("void lmk04832SimKur(SLmk04832Sim* spSim, unsigned char ucSelect);", lmk)
+            self.assertIn("void lmk04832SimKilitAyarla(SLmk04832Sim* spSim, unsigned int uiPll1, unsigned int uiPll2);", lmk)
+            spi = (cit / "hal/spec2code_spi_bus.h").read_text(encoding="utf-8")
+            self.assertIn("int spec2codeSpiSimEkle(SSpec2codeSpiBus* spBus, SSpec2codeSpiSimCihaz* spCihaz);", spi)
+            self.assertIn("SPEC2CODE_SPI_SURUCU_SIM = 4", spi)
             bus = (cit / "hal/spec2code_i2c_bus.h").read_text(encoding="utf-8")
             self.assertIn("SPEC2CODE_I2C_SURUCU_SIM = 4", bus)
             self.assertIn("int spec2codeI2cSimEkle(SSpec2codeI2cBus* spBus, SSpec2codeI2cSimCihaz* spCihaz);", bus)
@@ -615,6 +622,8 @@ class CitLayerSimulationTests(unittest.TestCase):
         self.assertEqual(lines[5], "sanal init=0 kanal=0x02", output)
         self.assertIn("sanal read=0 hata=0 ltc[ok=1111 hata=0 v1=3299 v8=3299 t=2500] tmp[t=0 ok=1]",
                       lines[6])
+        # SPI sanal LMK04832: TICS init dizisi simulatore yazildi, PLL1 kilitsiz -> pll1=0
+        self.assertIn("lmk[pll1=0]", lines[6])
 
 def _pm_spec(name: str) -> dict:
     """AXI IIC uzerinde LTC2945 (sont 10 mohm) + DS1682: davranisli simulatorler."""

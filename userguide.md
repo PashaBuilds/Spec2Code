@@ -460,8 +460,15 @@ Davranisli simulatorler (statik register modelinin ustune):
 | LTC2945 | SHUTDOWN degilse her okumada SENSE/VIN/ADIN 12-bit kodlari + 24-bit guc carpimi, MAX/MIN izleme, ADC_BUSY, FAULT_CLEAR | `ltc2945SimAkimAyarla(mA, Rsense mohm)`, `SenseAyarla(uV)`, `VinAyarla(mV)`, `AdinAyarla(uV)` |
 | DS1682 | Her I2C okuma isleminde ETC ilerler (vars. 4 tik = 1 s), EVENT sayaci + CONFIGURATION[0] (bit 16), ETC >= ALARM -> ALARM_FLAG, RESET_COMMAND 0x55 + RESET_ENABLE sifirlar | `ds1682SimEtcAyarla(s)`, `OlayAyarla(n)`, `OlayEkle(n)`, `TikAdimiAyarla(tik)` |
 
+**SPI simulatoru:** `spec2codeSpiSimEkle(&sBus.s<SpiBus>, &sSim.s<Cihaz>.sCihaz)` chip-select
+indeksine gore takilir; eslesen CS sanal, digerleri gercek. TICS-register entegreleri
+(LMK04832, LMX1204/1205/2820, ADAR1000) icin descriptor `register_model` cercevesi cozulur:
+yazimlar register dosyasina islenir, okumalar ayni cercevenin veri bitlerinde doner.
+LMK04832 davranisi: `lmk04832SimKilitAyarla(&sim, pll1, pll2)` RB_PLL_STATUS DLD/LOST
+bitlerini uretir. Nexys A7'de CS0 gercek flash + CS1 sanal LMK04832 ayni bus'ta dogrulandi.
+
 Sinirlar: simulator elektriksel gercekligi degil register davranisini taklit eder; diger
-I2C entegreleri statik register modelidir; SPI entegreleri icin simulator henuz
+I2C/SPI entegreleri statik register modelidir; komut tabanli SPI flash icin simulator
 uretilmez. `SPEC2CODE_CIT_SIM 0` ile katman tamamen derleme disi kalir.
 
 **Kart verisi (`sense_resistor_mohms` gibi):** bazi donusumler kartta belirlenen bir

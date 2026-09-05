@@ -385,6 +385,10 @@ def port_header(spec: dict) -> str:
     e.ln("#ifndef SPEC2CODE_CIT_SIM")
     e.ln("#define SPEC2CODE_CIT_SIM 1")
     e.ln("#endif")
+    e.ln("/* Simulator hata enjeksiyon modlari (I2C ve SPI simulatorlerinin uiHataModu alani) */")
+    e.ln("#define SPEC2CODE_SIM_HATA_YOK 0U       /* normal cevap                                     */")
+    e.ln("#define SPEC2CODE_SIM_HATA_NACK 1U      /* cihaz hatta yok gibi: her transfer basarisiz     */")
+    e.ln("#define SPEC2CODE_SIM_HATA_HAZIR_YOK 2U /* hazir/veri-gecerli bitleri hic kurulmaz (timeout) */")
     e.blank()
     e.ln("/* --- HAL tampon sinirlari --- */")
     e.ln(f"#define SPEC2CODE_I2C_TX_MAX {I2C_TX_MAX}U  /* tek yazmada azami bayt (register erisimleri <= 4) */")
@@ -1038,8 +1042,24 @@ typedef enum
     SPEC2CODE_SPI_SURUCU_YOK = 0,
     SPEC2CODE_SPI_SURUCU_XSPIPS = 1,   /* PS SPI: uiDeviceId */
     SPEC2CODE_SPI_SURUCU_XSPI = 2,     /* AXI Quad SPI: uiDeviceId */
-    SPEC2CODE_SPI_SURUCU_KULLANICI = 3 /* spec2codeSpiPortTransfer (kullanici gercekler) */
+    SPEC2CODE_SPI_SURUCU_KULLANICI = 3, /* spec2codeSpiPortTransfer (kullanici gercekler) */
+    SPEC2CODE_SPI_SURUCU_SIM = 4        /* donanim yok: yalniz sanal cihazlar cevap verir */
 } ESpec2codeSpiSurucu;
+
+#if SPEC2CODE_CIT_SIM
+/**
+ * @brief Bus'a takilan sanal SPI cihazi (zincir dugumu; eslestirme anahtari chip-select
+ *        INDEKSI). pfTransfer tam cift yonlu cerceveyi isler; donus 0 basari.
+ */
+typedef struct SSpec2codeSpiSimCihaz
+{
+    unsigned char ucSelect; /* chip-select indeksi */
+    void* vpDurum;          /* cihaz modeli (sahibi simulator) */
+    int (*pfTransfer)(void* vpDurum, const unsigned char* ucpTx, unsigned char* ucpRx,
+                      unsigned int uiBoy);
+    struct SSpec2codeSpiSimCihaz* spSonraki;
+} SSpec2codeSpiSimCihaz;
+#endif
 
 /**
  * @brief Bir SPI denetleyicisinin calisma zamani tanimi.
@@ -1051,6 +1071,10 @@ typedef struct
     unsigned int uiDeviceId;  /* XPAR_<inst>_DEVICE_ID                           */
     unsigned int uiHazir;     /* spec2codeSpiBusInit basarili -> 1               */
     unsigned int uiHataSayac; /* basarisiz transfer sayaci (init'te sifirlanir)  */
+#if SPEC2CODE_CIT_SIM
+    SSpec2codeSpiSimCihaz* spSimListe; /* sanal cihaz zinciri; NULL = simulasyon yok */
+    unsigned int uiSimSayac;           /* simulatore giden transfer sayisi          */
+#endif
 #if SPEC2CODE_CIT_PORT_XSPIPS
     XSpiPs sSpiPs; /* surucu ornegi (yalniz XSPIPS arka ucunda) */
 #endif
@@ -1079,6 +1103,33 @@ int spec2codeSpiBusInit(SSpec2codeSpiBus* spBus);
 int spec2codeSpiTransfer(SSpec2codeSpiBus* spBus, unsigned char ucSelect,
                          const unsigned char* ucpTx, unsigned char* ucpRx, unsigned int uiBoy);
 
+#if SPEC2CODE_CIT_SIM
+/**
+ * @brief Sanal SPI cihazini bus'a takar (ayni chip-select'te eskisi golgelenir). Karisik mod:
+ *        eslesen CS sanal, digerleri gercek donanim.
+ * @param spBus Bus.
+ * @param spCihaz Simulatorun zincir dugumu.
+ * @return SPEC2CODE_CIT_OK ya da SPEC2CODE_CIT_PARAMETRE.
+ */
+int spec2codeSpiSimEkle(SSpec2codeSpiBus* spBus, SSpec2codeSpiSimCihaz* spCihaz);
+
+/**
+ * @brief Sanal cihazi cikarir; o chip-select yeniden gercek donanima gider.
+ * @param spBus Bus.
+ * @param spCihaz Dugum.
+ * @return SPEC2CODE_CIT_OK ya da SPEC2CODE_CIT_PARAMETRE.
+ */
+int spec2codeSpiSimKaldir(SSpec2codeSpiBus* spBus, SSpec2codeSpiSimCihaz* spCihaz);
+
+/**
+ * @brief Chip-select'e takili sanal cihaz (NULL: gercek donanim).
+ * @param spBus Bus.
+ * @param ucSelect Chip-select indeksi.
+ * @return Dugum ya da NULL.
+ */
+SSpec2codeSpiSimCihaz* spec2codeSpiSimBul(SSpec2codeSpiBus* spBus, unsigned char ucSelect);
+#endif
+
 #if SPEC2CODE_CIT_PORT_KULLANICI
 /* --- kullanici portu: Xilinx disi platformda KULLANICI gercekler. Donus 0 basari. --- */
 int spec2codeSpiPortTransfer(SSpec2codeSpiBus* spBus, unsigned char ucSelect,
@@ -1104,6 +1155,62 @@ def spi_bus_source() -> str:
 
 #if SPEC2CODE_CIT_PORT_XILINX
 #include "xstatus.h"
+#endif
+
+#if SPEC2CODE_CIT_SIM
+int spec2codeSpiSimEkle(SSpec2codeSpiBus* spBus, SSpec2codeSpiSimCihaz* spCihaz)
+{
+    if ((spBus == (SSpec2codeSpiBus*)0) || (spCihaz == (SSpec2codeSpiSimCihaz*)0) ||
+        (spCihaz->pfTransfer == 0))
+    {
+        return SPEC2CODE_CIT_PARAMETRE;
+    }
+    spCihaz->spSonraki = spBus->spSimListe;
+    spBus->spSimListe = spCihaz;
+    return SPEC2CODE_CIT_OK;
+}
+
+int spec2codeSpiSimKaldir(SSpec2codeSpiBus* spBus, SSpec2codeSpiSimCihaz* spCihaz)
+{
+    SSpec2codeSpiSimCihaz** sppGezgin;
+
+    if ((spBus == (SSpec2codeSpiBus*)0) || (spCihaz == (SSpec2codeSpiSimCihaz*)0))
+    {
+        return SPEC2CODE_CIT_PARAMETRE;
+    }
+    sppGezgin = &spBus->spSimListe;
+    while (*sppGezgin != (SSpec2codeSpiSimCihaz*)0)
+    {
+        if (*sppGezgin == spCihaz)
+        {
+            *sppGezgin = spCihaz->spSonraki;
+            spCihaz->spSonraki = (SSpec2codeSpiSimCihaz*)0;
+            return SPEC2CODE_CIT_OK;
+        }
+        sppGezgin = &(*sppGezgin)->spSonraki;
+    }
+    return SPEC2CODE_CIT_PARAMETRE;
+}
+
+SSpec2codeSpiSimCihaz* spec2codeSpiSimBul(SSpec2codeSpiBus* spBus, unsigned char ucSelect)
+{
+    SSpec2codeSpiSimCihaz* spGezgin;
+
+    if (spBus == (SSpec2codeSpiBus*)0)
+    {
+        return (SSpec2codeSpiSimCihaz*)0;
+    }
+    spGezgin = spBus->spSimListe;
+    while (spGezgin != (SSpec2codeSpiSimCihaz*)0)
+    {
+        if (spGezgin->ucSelect == ucSelect)
+        {
+            return spGezgin;
+        }
+        spGezgin = spGezgin->spSonraki;
+    }
+    return (SSpec2codeSpiSimCihaz*)0;
+}
 #endif
 
 int spec2codeSpiBusInit(SSpec2codeSpiBus* spBus)
@@ -1193,6 +1300,11 @@ int spec2codeSpiBusInit(SSpec2codeSpiBus* spBus)
         spBus->uiHazir = 1U;
         return SPEC2CODE_CIT_OK;
 #endif
+#if SPEC2CODE_CIT_SIM
+    case SPEC2CODE_SPI_SURUCU_SIM:
+        spBus->uiHazir = 1U;
+        return SPEC2CODE_CIT_OK;
+#endif
     default:
         return SPEC2CODE_CIT_DESTEK_YOK;
     }
@@ -1213,6 +1325,27 @@ int spec2codeSpiTransfer(SSpec2codeSpiBus* spBus, unsigned char ucSelect,
     {
         return SPEC2CODE_CIT_HATA;
     }
+#if SPEC2CODE_CIT_SIM
+    {
+        SSpec2codeSpiSimCihaz* spSim = spec2codeSpiSimBul(spBus, ucSelect);
+
+        if (spSim != (SSpec2codeSpiSimCihaz*)0)
+        {
+            spBus->uiSimSayac++;
+            if (spSim->pfTransfer(spSim->vpDurum, ucpTx, ucpRx, uiBoy) != 0)
+            {
+                spBus->uiHataSayac++;
+                return SPEC2CODE_CIT_HATA;
+            }
+            return SPEC2CODE_CIT_OK;
+        }
+        if (spBus->eSurucu == SPEC2CODE_SPI_SURUCU_SIM)
+        {
+            spBus->uiHataSayac++;
+            return SPEC2CODE_CIT_HATA; /* bu CS'te sanal cihaz yok */
+        }
+    }
+#endif
     for (uiIndex = 0U; uiIndex < uiBoy; uiIndex++)
     {
         ucArrTx[uiIndex] = ucpTx[uiIndex];
