@@ -48,6 +48,8 @@ export interface Device {
   operations_requested?: string[];
   tests_requested?: string[];
   board_id?: string;
+  /** Sanal cihaz: kartta takili degil; test bench ve CIT cit/ simulatorunden cevaplar. */
+  simulate?: boolean;
 }
 export interface InitSequenceWrite {
   reg: string;
@@ -333,6 +335,8 @@ export interface TestbenchManifestDevice {
    * projelerde alan hiç yok; UI "main" varsaymalı (TestbenchManifest.boards da
    * o durumda boş/yok). */
   board_id?: string;
+  /** Sanal cihaz (spec `simulate`): ajan bu cihazi simulatorden cevaplar; YALNIZ isaretliyken var. */
+  simulated?: boolean;
   transport: string;
   attach?: DeviceAttach;
   registers: TestbenchRegister[];

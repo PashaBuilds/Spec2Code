@@ -145,6 +145,24 @@ def validate_wiring(spec: dict) -> dict[str, Any]:
                     add("error", f"{path}/bus/via_mux/channel",
                         f"kanal 0..{channels - 1} araliginda olmali (verilen: {via.get('channel')})")
 
+    # Sanal cihaz yalniz simulatoru olan transportlarda: I2C register cihazi ve SPI
+    # TICS-register cihazi. GPIO hat, komut tabanli flash ve EEPROM icin simulator yok.
+    for index, device in enumerate(spec.get("devices", [])):
+        if not device.get("simulate"):
+            continue
+        try:
+            from orchestrator import codegen as _codegen, tics as _tics
+            descriptor = _codegen.make_descriptor_loader()(device.get("descriptor_ref") or device.get("part", ""))
+        except Exception:  # noqa: BLE001 - descriptor cozulemezse baska kural hata verir
+            continue
+        transport = str((descriptor.get("transport") or {}).get("type", ""))
+        supported = (transport == "i2c" and not descriptor.get("memory")) or (
+            transport == "spi" and _tics.has_tics_register_model(descriptor))
+        if not supported:
+            add("error", f"/devices/{index}/simulate",
+                f"{device.get('part')} icin simulator yok (yalniz I2C register ve SPI TICS-register "
+                "cihazlari sanal olabilir); isareti kaldirin")
+
     # Cihaz/mux board_id'leri var olan karti gostermeli.
     if board_list:
         for index, device in enumerate(spec.get("devices", [])):

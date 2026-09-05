@@ -234,6 +234,7 @@ export function DeviceNode({ data, selected }: NodeProps) {
     sub: string;
     transport: string;
     hasDescriptor: boolean;
+    simulate?: boolean;
     configSummary?: Array<{ key: string; label: string; tone: Ltc2991ModeTone }>;
     telemetry?: string;
   };
@@ -259,6 +260,14 @@ export function DeviceNode({ data, selected }: NodeProps) {
           title={d.hasDescriptor ? "descriptor available" : "no descriptor"}
         />
       </div>
+      {d.simulate && (
+        <span
+          className="absolute -top-2 right-3 rounded border border-warn/60 bg-warn/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-warn"
+          title="Sanal cihaz: kartta takılı değil, simülatörden cevaplar"
+        >
+          sanal
+        </span>
+      )}
       {detailed && (
         <>
           <div className="mt-1.5 flex items-center justify-between pl-2">

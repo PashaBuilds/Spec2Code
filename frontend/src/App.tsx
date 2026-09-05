@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, AudioWaveform, BookOpen, BookOpenText, Boxes, Command, Cpu, FileInput, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -12,9 +12,6 @@ import SidePanel from "@/features/schematic/SidePanel";
 import GenerateConsole from "@/features/generate-console/GenerateConsole";
 import CodeViewer from "@/features/code-view/CodeViewer";
 import CatalogPanel from "@/features/catalog/CatalogPanel";
-import DescriptorWizard from "@/features/driver-import/DescriptorWizard";
-import DriverImport from "@/features/driver-import/DriverImport";
-import UserDescriptorImport from "@/features/driver-import/UserDescriptorImport";
 import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
@@ -27,12 +24,11 @@ import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
 import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
-import SerialLinePanel from "@/features/serial-line/SerialLinePanel";
 import CitPanel from "@/features/cit/CitPanel";
 import YattPanel from "@/features/yatt/YattPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "serial" | "bringup" | "registers" | "docs" | "import" | "regmap" | "cit" | "yatt";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -127,13 +123,11 @@ export default function App() {
     { id: "catalog", label: "Entegre kataloğu", hint: "görünüm", keywords: "catalog parça ic", run: () => setView("catalog") },
     { id: "testbench", label: "Test Bench", hint: "görünüm", keywords: "tcp seri komut agent", run: () => setView("testbench") },
     { id: "traffic", label: "Veri Akışı — TX/RX trafiği", hint: "görünüm", keywords: "trafik veri akış tx rx coresight dcc jtag", run: () => setView("traffic") },
-    { id: "serial", label: "Seri Hat — transfer diyagramları", hint: "görünüm", keywords: "seri hat bus waveform i2c spi transfer diyagram", run: () => setView("serial") },
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "cit", label: "CİT sayfası", hint: "görünüm", keywords: "cit cihaz ici test board contract ok nok limit", run: () => setView("cit") },
     { id: "yatt", label: "Arayüz/YATT sayfası", hint: "görünüm", keywords: "yatt s2cmsg protokol mesaj katalog export html md interface", run: () => setView("yatt") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
-    { id: "import", label: "Driver import", hint: "görünüm", keywords: "sürücü kaynak içe aktar", run: () => setView("import") },
     { id: "regmap", label: "Register Map — struct/union header üret", hint: "görünüm", keywords: "register map struct union header bitfield memory mapped pl ip", run: () => setView("regmap") },
     { id: "vivado", label: "Vivado ile XSA üret (Setup içinde)", hint: "adım", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => { setStep("setup"); setView("flow"); setSetupVivado(true); } },
   ];
@@ -205,14 +199,12 @@ export default function App() {
           ["catalog", Library, "Katalog"],
           ["testbench", PlugZap, "Test Bench"],
           ["traffic", Activity, "Akış"],
-          ["serial", AudioWaveform, "Seri Hat"],
           ["bringup", Rocket, "Bring-up"],
           ["registers", Grid3X3, "Registers"],
           ["regmap", Cpu, "Register Map"],
           ["cit", HeartPulse, "CİT"],
           ["yatt", FileText, "Arayüz/YATT"],
           ["docs", BookOpenText, "Kılavuz"],
-          ["import", FileInput, "Import"],
         ] as const).map(([id, Icon, label]) => (
           <Button
             key={id}
@@ -271,14 +263,6 @@ export default function App() {
             </div>
           </div>
         ))}
-        {keepAlive("serial", (
-          <div className="flex h-full min-h-0 flex-col p-4">
-            <h2 className="mb-3 shrink-0 text-sm font-semibold">Seri Hat — id eşleşmeli transfer diyagramları</h2>
-            <div className="min-h-0 flex-1">
-              <SerialLinePanel />
-            </div>
-          </div>
-        ))}
         {keepAlive("bringup", (
           <div className="flex h-full min-h-0 flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Bring-up — Mission Control</h2>
@@ -319,26 +303,6 @@ export default function App() {
             <div className="min-h-0 flex-1">
               <YattPanel />
             </div>
-          </div>
-        ))}
-        {keepAlive("import", (
-          <div className="mx-auto h-full max-w-6xl space-y-6 overflow-auto p-6">
-            <DescriptorWizard />
-            <UserDescriptorImport />
-            {/* Kaynak import'u ikincil: bu dosyalar üretimin YERİNE GEÇMEZ,
-                çıktı paketine reference_sources/ altında referans olarak
-                eklenir. Birincil yol yukarıdaki descriptor akışıdır. */}
-            <details className="rounded-lg border border-border bg-elev p-4">
-              <summary className="cursor-pointer list-none text-sm font-semibold text-text">
-                Sürücü kaynak referansları (.c/.h) — gelişmiş
-                <span className="ml-2 text-xs font-normal text-faint">
-                  üretimin yerine geçmez; çıktı paketine referans olarak eklenir
-                </span>
-              </summary>
-              <div className="mt-4">
-                <DriverImport />
-              </div>
-            </details>
           </div>
         ))}
         <div className={cn("h-full", view !== "flow" && "hidden")}>

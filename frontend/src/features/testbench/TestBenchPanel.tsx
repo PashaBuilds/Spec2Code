@@ -365,7 +365,10 @@ export default function TestBenchPanel() {
           <span className="block truncate font-mono text-xs">{device.id}</span>
           <span className="block truncate text-[11px] text-faint">{device.part}</span>
         </span>
-        <Badge tone="neutral">{device.transport.toUpperCase()}</Badge>
+        <span className="flex shrink-0 items-center gap-1">
+          {device.simulated ? <Badge tone="warn">SANAL</Badge> : null}
+          <Badge tone="neutral">{device.transport.toUpperCase()}</Badge>
+        </span>
       </button>
     );
   }

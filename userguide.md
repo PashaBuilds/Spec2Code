@@ -448,6 +448,12 @@ Adresi eslesen transfer simulatore, digerleri gercek donanima gider. Sanal cihaz
 `SPEC2CODE_I2C_SURUCU_SIM` yap, `sistemCitSimSwitchEkle()` + `sistemCitSimEkle()` cagir.
 Eslesmeyen adres NACK sayilir.
 
+**Sematikte sanal cihaz isareti:** cihazi secince "Simulasyon > sanal cihaz" anahtarini ac.
+Spec'e `simulate: true` yazilir, kutuda SANAL rozeti cikar ve **test bench ajani** o cihazin
+butun op'larini (init, olcumler, register oku/yaz) gercek hat yerine cit/ simulatorunden
+cevaplar - Test Bench ve CIT ekranlarinda yesil gorursun; ayni hattaki gercek cihazlar
+gercek kalir. Yalniz I2C register ve SPI TICS-register cihazlari isaretlenebilir.
+
 **Hata enjeksiyonu:** `ltc2991SimHataAyarla(&sim, SPEC2CODE_SIM_HATA_NACK)` cihazi hattan
 kaldirir (her erisim duser); `SPEC2CODE_SIM_HATA_HAZIR_YOK` READY bitlerini hic kurmaz
 (poll zaman asimi). Boylece CIT'in hata yollari da cihazsiz denenir.
@@ -593,7 +599,7 @@ Test Bench sayfasinda:
   kutulari artik cerceve ozeti + hex gosterir (eski ham `S2C|...` metin satiri
   DEGIL).
 - Agent trace/log seviyesi (error..debug) baglanti kartindan canli
-  degistirilir (`log_level` komutu); Akis ve Seri Hat ekranlarindaki TRACE
+  degistirilir (`log_level` komutu); Akis ekranindaki TRACE
   metinleri bu esige gore artar/azalir.
 
 LTC2991 icin test bench uzerinden tipik faydali operasyonlar:

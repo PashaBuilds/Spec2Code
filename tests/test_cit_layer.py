@@ -752,5 +752,50 @@ class CitLayerPowerMonitorSimTests(unittest.TestCase):
         self.assertIn("pm[busy=1", lines[5])
 
 
+class SimulatedDeviceAgentTests(unittest.TestCase):
+    """`devices[].simulate`: test bench ajani sanal cihazi cit/ simulatorunden cevaplar."""
+
+    def test_simulated_devices_get_agent_shims_and_manifest_flag(self) -> None:
+        spec = _axi_spec("unit_simulate_agent")
+        for device in spec["devices"]:
+            if device["id"] in ("u2_ltc2991", "u4_lmk04832"):
+                device["simulate"] = True
+        out_dir = _generate(spec)
+        try:
+            ops = (out_dir / "tests/unit_simulate_agent_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads((out_dir / "tests/spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            # Sarmalayicilar dosya kapsaminda, surucu imzasiyla
+            self.assertIn("static int spec2codeSanalLtc2991DeviceInit(unsigned long ulIicBase)", ops)
+            self.assertIn("static int spec2codeSanalLtc2991VoltageRead(unsigned long ulIicBase, unsigned short* uspArr)", ops)
+            self.assertIn("static int spec2codeSanalLmk04832Pll1LockDetect(XSpi* spSpi, unsigned char* ucpOut)", ops)
+            self.assertIn("static int spec2codeSanalLmk04832SpiRegisterRead(", ops)
+            # Mux arkasindaki LTC2991: sanal switch de kurulur
+            self.assertIn("spec2codeI2cSimSwitchKur(&S_sSanalSwitchLtc2991, LTC2991_CIT_MUX_ADDR);", ops)
+            # Dispatch dalinda gercek surucu yerine sarmalayici
+            self.assertIn("iStatus = spec2codeSanalLtc2991VoltageRead(ulIicBase, usArrValues);", ops)
+            self.assertIn("iStatus = spec2codeSanalLtc2991DeviceInit(ulIicBase);", ops)
+            self.assertNotIn("iStatus = ltc2991VoltageRead(ulIicBase", ops)
+            # Gercek cihaz (TMP101) dokunulmadan kalir
+            self.assertIn("iStatus = tmp101TemperatureRead(ulIicBase, &iValue);", ops)
+            self.assertNotIn("spec2codeSanalTmp101", ops)
+            # Manifest bayragi yalniz isaretli cihazlarda
+            flags = {d["id"]: d.get("simulated") for d in manifest["devices"]}
+            self.assertEqual(flags["u2_ltc2991"], True)
+            self.assertEqual(flags["u4_lmk04832"], True)
+            self.assertNotIn("simulated", [k for d in manifest["devices"] if d["id"] == "u3_tmp101" for k in d])
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_unmarked_project_has_no_simulation_shims(self) -> None:
+        out_dir = _generate(_axi_spec("unit_simulate_none"))
+        try:
+            ops = (out_dir / "tests/unit_simulate_none_testbench_ops.c").read_text(encoding="utf-8")
+            self.assertNotIn("spec2codeSanal", ops)
+            manifest = (out_dir / "tests/spec2code_testbench_manifest.json").read_text(encoding="utf-8")
+            self.assertNotIn("simulated", manifest)
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

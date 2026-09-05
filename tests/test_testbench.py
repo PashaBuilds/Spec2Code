@@ -323,6 +323,20 @@ class TestbenchTests(unittest.TestCase):
                              for entry in rx_entries))
         manager.disconnect("ser1")
 
+    def test_serial_connect_takes_over_stale_session_on_same_port(self) -> None:
+        """SAHA (2026-09-05): UI sayfa yenileyince yeni oturum id'siyle gelir; eski oturum
+        COM portunu tutuyorsa 'Access is denied'. Ayni port -> eski oturum kapatilip devralinir."""
+        first = FakeSerial()
+        second = FakeSerial()
+        manager = SessionManager()
+        manager.connect_serial("board_old", "COM12", 115200, 2.0, serial_factory=lambda _p, _b, _t: first)
+        status = manager.connect_serial("board_new", "com12", 115200, 2.0, serial_factory=lambda _p, _b, _t: second)
+        self.assertTrue(status.connected)
+        self.assertTrue(first._closed)
+        ids = [item.session_id for item in manager.list_sessions()]
+        self.assertIn("board_new", ids)
+        self.assertNotIn("board_old", ids)
+
     def test_serial_session_times_out_without_response(self) -> None:
         from backend.testbench import TestbenchSessionError
 

@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.161 - 2026-09-05
+
+SEMATIKTE "SANAL CIHAZ" ISARETI + TEST BENCH AJANINDA SIMULASYON (kullanici istegi: sanal
+LTC2991/LTC2945/DS1682 Test Bench ilklendirmesinde NACK veriyordu; simulasyon yalniz cit/
+katmanindaydi).
+
+- **Spec:** `devices[].simulate` (bool). Dogrulayici: yalniz I2C register ve SPI TICS-register
+  cihazlari sanal olabilir (GPIO/flash/EEPROM -> hata).
+- **Sematik:** cihaz panelinde "Simulasyon > sanal cihaz" anahtari; kutu ustunde SANAL rozeti.
+- **Test bench ajani:** sanal cihaz icin dosya kapsaminda sarmalayicilar (`spec2codeSanal<Mod>...`)
+  - surucu imzasiyla birebir; SIM modunda ozel bir HAL bus'i + cit/sim simulatoru (+ mux
+  arkasindaysa sanal switch); `device_init` -> `<mod>CitInit`, olcum op'lari -> `<mod>CitRead`
+  + ilgili alan/Ok biti, generic register_read/write -> HAL (I2C) ya da cerceve (SPI). Dispatch
+  dalinda yalniz cagri adi degisir; paketleme/mesajlar ayni. Ayni hattaki gercek cihazlar
+  gercek hatta kalir. Isaretsiz projede cikti bayt-bayt ayni (test kilitli).
+- **Manifest/UI:** `devices[].simulated` (yalniz isaretliyken); Test Bench cihaz listesinde
+  SANAL rozeti. CIT (`boardCitRun`) dispatch uzerinden gectigi icin sanal cihazlar orada da OK.
+- **UI sadelestirme:** hic kullanilmayan "Seri Hat" ve "Import" sekmeleri kaldirildi
+  (kullanici descriptor'lari `user_descriptors/` klasoruyle calismaya devam eder).
+- **Seri port kilidi (saha):** UI her sayfa yenilemede yeni oturum kimligi uretiyordu; sunucuda
+  acik kalan eski oturum COM portunu tutunca yeni baglanti "Access is denied" aliyor, "Kes"
+  dugmesi de kayboluyordu. Sunucu artik AYNI portu tutan eski oturumu kapatip devralir; UI oturum
+  kimligini kalici tutar ve acilista sunucudaki bagli durumu geri yukler (Kes calisir).
+- **Kartta (Nexys A7):** ajan uzerinden 2 gercek (ADT7420, S25FL128S) + 4 sanal (LTC2991, LTC2945,
+  DS1682, LMK04832) cihaz: butun init/olcum/register op'lari ve CIT kosusu OK; sanal degerler
+  simulator varsayilanlari (3299 mV, 25.00 C, 5000 mA, 12000 mV, kilitli PLL).
+
 ## v0.1.160 - 2026-09-05
 
 - **UI - Board'da calistir kutusu:** olay kutusu buyutuldu (max 18rem, min 9rem), yeni satir geldikce

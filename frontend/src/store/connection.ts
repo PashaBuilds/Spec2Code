@@ -24,6 +24,7 @@ const FIELD_KEYS: Record<string, string> = {
   csVitisPath: "spec2code.testbench.csVitisPath",
   csHwServerUrl: HW_SERVER_KEY,
   csProcessor: "spec2code.testbench.csProcessor",
+  sessionId: "spec2code.testbench.sessionId",
 };
 
 function read(key: string, fallback = ""): string {
@@ -82,8 +83,19 @@ export function isJtagTransport(transport: BoardTransport): boolean {
   return transport === "coresight" || transport === "mdm";
 }
 
+/** Oturum kimligi KALICI: sayfa yenilenince ayni id ile devam edilir ki sunucuda acik
+ *  kalan seri/TCP oturumu yeniden bulunsun ("Kes" dugmesi kaybolmasin, port kilitli
+ *  kalmasin). Ilk kez uretilir ve localStorage'a yazilir. */
+function persistentSessionId(): string {
+  const saved = read(FIELD_KEYS.sessionId);
+  if (saved) return saved;
+  const fresh = makeSessionId("board");
+  write(FIELD_KEYS.sessionId, fresh);
+  return fresh;
+}
+
 export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
-  sessionId: makeSessionId("board"),
+  sessionId: persistentSessionId(),
   transport: initialTransport(),
   host: read(FIELD_KEYS.host, "127.0.0.1"),
   port: read(FIELD_KEYS.port, "5000"),
@@ -218,3 +230,15 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
       .catch(() => set({ status: null, connected: false }));
   },
 }));
+
+// Sayfa acilisinda sunucudaki oturum durumunu geri yukle: bagli kalmis bir oturum varsa
+// UI "bagli" gorunur ve Kes calisir (sayfa yenileme / uygulama guncellemesi senaryosu).
+if (typeof window !== "undefined") {
+  void api.testbenchSessionStatus(useBoardConnection.getState().sessionId)
+    .then((status) => {
+      if (status?.connected) useBoardConnection.setState({ status, connected: true });
+    })
+    .catch(() => {
+      /* sunucu yoksa sessiz */
+    });
+}

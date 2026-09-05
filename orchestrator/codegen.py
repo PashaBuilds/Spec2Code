@@ -1984,6 +1984,10 @@ def _testbench_manifest_devices(spec: dict, get_descriptor: Callable[[str], dict
             {"board_id": boards.board_id_of(device)}
             if boards.boards_declared(spec) else {}
         )
+        # "simulated" YALNIZ isaretliyken yazilir: isaretsiz projelerde manifest
+        # bugunkuyle bayt-bayt ayni kalir.
+        if device.get("simulate"):
+            board_fields = {**board_fields, "simulated": True}
         devices.append({
             "id": device.get("id", ""),
             "part": device.get("part", ""),
@@ -2878,6 +2882,7 @@ def _testbench_device_entries(spec: dict, get_descriptor: Callable[[str], dict])
             "mux": mux,
             "mux_module": cmodel._module_of(mux["part"]) if mux else None,
             "mux_channel": via_mux.get("channel") if isinstance(via_mux, dict) else None,
+            "simulate": bool(device.get("simulate")),
         })
     return entries
 
@@ -4020,6 +4025,252 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     return lines
 
 
+
+# --- sanal cihaz (simulate): test bench ajaninda cit/ simulatoru sarmalayicisi ---------
+
+def _testbench_sim_pascal(entry: dict) -> str:
+    return _pascal_identifier(entry["module"])
+
+
+def _testbench_sim_rewrite(entry: dict, lines: list[str]) -> list[str]:
+    """Sanal cihazin dispatch dalinda GERCEK surucu/yardimci cagrilarini simulator
+    sarmalayicilariyla degistirir; paketleme ve mesajlar bayt-bayt ayni kalir."""
+    module = entry["module"]
+    MOD = module.upper()
+    pas = _testbench_sim_pascal(entry)
+    hvar = entry["hvar"]
+    sfx = _testbench_bus_helper_suffix(entry["htype"])
+    swaps = [
+        (f"spec2codeTestbenchI2cRegisterReadWide{sfx}({hvar}, {MOD}_I2C_ADDR, ", f"spec2codeSanal{pas}RegisterReadWide("),
+        (f"spec2codeTestbenchI2cRegisterWriteWide{sfx}({hvar}, {MOD}_I2C_ADDR, ", f"spec2codeSanal{pas}RegisterWriteWide("),
+        (f"spec2codeTestbenchI2cRegisterRead{sfx}({hvar}, {MOD}_I2C_ADDR, ", f"spec2codeSanal{pas}RegisterRead("),
+        (f"spec2codeTestbenchI2cRegisterWrite{sfx}({hvar}, {MOD}_I2C_ADDR, ", f"spec2codeSanal{pas}RegisterWrite("),
+        (f"spec2codeTestbenchSpiRegisterRead{sfx}({hvar}, {MOD}_SPI_SELECT, ", f"spec2codeSanal{pas}SpiRegisterRead("),
+        (f"spec2codeTestbenchSpiRegisterWrite{sfx}({hvar}, {MOD}_SPI_SELECT, ", f"spec2codeSanal{pas}SpiRegisterWrite("),
+    ]
+    op_re = re.compile(rf"\b{re.escape(module)}([A-Z][A-Za-z0-9]*)\({re.escape(hvar)}\b")
+    out: list[str] = []
+    for line in lines:
+        for old, new in swaps:
+            line = line.replace(old, new)
+        line = op_re.sub(lambda m: f"spec2codeSanal{pas}{m.group(1)}({hvar}", line)
+        out.append(line)
+    return out
+
+
+def _testbench_sim_shim_lines(entry: dict, plan) -> list[str]:
+    """Sanal cihaz icin statik sarmalayicilar: cihaz basina SIM modunda bir HAL bus,
+    cit/sim simulatoru (+ mux arkasindaysa sanal switch), <mod>CitInit/CitRead uzerinden
+    surucu imzasiyla birebir ayni statik fonksiyonlar."""
+    module = entry["module"]
+    MOD = module.upper()
+    pas = _testbench_sim_pascal(entry)
+    device = entry["device"]
+    descriptor = entry["descriptor"]
+    htype, hvar = entry["htype"], entry["hvar"]
+    is_i2c = plan.transport == "i2c"
+    bus_t = "SSpec2codeI2cBus" if is_i2c else "SSpec2codeSpiBus"
+    handle_param = cmodel._handle_param(htype, hvar)
+    L: list[str] = [
+        "",
+        f"/* === SANAL CIHAZ: {device.get('id', '')} ({device.get('part', '')}) - kartta takili degil;",
+        " * asagidaki sarmalayicilar gercek surucu yerine cit/ simulatoru uzerinden cevap verir",
+        " * (SIM modunda ozel bir HAL bus'i, gercek hatta DOKUNMAZ). Imzalar surucuyle ayni. === */",
+        f"static {bus_t} S_sSanalBus{pas};",
+        f"static S{pas}Sim S_sSanalSim{pas};",
+    ]
+    if is_i2c and plan.mux_addr:
+        L.append(f"static SSpec2codeI2cSimSwitch S_sSanalSwitch{pas};")
+    L.extend([
+        f"static const S{pas}CitConfig S_sSanalConfig{pas} = {MOD}_CIT_CONFIG_VARSAYILAN;",
+        f"static S{pas}Cit S_sSanalCit{pas};",
+        f"static unsigned int S_uiSanalHazir{pas} = 0U;",
+        "",
+        f"static int spec2codeSanal{pas}Hazirla(void)",
+        "{",
+        f"    if (S_uiSanalHazir{pas} == 1U)",
+        "    {",
+        "        return XST_SUCCESS;",
+        "    }",
+        f"    S_sSanalBus{pas}.eSurucu = {'SPEC2CODE_I2C_SURUCU_SIM' if is_i2c else 'SPEC2CODE_SPI_SURUCU_SIM'};",
+        f"    if ({'spec2codeI2cBusInit' if is_i2c else 'spec2codeSpiBusInit'}(&S_sSanalBus{pas}) != SPEC2CODE_CIT_OK)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        f"    {module}SimKur(&S_sSanalSim{pas}, {MOD}_CIT_{'I2C_ADDR' if is_i2c else 'SPI_SELECT'});",
+        f"    (void){'spec2codeI2cSimEkle' if is_i2c else 'spec2codeSpiSimEkle'}(&S_sSanalBus{pas}, &S_sSanalSim{pas}.sCihaz);",
+    ])
+    if is_i2c and plan.mux_addr:
+        L.extend([
+            f"    spec2codeI2cSimSwitchKur(&S_sSanalSwitch{pas}, {MOD}_CIT_MUX_ADDR);",
+            f"    (void)spec2codeI2cSimEkle(&S_sSanalBus{pas}, &S_sSanalSwitch{pas}.sCihaz);",
+        ])
+    L.extend([
+        f"    S_uiSanalHazir{pas} = 1U;",
+        f"    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"sanal cihaz hazir: {device.get('id', '')} ({device.get('part', '')})\");",
+        "    return XST_SUCCESS;",
+        "}",
+        "",
+        f"static int spec2codeSanal{pas}DeviceInit({handle_param})",
+        "{",
+        f"    (void){hvar};",
+        f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+        "    {",
+        "        return XST_FAILURE;",
+        "    }",
+        f"    return ({module}CitInit(&S_sSanalBus{pas}, &S_sSanalConfig{pas}) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+        "}",
+        "",
+    ])
+    # Olcum op'lari: CitRead + ilgili alan
+    measured = {m.name: m for m in plan.measures}
+    for op in _requested_operations(device, descriptor):
+        op_name = str(op.get("name", ""))
+        if op_name == "device_init":
+            continue
+        returns = str(op.get("returns", "")).lower()
+        if not returns:
+            continue
+        c_type, _ptr = cmodel._return_param(op_name, returns)
+        count = _array_return_count(returns)
+        out_name = "uspArr" if count else {"unsigned char": "ucpOut", "unsigned int": "uipOut", "int": "ipOut"}.get(c_type, "uspOut")
+        L.append(f"static int spec2codeSanal{pas}{_pascal_identifier(op_name)}({handle_param}, {c_type}* {out_name})")
+        L.append("{")
+        L.append(f"    (void){hvar};")
+        m = measured.get(op_name)
+        if m is None:
+            L.extend([
+                f"    (void){out_name};",
+                f"    spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"sanal cihazda desteklenmeyen op: {device.get('id', '')} {op_name}\");",
+                "    return XST_FAILURE;",
+                "}",
+                "",
+            ])
+            continue
+        L.extend([
+            f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    (void){module}CitRead(&S_sSanalBus{pas}, &S_sSanalConfig{pas}, &S_sSanalCit{pas});",
+            f"    if (S_sSanalCit{pas}.sBayraklar.{m.ok_bit} == 0U)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+        ])
+        if count:
+            L.extend([
+                "    {",
+                "        unsigned int uiIndex;",
+                "",
+                f"        for (uiIndex = 0U; uiIndex < {min(count, m.count)}U; uiIndex++)",
+                "        {",
+                f"            {out_name}[uiIndex] = S_sSanalCit{pas}.{m.field}[uiIndex];",
+                "        }",
+                "    }",
+            ])
+        else:
+            L.append(f"    *{out_name} = S_sSanalCit{pas}.{m.field};")
+        L.extend(["    return XST_SUCCESS;", "}", ""])
+    # Generic register erisimleri
+    if is_i2c:
+        L.extend([
+            f"static int spec2codeSanal{pas}RegisterRead(unsigned char ucReg, unsigned char* ucpValue)",
+            "{",
+            f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    return (spec2codeI2cRegisterRead(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucI2cAdres, ucReg, ucpValue) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+            "}",
+            "",
+            f"static int spec2codeSanal{pas}RegisterWrite(unsigned char ucReg, unsigned char ucValue)",
+            "{",
+            f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    return (spec2codeI2cRegisterWrite(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucI2cAdres, ucReg, ucValue) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+            "}",
+            "",
+        ])
+        if _i2c_wide_registers(descriptor):
+            L.extend([
+                f"static int spec2codeSanal{pas}RegisterReadWide(unsigned char ucReg, unsigned char* ucpBuffer)",
+                "{",
+                f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+                "    {",
+                "        return XST_FAILURE;",
+                "    }",
+                f"    return (spec2codeI2cRegisterReadWide(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucI2cAdres, ucReg, ucpBuffer, 2U) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+                "}",
+                "",
+                f"static int spec2codeSanal{pas}RegisterWriteWide(unsigned char ucReg, unsigned char ucHigh, unsigned char ucLow)",
+                "{",
+                "    unsigned char ucArrTx[3];",
+                "",
+                f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+                "    {",
+                "        return XST_FAILURE;",
+                "    }",
+                "    ucArrTx[0] = ucReg;",
+                "    ucArrTx[1] = ucHigh;",
+                "    ucArrTx[2] = ucLow;",
+                f"    return (spec2codeI2cWrite(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucI2cAdres, ucArrTx, 3U) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+                "}",
+                "",
+            ])
+    else:
+        model = tics.register_model(descriptor)
+        frame_bytes = int(model.get("frame_bits", 24) or 24) // 8
+        L.extend([
+            f"static int spec2codeSanal{pas}SpiRegisterWrite(unsigned int uiWord)",
+            "{",
+            f"    unsigned char ucArrTx[{frame_bytes}];",
+            "    unsigned int uiIndex;",
+            "",
+            f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    for (uiIndex = 0U; uiIndex < {frame_bytes}U; uiIndex++)",
+            "    {",
+            f"        ucArrTx[uiIndex] = (unsigned char)((uiWord >> (8U * ({frame_bytes}U - 1U - uiIndex))) & 0xFFU);",
+            "    }",
+            f"    return (spec2codeSpiTransfer(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucSpiSelect, ucArrTx, NULL, {frame_bytes}U) == SPEC2CODE_CIT_OK) ? XST_SUCCESS : XST_FAILURE;",
+            "}",
+            "",
+            f"static int spec2codeSanal{pas}SpiRegisterRead(unsigned int uiWord, unsigned int uiDataBytes, unsigned int* uipValue)",
+            "{",
+            f"    unsigned char ucArrTx[{frame_bytes}];",
+            f"    unsigned char ucArrRx[{frame_bytes}];",
+            "    unsigned int uiIndex;",
+            "    unsigned int uiDeger = 0U;",
+            "",
+            f"    if (spec2codeSanal{pas}Hazirla() != XST_SUCCESS)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    for (uiIndex = 0U; uiIndex < {frame_bytes}U; uiIndex++)",
+            "    {",
+            f"        ucArrTx[uiIndex] = (unsigned char)((uiWord >> (8U * ({frame_bytes}U - 1U - uiIndex))) & 0xFFU);",
+            "        ucArrRx[uiIndex] = 0U;",
+            "    }",
+            f"    if (spec2codeSpiTransfer(&S_sSanalBus{pas}, S_sSanalConfig{pas}.ucSpiSelect, ucArrTx, ucArrRx, {frame_bytes}U) != SPEC2CODE_CIT_OK)",
+            "    {",
+            "        return XST_FAILURE;",
+            "    }",
+            f"    for (uiIndex = {frame_bytes}U - uiDataBytes; uiIndex < {frame_bytes}U; uiIndex++)",
+            "    {",
+            "        uiDeger = (uiDeger << 8U) | (unsigned int)ucArrRx[uiIndex];",
+            "    }",
+            "    *uipValue = uiDeger;",
+            "    return XST_SUCCESS;",
+            "}",
+            "",
+        ])
+    return L
+
 def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
     """Global I2C hat taraması opları (yalnız I2C denetleyicisi kullanılıyorsa).
 
@@ -4255,6 +4506,22 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         if include not in emitted_includes:
             includes.append(include)
             emitted_includes.add(include)
+    sim_entries = [entry for entry in entries if entry.get("simulate")]
+    sim_plans: dict[str, object] = {}
+    if sim_entries:
+        plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor))
+        sim_plans = {plan.device["id"]: plan for plan in plans}
+        for entry in sim_entries:
+            if entry["device"].get("id") not in sim_plans:
+                raise cmodel.CodegenError(
+                    f"{entry['device'].get('id')}: sanal cihaz icin cit/ simulatoru uretilemiyor "
+                    "(yalniz I2C register ve SPI TICS-register cihazlari sanal olabilir)")
+            for include in (f'#include "{entry["module"]}_cit.h"', f'#include "{entry["module"]}_sim.h"'):
+                if include not in emitted_includes:
+                    includes.append(include)
+                    emitted_includes.add(include)
+        if any(entry["descriptor"].get("transport", {}).get("type") == "i2c" for entry in sim_entries):
+            includes.append('#include "spec2code_i2c_sim.h"')
     mux_modules = sorted({entry["mux_module"] for entry in entries if entry["mux_module"] is not None})
     for mux_module in mux_modules:
         includes.append(f'#include "{mux_module}.h"')
@@ -4306,6 +4573,9 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         elif _supports_spi_register_ops(entry["descriptor"]):
             lines.extend(_testbench_register_resolver(entry, wide=True))
             emitted_resolvers.add(module)
+    # Sanal cihaz sarmalayicilari dosya kapsaminda, dispatch fonksiyonundan ONCE.
+    for entry in sim_entries:
+        lines.extend(_testbench_sim_shim_lines(entry, sim_plans[entry["device"].get("id")]))
 
     lines.extend([
         f"#define SPEC2CODE_TESTBENCH_OPERATION_COUNT {len(rows)}U",
@@ -4447,7 +4717,10 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "                 spRequest->uiLength, spRequest->uiValue, spRequest->uiDataLength);",
     ])
     for entry in entries:
-        lines.extend(_testbench_device_branch(entry))
+        branch = _testbench_device_branch(entry)
+        if entry.get("simulate"):
+            branch = _testbench_sim_rewrite(entry, branch)
+        lines.extend(branch)
     lines.extend([
         "    spResponse->iStatus = XST_FAILURE;",
         "    spec2codeTestbenchMessageSet(spResponse, \"device not found\");",

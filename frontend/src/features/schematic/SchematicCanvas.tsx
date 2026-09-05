@@ -218,6 +218,7 @@ export default function SchematicCanvas() {
           sub,
           transport,
           hasDescriptor: hasDescriptor(d.part),
+          simulate: Boolean(d.simulate),
           configSummary: d.part.toUpperCase() === "LTC2991" ? ltc2991NodeSummary(d.config) : [],
           telemetry: telemetry[d.id]?.text ?? "",
         },
@@ -229,14 +230,31 @@ export default function SchematicCanvas() {
     }
 
     const edges: Edge[] = [];
+    // Denetleyici başına AYRI dikey omurga: doğrudan kablo taşıyan her
+    // denetleyici, cihaz kolonunun solundaki bus koridorunda kendi şeridini alır
+    // (mux kanal şeritlerinin daha solunda). Aynı denetleyicinin kabloları aynı
+    // şeridi paylaşır (ortak bara görünümü), farklı denetleyicilerinki ayrılır.
+    const busLaneOf = new Map<string, number>();
+    for (const m of muxes) if (ctrlById[m.controller_id] && !busLaneOf.has(m.controller_id)) busLaneOf.set(m.controller_id, busLaneOf.size);
+    for (const d of devices) {
+      if (!d.attach.via_mux && ctrlById[d.attach.controller_id] && !busLaneOf.has(d.attach.controller_id)) busLaneOf.set(d.attach.controller_id, busLaneOf.size);
+    }
+    const BUS_LANE_OFFSET = 44;
+    const busWire = (controllerId: string, transport: string, label: string): Partial<Edge> => {
+      const stroke = busColor(transport);
+      return {
+        type: "channel",
+        data: { lane: busLaneOf.get(controllerId) ?? 0, laneCount: Math.max(busLaneOf.size, 1), offset: BUS_LANE_OFFSET, label },
+        style: { stroke, color: stroke },
+      } as Partial<Edge>;
+    };
     for (const m of muxes) {
       if (ctrlById[m.controller_id]) {
         edges.push({
           id: `e-${m.controller_id}-${m.id}`,
           source: m.controller_id,
           target: m.id,
-          label: "I2C",
-          ...wireProps("i2c"),
+          ...busWire(m.controller_id, "i2c", "I2C"),
         });
       }
     }
@@ -268,8 +286,7 @@ export default function SchematicCanvas() {
           id: `e-${ctrl.id}-${d.id}`,
           source: ctrl.id,
           target: d.id,
-          label: lbl,
-          ...wireProps(ctrl.type),
+          ...busWire(ctrl.id, ctrl.type, lbl),
         });
       }
     }

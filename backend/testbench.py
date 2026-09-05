@@ -999,6 +999,26 @@ class TestbenchSessionManager:
         *,
         serial_factory=None,
     ) -> TestbenchSessionStatus:
+        # Ayni COM portunu tutan ESKI oturumu devral: UI her sayfa yenilemede yeni bir
+        # oturum kimligi uretir; eski oturum kapatilmadan kalinca port kilitli kalir ve
+        # yeni baglanti "Access is denied" alir (SAHA 2026-09-05, Nexys A7 / COM12).
+        # Bir seri portu ancak tek oturum tutabilir - eskisi kapatilir, yenisi acilir.
+        wanted = port_name.strip().upper()
+        with self._lock:
+            stale = [
+                key for key, existing in self._sessions.items()
+                if key != self._clean_session_id(session_id)
+                and str(getattr(existing, "port_name", "") or "").strip().upper() == wanted
+                and wanted
+            ]
+        for key in stale:
+            with self._lock:
+                existing = self._sessions.pop(key, None)
+            if existing is not None:
+                try:
+                    existing.close()
+                except Exception:  # noqa: BLE001 - kapatma hatasi devralmayi engellemesin
+                    pass
         session = _TestbenchSerialSession(self._clean_session_id(session_id))
         self._replace_session(session_id, session)
         return session.connect(port_name.strip(), int(baud), timeout_s, serial_factory=serial_factory)

@@ -81,6 +81,10 @@
           "id": { "type": "string", "minLength": 1 },
           "part": { "type": "string", "minLength": 1 },
           "descriptor_ref": { "type": ["string", "null"] },
+          "simulate": {
+            "type": "boolean",
+            "description": "Sanal cihaz: kartta takili degil; test bench ajani ve CIT bu cihazi cit/ simulatoru uzerinden cevaplar (yalniz I2C register ve SPI TICS-register cihazlari)."
+          },
           "config": {
             "type": "object",
             "additionalProperties": true,
