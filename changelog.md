@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.167 - 2026-09-06
+
+- **CIT: parca basina satir (kullanici istegi):** ayni entegre tipinden olanlar (orn. 3x LTC2991)
+  tek satirda yan yana, her farkli parca kendi satirinda (tek entegre ise satirda yalniz o).
+  Satir basligi: parca adi, adet, ozet rozeti; satir sirasi manifestteki ilk gorunme sirasi.
+  Kart tanimli projelerde bu satirlar kart basliklarinin altinda tekrarlanir.
+
 ## v0.1.166 - 2026-09-06
 
 - **CIT duzenleme seridi (kullanici geri bildirimi):** isim alani kaldirildi (ad zaten satirin

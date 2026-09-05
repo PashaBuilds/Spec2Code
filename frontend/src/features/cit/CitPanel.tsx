@@ -223,6 +223,18 @@ type DeviceGroup = {
   rows: Row[];
 };
 
+/** Entegre kutularini PARCA adina gore satirlara boler (ilk gorunme sirasi korunur). */
+function partRowsOf(groups: DeviceGroup[]): { part: string; groups: DeviceGroup[] }[] {
+  const rows: { part: string; groups: DeviceGroup[] }[] = [];
+  for (const group of groups) {
+    const part = group.rows[0]?.m.part ?? group.manifestDevice?.part ?? group.id;
+    const row = rows.find((r) => r.part === part);
+    if (row) row.groups.push(group);
+    else rows.push({ part, groups: [group] });
+  }
+  return rows;
+}
+
 export default function CitPanel() {
   const files = useStore((s) => s.job.files);
   const previousFiles = useStore((s) => s.previousFiles);
@@ -583,7 +595,7 @@ export default function CitPanel() {
       <Card
         key={group.id}
         className={cn(
-          "flex min-w-0 flex-col gap-2 border-l-4 p-3",
+          "flex h-full min-w-0 flex-col gap-2 border-l-4 p-3",
           BUS_ACCENT[transport] ?? "border-l-border",
           simulated && "border-dashed bg-[#5b2a86]/20",
         )}
@@ -697,9 +709,28 @@ export default function CitPanel() {
                 </Badge>
               </div>
             ) : null}
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(19rem,1fr))]">
-              {section.groups.map(renderDeviceCard)}
-            </div>
+            {/* Her satirda TEK entegre tipi (parca adi): ayni parcadan 3 tane varsa ucu yan yana,
+                tek ise satirda yalniz o. Satir sirasi = manifestteki ilk gorunme sirasi. */}
+            {partRowsOf(section.groups).map((row) => (
+              <div key={row.part} className="mb-3">
+                <div className="mb-1.5 flex items-center gap-2 border-b border-border/60 pb-1">
+                  <span className="font-mono text-[11px] font-semibold text-text">{row.part}</span>
+                  <span className="text-[10px] text-faint">
+                    {row.groups.length > 1 ? `${row.groups.length} adet` : "1 adet"}
+                  </span>
+                  <Badge tone={summaryOf(row.groups.flatMap((g) => g.rows)).tone} className="ml-auto">
+                    {summaryOf(row.groups.flatMap((g) => g.rows)).label}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {row.groups.map((g) => (
+                    <div key={g.id} className="w-[19rem] max-w-full flex-none">
+                      {renderDeviceCard(g)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
