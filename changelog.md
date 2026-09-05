@@ -3,12 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.163 - 2026-09-05
+
+- **Sematik - sanal cihaz rengi:** sanal isaretli entegre kutusu EFLATUN/mor arka plan
+  (`#5b2a86`) + lila kesikli cerceve; onceki sari ton kanvasla karisiyordu (kullanici istegi).
+
 ## v0.1.162 - 2026-09-05
 
 - **Sematik - sanal cihaz anahtari kutuda:** her entegre kutusunun sag ustunde "gercek / sanal"
   pili; tiklayinca `simulate` degisir (sag paneldeki onay kutusu kaldirildi). Sanal cihaz kutusu
-  EFLATUN/mor arka plan + kesikli cerceveyle gorunur - yalniz sematige bakmak yeterli
-  (kullanici istegi; sari ton kanvasa karisiyordu).
+  farkli arka plan + kesikli cerceveyle gorunur - yalniz sematige bakmak yeterli.
 
 ## v0.1.161 - 2026-09-05
 
