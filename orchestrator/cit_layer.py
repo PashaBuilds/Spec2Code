@@ -799,6 +799,7 @@ int spec2codeI2cWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres, const unsi
     {
         ucArrTx[uiIndex] = ucpVeri[uiIndex];
     }
+    (void)ucArrTx; /* hicbir arka uc derlenmemisse (tam sanal) kullanilmaz */
     switch (spBus->eSurucu)
     {
 #if SPEC2CODE_CIT_PORT_XIICPS
@@ -1197,6 +1198,7 @@ int spec2codeSpiTransfer(SSpec2codeSpiBus* spBus, unsigned char ucSelect,
     {
         ucArrTx[uiIndex] = ucpTx[uiIndex];
     }
+    (void)ucArrTx; /* hicbir arka uc derlenmemisse kullanilmaz */
     switch (spBus->eSurucu)
     {
 #if SPEC2CODE_CIT_PORT_XSPIPS

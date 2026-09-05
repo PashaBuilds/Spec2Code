@@ -616,6 +616,132 @@ class CitLayerSimulationTests(unittest.TestCase):
         self.assertIn("sanal read=0 hata=0 ltc[ok=1111 hata=0 v1=3299 v8=3299 t=2500] tmp[t=0 ok=1]",
                       lines[6])
 
+def _pm_spec(name: str) -> dict:
+    """AXI IIC uzerinde LTC2945 (sont 10 mohm) + DS1682: davranisli simulatorler."""
+    spec = _axi_spec(name)
+    spec["muxes"] = []
+    spec["devices"] = [
+        {"id": "u3_ltc2945", "part": "LTC2945", "descriptor_ref": "descriptors/ltc2945.yaml",
+         "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x67"},
+         "config": {"sense_resistor_mohms": 10},
+         "operations_requested": ["device_init", "status_read", "power_read", "sense_read",
+                                  "current_read", "voltage_read", "adin_read"],
+         "tests_requested": ["self_test"]},
+        {"id": "u5_ds1682", "part": "DS1682", "descriptor_ref": "descriptors/ds1682.yaml",
+         "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x6B"},
+         "operations_requested": ["device_init", "config_read", "elapsed_read", "alarm_read",
+                                  "event_read"],
+         "tests_requested": ["self_test"]},
+    ]
+    return spec
+
+
+_PM_MAIN = r"""
+#include <stdio.h>
+#include "spec2code_cit_sistem.h"
+
+static void yazdir(const char* cpEtiket, int iStatus, const SSistemCit* spCit)
+{
+    printf("%s read=%d hata=%u pm[busy=%u sense=%d akim=%d vin=%d adin=%d guc=%u ok=%u%u%u] "
+           "etc[gecen=%u alarm=%u olay=%u alarmflag=%u ok=%u%u%u]\n",
+           cpEtiket, iStatus, spCit->uiHataSayac,
+           spCit->sU3Ltc2945.sBayraklar.uiAdcBusy, spCit->sU3Ltc2945.iSenseRead,
+           spCit->sU3Ltc2945.iCurrentRead, spCit->sU3Ltc2945.iVoltageRead, spCit->sU3Ltc2945.iAdinRead,
+           spCit->sU3Ltc2945.uiPowerRead, spCit->sU3Ltc2945.sBayraklar.uiControlOk,
+           spCit->sU3Ltc2945.sBayraklar.uiCurrentReadOk, spCit->sU3Ltc2945.sBayraklar.uiPowerReadOk,
+           spCit->sU5Ds1682.uiElapsedRead, spCit->sU5Ds1682.uiAlarmRead, spCit->sU5Ds1682.uiEventRead,
+           spCit->sU5Ds1682.sBayraklar.uiAlarmFlag, spCit->sU5Ds1682.sBayraklar.uiConfigurationOk,
+           spCit->sU5Ds1682.sBayraklar.uiElapsedReadOk, spCit->sU5Ds1682.sBayraklar.uiEventReadOk);
+}
+
+int main(void)
+{
+    static SSistemCitBus S_sBus;
+    static SSistemCitSim S_sSim;
+    static SSistemCit S_sCit;
+    int iStatus;
+
+    sistemCitBusVarsayilan(&S_sBus);
+    S_sBus.sPlI2c0.eSurucu = SPEC2CODE_I2C_SURUCU_SIM;
+    sistemCitSimKur(&S_sSim);
+    (void)sistemCitSimEkle(&S_sBus, &S_sSim);
+    /* LTC2945: 2.5 A @ 10 mohm = 25 mV sont; VIN 12.000 V; ADIN 1.5 V */
+    ltc2945SimAkimAyarla(&S_sSim.sU3Ltc2945, 2500, 10);
+    ltc2945SimVinAyarla(&S_sSim.sU3Ltc2945, 12000);
+    ltc2945SimAdinAyarla(&S_sSim.sU3Ltc2945, 1500000);
+    /* DS1682: 100 s gecmis, 70000 olay (bit 16 dolu), her okumada 1 s; alarm 102 s */
+    ds1682SimEtcAyarla(&S_sSim.sU5Ds1682, 100U);
+    ds1682SimOlayAyarla(&S_sSim.sU5Ds1682, 70000U);
+    ds1682SimRegisterYaz(&S_sSim.sU5Ds1682, 0x01U, 0U, (unsigned char)((102U * 4U) & 0xFFU));
+    ds1682SimRegisterYaz(&S_sSim.sU5Ds1682, 0x02U, 0U, (unsigned char)(((102U * 4U) >> 8U) & 0xFFU));
+    iStatus = sistemCitInit(&S_sBus);
+    printf("init=%d control=0x%02X\n", iStatus, S_sSim.sU3Ltc2945.ucArrReg[0][0]);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("ilk", iStatus, &S_sCit);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("ikinci", iStatus, &S_sCit);
+    ds1682SimOlayEkle(&S_sSim.sU5Ds1682, 3U);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("ucuncu", iStatus, &S_sCit);
+    /* LTC2945 shutdown: CONTROL bit 1 -> registerler donar, akim ayari yansimaz */
+    ltc2945SimRegisterYaz(&S_sSim.sU3Ltc2945, 0x00U, 0U, 0x07U);
+    ltc2945SimAkimAyarla(&S_sSim.sU3Ltc2945, 5000, 10);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("shutdown", iStatus, &S_sCit);
+    /* hazir-yok: ADC_BUSY takili kalir (LTC2945 poll etmez, deger okunur ama busy=1) */
+    ltc2945SimRegisterYaz(&S_sSim.sU3Ltc2945, 0x00U, 0U, 0x05U);
+    ltc2945SimHataAyarla(&S_sSim.sU3Ltc2945, SPEC2CODE_SIM_HATA_HAZIR_YOK);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("busy", iStatus, &S_sCit);
+    return 0;
+}
+"""
+
+
+class CitLayerPowerMonitorSimTests(unittest.TestCase):
+    """LTC2945 (guc monitoru) ve DS1682 (gecen zaman) davranis bloklari."""
+
+    def test_ltc2945_and_ds1682_behaviour_round_trip(self) -> None:
+        compiler = _find_cc()
+        if compiler is None:
+            self.skipTest("gcc/cc bulunamadi")
+        out_dir = _generate(_pm_spec("unit_cit_layer_pm"))
+        try:
+            cit = out_dir / "cit"
+            (cit / "main.c").write_text(_PM_MAIN, encoding="utf-8")
+            binary = cit / "cit_pm_host"
+            sources = [str(p) for p in [*(cit / "hal").glob("*.c"), *cit.glob("*.c"),
+                                        *(cit / "sim").glob("*.c")]]
+            cmd = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                   "-DSPEC2CODE_CIT_PORT_XIIC=0", "-DSPEC2CODE_CIT_PORT_XSPI=0",
+                   "-DSPEC2CODE_CIT_PORT_KULLANICI=0",  # tam sanal: port gerekmez
+                   "-I", str(cit / "hal"), "-I", str(cit), "-I", str(cit / "sim"),
+                   "-o", str(binary)] + sources
+            compile_run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
+            output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+        lines = output.strip().splitlines()
+        # device_init CONTROL=0x05 yazimi sanal cihaza islendi
+        self.assertEqual(lines[0], "init=0 control=0x05", output)
+        # 25 mV sont -> kod 1000 -> sense 25000 uV, akim 2500 mA (10 mohm), VIN 12000 mV, ADIN 1500000 uV,
+        # guc = 1000 * 480 = 480000. DS1682: her I2C okuma islemi 4 tik (1 s) ilerletir; CIT taramasi
+        # 12 okuma islemi yapar (durum 1 + elapsed 4 + alarm 4 + event 3) -> sistemCitRead basina ~3 s.
+        # Ilk taramada ETC 100 s'den baslar, elapsed_read aninda 102 s okunur; olay 70000 (bit 16 dolu).
+        self.assertEqual(
+            lines[1],
+            "ilk read=0 hata=0 pm[busy=0 sense=25000 akim=2500 vin=12000 adin=1500000 guc=480000 ok=111] "
+            "etc[gecen=102 alarm=102 olay=70000 alarmflag=0 ok=111]", output)
+        # ikinci tarama: sayac ilerledi (114 s) ve alarm esigi (102 s) gecildi -> ALARM_FLAG
+        self.assertIn("etc[gecen=114 alarm=102 olay=70000 alarmflag=1 ok=111]", lines[2])
+        # olay ekleme
+        self.assertIn("olay=70003", lines[3])
+        # shutdown: kodlar donar (akim 5000 mA yansimaz, hala 2500)
+        self.assertIn("pm[busy=0 sense=25000 akim=2500", lines[4])
+        # hazir-yok: ADC_BUSY takili
+        self.assertIn("pm[busy=1", lines[5])
+
 
 if __name__ == "__main__":
     unittest.main()

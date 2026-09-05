@@ -445,10 +445,24 @@ Eslesmeyen adres NACK sayilir.
 kaldirir (her erisim duser); `SPEC2CODE_SIM_HATA_HAZIR_YOK` READY bitlerini hic kurmaz
 (poll zaman asimi). Boylece CIT'in hata yollari da cihazsiz denenir.
 
-Sinirlar: simulator elektriksel gercekligi degil register davranisini taklit eder; LTC2945
-ve DS1682 simdilik statik register modelidir (davranis bloklari sonraki faz); SPI
-entegreleri icin simulator henuz uretilmez. `SPEC2CODE_CIT_SIM 0` ile katman tamamen
-derleme disi kalir.
+Davranisli simulatorler (statik register modelinin ustune):
+
+| Entegre | Davranis | Senaryo API'si |
+|---|---|---|
+| LTC2991 | READY bitleri (repeated / tek-atis tetik, LSB okununca temizlenir), 2991f kod uretimi, STATUS_HIGH ro bit korumasi | `ltc2991SimKanalAyarla(mV)`, `SicaklikAyarla(santi-C)`, `VccAyarla(mV)` |
+| LTC2945 | SHUTDOWN degilse her okumada SENSE/VIN/ADIN 12-bit kodlari + 24-bit guc carpimi, MAX/MIN izleme, ADC_BUSY, FAULT_CLEAR | `ltc2945SimAkimAyarla(mA, Rsense mohm)`, `SenseAyarla(uV)`, `VinAyarla(mV)`, `AdinAyarla(uV)` |
+| DS1682 | Her I2C okuma isleminde ETC ilerler (vars. 4 tik = 1 s), EVENT sayaci + CONFIGURATION[0] (bit 16), ETC >= ALARM -> ALARM_FLAG, RESET_COMMAND 0x55 + RESET_ENABLE sifirlar | `ds1682SimEtcAyarla(s)`, `OlayAyarla(n)`, `OlayEkle(n)`, `TikAdimiAyarla(tik)` |
+
+Sinirlar: simulator elektriksel gercekligi degil register davranisini taklit eder; diger
+I2C entegreleri statik register modelidir; SPI entegreleri icin simulator henuz
+uretilmez. `SPEC2CODE_CIT_SIM 0` ile katman tamamen derleme disi kalir.
+
+**Kart verisi (`sense_resistor_mohms` gibi):** bazi donusumler kartta belirlenen bir
+degere ihtiyac duyar (LTC2945 `current_read` icin sont direnci). Descriptor bunu
+`convert.scale_den_config` ile ister; codegen degeri `device.config` icinde arar ve op
+acikca istenmisse deger yoksa `device.config.<anahtar> gerekli` hatasiyla durur.
+Schematic'te cihazi secince config editoru bu alanlari **Kart verisi** basligiyla
+gosterir; istenen op icin bos birakilan alan kirmizi uyarilir.
 
 ## 11. Code Viewer ve Download
 

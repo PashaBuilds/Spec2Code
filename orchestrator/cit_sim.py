@@ -318,12 +318,316 @@ def _ltc2991_kur(e: _E) -> None:
     e.ln("    spSim->uiTetik = 0U;")
 
 
+# --- LTC2945: guc monitoru ---------------------------------------------------------------
+
+def _ltc2945_state(e: _E) -> None:
+    e.ln("    int iSenseUv;  /* hedef sont gerilimi (uV; LSB 25 uV, 12 bit)            */")
+    e.ln("    int iVinMv;    /* hedef VIN (mV; LSB 25 mV, 12 bit)                      */")
+    e.ln("    int iAdinUv;   /* hedef ADIN (uV; LSB 500 uV, 12 bit)                    */")
+
+
+def _ltc2945_api_header(e: _E, mod: str, pas: str, module: str) -> None:
+    for name, param, doc in (
+        ("SenseAyarla", "int iUv", "Hedef sont (delta-sense) gerilimi, uV. Kod = uV / 25."),
+        ("VinAyarla", "int iMv", "Hedef VIN, mV. Kod = mV / 25."),
+        ("AdinAyarla", "int iUv", "Hedef ADIN, uV. Kod = uV / 500."),
+    ):
+        e.ln("/**")
+        e.ln(f" * @brief {doc}")
+        e.ln(" * @param spSim Simulator.")
+        e.ln(f" * @param {param.split()[1]} Deger.")
+        e.ln(" */")
+        e.ln(f"void {module}Sim{name}(S{pas}Sim* spSim, {param});")
+        e.blank()
+    e.ln("/**")
+    e.ln(" * @brief Hedef akimi sont direnciyle sont gerilimine cevirir (uV = mA * mohm).")
+    e.ln(" * @param spSim Simulator.")
+    e.ln(" * @param iMa Akim (mA).")
+    e.ln(" * @param iRsenseMohm Sont direnci (miliohm; spec device.config.sense_resistor_mohms).")
+    e.ln(" */")
+    e.ln(f"void {module}SimAkimAyarla(S{pas}Sim* spSim, int iMa, int iRsenseMohm);")
+    e.blank()
+    _ = mod
+
+
+def _ltc2945_behavior(e: _E, mod: str, pas: str, module: str) -> None:
+    for name, param, field in (("SenseAyarla", "int iUv", "iSenseUv"), ("VinAyarla", "int iMv", "iVinMv"),
+                               ("AdinAyarla", "int iUv", "iAdinUv")):
+        e.ln(f"void {module}Sim{name}(S{pas}Sim* spSim, {param})")
+        e.ln("{")
+        e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+        e.ln("    {")
+        e.ln(f"        spSim->{field} = {param.split()[1]};")
+        e.ln("    }")
+        e.ln("}")
+        e.blank()
+    e.ln(f"void {module}SimAkimAyarla(S{pas}Sim* spSim, int iMa, int iRsenseMohm)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->iSenseUv = iMa * iRsenseMohm;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("/* 12-bit kod D15..D4'e yazilir (MSB = kod >> 4, LSB = kod << 4). */")
+    e.ln(f"static void {module}Sim12BitYaz(S{pas}Sim* spSim, unsigned char ucMsbReg, int iKod)")
+    e.ln("{")
+    e.ln("    if (iKod < 0)")
+    e.ln("    {")
+    e.ln("        iKod = 0;")
+    e.ln("    }")
+    e.ln("    if (iKod > 4095)")
+    e.ln("    {")
+    e.ln("        iKod = 4095;")
+    e.ln("    }")
+    e.ln("    spSim->ucArrReg[ucMsbReg][0] = (unsigned char)(((unsigned int)iKod >> 4U) & 0xFFU);")
+    e.ln("    spSim->ucArrReg[ucMsbReg + 1U][0] = (unsigned char)(((unsigned int)iKod & 0xFU) << 4U);")
+    e.ln("}")
+    e.blank()
+    e.ln("/* Okunan 12-bit kod (D15..D4). */")
+    e.ln(f"static int {module}Sim12BitOku(const S{pas}Sim* spSim, unsigned char ucMsbReg)")
+    e.ln("{")
+    e.ln("    return (int)((((unsigned int)spSim->ucArrReg[ucMsbReg][0] << 8U) |")
+    e.ln("                  (unsigned int)spSim->ucArrReg[ucMsbReg + 1U][0]) >> 4U);")
+    e.ln("}")
+    e.blank()
+    e.ln("/* MAX/MIN izleme registerleri (datasheet: her donusumde guncellenir). */")
+    e.ln(f"static void {module}SimMaxMin(S{pas}Sim* spSim, unsigned char ucMaxReg, unsigned char ucMinReg, int iKod)")
+    e.ln("{")
+    e.ln(f"    if (iKod > {module}Sim12BitOku(spSim, ucMaxReg))")
+    e.ln("    {")
+    e.ln(f"        {module}Sim12BitYaz(spSim, ucMaxReg, iKod);")
+    e.ln("    }")
+    e.ln(f"    if (iKod < {module}Sim12BitOku(spSim, ucMinReg))")
+    e.ln("    {")
+    e.ln(f"        {module}Sim12BitYaz(spSim, ucMinReg, iKod);")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("/* Donusum tiki: SHUTDOWN (CONTROL bit 1) degilse SENSE/VIN/ADIN kodlari ve 24-bit guc")
+    e.ln(" * carpimi (sense_kod x vin_kod) uretilir, ADC_BUSY temizlenir, MAX/MIN izlenir. */")
+    e.ln(f"static void {module}SimOncesiOku(S{pas}Sim* spSim)")
+    e.ln("{")
+    e.ln("    int iSense;")
+    e.ln("    int iVin;")
+    e.ln("    unsigned int uiGuc;")
+    e.blank()
+    e.ln("    if (spSim->uiHataModu == SPEC2CODE_SIM_HATA_HAZIR_YOK)")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[0x00U][0] |= 0x08U; /* ADC_BUSY takili kalir */")
+    e.ln("        return;")
+    e.ln("    }")
+    e.ln("    if ((spSim->ucArrReg[0x00U][0] & 0x02U) != 0U)")
+    e.ln("    {")
+    e.ln("        return; /* SHUTDOWN: ADC durdu, registerler donar */")
+    e.ln("    }")
+    e.ln("    iSense = spSim->iSenseUv / 25;")
+    e.ln("    iVin = spSim->iVinMv / 25;")
+    e.ln(f"    {module}Sim12BitYaz(spSim, 0x14U, iSense);")
+    e.ln(f"    {module}Sim12BitYaz(spSim, 0x1EU, iVin);")
+    e.ln(f"    {module}Sim12BitYaz(spSim, 0x28U, spSim->iAdinUv / 500);")
+    e.ln(f"    {module}SimMaxMin(spSim, 0x16U, 0x18U, {module}Sim12BitOku(spSim, 0x14U));")
+    e.ln(f"    {module}SimMaxMin(spSim, 0x20U, 0x22U, {module}Sim12BitOku(spSim, 0x1EU));")
+    e.ln(f"    {module}SimMaxMin(spSim, 0x2AU, 0x2CU, {module}Sim12BitOku(spSim, 0x28U));")
+    e.ln(f"    uiGuc = (unsigned int){module}Sim12BitOku(spSim, 0x14U) * (unsigned int){module}Sim12BitOku(spSim, 0x1EU);")
+    e.ln("    spSim->ucArrReg[0x05U][0] = (unsigned char)((uiGuc >> 16U) & 0xFFU);")
+    e.ln("    spSim->ucArrReg[0x06U][0] = (unsigned char)((uiGuc >> 8U) & 0xFFU);")
+    e.ln("    spSim->ucArrReg[0x07U][0] = (unsigned char)(uiGuc & 0xFFU);")
+    e.ln("    spSim->ucArrReg[0x00U][0] &= (unsigned char)~0x08U; /* ADC_BUSY = 0 */")
+    e.ln("}")
+    e.blank()
+    e.ln(f"static void {module}SimSonrasiOku(S{pas}Sim* spSim, unsigned char ucReg)")
+    e.ln("{")
+    e.ln("    (void)spSim;")
+    e.ln("    (void)ucReg;")
+    e.ln("}")
+    e.blank()
+    e.ln("/* FAULT_CLEAR (0x04) yazimi FAULT'u temizler; ADC_BUSY salt okunurdur. */")
+    e.ln(f"static void {module}SimSonrasiYaz(S{pas}Sim* spSim, unsigned char ucReg, unsigned char ucEski)")
+    e.ln("{")
+    e.ln("    if (ucReg == 0x00U)")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[0x00U][0] = (unsigned char)((spSim->ucArrReg[0x00U][0] & (unsigned char)~0x08U) | (ucEski & 0x08U));")
+    e.ln("    }")
+    e.ln("    else if (ucReg == 0x04U)")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[0x03U][0] = 0U;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    _ = mod
+
+
+def _ltc2945_kur(e: _E) -> None:
+    e.ln("    spSim->iSenseUv = 50000; /* 50 mV sont -> 10 mohm'da 5 A */")
+    e.ln("    spSim->iVinMv = 12000;")
+    e.ln("    spSim->iAdinUv = 1000000;")
+    e.ln("    (void)uiIndex;")
+
+
+# --- DS1682: gecen zaman / olay sayaci -------------------------------------------------
+
+def _ds1682_state(e: _E) -> None:
+    e.ln("    unsigned int uiEtcTik;    /* gecen zaman sayaci (0.25 s tik)                  */")
+    e.ln("    unsigned int uiOlay;      /* olay sayaci (17 bit)                              */")
+    e.ln("    unsigned int uiTikAdimi;  /* her okuma isleminde ETC'ye eklenen tik (vars. 4)  */")
+
+
+def _ds1682_api_header(e: _E, mod: str, pas: str, module: str) -> None:
+    for name, param, doc in (
+        ("EtcAyarla", "unsigned int uiSaniye", "Gecen zaman sayacini saniye cinsinden kurar (0.25 s tik = x4)."),
+        ("OlayAyarla", "unsigned int uiOlay", "Olay sayacini kurar (17 bit)."),
+        ("OlayEkle", "unsigned int uiAdet", "EVENT pini darbesi gibi olay sayacini artirir."),
+        ("TikAdimiAyarla", "unsigned int uiTik", "Her okuma isleminde ETC'nin ilerleyecegi tik (0 = donmus sayac)."),
+    ):
+        e.ln("/**")
+        e.ln(f" * @brief {doc}")
+        e.ln(" * @param spSim Simulator.")
+        e.ln(f" * @param {param.split()[1]} Deger.")
+        e.ln(" */")
+        e.ln(f"void {module}Sim{name}(S{pas}Sim* spSim, {param});")
+        e.blank()
+    _ = mod
+
+
+def _ds1682_behavior(e: _E, mod: str, pas: str, module: str) -> None:
+    e.ln(f"void {module}SimEtcAyarla(S{pas}Sim* spSim, unsigned int uiSaniye)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiEtcTik = uiSaniye * 4U;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimOlayAyarla(S{pas}Sim* spSim, unsigned int uiOlay)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiOlay = uiOlay & 0x1FFFFU;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimOlayEkle(S{pas}Sim* spSim, unsigned int uiAdet)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiOlay = (spSim->uiOlay + uiAdet) & 0x1FFFFU;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"void {module}SimTikAdimiAyarla(S{pas}Sim* spSim, unsigned int uiTik)")
+    e.ln("{")
+    e.ln(f"    if (spSim != (S{pas}Sim*)0)")
+    e.ln("    {")
+    e.ln("        spSim->uiTikAdimi = uiTik;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("/* 32-bit little-endian sayaci ardisik dort register'a yazar. */")
+    e.ln(f"static void {module}Sim32Yaz(S{pas}Sim* spSim, unsigned char ucLowReg, unsigned int uiDeger)")
+    e.ln("{")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln("    for (uiIndex = 0U; uiIndex < 4U; uiIndex++)")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[ucLowReg + uiIndex][0] = (unsigned char)((uiDeger >> (8U * uiIndex)) & 0xFFU);")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"static unsigned int {module}Sim32Oku(const S{pas}Sim* spSim, unsigned char ucLowReg)")
+    e.ln("{")
+    e.ln("    unsigned int uiDeger = 0U;")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln("    for (uiIndex = 0U; uiIndex < 4U; uiIndex++)")
+    e.ln("    {")
+    e.ln("        uiDeger |= (unsigned int)spSim->ucArrReg[ucLowReg + uiIndex][0] << (8U * uiIndex);")
+    e.ln("    }")
+    e.ln("    return uiDeger;")
+    e.ln("}")
+    e.blank()
+    e.ln("/* Sayac tiki: her okuma isleminde ETC ilerler (EVENT pini aktifmis gibi), ETC/EVENT")
+    e.ln(" * registerleri ve CONFIGURATION[0] (olay bit 16) guncellenir, ETC >= ALARM ise ALARM_FLAG. */")
+    e.ln(f"static void {module}SimOncesiOku(S{pas}Sim* spSim)")
+    e.ln("{")
+    e.ln("    unsigned int uiAlarm;")
+    e.blank()
+    e.ln("    if (spSim->uiHataModu != SPEC2CODE_SIM_HATA_HAZIR_YOK)")
+    e.ln("    {")
+    e.ln("        spSim->uiEtcTik += spSim->uiTikAdimi;")
+    e.ln("    }")
+    e.ln(f"    {module}Sim32Yaz(spSim, 0x05U, spSim->uiEtcTik);")
+    e.ln("    spSim->ucArrReg[0x09U][0] = (unsigned char)(spSim->uiOlay & 0xFFU);")
+    e.ln("    spSim->ucArrReg[0x0AU][0] = (unsigned char)((spSim->uiOlay >> 8U) & 0xFFU);")
+    e.ln("    spSim->ucArrReg[0x00U][0] = (unsigned char)((spSim->ucArrReg[0x00U][0] & (unsigned char)~0x01U) |")
+    e.ln("                                                (unsigned char)((spSim->uiOlay >> 16U) & 0x1U));")
+    e.ln(f"    uiAlarm = {module}Sim32Oku(spSim, 0x01U);")
+    e.ln("    if ((uiAlarm != 0U) && (spSim->uiEtcTik >= uiAlarm))")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[0x00U][0] |= 0x40U; /* ALARM_FLAG */")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln(f"static void {module}SimSonrasiOku(S{pas}Sim* spSim, unsigned char ucReg)")
+    e.ln("{")
+    e.ln("    (void)spSim;")
+    e.ln("    (void)ucReg;")
+    e.ln("}")
+    e.blank()
+    e.ln("/* ETC/EVENT registerlerine yazim sayaci kurar; RESET_COMMAND (0x1D) = 0x55 ve")
+    e.ln(" * RESET_ENABLE (CONFIGURATION bit 2) ile sayaclar sifirlanir; ALARM_FLAG/EVENT MSB salt okunur. */")
+    e.ln(f"static void {module}SimSonrasiYaz(S{pas}Sim* spSim, unsigned char ucReg, unsigned char ucEski)")
+    e.ln("{")
+    e.ln("    if (ucReg == 0x00U)")
+    e.ln("    {")
+    e.ln("        spSim->ucArrReg[0x00U][0] = (unsigned char)((spSim->ucArrReg[0x00U][0] & 0xBEU) | (ucEski & 0x41U));")
+    e.ln("    }")
+    e.ln("    else if ((ucReg >= 0x05U) && (ucReg <= 0x08U))")
+    e.ln("    {")
+    e.ln(f"        spSim->uiEtcTik = {module}Sim32Oku(spSim, 0x05U);")
+    e.ln("    }")
+    e.ln("    else if ((ucReg == 0x09U) || (ucReg == 0x0AU))")
+    e.ln("    {")
+    e.ln("        spSim->uiOlay = (spSim->uiOlay & 0x10000U) | ((unsigned int)spSim->ucArrReg[0x0AU][0] << 8U) |")
+    e.ln("                        (unsigned int)spSim->ucArrReg[0x09U][0];")
+    e.ln("    }")
+    e.ln("    else if ((ucReg == 0x1DU) && (spSim->ucArrReg[0x1DU][0] == 0x55U) &&")
+    e.ln("             ((spSim->ucArrReg[0x00U][0] & 0x04U) != 0U))")
+    e.ln("    {")
+    e.ln("        spSim->uiEtcTik = 0U;")
+    e.ln("        spSim->uiOlay = 0U;")
+    e.ln("        spSim->ucArrReg[0x00U][0] &= (unsigned char)~0x40U;")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    _ = mod
+
+
+def _ds1682_kur(e: _E) -> None:
+    e.ln("    spSim->uiEtcTik = 0U;")
+    e.ln("    spSim->uiOlay = 0U;")
+    e.ln("    spSim->uiTikAdimi = 4U; /* her okuma ~1 s ilerletir */")
+    e.ln("    (void)uiIndex;")
+
+
 _BEHAVIOR: dict[str, dict[str, Callable]] = {
     "LTC2991": {
         "state": _ltc2991_state,
         "api_header": _ltc2991_api_header,
         "behavior": _ltc2991_behavior,
         "kur": _ltc2991_kur,
+    },
+    "LTC2945": {
+        "state": _ltc2945_state,
+        "api_header": _ltc2945_api_header,
+        "behavior": _ltc2945_behavior,
+        "kur": _ltc2945_kur,
+    },
+    "DS1682": {
+        "state": _ds1682_state,
+        "api_header": _ds1682_api_header,
+        "behavior": _ds1682_behavior,
+        "kur": _ds1682_kur,
     },
 }
 

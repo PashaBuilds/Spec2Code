@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.157 - 2026-09-05
+
+LTC2945 VE DS1682 DAVRANISLI SIMULATORLER + KART VERISI EDITORU.
+
+- **LTC2945 davranis blogu (`cit/sim/ltc2945_sim.*`):** SHUTDOWN (CONTROL bit 1) degilse
+  her okumada SENSE/VIN/ADIN 12-bit kodlari (D15..D4) + 24-bit guc carpimi, MAX/MIN izleme
+  registerleri, ADC_BUSY (hazir-yok modunda takili kalir), FAULT_CLEAR. Senaryo API'si:
+  `ltc2945SimAkimAyarla(mA, Rsense mohm)`, `SenseAyarla(uV)`, `VinAyarla(mV)`, `AdinAyarla(uV)`.
+- **DS1682 davranis blogu (`cit/sim/ds1682_sim.*`):** her I2C okuma isleminde ETC ilerler
+  (vars. 4 tik = 1 s, `TikAdimiAyarla`), EVENT sayaci 17 bit (CONFIGURATION[0] = bit 16),
+  ETC >= ALARM -> ALARM_FLAG, RESET_COMMAND 0x55 + RESET_ENABLE sayaclari sifirlar, ETC/EVENT
+  registerlerine yazim sayaci kurar. `ds1682SimEtcAyarla(s)`, `OlayAyarla(n)`, `OlayEkle(n)`.
+- **HAL fix:** hicbir arka uc derlenmemisken (tam sanal derleme, tum PORT makrolari 0) kopya
+  tamponu -Werror=unused-but-set-variable ile dusuyordu.
+- **UI - kart verisi editoru:** genel config editoru descriptor'daki `convert.scale_den_config`
+  anahtarlarini (ör. LTC2945 `sense_resistor_mohms`) sayisal alan olarak gosterir; ilgili op
+  istenmis ve alan bosken kirmizi uyarir. Saha: "u3_ltc2945 current_read:
+  device.config.sense_resistor_mohms gerekli" hatasi UI'dan giris olmadan cozulemiyordu.
+- Dogrulama: host round-trip (LTC2945 2.5 A @ 10 mohm -> 2500 mA, VIN 12 V, guc carpimi,
+  shutdown donmasi, ADC_BUSY; DS1682 sayac ilerlemesi, alarm bayragi, olay ekleme).
+
 ## v0.1.156 - 2026-09-05
 
 CIT SIMULASYON MODU + KARISIK MOD (kullanici istegi: "kartimda bu device'lar o sirada

@@ -783,6 +783,8 @@ export interface DescriptorOperation {
   name: string;
   description?: string;
   returns?: string;
+  /** Birim dönüşümü; `scale_den_config` kart verisi anahtarı (device.config) ister. */
+  convert?: Record<string, unknown>;
   steps?: Array<Record<string, unknown>>;
 }
 export interface DeviceDescriptor {
