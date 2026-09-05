@@ -3,6 +3,34 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.156 - 2026-09-05
+
+CIT SIMULASYON MODU + KARISIK MOD (kullanici istegi: "kartimda bu device'lar o sirada
+olmasa bile simulasyonla test edebileyim"). Simulasyon HAL'in altina takilir; entegre
+CIT dosyalari ve mevcut drivers/tests ciktilari DEGISMEZ.
+
+- **HAL (`spec2code_i2c_bus.*`):** sanal cihaz zinciri (`SSpec2codeI2cSimCihaz`,
+  `spec2codeI2cSimEkle/Kaldir/Bul`). Transferde 7-bit adres sanal cihazla eslesirse cevabi
+  simulator verir, eslesmezse transfer GERCEK donanima gider -> ayni bus'ta takili entegre
+  gercek, takili olmayan sanal (karisik mod). Yeni surucu `SPEC2CODE_I2C_SURUCU_SIM`:
+  donanimsiz kosum (eslesmeyen adres NACK). `uiSimSayac` teshis sayaci.
+  `SPEC2CODE_CIT_SIM 0` ile tamamen derleme disi.
+- **`cit/hal/spec2code_i2c_sim.*`:** hata enjeksiyon kodlari (`SPEC2CODE_SIM_HATA_NACK`,
+  `_HAZIR_YOK`) + sanal I2C switch (TCA9548A modeli).
+- **`cit/sim/<mod>_sim.*` (her I2C register entegresi, `orchestrator/cit_sim.py`):**
+  descriptor'dan register modeli (reset/genislik/yazilabilirlik tablolari, pointer +
+  otomatik artis, genis registerde bayt bayt), `<mod>SimKur/HataAyarla/RegisterYaz`.
+  **LTC2991 davranis blogu:** READY bitleri (repeated acquisition ya da tek-atis tetik;
+  LSB okununca temizlenir), hedef mV / santi-C / VCC'den 2991f formatinda kod uretimi
+  (`ltc2991SimKanalAyarla/SicaklikAyarla/VccAyarla`), STATUS_HIGH salt-okunur bit korumasi.
+  LTC2945/DS1682 statik register modeli (davranis sonraki faz); SPI simulasyonu sonraki faz.
+- **Sistem:** `SSistemCitSim` (spec cihaz id'leriyle), `sistemCitSimKur()`,
+  `sistemCitSimEkle()` (karisik mod), `sistemCitSimSwitchEkle()` (tam sanal).
+- **Dogrulama:** host gcc round-trip (karisik mod: switch + TMP101 "gercek" portta, LTC2991
+  sanal -> 1200 mV / -10.50 C birebir; hazir-yok -> zaman asimi; NACK -> 4 erisim duser;
+  cikarma -> adres gercek hatta doner; tam sanal kosum), mb-gcc -Werror, Vitis 2023.2
+  MicroBlaze akisi sim dosyalari dahil. UI dosya plani, README ve kilavuz guncellendi.
+
 ## v0.1.155 - 2026-09-05
 
 CIT ENTEGRE KATMANI (`cit/`) + MICROBLAZE E2E YENIDEN DOGRULAMA (kullanici istegi:

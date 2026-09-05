@@ -383,11 +383,13 @@ class CitLayerHostRoundTripTests(unittest.TestCase):
             cit = out_dir / "cit"
             (cit / "main.c").write_text(_HOST_MAIN, encoding="utf-8")
             binary = cit / "cit_host"
-            sources = [str(p) for p in [*(cit / "hal").glob("*.c"), *cit.glob("*.c")]]
+            sources = [str(p) for p in [*(cit / "hal").glob("*.c"), *cit.glob("*.c"),
+                                        *(cit / "sim").glob("*.c")]]
             cmd = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                    "-DSPEC2CODE_CIT_PORT_XIIC=0", "-DSPEC2CODE_CIT_PORT_XSPI=0",
                    "-DSPEC2CODE_CIT_PORT_KULLANICI=1",
-                   "-I", str(cit / "hal"), "-I", str(cit), "-o", str(binary)] + sources
+                   "-I", str(cit / "hal"), "-I", str(cit), "-I", str(cit / "sim"),
+                   "-o", str(binary)] + sources
             compile_run = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
             output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
@@ -403,6 +405,216 @@ class CitLayerHostRoundTripTests(unittest.TestCase):
         self.assertEqual(lines[6], "lmk ok=1 pll1=1 pll2=1 dld1=1 dld2=1 lost1=0 raw=0x05", output)
         # hata yolu: LTC voltage_read zaman asimi + temperature ok; TMP/LMK etkilenmez
         self.assertEqual(lines[7], "read2=1 hata=1 ltchata=1 vok=0 statuslowok=1 lmkok=1", output)
+
+
+_SIM_MAIN = r"""
+#include <stdio.h>
+#include "spec2code_cit_sistem.h"
+
+/* Kullanici portu = "gercek donanim" yerine gecer: switch 0x70 ve TMP101 0x4A takili,
+ * LTC2991 (0x48) KARTTA YOK -> port NACK doner. Karisik modda 0x48 sanal cevap verir. */
+static unsigned char S_ucMuxKanal = 0xFFU;
+static unsigned char S_ucArrTmp[4][2];
+static unsigned char S_ucPointer = 0U;
+static unsigned int S_uiPort48 = 0U; /* porta ulasan 0x48 transferi (karisik modda 0 beklenir) */
+
+int spec2codeI2cPortWrite(SSpec2codeI2cBus* spBus, unsigned char ucAdres,
+                          const unsigned char* ucpVeri, unsigned int uiBoy)
+{
+    (void)spBus;
+    (void)uiBoy;
+    if (ucAdres == 0x70U)
+    {
+        S_ucMuxKanal = ucpVeri[0];
+        return 0;
+    }
+    if (ucAdres == 0x4AU)
+    {
+        S_ucPointer = ucpVeri[0];
+        return 0;
+    }
+    if (ucAdres == 0x48U)
+    {
+        S_uiPort48++;
+    }
+    return 1;
+}
+
+int spec2codeI2cPortRead(SSpec2codeI2cBus* spBus, unsigned char ucAdres, unsigned char* ucpVeri,
+                         unsigned int uiBoy)
+{
+    unsigned int uiIndex;
+
+    (void)spBus;
+    if ((ucAdres == 0x4AU) && (S_ucMuxKanal == (1U << 1)))
+    {
+        for (uiIndex = 0U; uiIndex < uiBoy; uiIndex++)
+        {
+            ucpVeri[uiIndex] = S_ucArrTmp[S_ucPointer][uiIndex];
+        }
+        return 0;
+    }
+    if (ucAdres == 0x48U)
+    {
+        S_uiPort48++;
+    }
+    return 1;
+}
+
+int spec2codeSpiPortTransfer(SSpec2codeSpiBus* spBus, unsigned char ucSelect,
+                             const unsigned char* ucpTx, unsigned char* ucpRx, unsigned int uiBoy)
+{
+    (void)spBus;
+    (void)ucSelect;
+    (void)ucpTx;
+    (void)uiBoy;
+    if (ucpRx != (unsigned char*)0)
+    {
+        ucpRx[0] = 0U;
+        ucpRx[1] = 0U;
+        ucpRx[2] = 0x05U;
+    }
+    return 0;
+}
+
+static void yazdir(const char* cpEtiket, int iStatus, const SSistemCit* spCit,
+                   const SSistemCitBus* spBus)
+{
+    printf("%s read=%d hata=%u ltc[ok=%u%u%u%u hata=%u v1=%u v8=%u t=%d] tmp[t=%d ok=%u] "
+           "lmk[pll1=%u] sim=%u port48=%u\n",
+           cpEtiket, iStatus, spCit->uiHataSayac,
+           spCit->sU2Ltc2991.sBayraklar.uiStatusLowOk, spCit->sU2Ltc2991.sBayraklar.uiStatusHighOk,
+           spCit->sU2Ltc2991.sBayraklar.uiVoltageReadOk,
+           spCit->sU2Ltc2991.sBayraklar.uiTemperatureReadOk, spCit->sU2Ltc2991.uiHataSayac,
+           spCit->sU2Ltc2991.usArrVoltageRead[0], spCit->sU2Ltc2991.usArrVoltageRead[7],
+           spCit->sU2Ltc2991.iTemperatureRead, spCit->sU3Tmp101.iTemperatureRead,
+           spCit->sU3Tmp101.sBayraklar.uiTemperatureReadOk, spCit->sU4Lmk04832.ucPll1LockDetect,
+           spBus->sPlI2c0.uiSimSayac, S_uiPort48);
+}
+
+int main(void)
+{
+    static SSistemCitBus S_sBus;
+    static SSistemCitBus S_sSanalBus;
+    static SSistemCitSim S_sSim;
+    static SSistemCit S_sCit;
+    int iStatus;
+
+    S_ucArrTmp[0][0] = 0x19U; /* 25.0 C */
+    S_ucArrTmp[0][1] = 0x00U;
+
+    /* --- Karisik mod: switch + TMP101 "gercek" (port), LTC2991 sanal --- */
+    sistemCitBusVarsayilan(&S_sBus);
+    sistemCitSimKur(&S_sSim);
+    ltc2991SimKanalAyarla(&S_sSim.sU2Ltc2991, 0U, 1200);
+    ltc2991SimSicaklikAyarla(&S_sSim.sU2Ltc2991, -1050);
+    (void)spec2codeI2cSimEkle(&S_sBus.sPlI2c0, &S_sSim.sU2Ltc2991.sCihaz);
+    iStatus = sistemCitInit(&S_sBus);
+    printf("init=%d ltcyazim=%u\n", iStatus, S_sSim.sU2Ltc2991.uiYazmaSayac);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("karisik", iStatus, &S_sCit, &S_sBus);
+
+    /* --- Hata enjeksiyonu: hazir biti hic gelmez -> olcumler zaman asimi --- */
+    ltc2991SimHataAyarla(&S_sSim.sU2Ltc2991, SPEC2CODE_SIM_HATA_HAZIR_YOK);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("hazir-yok", iStatus, &S_sCit, &S_sBus);
+
+    /* --- NACK: cihaz hatta yok gibi -> LTC'nin 4 erisimi de duser --- */
+    ltc2991SimHataAyarla(&S_sSim.sU2Ltc2991, SPEC2CODE_SIM_HATA_NACK);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("nack", iStatus, &S_sCit, &S_sBus);
+
+    /* --- Sanal cihazi cikar: 0x48 artik porta (gercek) gider ve NACK alir --- */
+    (void)spec2codeI2cSimKaldir(&S_sBus.sPlI2c0, &S_sSim.sU2Ltc2991.sCihaz);
+    iStatus = sistemCitRead(&S_sBus, &S_sCit);
+    yazdir("kaldir", iStatus, &S_sCit, &S_sBus);
+
+    /* --- Tam sanal: donanim yok, switch + iki entegre sanal --- */
+    sistemCitBusVarsayilan(&S_sSanalBus);
+    S_sSanalBus.sPlI2c0.eSurucu = SPEC2CODE_I2C_SURUCU_SIM;
+    sistemCitSimKur(&S_sSim);
+    (void)sistemCitSimSwitchEkle(&S_sSanalBus, &S_sSim);
+    (void)sistemCitSimEkle(&S_sSanalBus, &S_sSim);
+    iStatus = sistemCitInit(&S_sSanalBus);
+    printf("sanal init=%d kanal=0x%02X\n", iStatus, S_sSim.sU1Tca9548a.ucKontrol);
+    iStatus = sistemCitRead(&S_sSanalBus, &S_sCit);
+    yazdir("sanal", iStatus, &S_sCit, &S_sSanalBus);
+    return 0;
+}
+"""
+
+
+class CitLayerSimulationTests(unittest.TestCase):
+    """Sanal cihaz zinciri: karisik mod, hata enjeksiyonu, cikarma, tam sanal kosum."""
+
+    def test_generated_simulator_files_and_api(self) -> None:
+        out_dir = _generate(_axi_spec("unit_cit_layer_simgen"))
+        try:
+            cit = out_dir / "cit"
+            for rel in ("hal/spec2code_i2c_sim.h", "hal/spec2code_i2c_sim.c",
+                        "sim/ltc2991_sim.h", "sim/ltc2991_sim.c", "sim/tmp101_sim.h", "sim/tmp101_sim.c"):
+                self.assertTrue((cit / rel).is_file(), rel)
+            self.assertFalse((cit / "sim/lmk04832_sim.h").exists())  # SPI simulasyonu sonraki faz
+            bus = (cit / "hal/spec2code_i2c_bus.h").read_text(encoding="utf-8")
+            self.assertIn("SPEC2CODE_I2C_SURUCU_SIM = 4", bus)
+            self.assertIn("int spec2codeI2cSimEkle(SSpec2codeI2cBus* spBus, SSpec2codeI2cSimCihaz* spCihaz);", bus)
+            ltc = (cit / "sim/ltc2991_sim.h").read_text(encoding="utf-8")
+            for api in ("void ltc2991SimKur(SLtc2991Sim* spSim, unsigned char ucAdres);",
+                        "void ltc2991SimKanalAyarla(SLtc2991Sim* spSim, unsigned char ucKanal, int iMv);",
+                        "void ltc2991SimHataAyarla(SLtc2991Sim* spSim, unsigned int uiHataModu);"):
+                self.assertIn(api, ltc)
+            sistem = (cit / "spec2code_cit_sistem.h").read_text(encoding="utf-8")
+            self.assertIn("SSpec2codeI2cSimSwitch sU1Tca9548a;", sistem)
+            self.assertIn("SLtc2991Sim sU2Ltc2991;", sistem)
+            self.assertIn("int sistemCitSimEkle(SSistemCitBus* spBus, SSistemCitSim* spSim);", sistem)
+            self.assertIn("int sistemCitSimSwitchEkle(SSistemCitBus* spBus, SSistemCitSim* spSim);", sistem)
+            tmp = (cit / "sim/tmp101_sim.c").read_text(encoding="utf-8")
+            self.assertIn("S_ucArrTmp101SimReset", tmp)
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_mixed_mode_and_fault_injection_round_trip(self) -> None:
+        compiler = _find_cc()
+        if compiler is None:
+            self.skipTest("gcc/cc bulunamadi")
+        out_dir = _generate(_axi_spec("unit_cit_layer_sim"))
+        try:
+            cit = out_dir / "cit"
+            (cit / "main.c").write_text(_SIM_MAIN, encoding="utf-8")
+            binary = cit / "cit_sim_host"
+            sources = [str(p) for p in [*(cit / "hal").glob("*.c"), *cit.glob("*.c"),
+                                        *(cit / "sim").glob("*.c")]]
+            cmd = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                   "-DSPEC2CODE_CIT_PORT_XIIC=0", "-DSPEC2CODE_CIT_PORT_XSPI=0",
+                   "-DSPEC2CODE_CIT_PORT_KULLANICI=1",
+                   "-I", str(cit / "hal"), "-I", str(cit), "-I", str(cit / "sim"),
+                   "-o", str(binary)] + sources
+            compile_run = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
+            output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+        lines = output.strip().splitlines()
+        # init: LTC'nin 4 profil yazimi sanal cihaza gitti
+        self.assertEqual(lines[0], "init=0 ltcyazim=4", output)
+        # karisik: LTC sanal (1200 mV -> 1199, -10.50 C), TMP101 "gercek" port; porta 0x48 hic gitmedi
+        self.assertTrue(lines[1].startswith(
+            "karisik read=0 hata=0 ltc[ok=1111 hata=0 v1=1199 v8=3299 t=-1050] tmp[t=2500 ok=1] "
+            "lmk[pll1=1] sim="), output)
+        self.assertTrue(lines[1].endswith(" port48=0"), output)
+        # hazir-yok: durum registerleri okunur (2 ok), iki olcum zaman asimi
+        self.assertIn("hazir-yok read=1 hata=2 ltc[ok=1100 hata=2", lines[2])
+        self.assertIn("tmp[t=2500 ok=1]", lines[2])
+        # nack: LTC'nin 4 erisimi de duser, TMP101 etkilenmez
+        self.assertIn("nack read=1 hata=4 ltc[ok=0000 hata=4", lines[3])
+        self.assertIn("tmp[t=2500 ok=1]", lines[3])
+        # kaldir: adres gercek porta gider (port48 > 0) ve NACK alir
+        self.assertIn("kaldir read=1 hata=4 ltc[ok=0000 hata=4", lines[4])
+        self.assertNotIn("port48=0", lines[4])
+        # tam sanal: switch son secilen kanali tasir (TMP101 kanal 1 -> 0x02), her sey okunur
+        self.assertEqual(lines[5], "sanal init=0 kanal=0x02", output)
+        self.assertIn("sanal read=0 hata=0 ltc[ok=1111 hata=0 v1=3299 v8=3299 t=2500] tmp[t=0 ok=1]",
+                      lines[6])
 
 
 if __name__ == "__main__":

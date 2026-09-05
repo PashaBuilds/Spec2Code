@@ -70,6 +70,10 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
     if (citEligible(device, controller?.type)) {
       const module = moduleNameFor(device.part, moduleCounts, false);
       files.push({ path: `cit/${module}_cit.h`, kind: "cit" }, { path: `cit/${module}_cit.c`, kind: "cit" });
+      if (controller?.type === "i2c") {
+        // Sanal cihaz (simulasyon): yalniz I2C register entegreleri (SPI sonraki faz).
+        files.push({ path: `cit/sim/${module}_sim.h`, kind: "cit" }, { path: `cit/sim/${module}_sim.c`, kind: "cit" });
+      }
     }
   }
   // CIT entegre katmani (cit/): HAL + sistem toplayici, en az bir uygun cihaz varsa.
@@ -84,6 +88,8 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       files.push(
         { path: "cit/hal/spec2code_i2c_bus.h", kind: "cit" },
         { path: "cit/hal/spec2code_i2c_bus.c", kind: "cit" },
+        { path: "cit/hal/spec2code_i2c_sim.h", kind: "cit" },
+        { path: "cit/hal/spec2code_i2c_sim.c", kind: "cit" },
       );
     }
     if (busTypes.has("spi")) {

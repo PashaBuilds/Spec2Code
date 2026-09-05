@@ -405,6 +405,51 @@ Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, k
 tabanli SPI flash, I2C EEPROM. Mux'lar ayri dosya almaz; cihazin config'inde switch
 adresi + kanal olarak tasinir.
 
+### Simulasyon ve karisik mod (`cit/sim/`)
+
+Kartta henuz takili olmayan bir entegreyi **sanal cihazla** taklit edip CIT'i yine de
+kosturabilirsin. Simulasyon HAL'in altina takilir; entegre CIT dosyalari degismez.
+
+- `cit/hal/spec2code_i2c_sim.h/.c`: hata enjeksiyon kodlari + sanal I2C switch
+  (TCA9548A modeli).
+- `cit/sim/<mod>_sim.h/.c`: her I2C register entegresi icin descriptor'dan uretilen
+  register modeli (reset degerleri, genislik, yazilabilirlik; pointer + otomatik artis)
+  ve `<mod>SimKur()`, `<mod>SimHataAyarla()`, `<mod>SimRegisterYaz()`. LTC2991 ayrica
+  **davranis** tasir: READY bitleri (repeated acquisition / tek-atis tetik, LSB okununca
+  temizlenir), hedef degerden kod uretimi (`ltc2991SimKanalAyarla(mV)`,
+  `ltc2991SimSicaklikAyarla(santi-C)`, `ltc2991SimVccAyarla(mV)`), STATUS_HIGH'in salt
+  okunur bitlerinin korunmasi.
+- `spec2code_cit_sistem.h`: `SSistemCitSim` (spec cihaz id'leriyle), `sistemCitSimKur()`,
+  `sistemCitSimEkle()` (butun sanal entegreler), `sistemCitSimSwitchEkle()` (sanal switch'ler).
+
+**Karisik mod** (kart uzerinde, LTC2991 takili degil):
+
+```c
+static SSistemCitSim S_sSim;
+sistemCitBusVarsayilan(&S_sBus);
+sistemCitSimKur(&S_sSim);
+ltc2991SimKanalAyarla(&S_sSim.sU2Ltc2991, 0U, 1200);            /* V1 = 1.200 V */
+spec2codeI2cSimEkle(&S_sBus.sPlI2c0, &S_sSim.sU2Ltc2991.sCihaz); /* 0x48 sanal */
+sistemCitInit(&S_sBus);   /* switch ve TMP101 GERCEK hatta, LTC2991 simulatorde */
+sistemCitRead(&S_sBus, &S_sCit);
+```
+
+Adresi eslesen transfer simulatore, digerleri gercek donanima gider. Sanal cihazi
+`spec2codeI2cSimKaldir()` ile cikarinca adres yeniden gercek hatta doner.
+
+**Tam sanal kosum** (donanim yok, host ya da kart): bus'in `eSurucu`'sunu
+`SPEC2CODE_I2C_SURUCU_SIM` yap, `sistemCitSimSwitchEkle()` + `sistemCitSimEkle()` cagir.
+Eslesmeyen adres NACK sayilir.
+
+**Hata enjeksiyonu:** `ltc2991SimHataAyarla(&sim, SPEC2CODE_SIM_HATA_NACK)` cihazi hattan
+kaldirir (her erisim duser); `SPEC2CODE_SIM_HATA_HAZIR_YOK` READY bitlerini hic kurmaz
+(poll zaman asimi). Boylece CIT'in hata yollari da cihazsiz denenir.
+
+Sinirlar: simulator elektriksel gercekligi degil register davranisini taklit eder; LTC2945
+ve DS1682 simdilik statik register modelidir (davranis bloklari sonraki faz); SPI
+entegreleri icin simulator henuz uretilmez. `SPEC2CODE_CIT_SIM 0` ile katman tamamen
+derleme disi kalir.
+
 ## 11. Code Viewer ve Download
 
 Code viewer'da:
