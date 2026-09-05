@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.160 - 2026-09-05
+
+- **UI - Board'da calistir kutusu:** olay kutusu buyutuldu (max 18rem, min 9rem), yeni satir geldikce
+  dibe kayar (kullanici yukari kaydirmissa araya girmez) ve "ELF board uzerinde calisiyor" durumu
+  kutunun ustune sabit bir serit olarak alindi - artik sonucu gormek icin asagi kaydirmak gerekmez
+  (kullanici geri bildirimi).
+- Saha notu: calisan sunucu, kod guncellendikten sonra eski uretici kodunu bellekte tutar; Generate
+  ciktisi duzeltmeleri yansitmiyorsa sunucuyu yeniden baslat.
+
 ## v0.1.159 - 2026-09-05
 
 SPI SIMULATORU + LMK04832 SANAL MODU (Nexys A7'de dogrulandi).

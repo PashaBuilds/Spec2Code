@@ -57,6 +57,15 @@ export default function RunOnBoardCard({
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const closeSocketRef = useRef<null | (() => void)>(null);
+  // Olay kutusu: yeni satir geldikce dibe kayar; kullanici yukari kaydirmissa
+  // (son 24px'ten uzaktaysa) otomatik kaydirma araya girmez.
+  const logRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = logRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    if (nearBottom || events.length <= 1) el.scrollTop = el.scrollHeight;
+  });
 
   useEffect(() => () => closeSocketRef.current?.(), []);
 
@@ -218,8 +227,13 @@ export default function RunOnBoardCard({
           {error}
         </p>
       ) : null}
+      {done ? (
+        <div className="mt-2 flex items-center gap-1.5 rounded border border-ok/30 bg-ok/10 px-2 py-1.5 text-xs text-ok">
+          <CheckCircle2 className="h-4 w-4" aria-hidden /> ELF board üzerinde çalışıyor. Çıktıyı UART konsolundan izleyebilirsin.
+        </div>
+      ) : null}
       {events.length > 0 ? (
-        <div className="mt-2 max-h-32 overflow-auto rounded border border-border bg-bg p-2">
+        <div ref={logRef} className="mt-2 max-h-72 min-h-[9rem] overflow-auto rounded border border-border bg-bg p-2">
           {events
             .filter((event) => typeof event.message === "string")
             .map((event, index) => (
@@ -230,11 +244,6 @@ export default function RunOnBoardCard({
                 </span>
               </div>
             ))}
-          {done ? (
-            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ok">
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> ELF board üzerinde çalışıyor.
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
