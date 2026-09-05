@@ -41,6 +41,13 @@ bulunup duzeltildi.
   program_flash.tcl`, Program/Verify OK). JP1=QSPI + guc cevrimi sonrasi JTAG yuklemesi
   olmadan ajan UART'tan cevap verdi (ADT7420 0xCB / 30.68 C, flash JEDEC 01 20 18,
   0xF00000'deki test verisi korunmus); MicroBlaze JTAG'da "Running".
+- **LTC2945 + DS1682 sanal modu kartta (karisik mod, 4 cihaz tek AXI IIC hatti):** ADT7420
+  gercek; LTC2991/LTC2945/DS1682 sanal. LTC2945: init CONTROL=0x05 sanal cipe yazildi,
+  2.5 A @ 10 mohm -> sense 25000 uV / akim 2500 mA, VIN 12000 mV, ADIN 1.5 V, guc carpimi
+  480000, ADC_BUSY 0. DS1682: ETC her taramada ilerledi (102 -> 114 -> 126 -> 138 s), alarm
+  esigi (104 s) gecilince ALARM_FLAG=1, olay 70000 -> 70003. Hata enjeksiyonu: LTC2945 NACK
+  -> 7 erisimi dustu (ok bitleri 0, uiHataSayac 7), DS1682 sayaci donduruldu (148 s'de
+  sabit), gercek ADT7420 etkilenmedi. Demo: `test/0_temp_nexys/cit_demo2_main.c`.
 
 ## v0.1.157 - 2026-09-05
 
