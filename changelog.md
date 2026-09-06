@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.177 - 2026-09-06
+
+- **Vitis kaynak sahneleme (SAHA):** Generate is'inin urettigi dosya diskte yoksa (cikti klasoru ayni
+  proje adiyla baska bir uretim tarafindan degistirilmisse) sahneleme sessizce atliyor ve eksik
+  workspace uretiyordu (`drivers/ana_kart/*` gelmedi, yalniz `dbg_printf` kaldi). Artik eksik
+  dosyalar listelenip acik hatayla durur: "Once Generate'i yeniden calistirin".
+
 ## v0.1.176 - 2026-09-06
 
 - **Tasinabilirlik (kullanici istegi):** `drivers/` ve `cit/` hicbir test bench basligina/sembolune

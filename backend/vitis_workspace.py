@@ -914,6 +914,7 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
         shutil.rmtree(source_root)
     source_root.mkdir(parents=True, exist_ok=True)
     staged: list[str] = []
+    missing: list[str] = []
 
     for rel in job.result.get("files", []):
         rel_posix = _posix_path(rel).lstrip("/")
@@ -922,17 +923,27 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
             source.relative_to(_ROOT.resolve())
         except ValueError as exc:
             raise ValueError(f"generated file escaped repository root: {rel}") from exc
-        if not source.is_file():
-            continue
-
         display = _relative_output_name(rel_posix, out_dir)
-        if display.startswith(("drivers/", "tests/", "cit/", "reference_sources/")):
-            target = source_root / display
-        else:
+        if not display.startswith(("drivers/", "tests/", "cit/", "reference_sources/")):
             continue
+        if not source.is_file():
+            # Job'un urettigi dosya diskte yok: cikti klasoru (ayni proje adi) baska bir
+            # uretimle (CLI/baska sekme) degismis. Sessizce atlamak eksik workspace uretir
+            # (SAHA 2026-09-06: drivers/ana_kart/* sahnelenmedi) - acik hata.
+            missing.append(display)
+            continue
+        target = source_root / display
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         staged.append(target.relative_to(source_root).as_posix())
+
+    if missing:
+        sample = ", ".join(missing[:5]) + (" ..." if len(missing) > 5 else "")
+        raise ValueError(
+            f"Generate ciktisi diskte eksik ({len(missing)} dosya: {sample}). Cikti klasoru "
+            f"'{out_dir}' bu is bittikten sonra baska bir uretimle (CLI ya da baska bir sekme, "
+            "ayni proje adi) degismis olabilir. Once Generate'i yeniden calistirin, sonra Vitis "
+            "workspace'i kurun.")
 
     # Any staged transport agent already provides main(); a second main()
     # from the self-test scaffold would break the link.
