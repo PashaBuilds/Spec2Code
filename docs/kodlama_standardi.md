@@ -39,7 +39,7 @@ Bir ihlali düzeltmek için çıktı `.c` dosyasını elle düzenlemek işe yara
 | Süslü parantez | **Allman** — `{` her zaman yeni satırda |
 | Girinti | 4 boşluk (tab yok) |
 | Satır sonu | **CRLF** (`\r\n`) — hedef Windows/Vitis |
-| Maksimum satır | 100 karakter |
+| Maksimum satır | 160 karakter (clang-format `ColumnLimit`; sığan ifadeler tek satırda kalır, gereksiz satır bölme yok) |
 | Kontrol anahtar sözcüğü | sonrasında boşluk: `if (`, `for (`, `while (` |
 
 ```c

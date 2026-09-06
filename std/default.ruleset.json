@@ -4,7 +4,7 @@
     "brace_style": "allman",
     "indent": "spaces_4",
     "line_ending": "crlf",
-    "max_line_length": 100,
+    "max_line_length": 160,
     "space_after_control_keyword": true,
     "control_braces_on_new_line": true
   },

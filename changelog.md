@@ -3,6 +3,20 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.173 - 2026-09-06
+
+- **Kodlama standardi (kullanici istegi):** satir limiti 100 -> 160 (`std/default.ruleset.json`
+  `max_line_length`, clang-format `ColumnLimit`). Sigan cagrilar/ifadeler tek satirda kalir;
+  ornegin `dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|...", ADDR, ucReg, 'r', iStatus);` artik
+  bolunmez. Uretilen butun C dosyalari QC turunda bu limite gore yeniden formatlanir.
+
+## v0.1.173 - 2026-09-06
+
+- **Kodlama standardi (kullanici istegi):** azami satir uzunlugu 100 -> 160 (`std/default.ruleset.json`
+  `max_line_length`, clang-format `ColumnLimit`). Sigan cagrilar (orn. `dbg_printf(DEBUG_LEVEL_ERROR,
+  "TRACEERR|...", ADDR, ucReg, 'r', iStatus);`) artik iki satira bolunmuyor; butun uretilen kod
+  QC turunda bu sinira gore yeniden bicimlenir.
+
 ## v0.1.172 - 2026-09-06
 
 - **Board karti:** bitstream yolu alani genisleyebilir (placeholder kirpilmiyor), Yukle & Calistir
