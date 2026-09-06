@@ -14,6 +14,7 @@ import type {
   DeviceCitMeasurement,
   TestbenchManifest,
   TestbenchManifestDevice,
+  CitLimitPayload,
 } from "@/lib/types";
 
 const AUTO_REFRESH_MS = 5000;
@@ -106,9 +107,9 @@ function genericOverride(
 }
 
 /**
- * Ölçümün CANLI (efektif) politikası: store override (varsa) > manifest varsayılanı.
- * Kart yalnız ham+değer+okuma-durumu döner; limit/OK-NOK/önem/enabled kararı HOST'ta,
- * store'daki güncel değerlerle burada hesaplanır (koda gömülü değil, ekrandan canlı).
+ * Ölçümün CANLI (efektif) limit politikası: store override (varsa) > manifest varsayılanı.
+ * Bu politika KARTA gönderilir (CIT_LIMIT_SET); OK/NOK kararını kart (cit/ katmanı) verir,
+ * ekran yalnızca kartın bayrak bitini gösterir - burada limit değerlendirmesi YAPILMAZ.
  */
 type Effective = {
   name: string;
@@ -117,8 +118,7 @@ type Effective = {
   enabled: boolean;
   pending: boolean; // henüz koşulmadı
   readOk: boolean; // kart okuma başarısı (durum === 0)
-  limitOk: boolean; // limit yok VEYA değer aralıkta
-  ok: boolean; // readOk && limitOk — ekranda gösterilen verdict
+  ok: boolean; // KARTIN kararı (bayrak biti) — ekranda gösterilen verdict
 };
 
 function effectiveOf(measurement: CitDecodeMeasurement, device: Device | undefined): Effective {
@@ -134,9 +134,15 @@ function effectiveOf(measurement: CitDecodeMeasurement, device: Device | undefin
   const enabled = override?.enabled ?? measurement.enabled;
   const pending = measurement.durum === PENDING_DURUM;
   const readOk = measurement.durum === 0;
-  // Kapalı aralık: min <= değer <= max (min == max tek kabul edilen değer, örn. 0..0).
-  const limitOk = min === null || max === null ? true : measurement.value >= min && measurement.value <= max;
-  return { name, min, max, enabled, pending, readOk, limitOk, ok: readOk && limitOk };
+  return { name, min, max, enabled, pending, readOk, ok: measurement.ok };
+}
+
+/** Karta gönderilecek canlı limit listesi (manifest sırası). */
+function limitsPayloadOf(manifest: TestbenchManifest, devices: Device[]): CitLimitPayload[] {
+  return pendingMeasurements(manifest).map((m) => {
+    const eff = effectiveOf(m, devices.find((d) => d.id === m.device));
+    return { index: m.index, min: eff.min, max: eff.max, enabled: eff.enabled };
+  });
 }
 
 type Tone = "danger" | "warn" | "ok" | "neutral";
@@ -199,6 +205,7 @@ function pendingMeasurements(manifest: TestbenchManifest): CitDecodeMeasurement[
     unit: m.unit ?? null,
     raw: 0,
     value: 0,
+    ok: false,
     read_ok: false,
     durum: PENDING_DURUM,
     min: m.min ?? null,
@@ -265,8 +272,9 @@ export default function CitPanel() {
     setBusy(true);
     setError("");
     try {
+      // Kosudan once canli limitler karta yazilir (CIT_LIMIT_SET): karar kartta.
       const response = kind === "run"
-        ? await api.citRun(sessionId, manifest, board.timeoutSeconds())
+        ? await api.citRun(sessionId, manifest, board.timeoutSeconds(), limitsPayloadOf(manifest, devices))
         : await api.citRead(sessionId, manifest, board.timeoutSeconds());
       setResult(response);
       setLastRunAt(Date.now());
@@ -277,6 +285,26 @@ export default function CitPanel() {
       setBusy(false);
     }
   }
+
+  // Limit/etkin degisikligi: bagliyken karta ANINDA yazilir (CIT_LIMIT_SET) — cit/ limit
+  // yapisi degisir, bir sonraki kosuda kart yeni limitle karar verir.
+  const limitsKey = manifest && hasCit ? JSON.stringify(limitsPayloadOf(manifest, devices)) : "";
+  const limitsSentRef = useRef<string>("");
+  useEffect(() => {
+    if (!connected || !manifest || !hasCit || !limitsKey || limitsSentRef.current === limitsKey) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      api.citLimits(sessionId, manifest, JSON.parse(limitsKey) as CitLimitPayload[], board.timeoutSeconds())
+        .then(() => { limitsSentRef.current = limitsKey; })
+        .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limitsKey, connected, sessionId]);
 
   // Periyodik otomatik yenile: CIT_READ (yeniden koşturmadan, son sonucu okur).
   useEffect(() => {

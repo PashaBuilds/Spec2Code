@@ -66,10 +66,12 @@ def decode_board_cit(body: bytes, manifest: dict) -> dict:
     olcumler: list[dict] = []
     for i, meta in enumerate(olcumler_manifest):
         iDeger, uiHam, uiOlcumDurum = struct.unpack_from("<iII", cit, olcum_off + i * _OLCUM_SIZE)
-        # Kart bayragi = OKUMA BASARISI (limit degil). OK/NOK karari HOST'ta canli
-        # limitle yapilir; min/max/severity/enabled burada yalniz VARSAYILAN (manifest)
-        # olarak tasinir, CIT ekrani store override'ini uygular (koda gomulmez).
-        read_ok = bool(flags & (1 << i))
+        # Kart bayragi = KARTIN KARARI (cit/ katmani): okundu VE canli limit icinde (etkin
+        # degilse OK). Okuma durumu ayrica uiDurum'dadir (0 OK, 5 BUS_HATASI). Limitler
+        # host'tan CIT_LIMIT_SET ile karta yazilir; min/max/enabled burada manifest
+        # VARSAYILANI olarak tasinir (ekran store override'ini gosterir).
+        ok = bool(flags & (1 << i))
+        read_ok = uiOlcumDurum == 0
         olcumler.append({
             "index": meta.get("index", i),
             "name": meta.get("name", ""),
@@ -85,6 +87,7 @@ def decode_board_cit(body: bytes, manifest: dict) -> dict:
             "unit": meta.get("unit"),
             "raw": uiHam,
             "value": iDeger,
+            "ok": ok,
             "read_ok": read_ok,
             "durum": uiOlcumDurum,
             "min": meta.get("min"),

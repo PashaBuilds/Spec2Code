@@ -1463,11 +1463,35 @@ class CitRequest(BaseModel):
     session_id: str
     manifest: dict
     timeout_s: float = 10.0
+    # Canli limitler (manifest cit.olcumler sirasiyla {min,max,enabled}); verilirse CIT_RUN'dan
+    # ONCE CIT_LIMIT_SET ile karta yazilir: OK/NOK karari kartta (cit/) verilir, host karar vermez.
+    limits: list[dict] | None = None
+
+
+def _cit_send_limits(req: CitRequest) -> dict:
+    olcumler = (req.manifest.get("cit") or {}).get("olcumler") or []
+    limits = req.limits or []
+    if len(limits) != len(olcumler):
+        raise HTTPException(400, f"limit sayisi ({len(limits)}) manifest olcum sayisiyla ({len(olcumler)}) uyusmuyor")
+    extra = s2cmsg.pack_cit_limits(limits)
+    try:
+        prefix, _raw = testbench_sessions.send_named(req.session_id, "CIT_LIMIT_SET", timeout_s=req.timeout_s,
+                                                     extra=extra, length=len(limits))
+    except TestbenchSessionError as exc:
+        raise HTTPException(409, {"message": "testbench session is not usable", "error": str(exc)}) from exc
+    except OSError as exc:
+        raise HTTPException(502, {"message": "CIT transport hatasi", "error": str(exc)}) from exc
+    if prefix.get("durum") != 0:
+        raise HTTPException(502, f"kart CIT limitlerini kabul etmedi (durum={prefix.get('durum')}) - "
+                                 "kodu yeniden uretin/yukleyin")
+    return {"durum": 0, "sayi": len(limits)}
 
 
 def _cit_run_or_read(name: str, req: CitRequest) -> dict:
     if not (req.manifest or {}).get("cit"):
         raise HTTPException(400, "bu uretimde CIT olcumu yok")
+    if name == "CIT_RUN" and req.limits is not None:
+        _cit_send_limits(req)
     try:
         prefix, raw_body = testbench_sessions.send_named(req.session_id, name, timeout_s=req.timeout_s)
     except TestbenchSessionError as exc:
@@ -1491,6 +1515,16 @@ def testbench_cit_run(req: CitRequest) -> dict:
 @router.post("/testbench/cit/read")
 def testbench_cit_read(req: CitRequest) -> dict:
     return _cit_run_or_read("CIT_READ", req)
+
+
+@router.post("/testbench/cit/limits")
+def testbench_cit_limits(req: CitRequest) -> dict:
+    """Canli CIT limitlerini karta yazar (CIT_LIMIT_SET); kosu tetiklemez."""
+    if not (req.manifest or {}).get("cit"):
+        raise HTTPException(400, "bu uretimde CIT olcumu yok")
+    if req.limits is None:
+        raise HTTPException(400, "limits eksik")
+    return _cit_send_limits(req)
 
 
 @router.get("/yatt/catalog")

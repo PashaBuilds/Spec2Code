@@ -396,8 +396,6 @@ def chip_header(plan: _ChipPlan) -> str:
     for m in plan.measures:
         unit = f", birim {m.unit}" if m.unit else ""
         e.ln(f"    {m.ctype} {m.field}; /* {m.name}{unit} */")
-    e.ln("    unsigned int uiHataSayac; /* dusen surucu cagrisi sayisi (0 = hepsi okundu) */")
-    e.ln("    unsigned int uiNokSayac;  /* limit disi etkin olcum sayisi                  */")
     e.ln("}" + f" S{pas}Cit;")
     e.blank()
     e.ln("/**")
@@ -438,18 +436,6 @@ def chip_source(plan: _ChipPlan) -> str:
     e.blank()
     e.ln(f"static const S{pas}CitLimit S_s{pas}CitLimitVarsayilan = {mod}_CIT_LIMIT_VARSAYILAN;")
     e.blank()
-    e.ln("/* Olcumu degerlendirir; NOK ise sayaci artirir. Donus: TRUE (OK) / FALSE (NOK). */")
-    e.ln(f"static unsigned int {module}CitOlcum(const SCitLimit* spLimit, int iDeger, unsigned int* uipNok)")
-    e.ln("{")
-    e.ln("    unsigned int uiOk = citLimitDegerlendir(spLimit, iDeger);")
-    e.blank()
-    e.ln("    if (uiOk == FALSE)")
-    e.ln("    {")
-    e.ln("        (*uipNok)++;")
-    e.ln("    }")
-    e.ln("    return uiOk;")
-    e.ln("}")
-    e.blank()
     e.ln(f"int {module}CitInit({plan.handle_param})")
     e.ln("{")
     if cmodel._func_name(module, "device_init") in [
@@ -464,6 +450,8 @@ def chip_source(plan: _ChipPlan) -> str:
     e.ln("{")
     e.level = 1
     e.ln("int iStatus;")
+    e.ln("unsigned int uiHata = FALSE; /* en az bir surucu okumasi dustu     */")
+    e.ln("unsigned int uiNok = FALSE;  /* en az bir etkin olcum limit disinda */")
     e.blank()
     e.open(f"if (spCit == NULL)").ln(f"return {STATUS_FAIL};").close()
     e.open("if (spLimit == NULL)").ln(f"spLimit = &S_s{pas}CitLimitVarsayilan;").close()
@@ -471,7 +459,7 @@ def chip_source(plan: _ChipPlan) -> str:
     if plan.has_status:
         e.ln(f"iStatus = {module}StatusRegistersRead({h}, &spCit->sDurum);")
         e.open("if (iStatus == XST_SUCCESS)").ln("spCit->sBayraklar.uiStatusRegistersOkundu = 1U;").close()
-        e.open("else").ln("spCit->uiHataSayac++;").close()
+        e.open("else").ln("uiHata = TRUE;").close()
     for m in plan.measures:
         e.ln(f"iStatus = {m.func}({h}, &spCit->{m.field});")
         e.open("if (iStatus == XST_SUCCESS)")
@@ -479,13 +467,14 @@ def chip_source(plan: _ChipPlan) -> str:
         for ch in m.channels:
             value = (f"(int)spCit->{m.field}.{m.array_field}[{ch.index}U]" if m.is_array
                      else f"(int)spCit->{m.field}")
-            e.ln(f"spCit->sBayraklar.{ch.ok_bit} = {module}CitOlcum(&spLimit->{ch.limit_field}, {value}, &spCit->uiNokSayac);")
+            e.ln(f"spCit->sBayraklar.{ch.ok_bit} = citLimitDegerlendir(&spLimit->{ch.limit_field}, {value});")
+            e.open(f"if (spCit->sBayraklar.{ch.ok_bit} == FALSE)").ln("uiNok = TRUE;").close()
         e.close()
-        e.open("else").ln("spCit->uiHataSayac++;").close()
+        e.open("else").ln("uiHata = TRUE;").close()
     if not plan.measures:
         e.ln("(void)spLimit;")
-    e.open("if (spCit->uiHataSayac != 0U)").ln(f"return {STATUS_FAIL};").close()
-    e.ln(f"return (spCit->uiNokSayac != 0U) ? {STATUS_NOK} : {STATUS_OK};")
+    e.open("if (uiHata == TRUE)").ln(f"return {STATUS_FAIL};").close()
+    e.ln(f"return (uiNok == TRUE) ? {STATUS_NOK} : {STATUS_OK};")
     e.level = 0
     e.ln("}")
     return e.text()
@@ -581,9 +570,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.ln(" */")
     e.ln("typedef struct")
     e.ln("{")
-    e.ln("    unsigned int uiSayac;     /* kac kez kosuldu                          */")
-    e.ln("    unsigned int uiHataSayac; /* bu kosuda toplam dusen surucu cagrisi    */")
-    e.ln("    unsigned int uiNokSayac;  /* bu kosuda toplam limit disi etkin olcum  */")
+    e.ln("    unsigned int uiSayac; /* kac kez kosuldu */")
     for plan in plans:
         e.ln(f"    S{plan.pascal}Cit {device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
     e.ln("} SSistemCit;")
@@ -644,6 +631,8 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("int sistemCitRead(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit)")
     e.ln("{")
     e.ln("    unsigned int uiSayac;")
+    e.ln("    int iStatus;")
+    e.ln(f"    int iEnKotu = {STATUS_OK}; /* CIT_OK < CIT_NOK < CIT_HATA */")
     e.blank()
     e.ln("    if ((spBus == NULL) || (spCit == NULL))")
     e.ln("    {")
@@ -654,19 +643,15 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("        spLimit = &S_sSistemCitLimitVarsayilan;")
     e.ln("    }")
     e.ln("    uiSayac = spCit->uiSayac + 1U;")
-    e.ln("    spCit->uiHataSayac = 0U;")
-    e.ln("    spCit->uiNokSayac = 0U;")
     for plan in plans:
         dev = device_field(plan.device)
-        e.ln(f"    (void){plan.module}CitRead(spBus->{controller_field(plan.controller)}, &spLimit->{dev}, &spCit->{dev});")
-        e.ln(f"    spCit->uiHataSayac += spCit->{dev}.uiHataSayac;")
-        e.ln(f"    spCit->uiNokSayac += spCit->{dev}.uiNokSayac;")
+        e.ln(f"    iStatus = {plan.module}CitRead(spBus->{controller_field(plan.controller)}, &spLimit->{dev}, &spCit->{dev});")
+        e.ln("    if (iStatus > iEnKotu)")
+        e.ln("    {")
+        e.ln("        iEnKotu = iStatus;")
+        e.ln("    }")
     e.ln("    spCit->uiSayac = uiSayac;")
-    e.ln("    if (spCit->uiHataSayac != 0U)")
-    e.ln("    {")
-    e.ln(f"        return {STATUS_FAIL};")
-    e.ln("    }")
-    e.ln(f"    return (spCit->uiNokSayac != 0U) ? {STATUS_NOK} : {STATUS_OK};")
+    e.ln("    return iEnKotu;")
     e.ln("}")
     return e.text()
 
@@ -694,7 +679,7 @@ def readme_section(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> st
         "",
         "`<mod>CitRead(handle, &sLimit, &sCit)` surucu fonksiyonlarini cagirir, `sCit.sDurum` (surucu",
         "durum bitleri), olcum struct'lari ve `sBayraklar` (op okundu bitleri + olcum/kanal OK bitleri)",
-        "dolar; `uiHataSayac` dusen cagri, `uiNokSayac` limit disi olcum sayisidir.",
+        "dolar; donus CIT_OK / CIT_NOK (etkin olcum limit disi) / CIT_HATA (surucu okumasi dustu).",
     ])
     if skipped:
         lines.append("")

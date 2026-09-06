@@ -137,7 +137,12 @@ class CitHeaderTest(unittest.TestCase):
             source = (tests_dir / "spec2code_cit.c").read_text(encoding="utf-8")
 
         self.assertIn('#include "sistem_cit.h"', source)
-        self.assertIn("(void)sistemCitRead(&S_sCitBus, (const SSistemCitLimit*)0, &S_sSistemCit);", source)
+        self.assertIn("static SSistemCitLimit S_sCitLimit = SISTEM_CIT_LIMIT_VARSAYILAN;", source)
+        self.assertIn("(void)sistemCitRead(&S_sCitBus, &S_sCitLimit, &S_sSistemCit);", source)
+        # Host limitleri CIT_LIMIT_SET ile yazar; olcum indeksi -> cit/ limit alani.
+        self.assertIn("void boardCitLimitAyarla(unsigned int uiOlcum, const SCitLimit* spLimit)", source)
+        self.assertIn("case 0U: S_sCitLimit.sU2Ltc2991.sV1 = *spLimit; break;", source)
+        self.assertIn("case 9U: S_sCitLimit.sU3Tmp101.sTemperature = *spLimit; break;", source)
         # Denetleyici handle'lari ajanin getter'larindan (ilklendirilmis denetleyiciler).
         self.assertIn('S_sCitBus.sPlI2c0 = spec2codeTestbenchIicHandleGet("pl_i2c_0");', source)
         self.assertIn('S_sCitBus.sPlSpi0 = spec2codeTestbenchSpiHandleGet("pl_spi_0");', source)
@@ -145,11 +150,10 @@ class CitHeaderTest(unittest.TestCase):
         self.assertNotIn("spec2codeSimHazirla", source)  # sanal cihaz yok -> cagri yok
         # Dispatch koprusu ve string tablolari yok.
         for stale in ("spec2codeTestbenchDispatch", "S_cpArrCitCihaz", "S_cpArrCitOp", "S_uiArrCitKanal",
-                      "spec2codeCitMetinKopya", "uiLimitVar", "uiEtkin"):
+                      "spec2codeCitMetinKopya"):
             self.assertNotIn(stale, source)
         for limit in ("3135", "3465", "2000", "3000"):
             self.assertNotIn(limit, source)
-        self.assertIn("OKUMA BASARISI", source)
         self.assertNotIn("SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR", source)
 
     def test_array_op_expands_to_channel_slots_from_driver_struct(self) -> None:
@@ -173,7 +177,9 @@ class CitHeaderTest(unittest.TestCase):
                       "S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu);", source)
         self.assertIn("spec2codeCitOlcumYaz(spCit, 7U, (int)S_sSistemCit.sU2Ltc2991.sVoltage.usArrVoltage[7U], "
                       "S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu);", source)
-        self.assertIn("spCit->sBayraklar.uiVcc3v3Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu;", source)
+        # Bayrak biti = kartin karari (cit/ ok biti), okuma durumu uiDurum'da.
+        self.assertIn("spCit->sBayraklar.uiVcc3v3Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiV1Ok;", source)
+        self.assertIn("spCit->sBayraklar.uiLtc2991V20Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiV2Ok;", source)
         self.assertIn("spec2codeCitOlcumYaz(spCit, 9U, (int)S_sSistemCit.sU3Tmp101.iTemperature, "
                       "S_sSistemCit.sU3Tmp101.sBayraklar.uiTemperatureReadOkundu);", source)
         self.assertIn("(int)S_sSistemCit.sU4Lmk04832.ucPll1LockDetect", source)
@@ -300,6 +306,7 @@ class CitHostRoundTripTest(unittest.TestCase):
         olcumler = []
         for i in range(olcum_sayisi):
             iDeger, uiHam, uiDurum = struct.unpack_from("<iII", cit, olcum_off + i * 12)
+            # read_ok = KARTIN OK biti (cit/ karari); okuma durumu uiDurum'dadir.
             olcumler.append({"iDeger": iDeger, "uiHam": uiHam, "uiDurum": uiDurum,
                              "read_ok": bool(flags & (1 << i))})
         return {"istek_sayac": istek_sayac, "durum": durum, "uiSayac": uiSayac,
@@ -377,6 +384,8 @@ class CitHostRoundTripTest(unittest.TestCase):
             '    ltc2991SimKur(&S_sLtc, LTC2991_I2C_ADDR);\n'
             '    (void)spec2codeSimI2cEkle(&S_sLtc.sCihaz);\n'
             '    tmp101SimKur(&S_sTmp, TMP101_I2C_ADDR);\n'
+            '    S_sTmp.ucArrReg[0x00U][0] = 0x19U; /* TMP101 sicaklik registeri: 25.00 C (12 bit, MSB) */\n'
+            '    S_sTmp.ucArrReg[0x00U][1] = 0x00U;\n'
             '    (void)spec2codeSimI2cEkle(&S_sTmp.sCihaz);\n'
             '    lmk04832SimKur(&S_sLmk, (unsigned char)LMK04832_SPI_SELECT);\n'
             '    (void)spec2codeSimSpiEkle(&S_sLmk.sCihaz);\n'
@@ -395,12 +404,27 @@ class CitHostRoundTripTest(unittest.TestCase):
 
     def test_cit_run_and_read_round_trip_over_cit_layer(self) -> None:
         spec = _cit_spec("unit_cit_rt", simulate=True)
+        # Canli limit: V1 3300..3400 (3299 disarida -> NOK), digerleri limitsiz, olcum 9 kapali.
+        limits = [{"min": None, "max": None, "enabled": True} for _ in range(12)]
+        limits[0] = {"min": 3300, "max": 3400, "enabled": True}
+        limits[9] = {"min": 0, "max": 0, "enabled": False}
+        limit_frame = s2cmsg.pack_named_request("CIT_LIMIT_SET", 404, extra=s2cmsg.pack_cit_limits(limits), length=12)
+        limit_bytes = ", ".join(f"0x{b:02X}U" for b in limit_frame)
+        bad_frame = s2cmsg.pack_named_request("CIT_LIMIT_SET", 505, extra=s2cmsg.pack_cit_limits(limits[:3]), length=3)
+        bad_bytes = ", ".join(f"0x{b:02X}U" for b in bad_frame)
         run_extra = (
             f'    static const unsigned char ucArrRun[] = {{ {self._frame_c("CIT_RUN", 101)} }};\n'
             f'    static const unsigned char ucArrRead[] = {{ {self._frame_c("CIT_READ", 202)} }};\n'
             f'    static const unsigned char ucArrRun2[] = {{ {self._frame_c("CIT_RUN", 303)} }};\n'
+            f'    static const unsigned char ucArrLimit[] = {{ {limit_bytes} }};\n'
+            f'    static const unsigned char ucArrLimitBad[] = {{ {bad_bytes} }};\n'
+            f'    static const unsigned char ucArrRun3[] = {{ {self._frame_c("CIT_RUN", 606)} }};\n'
             '    feedFrame(ucArrRun, (unsigned int)sizeof(ucArrRun));\n'
             '    feedFrame(ucArrRead, (unsigned int)sizeof(ucArrRead));\n'
+            '    /* Canli limit karta yazilir (yanit: standart onek), yanlis sayi reddedilir. */\n'
+            '    feedFrame(ucArrLimit, (unsigned int)sizeof(ucArrLimit));\n'
+            '    feedFrame(ucArrLimitBad, (unsigned int)sizeof(ucArrLimitBad));\n'
+            '    feedFrame(ucArrRun3, (unsigned int)sizeof(ucArrRun3));\n'
             '    /* LTC hattan dusmus gibi (NACK): yalniz LTC olcumleri okunamaz. */\n'
             '    ltc2991SimHataAyarla(&S_sLtc, SPEC2CODE_SIM_HATA_NACK);\n'
             '    feedFrame(ucArrRun2, (unsigned int)sizeof(ucArrRun2));\n'
@@ -408,13 +432,13 @@ class CitHostRoundTripTest(unittest.TestCase):
         output = self._build_and_run(spec, self._main_for("unit_cit_rt", run_extra))
         # dbg_printf (ERROR esigi) stub'da satir basabilir; yalniz hex cerceve satirlari.
         lines = [l.strip() for l in output.strip().splitlines() if re.fullmatch(r"[0-9A-F]+", l.strip())]
-        self.assertEqual(len(lines), 3, output)
+        self.assertEqual(len(lines), 6, output)
 
         run = self._decode_cit_response(lines[0], 12)
         self.assertEqual(run["istek_sayac"], 101)
         self.assertEqual(run["durum"], 0)
         self.assertEqual(run["uiSayac"], 1)
-        # Kart limit degerlendirmez: her okuma basarili -> butun bayrak bitleri 1.
+        # Spec varsayilan limitleri: V1 3135..3465 (3299 icinde), TMP 2000..3000 -> hepsi OK.
         self.assertTrue(all(m["read_ok"] for m in run["olcumler"]), run["olcumler"])
         self.assertTrue(all(m["uiDurum"] == 0 for m in run["olcumler"]))
         # Surucu struct'indan kanal degerleri (sim 3300 -> LSB donusumu 3299, 1200 -> 1199).
@@ -432,9 +456,21 @@ class CitHostRoundTripTest(unittest.TestCase):
         self.assertEqual(read["olcumler"][0]["iDeger"], 3299)
         self.assertEqual(read["olcumler"][7]["iDeger"], 1199)
 
+        # Canli limit: kabul (durum 0), yanlis sayi -> GECERSIZ_PARAMETRE (3).
+        self.assertEqual(struct.unpack_from("<II", bytes.fromhex(lines[2]), 12)[1], 0)
+        self.assertEqual(struct.unpack_from("<II", bytes.fromhex(lines[3]), 12)[1], 3)
+        # Yeni limitle kosu: V1 3299 artik 3300..3400 disinda -> KART NOK dedi, okuma yine basarili.
+        run3 = self._decode_cit_response(lines[4], 12)
+        self.assertEqual(run3["uiSayac"], 2)
+        self.assertFalse(run3["olcumler"][0]["read_ok"])
+        self.assertEqual(run3["olcumler"][0]["uiDurum"], 0)
+        self.assertEqual(run3["olcumler"][0]["iDeger"], 3299)
+        self.assertTrue(run3["olcumler"][1]["read_ok"])   # limitsiz kanal OK
+        self.assertTrue(run3["olcumler"][9]["read_ok"])   # etkin degil (0..0 limit) -> OK sayilir
+
         # NACK: LTC olcumleri (0..8) okunamadi -> bit 0, uiDurum BUS_HATASI; digerleri temiz.
-        run2 = self._decode_cit_response(lines[2], 12)
-        self.assertEqual(run2["uiSayac"], 2)
+        run2 = self._decode_cit_response(lines[5], 12)
+        self.assertEqual(run2["uiSayac"], 3)
         for k in range(0, 9):
             self.assertFalse(run2["olcumler"][k]["read_ok"], k)
             self.assertEqual(run2["olcumler"][k]["uiDurum"], 5, k)
@@ -461,7 +497,7 @@ class CitHostRoundTripTest(unittest.TestCase):
         lines = [l.strip() for l in output.strip().splitlines() if re.fullmatch(r"[0-9A-F]+", l.strip())]
         self.assertEqual(len(lines), 1, output)
         run = self._decode_cit_response(lines[0], 12)
-        # Olcum 8 (LTC_TEMP) config'te disabled ama kart yine de OKUDU.
+        # Olcum 8 (LTC_TEMP) config'te disabled: kart yine de OKUDU (durum 0), etkin degil -> OK biti 1.
         self.assertEqual(run["olcumler"][8]["uiDurum"], 0)
         self.assertTrue(run["olcumler"][8]["read_ok"])
         self.assertEqual(run["olcumler"][8]["iDeger"], 2500)

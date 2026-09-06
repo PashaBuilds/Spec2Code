@@ -452,7 +452,8 @@ export interface CitDecodeMeasurement {
   unit: string | null;
   raw: number;
   value: number;
-  read_ok: boolean; // kartin bayrak biti: okuma basarisi (limit degil). OK/NOK host'ta hesaplanir.
+  ok: boolean; // KARTIN karari (cit/ katmani): okundu VE canli limit icinde (etkin degilse OK)
+  read_ok: boolean; // okuma basarisi (durum === 0)
   durum: number;
   min: number | null; // manifest VARSAYILANI; canli limit store'dan gelir
   max: number | null;
@@ -462,6 +463,14 @@ export interface CitDecodeMeasurement {
   channel?: number;
   channels?: number;
   channel_label?: string; // "V1".."V8"
+}
+
+/** Karta gonderilen canli limit (manifest cit.olcumler sirasiyla, index = olcum indeksi). */
+export interface CitLimitPayload {
+  index: number;
+  min: number | null;
+  max: number | null;
+  enabled: boolean;
 }
 
 export interface CitDecodeResult {

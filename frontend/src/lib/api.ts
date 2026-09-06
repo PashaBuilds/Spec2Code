@@ -418,10 +418,27 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  citRun: (sessionId: string, manifest: import("./types").TestbenchManifest, timeoutS = 10.0) =>
+  citRun: (
+    sessionId: string,
+    manifest: import("./types").TestbenchManifest,
+    timeoutS = 10.0,
+    limits?: import("./types").CitLimitPayload[],
+  ) =>
     req<import("./types").CitDecodeResult>("/api/testbench/cit/run", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, manifest, timeout_s: timeoutS }),
+      body: JSON.stringify({ session_id: sessionId, manifest, timeout_s: timeoutS, limits }),
+    }),
+
+  /** Canli CIT limitlerini karta yazar (CIT_LIMIT_SET); OK/NOK karari kartta verilir. */
+  citLimits: (
+    sessionId: string,
+    manifest: import("./types").TestbenchManifest,
+    limits: import("./types").CitLimitPayload[],
+    timeoutS = 10.0,
+  ) =>
+    req<{ durum: number; sayi: number }>("/api/testbench/cit/limits", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, manifest, timeout_s: timeoutS, limits }),
     }),
 
   citRead: (sessionId: string, manifest: import("./types").TestbenchManifest, timeoutS = 10.0) =>

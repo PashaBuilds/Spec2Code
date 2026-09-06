@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.181 - 2026-09-06
+
+- **CIT limitleri karta iletilir, OK/NOK karari KARTTA (kullanici istegi):** yeni mesaj
+  `CIT_LIMIT_SET` (0x53430304; std govde + N x SCitLimit 16 B, manifest sirasi) ajanda
+  `boardCitLimitAyarla(indeks, &limit)` ile `cit/` `S<Mod>CitLimit` alanina yazilir; `boardCitRun`
+  artik canli `S_sCitLimit` ile `sistemCitRead` cagirir ve `SBoardCit` bayrak biti = cit/ katmaninin
+  `ui<Ad>Ok` karari (okundu VE limit icinde; etkin degilse OK), okuma durumu `uiDurum`'da.
+  Host/ekran limit degerlendirmez: CIT ekrani limit/etkin degisince (bagliyken, 250 ms) ve her
+  "CIT kostur"dan once limitleri karta gonderir (`/api/testbench/cit/limits`, `cit/run` `limits`).
+  Backend `decode_board_cit` `ok` (kart karari) + `read_ok` (durum==0) verir.
+- **Sayaclar kalkti:** `S<Mod>Cit`/`SSistemCit` `uiHataSayac`/`uiNokSayac` yok; `<mod>CitRead`
+  CIT_OK/NOK/HATA doner, `sistemCitRead` en kotu durumu doner. YATT'a `cit_limit` govde sablonu.
+
 ## v0.1.180 - 2026-09-06
 
 - **Ciplak 0/1 donus yok (kullanici kurali; butun altyapi tarandi):** dogru/yanlis donen

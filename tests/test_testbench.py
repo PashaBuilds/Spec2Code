@@ -2589,11 +2589,13 @@ class TestbenchTests(unittest.TestCase):
             cit_stub = ""
             if (tests_dir / "spec2code_cit.h").exists():
                 shutil.copy2(tests_dir / "spec2code_cit.h", work / "spec2code_cit.h")
+                shutil.copy2(out_dir / "cit" / "cit_ortak.h", work / "cit_ortak.h")
                 cit_stub = (
                     '#include "spec2code_cit.h"\n'
                     'static SBoardCit S_sCitStub;\n'
                     'void boardCitRun(SBoardCit* spCit) { *spCit = S_sCitStub; }\n'
                     'const SBoardCit* boardCitSon(void) { return &S_sCitStub; }\n'
+                    'void boardCitLimitAyarla(unsigned int uiOlcum, const SCitLimit* spLimit) { (void)uiOlcum; (void)spLimit; }\n'
                 )
             # Gercek Vitis xil_types.h NULL'i saglar; host derlemesinde
             # <stddef.h> ile ayni garantiyi veriyoruz (aksi halde katı gcc'de

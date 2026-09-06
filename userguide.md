@@ -408,7 +408,7 @@ ltc2991VoltageRead(&S_sIic, &sVoltaj);            /* sVoltaj.usArrVoltage[0..7] 
 | Dosya | Icerik |
 |---|---|
 | `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
-| `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari + `uiHataSayac/uiNokSayac`), `<mod>CitInit()`, `<mod>CitRead()` |
+| `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari), `<mod>CitInit()`, `<mod>CitRead()` |
 | `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari), `SSistemCitLimit`, `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
 
 `<mod>CitRead` surucu fonksiyonlarini cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
@@ -435,9 +435,14 @@ tabanli SPI flash, I2C EEPROM.
 `tests/spec2code_cit.c` `boardCitRun()` -> `spec2codeTestbenchBoardInit()` (denetleyiciler)
 -> `SSistemCitBus` ajanin handle getter'larindan doldurulur -> `cit/sistem_cit.c`
 `sistemCitRead()` -> `cit/<mod>_cit.c` `<mod>CitRead()` -> `drivers/<mod>.c` okuma
-fonksiyonlari. Sonuc manifest sirasiyla `SBoardCit`'e kopyalanir (deger + okuma-basarili
-biti); limit/OK-NOK karari host'ta canli yapilir. Ekranda gordugun CIT sonucu, projene
-tasiyacagin `cit/` ve `drivers/` kodunun KENDISINDEN gelir. Anlik okumalar ("sicaklik oku"
+fonksiyonlari. Sonuc manifest sirasiyla `SBoardCit`'e kopyalanir: deger, okuma durumu
+(`uiDurum`) ve KARTIN OK/NOK biti (`ui<Ad>Ok` = okundu VE limit icinde; etkin degilse OK).
+CIT ekraninda degistirdigin limit/etkin degerleri bagliyken ANINDA karta yazilir
+(`CIT_LIMIT_SET` -> `boardCitLimitAyarla()` -> `cit/` `S<Mod>CitLimit` alani) ve her "CIT
+kostur"dan once yeniden gonderilir; karari kart verir, ekran yalnizca kartin bitini gosterir.
+Sayac yoktur: o kosuda hata/NOK olup olmadigi bitlerden ve `<mod>CitRead` donusunden
+(CIT_OK/NOK/HATA) okunur. Ekranda gordugun CIT sonucu, projene tasiyacagin `cit/` ve
+`drivers/` kodunun KENDISINDEN gelir. Anlik okumalar ("sicaklik oku"
 gibi tek op'lar) ise ajan dispatch'inden dogrudan surucu fonksiyonunu cagirir.
 
 **Self-test (`tests/<mod>_test.c`):** yalniz `tests_requested: ["self_test"]` olan cihazlar

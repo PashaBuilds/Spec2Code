@@ -61,6 +61,12 @@ _BODY_LAYOUTS: dict[str, list[dict]] = {
         {"offset": 4, "size": 4, "name": "uiMetinBoyu", "type": "u32", "note": "M"},
         {"offset": 8, "size": None, "name": "metin", "type": "utf8[M]+pad4", "note": "log satiri, 4'e tamamlanir"},
     ],
+    "cit_limit": [
+        {"offset": 0, "size": 28, "name": "istek_std", "type": "request_std",
+         "note": "standart istek govdesi; uiUzunluk = N (manifest cit.olcumler sayisi)"},
+        {"offset": 28, "size": None, "name": "limitler", "type": "SCitLimit[N]",
+         "note": "her biri 16 B: iMin(i32) iMax(i32) uiLimitVar(u32) uiEtkin(u32); manifest sirasi"},
+    ],
     "cit": [
         {"offset": 0, "size": 4, "name": "uiIstekSayac", "type": "u32", "note": "istegin uiMesajSayac'i"},
         {"offset": 4, "size": 4, "name": "uiDurum", "type": "u32", "note": "0 OK / hata tablosu (asagida)"},

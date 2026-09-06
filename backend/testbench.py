@@ -391,7 +391,7 @@ class _TestbenchTcpSession(_TrafficRing):
             parsed=s2cmsg.unpack_response(response_frame),
         )
 
-    def send_named(self, name: str, counter: int, timeout_s: float) -> tuple[dict, bytes]:
+    def send_named(self, name: str, counter: int, timeout_s: float, extra: bytes = b"", length: int = 0) -> tuple[dict, bytes]:
         """Op'suz katalog mesaji (CIT_RUN/CIT_READ) gonderir; onegi + ham govdeyi dondurur.
 
         Donus: ({"istek_sayac": int, "durum": int}, ham_govde) — ham_govde
@@ -405,7 +405,7 @@ class _TestbenchTcpSession(_TrafficRing):
         original_timeout = self.timeout_s
         self.timeout_s = max(0.2, float(timeout_s))
         try:
-            request = s2cmsg.pack_named_request(name, counter)
+            request = s2cmsg.pack_named_request(name, counter, extra=extra, length=length)
             message_id = s2cmsg.message_id_for_name(name)
             response_frame = self._send_and_await_response(
                 request, counter, message_id | s2cmsg.RESPONSE_BIT)
@@ -694,7 +694,7 @@ class _TestbenchSerialSession(_TrafficRing):
             parsed=s2cmsg.unpack_response(response_frame),
         )
 
-    def send_named(self, name: str, counter: int, timeout_s: float) -> tuple[dict, bytes]:
+    def send_named(self, name: str, counter: int, timeout_s: float, extra: bytes = b"", length: int = 0) -> tuple[dict, bytes]:
         """Op'suz katalog mesaji (CIT_RUN/CIT_READ) gonderir; onegi + ham govdeyi dondurur."""
         with self._lock:
             if self._serial is None:
@@ -702,7 +702,7 @@ class _TestbenchSerialSession(_TrafficRing):
         original_timeout = self.timeout_s
         self.timeout_s = max(0.2, float(timeout_s))
         try:
-            request = s2cmsg.pack_named_request(name, counter)
+            request = s2cmsg.pack_named_request(name, counter, extra=extra, length=length)
             message_id = s2cmsg.message_id_for_name(name)
             response_frame = self._write_and_await_response(
                 request, counter, message_id | s2cmsg.RESPONSE_BIT)
@@ -1118,8 +1118,11 @@ class TestbenchSessionManager:
             self._named_counter += 1
             return self._named_counter
 
-    def send_named(self, session_id: str, name: str, timeout_s: float = 10.0) -> tuple[dict, bytes]:
-        """Op'suz katalog mesaji (PING/VERSION/CIT_RUN/CIT_READ) gonderir.
+    def send_named(self, session_id: str, name: str, timeout_s: float = 10.0,
+                   extra: bytes = b"", length: int = 0) -> tuple[dict, bytes]:
+        """Op'suz katalog mesaji (PING/VERSION/CIT_RUN/CIT_READ/CIT_LIMIT_SET) gonderir.
+
+        ``extra``/``length``: CIT_LIMIT_SET icin std govde ardina limit dizisi ve uiUzunluk = N.
 
         Donus: (onek sozlugu {"istek_sayac","durum"}, ham CIT/govde baytlari).
         CIT yaniti standart response layout'undan farkli oldugundan
@@ -1128,7 +1131,7 @@ class TestbenchSessionManager:
         """
         session = self._session(session_id)
         counter = self._next_named_counter()
-        return session.send_named(name, counter, timeout_s=timeout_s)
+        return session.send_named(name, counter, timeout_s=timeout_s, extra=extra, length=length)
 
 
 testbench_sessions = TestbenchSessionManager()

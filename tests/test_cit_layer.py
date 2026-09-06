@@ -209,7 +209,7 @@ class CitLayerGenerationTests(unittest.TestCase):
         source = _read(self.out_dir, "cit/ltc2991_cit.c")
         self.assertIn("iStatus = ltc2991StatusRegistersRead(spIic, &spCit->sDurum);", source)
         self.assertIn("iStatus = ltc2991VoltageRead(spIic, &spCit->sVoltage);", source)
-        self.assertIn("spCit->sBayraklar.uiV1Ok = ltc2991CitOlcum(&spLimit->sV1, (int)spCit->sVoltage.usArrVoltage[0U], &spCit->uiNokSayac);", source)
+        self.assertIn("spCit->sBayraklar.uiV1Ok = citLimitDegerlendir(&spLimit->sV1, (int)spCit->sVoltage.usArrVoltage[0U]);", source)
         self.assertIn("return (ltc2991DeviceInit(spIic) == XST_SUCCESS) ? CIT_OK : CIT_HATA;", source)
         # cit dogrudan Xilinx veri-yolu cagirmaz: surucu uzerinden gider
         self.assertNotIn("XIic_", source)
@@ -234,7 +234,8 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("static XIic S_sPlI2c0Instance;", source)
         self.assertIn("spBus->sPlI2c0 = &S_sPlI2c0Instance;", source)
         self.assertIn("static XSpi S_sPlSpi0Instance;", source)
-        self.assertIn("(void)ltc2991CitRead(spBus->sPlI2c0, &spLimit->sU2Ltc2991, &spCit->sU2Ltc2991);", source)
+        self.assertIn("iStatus = ltc2991CitRead(spBus->sPlI2c0, &spLimit->sU2Ltc2991, &spCit->sU2Ltc2991);", source)
+        self.assertNotIn("uiHataSayac", source)
 
     def test_readme_documents_the_layer(self) -> None:
         readme = _read(self.out_dir, "README.md")
@@ -350,8 +351,8 @@ int main(void)
     sistemCitBusVarsayilan(&S_sBus);
     iInit = sistemCitInit(&S_sBus);
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
-    printf("A init=%d read=%d hata=%u nok=%u gercek=%u/%u switch=%u\n", iInit, iRead, S_sCit.uiHataSayac,
-           S_sCit.uiNokSayac, g_uiStubGercekI2c, g_uiStubGercekSpi, S_sSwitch.uiSecimSayac);
+    printf("A init=%d read=%d gercek=%u/%u switch=%u\n", iInit, iRead, g_uiStubGercekI2c, g_uiStubGercekSpi,
+           S_sSwitch.uiSecimSayac);
     printf("B ltc statusOk=%u voltOk=%u v1ok=%u v1=%u v8=%u busy=%u v1v2en=%u temp=%d\n",
            S_sCit.sU2Ltc2991.sBayraklar.uiStatusRegistersOkundu, S_sCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu,
            S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok, S_sCit.sU2Ltc2991.sVoltage.usArrVoltage[0],
@@ -363,8 +364,8 @@ int main(void)
     /* V1 spec limiti 3135..3465: 3300 OK; 2000'e cekince NOK */
     ltc2991SimKanalAyarla(&S_sLtc, 0U, 2000);
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
-    printf("D read=%d v1ok=%u v1=%u nok=%u\n", iRead, S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok,
-           S_sCit.sU2Ltc2991.sVoltage.usArrVoltage[0], S_sCit.uiNokSayac);
+    printf("D read=%d v1ok=%u v1=%u\n", iRead, S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok,
+           S_sCit.sU2Ltc2991.sVoltage.usArrVoltage[0]);
     /* Kapali aralik, min == max: LMK pll1 tam 1 -> OK; 0..0 -> NOK */
     sLimit.sU4Lmk04832.sPll1LockDetect.iMin = 1;
     sLimit.sU4Lmk04832.sPll1LockDetect.iMax = 1;
@@ -379,17 +380,17 @@ int main(void)
     /* etkin=0 -> degerlendirilmez */
     sLimit.sU2Ltc2991.sV1.uiEtkin = 0U;
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
-    printf("E read=%d v1ok=%u nok=%u\n", iRead, S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok, S_sCit.uiNokSayac);
+    printf("E read=%d v1ok=%u\n", iRead, S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok);
     /* NACK: LTC hattan dusmus gibi; TMP/LMK etkilenmez */
     ltc2991SimHataAyarla(&S_sLtc, SPEC2CODE_SIM_HATA_NACK);
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
-    printf("F read=%d ltcHata=%u statusOk=%u tmpHata=%u lmkHata=%u\n", iRead, S_sCit.sU2Ltc2991.uiHataSayac,
-           S_sCit.sU2Ltc2991.sBayraklar.uiStatusRegistersOkundu, S_sCit.sU3Tmp101.uiHataSayac,
-           S_sCit.sU4Lmk04832.uiHataSayac);
+    printf("F read=%d ltcVoltOkundu=%u statusOk=%u tmpOkundu=%u lmkOkundu=%u\n", iRead,
+           S_sCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu, S_sCit.sU2Ltc2991.sBayraklar.uiStatusRegistersOkundu,
+           S_sCit.sU3Tmp101.sBayraklar.uiTemperatureReadOkundu, S_sCit.sU4Lmk04832.sBayraklar.uiPll1LockDetectOkundu);
     /* sanal cihaz kaldirilinca gercek hat (stub: basarisiz) kullanilir */
     (void)spec2codeSimI2cKaldir(&S_sTmp.sCihaz);
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
-    printf("G tmpHata=%u gercek=%u\n", S_sCit.sU3Tmp101.uiHataSayac, g_uiStubGercekI2c);
+    printf("G tmpOkundu=%u gercek=%u\n", S_sCit.sU3Tmp101.sBayraklar.uiTemperatureReadOkundu, g_uiStubGercekI2c);
     return 0;
 }
 """
@@ -427,7 +428,7 @@ class CitLayerHostRoundTripTests(unittest.TestCase):
             lines = {line.split()[0]: line for line in run.stdout.strip().splitlines()
                      if len(line.split()) > 1 and line.split()[0] in "ABCDEFGH"}
             # A: hepsi sanal -> gercek hatta HIC transfer yok; mux switch kanal secti
-            self.assertIn("init=0 read=0 hata=0 nok=0 gercek=0/0", lines["A"])
+            self.assertIn("init=0 read=0 gercek=0/0", lines["A"])
             self.assertNotIn("switch=0", lines["A"])
             # B: LTC2991 durum bitleri + kanal degerleri + sicaklik (davranis blogu)
             self.assertIn("statusOk=1 voltOk=1 v1ok=1 v1=3299 v8=1199 busy=0 v1v2en=1 temp=2500", lines["B"])
@@ -435,15 +436,15 @@ class CitLayerHostRoundTripTests(unittest.TestCase):
             self.assertIn("tempOk=1", lines["C"])
             self.assertIn("pll1=1 pll1ok=1", lines["C"])
             # D: V1 limit disi -> NOK
-            self.assertIn("read=1 v1ok=0 v1=1999 nok=1", lines["D"])
+            self.assertIn("read=1 v1ok=0 v1=1999", lines["D"])
             # H: kapali aralik, min == max (1..1 OK, 0..0 NOK)
             self.assertIn("esit1 pll1ok=1 esit0 pll1ok=0", lines["H"])
             # E: etkin degil -> OK sayilir
-            self.assertIn("read=0 v1ok=1 nok=0", lines["E"])
+            self.assertIn("read=0 v1ok=1", lines["E"])
             # F: NACK -> LTC'nin 3 surucu cagrisi duser, digerleri temiz
-            self.assertIn("read=2 ltcHata=3 statusOk=0 tmpHata=0 lmkHata=0", lines["F"])
+            self.assertIn("read=2 ltcVoltOkundu=0 statusOk=0 tmpOkundu=1 lmkOkundu=1", lines["F"])
             # G: kaydi kaldirilan TMP101 gercek (stub) hatta gider ve duser
-            self.assertIn("tmpHata=", lines["G"])
+            self.assertIn("tmpOkundu=0", lines["G"])
             self.assertNotIn("gercek=0", lines["G"])
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)

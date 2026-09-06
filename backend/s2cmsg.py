@@ -86,8 +86,12 @@ def pack_request(op_name: str, counter: int, *, device_index: int = NO_DEVICE,
     return pack_frame(message_id_for_op(op_name), counter, body)
 
 
-def pack_named_request(name: str, counter: int, **kwargs) -> bytes:
-    """PING/VERSION/CIT_RUN gibi op'suz mesajlar icin ada gore paketle."""
+def pack_named_request(name: str, counter: int, extra: bytes = b"", **kwargs) -> bytes:
+    """PING/VERSION/CIT_RUN gibi op'suz mesajlar icin ada gore paketle.
+
+    ``extra``: standart 28 baytlik govdenin ARDINA eklenen ham baytlar (CIT_LIMIT_SET
+    limit dizisi gibi); 4'e tamamlanmis olmali.
+    """
     entry = load_catalog()["by_name"][name]
     body = struct.pack(
         "<IIIIIII",
@@ -99,7 +103,25 @@ def pack_named_request(name: str, counter: int, **kwargs) -> bytes:
         1 if "value" in kwargs else 0,
         0,
     )
-    return pack_frame(int(entry["id"], 16), counter, body)
+    return pack_frame(int(entry["id"], 16), counter, body + bytes(extra))
+
+
+CIT_LIMIT_SIZE = 16  # iMin(i32) + iMax(i32) + uiLimitVar(u32) + uiEtkin(u32)
+
+
+def pack_cit_limits(limits: list[dict]) -> bytes:
+    """CIT_LIMIT_SET ek govdesi: manifest cit.olcumler sirasiyla N x SCitLimit.
+
+    Her eleman {"min": int|None, "max": int|None, "enabled": bool}: min VE max verilmisse
+    uiLimitVar=1 (kapali aralik, min == max gecerli), aksi halde limitsiz (okundu ise OK).
+    """
+    body = b""
+    for item in limits:
+        mn, mx = item.get("min"), item.get("max")
+        has_limit = isinstance(mn, (int, float)) and isinstance(mx, (int, float))
+        body += struct.pack("<iiII", int(mn) if has_limit else 0, int(mx) if has_limit else 0,
+                            1 if has_limit else 0, 1 if item.get("enabled", True) else 0)
+    return body
 
 
 class FrameParser:
