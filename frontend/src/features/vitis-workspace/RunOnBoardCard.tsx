@@ -157,7 +157,7 @@ export default function RunOnBoardCard({
         . Uygulama çıktısını UART konsolundan izleyebilirsin.
       </p>
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-44">
+        <div className="w-48">
           <Label htmlFor="runboard-connection">JTAG bağlantısı</Label>
           <Select value={connection} onValueChange={(value) => setConnection(value as JtagConnection)}>
             <SelectTrigger id="runboard-connection">
@@ -197,7 +197,7 @@ export default function RunOnBoardCard({
           </Select>
         </div>
         {platform !== "versal" && (platform === "microblaze_7series" || programFpga !== "no") ? (
-          <div className="w-64">
+          <div className="min-w-[18rem] flex-1">
             <Label htmlFor="runboard-bitstream">
               {platform === "microblaze_7series" ? "Bitstream dosyası (ZORUNLU)" : "Bitstream dosyası (opsiyonel)"}
             </Label>
@@ -210,7 +210,7 @@ export default function RunOnBoardCard({
             />
           </div>
         ) : null}
-        <Button type="button" onClick={run} disabled={!canRun}>
+        <Button type="button" onClick={run} disabled={!canRun} className="shrink-0">
           {running
             ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             : smartlynq

@@ -917,8 +917,9 @@ export function VitisWorkspacePanel({
             {workspaceReady ? "workspace hazır" : "workspace bekleniyor"}
           </Badge>
           {cleanPathInput(workspacePath) ? (
-            <Badge tone="neutral" className="max-w-[280px]">
-              <span className="truncate font-mono">{cleanPathInput(workspacePath)}</span>
+            <Badge tone="neutral" className="max-w-full" title={cleanPathInput(workspacePath)}>
+              {/* Tam yol: kirpmak yerine gerekirse satir kirar (workspace adi yolun sonunda). */}
+              <span className="break-all font-mono">{cleanPathInput(workspacePath)}</span>
             </Badge>
           ) : null}
         </div>

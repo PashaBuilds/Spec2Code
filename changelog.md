@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.172 - 2026-09-06
+
+- **Board karti:** bitstream yolu alani genisleyebilir (placeholder kirpilmiyor), Yukle & Calistir
+  dugmesi daralmiyor; ustteki workspace yolu rozeti tam yolu gosterir (kirpmak yerine kirar).
+
 ## v0.1.171 - 2026-09-06
 
 - **Vitis job log:** asama sutunu genisletildi ve kirpildi (`stage_sources` gibi uzun adlar mesaj
