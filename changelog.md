@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.171 - 2026-09-06
+
+- **Vitis job log:** asama sutunu genisletildi ve kirpildi (`stage_sources` gibi uzun adlar mesaj
+  metninin ustune biniyordu); Kart uzerinde calistirma logunda ayni duzeltme.
+
 ## v0.1.170 - 2026-09-06
 
 - **Kilavuz:** "Seviyeli debug print: dbg_printf" bolumu (seviyeler, esik kurali, API, sink,

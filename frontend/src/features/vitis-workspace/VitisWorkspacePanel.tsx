@@ -758,9 +758,12 @@ export function VitisWorkspacePanel({
             {events
               .filter((event) => typeof event.message === "string")
               .map((event, index) => (
-                <div key={`${event.event}-${index}`} className="grid grid-cols-[76px_minmax(0,1fr)] gap-2 rounded px-2 py-1 text-[11px]">
-                  <span className="font-mono text-faint">{String(event.stage ?? event.event)}</span>
-                  <span className="min-w-0 text-muted">{String(event.message)}</span>
+                <div key={`${event.event}-${index}`} className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 rounded px-2 py-1 text-[11px]">
+                  {/* Asama adi kirpilir (stage_sources gibi uzun adlar ikinci sutuna tasmasin). */}
+                  <span className="truncate font-mono text-faint" title={String(event.stage ?? event.event)}>
+                    {String(event.stage ?? event.event)}
+                  </span>
+                  <span className="min-w-0 break-words text-muted">{String(event.message)}</span>
                 </div>
               ))}
           </div>

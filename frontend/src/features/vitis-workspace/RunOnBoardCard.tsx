@@ -237,9 +237,9 @@ export default function RunOnBoardCard({
           {events
             .filter((event) => typeof event.message === "string")
             .map((event, index) => (
-              <div key={index} className="grid grid-cols-[64px_minmax(0,1fr)] gap-2 py-0.5 text-[11px]">
-                <span className="font-mono text-faint">{String(event.stage ?? "")}</span>
-                <span className={cn("min-w-0", event.event === "runboard.error" ? "text-danger" : "text-muted")}>
+              <div key={index} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 py-0.5 text-[11px]">
+                <span className="truncate font-mono text-faint" title={String(event.stage ?? "")}>{String(event.stage ?? "")}</span>
+                <span className={cn("min-w-0 break-words", event.event === "runboard.error" ? "text-danger" : "text-muted")}>
                   {String(event.message)}
                 </span>
               </div>
