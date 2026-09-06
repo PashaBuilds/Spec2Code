@@ -54,6 +54,36 @@ function formatValue(value: number, unit: string | null): { text: string; unit: 
   return { text: String(value), unit: unit ?? "" };
 }
 
+/** Kart birimi -> ekran birimi ölçeği: "0.01 C" karta santi-derece gider, ekranda °C.
+ *  KURAL: ekranda ne gösteriliyorsa limit de o cinsten girilir; karta gönderirken ve
+ *  spec'e yazarken kart birimine çevrilir (limit = ekran × ölçek). */
+function unitScale(unit: string | null): number {
+  return unit === "0.01 C" ? 100 : 1;
+}
+
+function displayUnit(unit: string | null): string {
+  return formatValue(0, unit).unit;
+}
+
+/** Kart birimindeki limiti ekran birimine çevirir (metin). */
+function toDisplay(value: number | null, unit: string | null): string {
+  if (value === null) return "";
+  const k = unitScale(unit);
+  const shown = value / k;
+  return k === 1 ? String(shown) : String(Number(shown.toFixed(2)));
+}
+
+/** Ekran biriminde girilen sayıyı kart birimine çevirir (tam sayı). */
+function fromDisplay(value: number, unit: string | null): number {
+  return Math.round(value * unitScale(unit));
+}
+
+function limitText(eff: { min: number | null; max: number | null }, unit: string | null): string {
+  if (eff.min === null || eff.max === null) return "limitsiz";
+  const u = displayUnit(unit);
+  return `${toDisplay(eff.min, unit)}..${toDisplay(eff.max, unit)}${u ? ` ${u}` : ""}`;
+}
+
 /** Op adı -> kanal grubu başlığı (dizi dönüşlü op'lar için). */
 function channelGroupTitle(op: string, unit: string | null): string {
   const base = op === "voltage_read" ? "Voltaj kanalları" : op === "current_read" ? "Akım kanalları" : op;
@@ -334,8 +364,8 @@ export default function CitPanel() {
     setEditingKey(keyOf(measurement));
     setEditDraft({
       name: eff.name,
-      min: eff.min === null ? "" : String(eff.min),
-      max: eff.max === null ? "" : String(eff.max),
+      min: toDisplay(eff.min, measurement.unit),
+      max: toDisplay(eff.max, measurement.unit),
     });
   }
 
@@ -369,8 +399,9 @@ export default function CitPanel() {
   }
 
   function saveEdit(measurement: CitDecodeMeasurement) {
-    const min = editDraft.min.trim() === "" ? undefined : Number(editDraft.min);
-    const max = editDraft.max.trim() === "" ? undefined : Number(editDraft.max);
+    // Girdi EKRAN biriminde (°C, mV ...); spec/kart birimine (santi-C, mV) çevrilir.
+    const min = editDraft.min.trim() === "" ? undefined : fromDisplay(Number(editDraft.min), measurement.unit);
+    const max = editDraft.max.trim() === "" ? undefined : fromDisplay(Number(editDraft.max), measurement.unit);
     // Isim formda yok: mevcut override adi (varsa) korunur, varsayilan ad spec'ten gelmeye devam eder.
     writeOverride(measurement, {
       min: Number.isFinite(min as number) ? min : undefined,
@@ -461,7 +492,9 @@ export default function CitPanel() {
           placeholder="max"
           className="h-6 w-14 min-w-0 px-1 font-mono text-[11px]"
         />
-        <span className="min-w-0 flex-1 truncate text-[10px] text-faint">kapalı aralık; min = max olabilir</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] text-faint">
+          {displayUnit(measurement.unit) ? `${displayUnit(measurement.unit)} · ` : ""}kapalı aralık; min = max olabilir
+        </span>
         <button
           type="button"
           className="rounded p-1 text-ok hover:bg-inset"
@@ -524,7 +557,7 @@ export default function CitPanel() {
         <div className="mt-0.5 flex items-baseline gap-2 pl-4">
           <div className="min-w-0 flex-1 text-[10px] text-faint">
             {opLabel(measurement.op)}
-            {eff.min !== null && eff.max !== null ? ` · ${eff.min}..${eff.max}` : " · limitsiz"}
+            {` · ${limitText(eff, measurement.unit)}`}
           </div>
           <div className="shrink-0 text-right" title={eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`}>
             <span className={cn("font-mono text-base font-semibold tabular-nums", TONE_TEXT[tone])}>
@@ -549,7 +582,7 @@ export default function CitPanel() {
         type="button"
         key={key}
         onClick={() => (selected ? cancelEdit() : startEdit(measurement))}
-        title={`${eff.name} · ${eff.min !== null && eff.max !== null ? `${eff.min}..${eff.max}` : "limitsiz"} · ${
+        title={`${eff.name} · ${limitText(eff, measurement.unit)} · ${
           eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`
         }`}
         className={cn(

@@ -12,6 +12,7 @@ hw_server such as the one built into a SmartLynq/SmartLynq+ data cable
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -125,6 +126,35 @@ def locate_xsdb(vitis_path: str) -> Path:
             return candidate
     searched = "\n".join(str(path) for path in _candidate_xsdb_paths(root)[:12])
     raise FileNotFoundError(f"xsdb executable not found under '{root}'. Searched:\n{searched}")
+
+
+_ELF_VERSION_RE = re.compile(rb"Spec2Code (v\d+\.\d+\.\d+)")
+
+
+def elf_embedded_version(elf: Path) -> str | None:
+    """Ajan ELF'ine gomulu 'Spec2Code vX.Y.Z' banner metni (spec2code_version op'unun yaniti)."""
+    try:
+        data = elf.read_bytes()
+    except OSError:
+        return None
+    match = _ELF_VERSION_RE.search(data)
+    return match.group(1).decode("ascii") if match else None
+
+
+def _current_app_version() -> str:
+    try:
+        from orchestrator.codegen import _app_version
+        return _app_version()
+    except Exception:  # noqa: BLE001 - surum bilinmiyorsa uyari uretmeyiz
+        return ""
+
+
+def _elf_note(elf: Path, elf_version: str | None) -> str:
+    try:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(elf.stat().st_mtime))
+    except OSError:
+        stamp = "?"
+    return f"ELF: {elf.name} (surum {elf_version or 'bilinmiyor'}, derleme {stamp})"
 
 
 def find_application_elf(workspace: Path, app_name: str) -> Path:
@@ -426,6 +456,17 @@ class RunOnBoardJobManager:
                   "message": f"xsdb: {xsdb}"})
 
         elf = find_application_elf(workspace, config.app_name)
+        elf_version = elf_embedded_version(elf)
+        elf_note = _elf_note(elf, elf_version)
+        job.emit({"event": "runboard.stage", "stage": "locate", "progress": 22, "message": elf_note})
+        app_version = _current_app_version()
+        if elf_version and app_version and elf_version != app_version:
+            # SAHA (2026-09-06): kart kapatilmadan JTAG'dan yuklenen ELF eski surumdu (v0.1.174)
+            # cunku workspace'teki ELF yeniden derlenmemisti. Sessizce eski ajani calistirma.
+            job.emit({"event": "runboard.warn", "stage": "locate", "progress": 23,
+                      "message": (f"UYARI: workspace'teki ELF eski surum ({elf_version}), uygulama {app_version}. "
+                                  "Vitis workspace panelinde 'Kaynak guncelle' ile yeniden derleyin; aksi halde "
+                                  "karta ESKI ajan yuklenir.")})
         psu_init: Path | None = None
         ps7_init: Path | None = None
         pdi: Path | None = None
@@ -531,6 +572,8 @@ class RunOnBoardJobManager:
 
         job.result = {
             "elf": str(elf),
+            "elf_version": elf_version,
+            "elf_modified_at": elf.stat().st_mtime if elf.is_file() else None,
             "platform": config.platform,
             "hw_server_url": hw_server_url or None,
             "psu_init": str(psu_init) if psu_init else None,

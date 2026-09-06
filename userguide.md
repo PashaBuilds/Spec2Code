@@ -453,7 +453,9 @@ skaler olcumler icin satirlar. Ayni parcadan entegreler bir satirda yan yana dur
 
 **Karar karttadir.** Bir karoya tiklayip limit (min/max, kapali aralik) ya da etkin
 durumunu degistirdiginde bagliysan bu degerler ANINDA karta yazilir (`CIT_LIMIT_SET`
-mesaji -> `cit/` limit yapisi) ve her "CIT kostur"dan once yeniden gonderilir. Kart
+mesaji -> `cit/` limit yapisi) ve her "CIT kostur"dan once yeniden gonderilir. Limitler
+EKRANDA GORDUGUN birimde girilir (sicaklik °C, voltaj mV); ekran bunu kartin birimine
+(santi-derece) cevirir, spec ve C varsayilanlari kart birimindedir. Kart
 `sistemCitRead()` ile okur, OK/NOK bitini kendisi hesaplar; ekran yalnizca kartin
 bitini ve okuma durumunu gosterir. Yani ekranda gordugun sonuc, projene tasidigin
 `cit/` + `drivers/` kodunun kendisinden gelir.
@@ -461,6 +463,9 @@ bitini ve okuma durumunu gosterir. Yani ekranda gordugun sonuc, projene tasidigi
 Akis: `CIT_RUN` -> ajan `boardCitRun()` -> `spec2codeTestbenchBoardInit()` -> I2C cihaz
 tablosu baglanir -> `sistemCitRead()` -> `<mod>CitRead()` -> surucu okumalari -> sonuc
 manifest sirasiyla `SBoardCit`'e (deger, okuma durumu, OK biti) -> host.
+`sistemCitRead()` her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli bir rapor basar
+(cihaz basina durum, her olcumun degeri/birimi/limiti/OK-NOK); log esigini `info` yapinca
+Akis ekraninda gorunur.
 "Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
 
 Not: cit/ okumalari ilklendirilmis entegre ister; once Test Bench'ten "butun
@@ -522,7 +527,10 @@ undefined reference, coklu tanim, `XPAR_*` uyusmazligi gibi hatalari one cikarir
 log gizlenmez.
 
 **Board'da calistir (JTAG / xsdb)**: workspace'teki ELF'i (MicroBlaze'de zorunlu
-bitstream ile birlikte) JTAG'dan yukleyip calistirir. Kalici acilis icin ELF'i
+bitstream ile birlikte) JTAG'dan yukleyip calistirir. ELF'in gomulu surumu ve derleme
+zamani ilerleme mesajinda gorunur; uygulama surumuyle uyusmuyorsa uyari verir (workspace
+yeniden derlenmemis demektir). Vitis build'i "gecti" ama ELF build'den eskiyse is
+`stale_elf` hatasiyla durur - bayat ELF karta yuklenmez. Kalici acilis icin ELF'i
 `updatemem` ile BRAM'e gomulu bitstream'e yazip konfigurasyon flash'ina kazirsin
 (Nexys A7 akisi changelog'da belgelidir).
 
@@ -576,7 +584,7 @@ TCA9548A (I2C switch), LTC2991, LTC2945, ADT7420, AD7414, TMP101, SHT21, DS1682,
 24LC32A (I2C EEPROM), LMK04832, LMX2820, LMX1204, LMX1205, ADAR1000, LTM4681,
 MT25Q128, MT25QU02G, S25FL128S (SPI/QSPI NOR flash), GPIO hat cihazlari.
 Guncel liste Katalog ekranindadir; katalogda olmayan cihaz icin deterministik
-uretim yoktur (Driver import sihirbaziyla kendi descriptor'ini ekleyebilirsin).
+uretim yoktur (yeni entegre destegi descriptor eklenerek surume girer).
 
 ---
 

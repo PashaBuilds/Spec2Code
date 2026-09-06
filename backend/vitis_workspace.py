@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import time as _time
 import subprocess
 import threading
 import traceback
@@ -1225,6 +1226,27 @@ def inspect_filesystem_make_libs(root_paths: list[Path], custom_ip_instances: li
                     })
     summary["samples"] = samples
     return summary
+
+
+def stale_application_elf(elf_artifacts: dict, build_started_at: float) -> dict | None:
+    """Build 'gecti' ama application ELF build baslangicindan ESKI: bayat ELF (SAHA 2026-09-06,
+    kartta eski ajan). Derleme basarisizken Vitis bazen 0 ile donuyor; ELF zamani tek kanit."""
+    samples = elf_artifacts.get("application_samples") or []
+    stamps = [float(item.get("modified_at") or 0) for item in samples]
+    if not stamps:
+        return None
+    newest = max(stamps)
+    if newest >= build_started_at - 2.0:
+        return None
+    return {
+        "file": str(samples[0].get("path_tail", "")), "line": 0, "column": 0,
+        "rule": "spec2code-vitis-artifact", "severity": "error", "category": "stale_elf",
+        "message": (f"Application ELF build'den ESKI (ELF {_time.strftime('%H:%M:%S', _time.localtime(newest))}, "
+                    f"build {_time.strftime('%H:%M:%S', _time.localtime(build_started_at))}): derleme hata vermis "
+                    "ama Vitis basarili donmus olabilir. xsct_stdout.log icindeki derleyici hatasina bakin; "
+                    "bu ELF karta YUKLENMEMELI (eski ajan kosar)."),
+        "source": "Spec2Code",
+    }
 
 
 def inspect_vitis_elf_artifacts(root_paths: list[Path], app_name: str) -> dict:
@@ -2659,6 +2681,7 @@ class VitisWorkspaceJobManager:
             job.emit({"event": "vitis.watchdog", "stage": "run", "progress": 78,
                       "message": " | ".join(events)})
 
+        build_started_at = _time.time()
         completed = _run_xsct_streaming(
             _command_for(xsct.path, str(script_path)),
             cwd=workspace_path,
@@ -2702,6 +2725,10 @@ class VitisWorkspaceJobManager:
                 "message": f"Kaynak güncelleme build'i hata vermedi ama application ELF bulunamadı: {app_name}",
                 "source": "Spec2Code",
             })
+        stale = stale_application_elf(elf_artifacts, build_started_at) if not build_failed else None
+        if stale is not None:
+            build_failed = True
+            issues.append(stale)
 
         if job.result is not None:
             job.result["xsct_exit_code"] = completed.returncode
@@ -2968,6 +2995,7 @@ class VitisWorkspaceJobManager:
             })
 
         try:
+            build_started_at = _time.time()
             completed = _run_xsct_streaming(
                 _command_for(xsct.path, str(script_path)),
                 cwd=workspace_path,
@@ -3105,6 +3133,10 @@ class VitisWorkspaceJobManager:
                 "message": missing_elf_message,
                 "source": "Spec2Code",
             })
+        elif not build_failed:
+            stale = stale_application_elf(elf_artifacts, build_started_at)
+            if stale is not None:
+                artifact_issues.append(stale)
         recovered_issues = (initial_issues if self_heal.get("successful") else []) + xsct_recovered_log_issues
         doctor_issues = final_issues + artifact_issues
         vitis_doctor = build_vitis_doctor(

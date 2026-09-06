@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.185 - 2026-09-07
+
+- **CIT limitleri ekran biriminde (SAHA):** sicaklik ekranda °C gosterilirken limit santi-derece
+  ile karsilastiriliyordu (25.00 °C icin 20..30 -> NOK). CIT paneli artik limitleri gosterilen
+  birimde alir/gosterir ve karta/spec'e giderken kart birimine cevirir (`unitScale`: "0.01 C" x100).
+  Kural: ekranda ne gorunuyorsa limit o cinsten.
+- **`sistemCitRead` raporu:** her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli tablo -
+  kosu numarasi, cihaz basina `<mod>CitRead` sonucu, her olcum/kanal icin deger + birim + limit
+  (`[min..max]` / limitsiz / kapali) + OK/NOK, genel sonuc.
+- **Board'da calistir - eski ajan tuzagi (SAHA):** kart kapatilmadan JTAG'dan yuklenen ELF v0.1.174
+  cikti (workspace ELF'i yeniden derlenmemisti). Artik ELF'e gomulu `Spec2Code vX.Y.Z` metni ve
+  derleme zamani ilerleme mesajinda gosterilir; surum uygulamayla uyusmazsa `runboard.warn`. Vitis
+  create/update akisinda build baslangicindan eski application ELF `stale_elf` hatasi uretir
+  (build "gecti" gorunse de is basarisiz sayilir).
+- Kilavuz: kaldirilmis "Driver import" ifadesi silindi; limit birimi, CIT raporu ve ELF surum uyarisi eklendi.
+
 ## v0.1.184 - 2026-09-06
 
 - **Kilavuz bastan yazildi (`userguide.md`):** eski bilgiler kaldirildi (`bus_trace`,
