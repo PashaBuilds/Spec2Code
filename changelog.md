@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.170 - 2026-09-06
+
+- **Kilavuz:** "Seviyeli debug print: dbg_printf" bolumu (seviyeler, esik kurali, API, sink,
+  bus izleri, test bench cercevesi, kendi projede kullanim).
+
 ## v0.1.169 - 2026-09-06
 
 SEVIYELI DEBUG PRINT (kullanici istegi): `bus_trace` yapisi kalkti, yerine calisma zamaninda

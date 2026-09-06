@@ -440,6 +440,63 @@ sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);      /* S_sCit.sU2Ltc2991.sBayraklar
 Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
 tabanli SPI flash, I2C EEPROM.
 
+### Seviyeli debug print: `dbg_printf`
+
+Uretilen kodun tek log kapisi `drivers/dbg_printf.h/.c`'dir; kullaniciya giden katmanda
+oldugundan adinda `spec2code` yoktur ve kendi projene suruculerle birlikte tasinir.
+
+**Seviyeler** (`dbg_printf.h`):
+
+| Sabit | Deger | Ne icin |
+|---|---|---|
+| `DEBUG_LEVEL_ALWAYS` | 0 | banner vb. kesin yazilacaklar |
+| `DEBUG_LEVEL_ERROR` | 1 | hata durumlari (**varsayilan esik**) |
+| `DEBUG_LEVEL_WARNING` | 2 | hataya sebep olabilecek uyarilar |
+| `DEBUG_LEVEL_MSG` | 3 | mesaj gonderim/alim katmani (S2C-MSG RX/TX) |
+| `DEBUG_LEVEL_INFO` | 4 | debug'a faydali ekstra bilgi |
+| `DEBUG_LEVEL_TRACE` | 5 | I2C/SPI gelen-giden baytlar (en alt katman) |
+
+**Kural:** bir print ancak seviyesi o an ayarli esikten KUCUK ya da ESITSE basilir. Esik
+WARNING (2) ise ALWAYS, ERROR ve WARNING basilir; MSG/INFO/TRACE bastirilir.
+
+**API:**
+
+```c
+#include "dbg_printf.h"
+
+dbg_printf(DEBUG_LEVEL_ALWAYS, "kart yazilimi v%u basladi", uiSurum);   /* her zaman */
+dbg_printf(DEBUG_LEVEL_ERROR, "LTC2991 init dustu: status=%d", iStatus);
+dbg_printf(DEBUG_LEVEL_INFO, "yazilacak veri: %d", iVeri);              /* esik >= 4 ise */
+
+dbgLevelSet(DEBUG_LEVEL_INFO);          /* calisma zamaninda esik; 0..5'e kirpar, yeniyi dondurur */
+unsigned int uiEsik = dbgLevelGet();    /* gecerli esik */
+const char* cpAd = dbgLevelName(uiEsik);/* "error", "info" ... */
+```
+
+- Cikti: kayitli bir sink yoksa `xil_printf` (satir sonu `
+` eklenir). Cikti hedefini
+  degistirmek icin `dbgSinkSet(fp)` ile `void fp(unsigned int uiLevel, const char* cpBody)`
+  imzali bir fonksiyon kaydet (govde satir sonsuz gelir).
+- Format govdesi en fazla 159 karakterdir (`DBG_BODY_MAX`); uzun mesajlar kesilir.
+- Tamponlar statiktir (tek baglam, bare-metal): kesme icinden cagirma.
+- Bus izleri: suruculer her transferi `dbgTraceI2c(adres, reg, 'r'|'w', veri, boy)` ve
+  `dbgTraceSpi(cs, tx, rx, boy)` ile TRACE seviyesinde basar
+  (`TRACE|bus=i2c|addr=0x48|reg=0x0A|dir=r|len=1|data=0C`); dusen transfer
+  `dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|bus=i2c|addr=..|reg=..|asama=p|status=-1")`
+  uretir (asama: `w` yazma, `p` pointer, `r` okuma, `m` mux). Esik TRACE'in altindayken
+  hex formatlama hic yapilmaz (maliyet sifira yakin).
+
+**Test bench'te:** ajan `spec2codeLogSinkSet()` ile bir sink kaydeder; her satir
+`S2C-LOG|<A/E/W/M/I/T>|govde` cercevesine sarilip UART/DCC'den host'a gider. TRACE ve
+TRACEERR govdelerine komut id'si eklenir (`TRACE|id=7|bus=...`) ki Akis ekrani izi ilgili
+istekle eslestirsin. Esik baglanti kartindaki secici ya da `log_level` komutuyla (deger 0..5)
+canli degistirilir; kart varsayilan olarak ERROR ile acilir.
+
+**Kendi projende:** `drivers/dbg_printf.c`'yi derlemeye ekle; sink kaydetmezsen
+`xil_printf` uzerinden STDOUT UART'ina yazar. Uretimde gurultuyu kesmek icin
+`dbgLevelSet(DEBUG_LEVEL_ERROR)` (varsayilan) yeterlidir; sorun kovalarken
+`DEBUG_LEVEL_TRACE` bus baytlarini gosterir.
+
 ### Simulasyon ve karisik mod (`tests/sim/`)
 
 Sanal cihazlar YALNIZ test bench derlemesine girer; surucu ve cit dosyalari sanal cihazi
