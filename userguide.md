@@ -370,7 +370,7 @@ Output klasor yapisi tipik olarak:
 drivers/
 tests/
 cit/
-  hal/
+tests/sim/   (yalniz sanal cihaz isaretliyken)
 reference_sources/
 qc_report.json
 README.md
@@ -380,92 +380,89 @@ README.md
 Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test ve Test Bench
 agent dosyalari da bu kurala dahildir.
 
-### CIT entegre katmani (`cit/`)
+### Katmanlar: surucu struct API'si, CIT ust katmani, simulasyon
 
-`cit/` klasoru, kendi gomulu yazilimina **oldugu gibi kopyalanabilen**, hiyerarsik bir
-CIT (cihaz ici test) katmanidir. `drivers/` ve `tests/` ciktilarina dokunmaz; onlarin
-yanina eklenir.
+Uretilen kod uc katmandir; bagimlilik tek yonlu (yukaridan asagiya):
 
-| Katman | Dosya | Ne yapar |
-|---|---|---|
-| Port | `cit/hal/spec2code_cit_port.h` | Platform secimi: `SPEC2CODE_CIT_PORT_XIICPS/XIIC/XSPIPS/XSPI/KULLANICI` (spec'ten turer, `#ifndef` korumali; `-D` ile ezilebilir) + durum kodlari |
-| HAL | `cit/hal/spec2code_i2c_bus.h/.c` | `SSpec2codeI2cBus`: `spec2codeI2cBusInit/Write/Read/RegisterRead/RegisterWrite/RegisterReadWide/RegistersRead/MuxSelect` - PS XIicPs, AXI XIic ya da kullanici portu |
-| HAL | `cit/hal/spec2code_spi_bus.h/.c` | `SSpec2codeSpiBus`: `spec2codeSpiBusInit/Transfer` - PS XSpiPs, AXI XSpi ya da kullanici portu (CS indeks; AXI one-hot cevrimi icerde) |
-| Entegre | `cit/<mod>_cit.h/.c` | `S<Mod>CitConfig` (adres / switch adresi+kanali / poll timeout ya da CS - **calisma zamaninda degistirilebilir**, varsayilan `<MOD>_CIT_CONFIG_VARSAYILAN` spec'ten), `S<Mod>Cit` (durum registerleri **bit bit**, olcumler bayt/kelime), `<mod>CitInit()`, `<mod>CitRead()` |
-| Sistem | `cit/spec2code_cit_sistem.h/.c` | `SSistemCitBus` (denetleyici basina bir HAL bus), `SSistemCit` (cihaz basina bir alt struct), `sistemCitBusVarsayilan()`, `sistemCitInit()`, `sistemCitRead()` |
+| Katman | Klasor | Kime gider | Icerik |
+|---|---|---|---|
+| Test bench | `tests/` (+ `tests/sim/`) | yalniz Spec2Code | ajan, S2C-MSG, self-test'ler, `spec2code_cit.*` (host raporu), sanal cihazlar |
+| CIT ust katmani | `cit/` | senin firmware'ine | surucu struct'larini ANLAMLANDIRIR: limit, etkin/kritik, OK/NOK |
+| Surucu | `drivers/` | senin firmware'ine | Xilinx API'sini DOGRUDAN cagirir, ham veriyi kendi struct'larinda verir |
 
-`S<Mod>Cit` icerigi descriptor'dan turer: `access: ro` olan ya da `post_init_status`
-ile isaretli, alan tanimli (<= 16 bit) her register icin bir `ui<Alan> : n` bit alani
-ve ham `uc/us<Register>` bayti; `returns` tanimli, risk `safe` her op icin bir deger
-alani (`usArrVoltageRead[8]`, `iTemperatureRead`, ...). Her register ve olcum icin bir
-`ui...Ok : 1` okuma-basari biti vardir; `uiHataSayac` o okumadaki dusen erisim
-sayisidir. Bir okuma dusse de digerlerine devam edilir. Kart LIMIT degerlendirmez (mevcut
-ilke: limit karari host/ust katmanda).
+Kullaniciya giden `drivers/` ve `cit/` dosyalarinda `spec2code` adli hicbir dosya/sembol
+yoktur (`bus_trace.h`, `busTraceI2c` zayif kancalari dahil).
 
-Tipik kullanim:
+**Surucu (`drivers/<mod>.h`):**
+
+- Durum registerleri (fields tanimli, width <= 16, `access: ro` ya da `post_init_status`):
+  `S<Mod>Status` bit alanlari + ham baytlar; `<mod>StatusRegistersRead(handle, &sStatus)`.
+- Dizi donuslu op (`returns: voltages[8]`): `S<Mod>Voltage { unsigned short usArrVoltage[8]; }`,
+  `<mod>VoltageRead(handle, &sVoltage)`. Skaler op'lar `int*` / `unsigned short*` alir.
+- Handle Xilinx handle'idir: AXI IIC taban adres (`unsigned long`), XIicPs/XSpi/XSpiPs ornegi.
+
+```c
+SLtc2991Status sDurum;
+SLtc2991Voltage sVoltaj;
+ltc2991DeviceInit(ulIicBase);
+ltc2991StatusRegistersRead(ulIicBase, &sDurum);   /* sDurum.uiV1Ready, sDurum.uiBusy ... */
+ltc2991VoltageRead(ulIicBase, &sVoltaj);          /* sVoltaj.usArrVoltage[0..7] mV */
+```
+
+**CIT ust katmani (`cit/`):**
+
+| Dosya | Icerik |
+|---|---|
+| `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin, uiKritik}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
+| `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari + `uiHataSayac/uiNokSayac`), `<mod>CitInit()`, `<mod>CitRead()` |
+| `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari), `SSistemCitLimit`, `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
+
+`<mod>CitRead` surucu fonksiyonlarini cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
+(okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE limit icinde; etkin degilse 1)
+bitleri dolar. Limitler calisma zamaninda degistirilebilir; NULL verilirse spec varsayilani.
 
 ```c
 static SSistemCitBus S_sBus;
+static SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
 
-sistemCitBusVarsayilan(&S_sBus); /* spec'ten surucu turu, device id, taban adres */
-sistemCitInit(&S_sBus);          /* bus'lar + entegre ilklendirmeleri (ilk hata doner, devam eder) */
-sistemCitRead(&S_sBus, &S_sCit); /* periyodik: S_sCit.sU2Ltc2991.sBayraklar.uiV1Ready ... */
+sistemCitBusVarsayilan(&S_sBus);                 /* XPAR taban adresleri / surucu ornekleri */
+sistemCitInit(&S_sBus);                          /* her entegrenin DeviceInit'i (ilk hata doner) */
+S_sLimit.sU2Ltc2991.sV1.iMin = 3135;             /* isteğe bagli: canli limit */
+S_sLimit.sU2Ltc2991.sV1.iMax = 3465;
+S_sLimit.sU2Ltc2991.sV1.uiLimitVar = 1U;
+sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);      /* S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok ... */
 ```
-
-Xilinx disi bir MCU'ya tasirken `spec2code_cit_port.h` icinde `SPEC2CODE_CIT_PORT_KULLANICI 1`
-yapip HAL basliklarinin sonundaki `spec2codeI2cPortWrite/Read` ve `spec2codeSpiPortTransfer`
-fonksiyonlarini gerceklemek yeterlidir; entegre ve sistem katmani degismez.
 
 Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
-tabanli SPI flash, I2C EEPROM. Mux'lar ayri dosya almaz; cihazin config'inde switch
-adresi + kanal olarak tasinir.
+tabanli SPI flash, I2C EEPROM.
 
-### Simulasyon ve karisik mod (`cit/sim/`)
+### Simulasyon ve karisik mod (`tests/sim/`)
 
-Kartta henuz takili olmayan bir entegreyi **sanal cihazla** taklit edip CIT'i yine de
-kosturabilirsin. Simulasyon HAL'in altina takilir; entegre CIT dosyalari degismez.
+Sanal cihazlar YALNIZ test bench derlemesine girer; surucu ve cit dosyalari sanal cihazi
+bilmez. Mekanizma: `tests/sim/spec2code_sim_xilinx.h` derleme bayragi `-include` ile her
+ceviri birimine girer ve Xilinx veri-yolu fonksiyonlarini (`XIic_DynSend/DynRecv`,
+`XIicPs_Master*Polled`, `XSpi_SetSlaveSelect/Transfer`, `XSpiPs_*`) `spec2codeSim*`
+sarmalayicilarina yonlendirir. Sarmalayici adres/CS'i kayitli sanal cihaz zincirinde bulursa
+simulatoru kosturur, bulamazsa GERCEK Xilinx fonksiyonunu cagirir (karisik mod). Vitis
+uretimi bayragi ve include yolunu kendisi ekler.
 
-- `cit/hal/spec2code_i2c_sim.h/.c`: hata enjeksiyon kodlari + sanal I2C switch
-  (TCA9548A modeli).
-- `cit/sim/<mod>_sim.h/.c`: her I2C register entegresi icin descriptor'dan uretilen
-  register modeli (reset degerleri, genislik, yazilabilirlik; pointer + otomatik artis)
-  ve `<mod>SimKur()`, `<mod>SimHataAyarla()`, `<mod>SimRegisterYaz()`. LTC2991 ayrica
-  **davranis** tasir: READY bitleri (repeated acquisition / tek-atis tetik, LSB okununca
-  temizlenir), hedef degerden kod uretimi (`ltc2991SimKanalAyarla(mV)`,
-  `ltc2991SimSicaklikAyarla(santi-C)`, `ltc2991SimVccAyarla(mV)`), STATUS_HIGH'in salt
-  okunur bitlerinin korunmasi.
-- `spec2code_cit_sistem.h`: `SSistemCitSim` (spec cihaz id'leriyle), `sistemCitSimKur()`,
-  `sistemCitSimEkle()` (butun sanal entegreler), `sistemCitSimSwitchEkle()` (sanal switch'ler).
+- `tests/sim/spec2code_sim.h/.c`: cihaz kaydi (`spec2codeSimI2cEkle/Kaldir`,
+  `spec2codeSimSpiEkle/Kaldir`), sanal TCA9548A switch, sarmalayicilar.
+- `tests/sim/<mod>_sim.h/.c`: descriptor'dan uretilen register modeli + davranis bloklari;
+  `<mod>SimKur()`, `<mod>SimHataAyarla()`, `<mod>SimRegisterYaz()`.
+- Ajan (`<proje>_testbench_ops.c`): `simulate` isaretli cihazlari ilk dispatch'te kaydeder
+  (`spec2codeSimHazirla`); dispatch dogrudan GERCEK surucuyu cagirir, sarmalayici yoktur.
+  Bir mux'un arkasindaki HER cihaz sanalsa sanal switch de kaydedilir.
 
-**Karisik mod** (kart uzerinde, LTC2991 takili degil):
-
-```c
-static SSistemCitSim S_sSim;
-sistemCitBusVarsayilan(&S_sBus);
-sistemCitSimKur(&S_sSim);
-ltc2991SimKanalAyarla(&S_sSim.sU2Ltc2991, 0U, 1200);            /* V1 = 1.200 V */
-spec2codeI2cSimEkle(&S_sBus.sPlI2c0, &S_sSim.sU2Ltc2991.sCihaz); /* 0x48 sanal */
-sistemCitInit(&S_sBus);   /* switch ve TMP101 GERCEK hatta, LTC2991 simulatorde */
-sistemCitRead(&S_sBus, &S_sCit);
-```
-
-Adresi eslesen transfer simulatore, digerleri gercek donanima gider. Sanal cihazi
-`spec2codeI2cSimKaldir()` ile cikarinca adres yeniden gercek hatta doner.
-
-**Tam sanal kosum** (donanim yok, host ya da kart): bus'in `eSurucu`'sunu
-`SPEC2CODE_I2C_SURUCU_SIM` yap, `sistemCitSimSwitchEkle()` + `sistemCitSimEkle()` cagir.
-Eslesmeyen adres NACK sayilir.
-
-**Sematikte sanal cihaz isareti:** cihazi secince "Simulasyon > sanal cihaz" anahtarini ac.
-Spec'e `simulate: true` yazilir, kutuda SANAL rozeti cikar ve **test bench ajani** o cihazin
-butun op'larini (init, olcumler, register oku/yaz) gercek hat yerine cit/ simulatorunden
-cevaplar - Test Bench ve CIT ekranlarinda yesil gorursun; ayni hattaki gercek cihazlar
-gercek kalir. Yalniz I2C register ve SPI TICS-register cihazlari isaretlenebilir.
+**Sematikte sanal cihaz isareti:** entegre kutusundaki "gercek / sanal" piline tikla. Spec'e
+`simulate: true` yazilir, kutu eflatun olur ve test bench ajani o cihazin butun op'larini
+simulatorden cevaplar; ayni hattaki gercek cihazlar gercek kalir. Yalniz I2C register ve
+SPI TICS-register cihazlari isaretlenebilir.
 
 **Hata enjeksiyonu:** `ltc2991SimHataAyarla(&sim, SPEC2CODE_SIM_HATA_NACK)` cihazi hattan
 kaldirir (her erisim duser); `SPEC2CODE_SIM_HATA_HAZIR_YOK` READY bitlerini hic kurmaz
-(poll zaman asimi). Boylece CIT'in hata yollari da cihazsiz denenir.
+(poll zaman asimi).
 
 Davranisli simulatorler (statik register modelinin ustune):
 
@@ -474,17 +471,10 @@ Davranisli simulatorler (statik register modelinin ustune):
 | LTC2991 | READY bitleri (repeated / tek-atis tetik, LSB okununca temizlenir), 2991f kod uretimi, STATUS_HIGH ro bit korumasi | `ltc2991SimKanalAyarla(mV)`, `SicaklikAyarla(santi-C)`, `VccAyarla(mV)` |
 | LTC2945 | SHUTDOWN degilse her okumada SENSE/VIN/ADIN 12-bit kodlari + 24-bit guc carpimi, MAX/MIN izleme, ADC_BUSY, FAULT_CLEAR | `ltc2945SimAkimAyarla(mA, Rsense mohm)`, `SenseAyarla(uV)`, `VinAyarla(mV)`, `AdinAyarla(uV)` |
 | DS1682 | Her I2C okuma isleminde ETC ilerler (vars. 4 tik = 1 s), EVENT sayaci + CONFIGURATION[0] (bit 16), ETC >= ALARM -> ALARM_FLAG, RESET_COMMAND 0x55 + RESET_ENABLE sifirlar | `ds1682SimEtcAyarla(s)`, `OlayAyarla(n)`, `OlayEkle(n)`, `TikAdimiAyarla(tik)` |
+| LMK04832 | `register_model` cercevesi cozulur; RB_PLL_STATUS DLD/LOST bitleri | `lmk04832SimKilitAyarla(&sim, pll1, pll2)` |
 
-**SPI simulatoru:** `spec2codeSpiSimEkle(&sBus.s<SpiBus>, &sSim.s<Cihaz>.sCihaz)` chip-select
-indeksine gore takilir; eslesen CS sanal, digerleri gercek. TICS-register entegreleri
-(LMK04832, LMX1204/1205/2820, ADAR1000) icin descriptor `register_model` cercevesi cozulur:
-yazimlar register dosyasina islenir, okumalar ayni cercevenin veri bitlerinde doner.
-LMK04832 davranisi: `lmk04832SimKilitAyarla(&sim, pll1, pll2)` RB_PLL_STATUS DLD/LOST
-bitlerini uretir. Nexys A7'de CS0 gercek flash + CS1 sanal LMK04832 ayni bus'ta dogrulandi.
-
-Sinirlar: simulator elektriksel gercekligi degil register davranisini taklit eder; diger
-I2C/SPI entegreleri statik register modelidir; komut tabanli SPI flash icin simulator
-uretilmez. `SPEC2CODE_CIT_SIM 0` ile katman tamamen derleme disi kalir.
+Host tarafinda `tests/xilinx_stubs/` (xil_types/xstatus/xiic_l/xspi stub'lari) ile
+`drivers + cit + tests/sim` gcc'de derlenip kosulur (`tests/test_cit_layer.py`).
 
 **Kart verisi (`sense_resistor_mohms` gibi):** bazi donusumler kartta belirlenen bir
 degere ihtiyac duyar (LTC2945 `current_read` icin sont direnci). Descriptor bunu

@@ -53,9 +53,7 @@ def run_qc(
     # tests/ de yolda: kart modulu (drivers/<kart>/<kart>.h) CIT olcumu varken
     # tests/spec2code_cit.h'i include eder; bulunamazsa clang-tidy TU'yu
     # cozemez ve sahte tani (unknown type 'SBoardCit') uretir.
-    # cit/ katmani (HAL + entegre CIT) da kapidan gecer: cit/ ve cit/hal/
-    # include yoluna girer (spec2code_cit_sistem.c hem hal hem entegre basliklarini
-    # nitelenmemis include eder).
+    # cit/ ust katmani da kapidan gecer (surucu basliklarini nitelenmemis include eder).
     cit_dir = out_dir / "cit"
     include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir,
                     *runners.driver_include_dirs(cit_dir)]

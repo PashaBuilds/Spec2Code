@@ -15,7 +15,10 @@
 {% for name, value, comment in defines %}#define {{ name }} {{ value }}{{ ("  /* " + comment + " */") if comment else "" }}
 {% endfor %}
 
-/* --- public API --- */
+{% if public_types %}/* --- public types --- */
+{% for t in public_types %}{{ t }}
+
+{% endfor %}{% endif %}/* --- public API --- */
 {% for func in public_funcs %}
 {% if include_doxygen %}{{ m.doxygen(func) }}{% endif %}{{ func.signature }};
 {% endfor %}

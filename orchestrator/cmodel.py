@@ -115,6 +115,8 @@ class CUnit:
     funcs: list[CFunc]
     public_names: list[str]
     private_decls: list[str] = field(default_factory=list)
+    #: Baslikta yayimlanan typedef metinleri (S<Mod>Status, S<Mod>Voltage ...).
+    public_types: list[str] = field(default_factory=list)
     #: Fiziksel kart kimligi (spec `boards` tanimsizken herkes ortuk ana kartta).
     board_id: str = boards.MAIN_BOARD_ID
     test: Optional[CTest] = None
@@ -569,6 +571,154 @@ def _return_param(op_name: str, returns: str) -> tuple[str, str]:
     return "unsigned short", f"usp{_pascal_suffix(obj)}"
 
 
+def _array_return_info(module: str, returns: str) -> Optional[dict]:
+    """Dizi donuslu op (``voltages[8]``) icin surucu struct'i.
+
+    'voltages[8]' -> {ctype: 'SLtc2991Voltage', param: 'spVoltage', field: 'usArrVoltage',
+    count: 8, noun: 'Voltage'} (isim = returns adinin tekili). Skaler donus -> None.
+    """
+    m = re.match(r"^\s*([A-Za-z_]+)\s*\[(\d+)\]\s*$", str(returns))
+    if not m:
+        return None
+    noun = m.group(1).lower()
+    if noun.endswith("s") and len(noun) > 1:
+        noun = noun[:-1]
+    pas = _pascal_suffix(noun)
+    return {
+        "ctype": f"S{_pascal_suffix(module)}{pas}",
+        "param": f"sp{pas}",
+        "field": f"usArr{pas}",
+        "count": int(m.group(2)),
+        "noun": pas,
+    }
+
+
+def _array_struct_typedef(part: str, op_name: str, info: dict, unit: str) -> str:
+    unit_note = f", birim {unit}" if unit else ""
+    return (
+        "/**\n"
+        f" * @brief {part} {op_name} sonucu: {info['count']} kanal{unit_note}.\n"
+        " */\n"
+        "typedef struct\n"
+        "{\n"
+        f"    unsigned short {info['field']}[{info['count']}];\n"
+        "}" + f" {info['ctype']};"
+    )
+
+
+def _bits_range(bits) -> Optional[tuple[int, int]]:
+    """'7:4' -> (7, 4); '0' -> (0, 0); cozulemeyen -> None."""
+    text = str(bits).strip()
+    m = re.fullmatch(r"(\d+)\s*:\s*(\d+)", text)
+    if m:
+        hi, lo = int(m.group(1)), int(m.group(2))
+        return (max(hi, lo), min(hi, lo))
+    if re.fullmatch(r"\d+", text):
+        return (int(text), int(text))
+    return None
+
+
+@dataclass
+class StatusRegPlan:
+    """Surucu S<Mod>Status yapisina giren bir durum registeri."""
+    name: str
+    offset: int
+    width: int                              # 8 / 16
+    raw_field: str                          # ucStatusLow / usStatusWord
+    fields: list[tuple[str, int, int, str]]  # (cname, lo, width, comment)
+
+
+def status_register_plans(descriptor: dict) -> list[StatusRegPlan]:
+    """Durum registerleri: fields tanimli, width<=16, `access: ro` VEYA post_init_status.reg.
+
+    Bit alanlari descriptor bit tanimlariyla birebir; ad cakismasinda register adi one eklenir.
+    """
+    hint = (descriptor.get("test_hints") or {}).get("post_init_status") or {}
+    post = str(hint.get("reg", "") or "")
+    used: set[str] = set()
+    plans: list[StatusRegPlan] = []
+    for rg in descriptor.get("registers", []):
+        name = str(rg.get("name", ""))
+        width = int(rg.get("width", 8) or 8)
+        access = str(rg.get("access", "")).lower()
+        if not name or width > 16 or not rg.get("fields"):
+            continue
+        if not (access == "ro" or name == post):
+            continue
+        fields: list[tuple[str, int, int, str]] = []
+        for f in rg["fields"]:
+            rng = _bits_range(f.get("bits"))
+            fname = str(f.get("name", ""))
+            if rng is None or not fname or rng[0] >= width:
+                continue
+            cname = "ui" + _pascal_suffix(fname.lower())
+            if cname in used:
+                cname = "ui" + _pascal_suffix(name.lower()) + _pascal_suffix(fname.lower())
+            used.add(cname)
+            fields.append((cname, rng[1], rng[0] - rng[1] + 1, f"{name} bit {f.get('bits')}"))
+        if not fields:
+            continue
+        prefix = "uc" if width <= 8 else "us"
+        plans.append(StatusRegPlan(
+            name=name, offset=int(rg.get("offset", 0)), width=width,
+            raw_field=f"{prefix}{_pascal_suffix(name.lower())}", fields=fields))
+    return plans
+
+
+def _status_struct_typedef(module: str, part: str, regs: list[StatusRegPlan]) -> str:
+    lines = [
+        "/**",
+        f" * @brief {part} durum registerleri BIT BIT (descriptor bit tanimlariyla birebir) + ham deger.",
+        f" *        {module}StatusRegistersRead() doldurur.",
+        " */",
+        "typedef struct",
+        "{",
+    ]
+    for reg in regs:
+        for cname, _lo, width, comment in reg.fields:
+            lines.append(f"    unsigned int {cname} : {width}; /* {comment} */")
+    for reg in regs:
+        ctype = "unsigned char" if reg.width <= 8 else "unsigned short"
+        lines.append(f"    {ctype} {reg.raw_field}; /* ham {reg.name} (0x{reg.offset:02X}) */")
+    lines.append("}" + f" S{_pascal_suffix(module)}Status;")
+    return "\n".join(lines)
+
+
+def _status_read_func(module: str, part: str, regs: list[StatusRegPlan], handle_param: str,
+                      hvar: str, read_line: Callable[[StatusRegPlan, str], str],
+                      wide_line: Optional[Callable[[StatusRegPlan], str]],
+                      byte_order: str, inject_mux: Callable[["Emit"], None]) -> CFunc:
+    """``<mod>StatusRegistersRead(handle, S<Mod>Status*)``: ham registerler + bit alanlari."""
+    e = Emit()
+    e.ln("int iStatus;")
+    if any(r.width > 8 for r in regs):
+        e.ln("unsigned char ucArrBytes[2];")
+    e.blank()
+    e.open("if (spStatus == NULL)").ln("return XST_FAILURE;").close()
+    inject_mux(e)
+    for reg in regs:
+        if reg.width <= 8:
+            e.ln(read_line(reg, f"&spStatus->{reg.raw_field}")).check_status()
+        else:
+            assert wide_line is not None
+            e.ln(wide_line(reg)).check_status()
+            hi, lo = ("0", "1") if byte_order == "big" else ("1", "0")
+            e.ln(f"spStatus->{reg.raw_field} = (unsigned short)(((unsigned short)ucArrBytes[{hi}U] << 8) | "
+                 f"(unsigned short)ucArrBytes[{lo}U]);")
+    for reg in regs:
+        for cname, lo, width, _comment in reg.fields:
+            mask = (1 << width) - 1
+            shift = f" >> {lo}U" if lo else ""
+            e.ln(f"spStatus->{cname} = (unsigned int)((spStatus->{reg.raw_field}{shift}) & 0x{mask:X}U);")
+    e.ln("return XST_SUCCESS;")
+    return CFunc(
+        name=_func_name(module, "status_registers_read"), ret="int",
+        params=[handle_param, f"S{_pascal_suffix(module)}Status* spStatus"], body=e.out(),
+        brief=f"Read the {part} status registers into a bit-field struct (raw bytes kept alongside).",
+        doxy_params=[(hvar, "Initialized controller handle."), ("spStatus", "Out: status bits + raw registers.")],
+        doxy_return="XST_SUCCESS on success, else an XST_* error code.")
+
+
 def _emit_convert_lines(e: "Emit", convert: dict, raw_expr: str) -> None:
     """Fixed-point engineering-unit conversion into the local `iCode`.
 
@@ -799,7 +949,7 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     api.send(sel, "&ucMask", 1, addr_def)
     sel.open("if (iStatus != XST_SUCCESS)")
     sel.ln("/* Sessiz hizli fail birakma: hangi switch/kanal dustu logda gorunsun. */")
-    sel.ln(f"spec2codeBusTraceI2cError({addr_def}, ucChannel, 'm', iStatus);")
+    sel.ln(f"busTraceI2cError({addr_def}, ucChannel, 'm', iStatus);")
     sel.ln("return iStatus;")
     sel.close()
     api.wait_idle(sel, "/* wait for the transfer to complete */")
@@ -817,7 +967,7 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     dis.ln("ucMask = 0x00U;")
     api.send(dis, "&ucMask", 1, addr_def)
     dis.open("if (iStatus != XST_SUCCESS)")
-    dis.ln(f"spec2codeBusTraceI2cError({addr_def}, 0xFFU, 'm', iStatus);")
+    dis.ln(f"busTraceI2cError({addr_def}, 0xFFU, 'm', iStatus);")
     dis.ln("return iStatus;")
     dis.close()
     api.wait_idle(dis, "/* wait for the transfer to complete */")
@@ -831,7 +981,7 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     return CUnit(
         module=module, part=mux["part"], summary=descriptor.get("summary", ""), transport="i2c_mux",
         header_includes=["xil_types.h", api.header],
-        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=[(addr_def, _hexu8(addr), f"{mux['part']} I2C address")],
         funcs=_prune_unused_static_funcs([*api.wrapper_funcs(), select, disable]),
         public_names=[select.name, disable.name])
@@ -846,7 +996,7 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     # kancasina adres+register+asama ile raporlanir.
     def check_traced(e: Emit, reg_expr: str, stage: str) -> None:
         e.open("if (iStatus != XST_SUCCESS)")
-        e.ln(f"spec2codeBusTraceI2cError({addr_def}, {reg_expr}, '{stage}', iStatus);")
+        e.ln(f"busTraceI2cError({addr_def}, {reg_expr}, '{stage}', iStatus);")
         e.ln("return iStatus;")
         e.close()
 
@@ -856,7 +1006,7 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     api.send(w, "ucArrBuffer", 2, addr_def)
     check_traced(w, "ucReg", "w")
     api.wait_idle(w)
-    w.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'w', &ucValue, 1U);")
+    w.ln(f"busTraceI2c({addr_def}, ucReg, 'w', &ucValue, 1U);")
     w.ln("return XST_SUCCESS;")
     write = CFunc(_func_name(module, "register_write"), "int",
                   [api.param, "unsigned char ucReg", "unsigned char ucValue"], w.out(), static=True)
@@ -872,7 +1022,7 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     api.recv(r, "ucpValue", 1, addr_def)
     check_traced(r, "ucReg", "r")
     api.wait_idle(r)
-    r.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpValue, 1U);")
+    r.ln(f"busTraceI2c({addr_def}, ucReg, 'r', ucpValue, 1U);")
     r.ln("return XST_SUCCESS;")
     read = CFunc(_func_name(module, "register_read"), "int",
                  [api.param, "unsigned char ucReg", "unsigned char* ucpValue"], r.out(), static=True)
@@ -910,7 +1060,7 @@ def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     api.recv(wide, "ucpBuffer", "uiLength", addr_def)
     check_traced(wide, "ucReg", "r")
     api.wait_idle(wide)
-    wide.ln(f"spec2codeBusTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
+    wide.ln(f"busTraceI2c({addr_def}, ucReg, 'r', ucpBuffer, uiLength);")
     wide.ln("return XST_SUCCESS;")
     read_wide = CFunc(_func_name(module, "register_read_wide"), "int",
                       [api.param, "unsigned char ucReg",
@@ -1020,12 +1170,25 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
     funcs = _i2c_low_level(module, api, addr_def)
     public: list[str] = []
+    public_types: list[str] = []
     ops_by_name = {op["name"]: op for op in descriptor["operations"]}
     requested = device.get("operations_requested") or list(ops_by_name)
 
     def inject_mux(e: Emit) -> None:
         if mux_module is not None:
             e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({hvar}, {mux_channel}U);").check_status()
+
+    # Durum registerleri: S<Mod>Status + <mod>StatusRegistersRead (op'lardan bagimsiz; cit/
+    # katmani ve kullanici bunu dogrudan kullanir).
+    status_regs = status_register_plans(descriptor)
+    if status_regs:
+        public_types.append(_status_struct_typedef(module, device["part"], status_regs))
+        funcs.append(_status_read_func(
+            module, device["part"], status_regs, api.param, hvar,
+            lambda reg, target: f"iStatus = {_func_name(module, 'register_read')}({hvar}, {MOD}_REG_{reg.name}, {target});",
+            lambda reg: f"iStatus = {_func_name(module, 'register_read_wide')}({hvar}, {MOD}_REG_{reg.name}, ucArrBytes, 2U);",
+            byte_order, inject_mux))
+        public.append(_func_name(module, "status_registers_read"))
 
     for op_name in requested:
         op = ops_by_name.get(op_name)
@@ -1038,9 +1201,17 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         params = [api.param]
         out_c_type = ""
         out_param = None
-        if returns:
+        array_info = _array_return_info(module, returns) if returns else None
+        if array_info:
+            # Dizi donus: surucu KENDI struct'ini doldurur (SLtc2991Voltage.usArrVoltage[8]).
+            out_c_type, out_param = array_info["ctype"], array_info["param"]
+            params.append(f"{out_c_type}* {out_param}")
+            public_types.append(_array_struct_typedef(
+                device["part"], op_name, array_info, str((op.get("convert") or {}).get("unit", ""))))
+        elif returns:
             out_c_type, out_param = _return_param(op_name, returns)
             params.append(f"{out_c_type}* {out_param}")
+        array_target = f"{out_param}->{array_info['field']}" if array_info else out_param
 
         has_channels = any(s["op"] == "read_channels" for s in op["steps"])
         convert = resolve_convert(device, op)
@@ -1149,9 +1320,9 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                             e, convert,
                             "((unsigned short)ucMsb << 8) | (unsigned short)ucLsb")
                         cvar = "uiCode" if convert.get("unsigned") else "iCode"
-                        e.ln(f"{out_param}[ucIndex] = (unsigned short){cvar};")
+                        e.ln(f"{array_target}[ucIndex] = (unsigned short){cvar};")
                     else:
-                        e.ln(f"{out_param}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
+                        e.ln(f"{array_target}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
                     e.close()
 
         if scalar_combine and out_param:
@@ -1173,14 +1344,14 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             doxy_params=doxy_params, doxy_return="XST_SUCCESS on success, else an XST_* error code."))
         public.append(_func_name(module, op_name))
 
-    includes_c = [f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"]
+    includes_c = [f"{module}.h", "bus_trace.h", "xparameters.h", "xstatus.h"]
     if mux_module:
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c",
         header_includes=["xil_types.h", api.header], driver_includes=includes_c,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public,
-        private_decls=private_decls)
+        private_decls=private_decls, public_types=public_types)
 
 
 def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
@@ -1367,7 +1538,7 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     else:
         _spi_select(send, htype, hvar, sel_def)
         _spi_transfer(send, htype, hvar, "ucArrTx", "NULL", "1")
-    send.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, 1U);")
+    send.ln("busTraceSpi(0U, ucArrTx, NULL, 1U);")
     send.ln("return XST_SUCCESS;")
     f_send = CFunc(_func_name(module, "command_send"), "int",
                    [f"{htype}* {hvar}", "unsigned char ucOpcode"], send.out(), static=True)
@@ -1418,14 +1589,14 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
         rd.close()
         rd.ln(f"iStatus = XQspiPsu_PolledTransfer({hvar}, sArrMessage, 2U);").check_status()
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiIndex];").close()
-        rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader);")
-        rd.ln("spec2codeBusTraceSpi(0U, NULL, ucArrRx, uiLength);")
+        rd.ln("busTraceSpi(0U, ucArrTx, NULL, uiHeader);")
+        rd.ln("busTraceSpi(0U, NULL, ucArrRx, uiLength);")
     else:
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucArrTx[uiHeader + uiIndex] = 0x00U;").close()
         _spi_select(rd, htype, hvar, sel_def)
         _spi_transfer(rd, htype, hvar, "ucArrTx", "ucArrRx", "uiHeader + uiLength")
         rd.open("for (uiIndex = 0U; uiIndex < uiLength; uiIndex++)").ln("ucpBuffer[uiIndex] = ucArrRx[uiHeader + uiIndex];").close()
-        rd.ln("spec2codeBusTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
+        rd.ln("busTraceSpi(0U, ucArrTx, ucArrRx, uiHeader + uiLength);")
     rd.ln("return XST_SUCCESS;")
     f_read = CFunc(_func_name(module, "command_read"), "int",
                    [f"{htype}* {hvar}", "unsigned char ucOpcode", "unsigned int uiAddress",
@@ -1474,7 +1645,7 @@ def _spi_low_level(module: str, htype: str, hvar: str, sel_def: str, max_def: st
     else:
         _spi_select(wr, htype, hvar, sel_def)
         _spi_transfer(wr, htype, hvar, "ucArrTx", "NULL", "uiHeader + uiLength")
-    wr.ln("spec2codeBusTraceSpi(0U, ucArrTx, NULL, uiHeader + uiLength);")
+    wr.ln("busTraceSpi(0U, ucArrTx, NULL, uiHeader + uiLength);")
     wr.ln("return XST_SUCCESS;")
     f_write = CFunc(_func_name(module, "command_write"), "int",
                     [f"{htype}* {hvar}", "unsigned char ucOpcode", "unsigned int uiAddress",
@@ -1503,7 +1674,7 @@ def _spi_register_write_func(module: str, htype: str, hvar: str, sel_def: str, f
     else:
         _spi_select(wr, htype, hvar, sel_def)
         _spi_transfer(wr, htype, hvar, "ucArrTx", "NULL", frame_def)
-    wr.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, NULL, {frame_def});")
+    wr.ln(f"busTraceSpi({sel_def}, ucArrTx, NULL, {frame_def});")
     wr.ln("return XST_SUCCESS;")
     return CFunc(
         _func_name(module, "register_write"),
@@ -1553,7 +1724,7 @@ def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
     else:
         _spi_select(rd, htype, hvar, sel_def)
         _spi_transfer(rd, htype, hvar, "ucArrTx", "ucArrRx", frame_def)
-    rd.ln(f"spec2codeBusTraceSpi({sel_def}, ucArrTx, ucArrRx, {frame_def});")
+    rd.ln(f"busTraceSpi({sel_def}, ucArrTx, ucArrRx, {frame_def});")
     rd.ln("*ucpValue = ucArrRx[2];")
     rd.ln("return XST_SUCCESS;")
     return CFunc(
@@ -1630,13 +1801,22 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
         for op_name in requested
     )
 
+    status_regs = [r for r in status_register_plans(descriptor) if r.width <= 8]
     funcs = [_spi_register_write_func(module, htype, hvar, sel_def, frame_def)]
-    if needs_register_read:
+    if needs_register_read or status_regs:
         funcs.append(_spi_register_read_func(module, htype, hvar, sel_def, frame_def, model))
     if rewrite_word is not None:
         funcs.append(_delay_func(module))
 
     public: list[str] = []
+    public_types: list[str] = []
+    if status_regs:
+        public_types.append(_status_struct_typedef(module, device["part"], status_regs))
+        funcs.append(_status_read_func(
+            module, device["part"], status_regs, f"{htype}* {hvar}", hvar,
+            lambda reg, target: f"iStatus = {_func_name(module, 'register_read')}({hvar}, {MOD}_REG_{reg.name}, {target});",
+            None, "big", lambda e: None))
+        public.append(_func_name(module, "status_registers_read"))
 
     for op_name in requested:
         op = ops_by_name.get(op_name)
@@ -1741,11 +1921,12 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
         summary=descriptor.get("summary", ""),
         transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
-        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=defines,
         funcs=_prune_unused_static_funcs(funcs),
         public_names=public,
         private_decls=private_decls,
+        public_types=public_types,
     )
 
 
@@ -1856,7 +2037,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
-        driver_includes=[f"{module}.h", "spec2code_bus_trace.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "bus_trace.h", "xparameters.h", "xstatus.h"],
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
@@ -2062,6 +2243,17 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     def is_array_read(name: str) -> bool:
         return any("[ucIndex]" in line for line in funcs_by_name.get(name, CFunc("", "", [], [])).body)
 
+    def array_struct(name: str) -> tuple[str, str, str]:
+        """(tip, degisken, alan): 'SLtc2991Voltage', 'sVoltage', 'usArrVoltage'."""
+        params = funcs_by_name.get(name, CFunc("", "", [], [])).params
+        ctype = params[1].split("*")[0].strip() if len(params) > 1 else "unsigned short"
+        noun = ctype[len("S" + _pascal_suffix(module)):] if ctype.startswith("S" + _pascal_suffix(module)) else "Value"
+        return ctype, f"s{noun}", f"usArr{noun}"
+
+    status_regs_func = _func_name(module, "status_registers_read")
+    has_status_regs = status_regs_func in read_ops
+    read_ops = [n for n in read_ops if n != status_regs_func]
+
     def has_uint_out(name: str) -> bool:
         return any("unsigned int*" in param for param in funcs_by_name.get(name, CFunc("", "", [], [])).params)
 
@@ -2092,6 +2284,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
 
     st = Emit()
     st.ln("int iStatus;")
+    if has_status_regs:
+        # Durum yapisi her transportta (I2C register cihazi, SPI TICS cihazi) olabilir.
+        st.ln(f"S{_pascal_suffix(module)}Status sStatusRegs;")
     if unit.transport in {"i2c", "i2c_eeprom"}:
         if any(n.endswith("ConfigRead") for n in read_ops):
             st.ln("unsigned char ucConfig;")
@@ -2103,14 +2298,14 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned short usId;")
         if any(n.endswith("IdRead") and has_uchar_id_out(n) for n in read_ops):
             st.ln("unsigned char ucId;")
-        if any(n.endswith("VoltageRead") and is_array_read(n) for n in read_ops):
-            st.ln("unsigned short usArrVoltages[8];")
+        for n in read_ops:
+            if is_array_read(n):
+                ctype, var, _fld = array_struct(n)
+                st.ln(f"{ctype} {var};")
         if any(n.endswith("VoltageRead") and not is_array_read(n) and has_int_out(n) for n in read_ops):
             st.ln("int iVoltage;")
         if any(n.endswith("VoltageRead") and not is_array_read(n) and not has_int_out(n) for n in read_ops):
             st.ln("unsigned short usVoltage;")
-        if any(n.endswith("CurrentRead") and is_array_read(n) for n in read_ops):
-            st.ln("unsigned short usArrCurrents[8];")
         if any(n.endswith("CurrentRead") and not is_array_read(n) and has_int_out(n) for n in read_ops):
             st.ln("int iCurrent;")
         if any(n.endswith("CurrentRead") and not is_array_read(n) and not has_int_out(n) for n in read_ops):
@@ -2164,8 +2359,15 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
     # an undefined reference at link time.
     if _func_name(module, "device_init") in unit.public_names:
         st.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
+    if has_status_regs:
+        st.ln(f"iStatus = {status_regs_func}({hvar}, &sStatusRegs);").check_status()
+        st.ln('xil_printf("' + part + ' status registers read OK\\r\\n");')
     for name in read_ops:
-        if name.endswith("ConfigRead"):
+        if is_array_read(name):
+            ctype, var, fld = array_struct(name)
+            st.ln(f"iStatus = {name}({hvar}, &{var});").check_status()
+            st.ln('xil_printf("' + part + f' {fld}[0] = %u\\r\\n", (unsigned int){var}.{fld}[0]);')
+        elif name.endswith("ConfigRead"):
             st.ln(f"iStatus = {name}({hvar}, &ucConfig);").check_status()
             st.ln('xil_printf("' + part + ' config = %02X\\r\\n", ucConfig);')
         elif name.endswith("StatusRead"):
@@ -2176,20 +2378,14 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
                 st.ln(f"iStatus = {name}({hvar}, &ucStatus);").check_status()
                 st.ln('xil_printf("' + part + ' status = %02X\\r\\n", ucStatus);')
         elif name.endswith("VoltageRead"):
-            if is_array_read(name):
-                st.ln(f"iStatus = {name}({hvar}, usArrVoltages);").check_status()
-                st.ln('xil_printf("' + part + ' V1 = %u\\r\\n", (unsigned int)usArrVoltages[0]);')
-            elif has_int_out(name):
+            if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iVoltage);").check_status()
                 st.ln('xil_printf("' + part + ' voltage = %d\\r\\n", iVoltage);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usVoltage);").check_status()
                 st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)usVoltage);')
         elif name.endswith("CurrentRead"):
-            if is_array_read(name):
-                st.ln(f"iStatus = {name}({hvar}, usArrCurrents);").check_status()
-                st.ln('xil_printf("' + part + ' current raw = %u\\r\\n", (unsigned int)usArrCurrents[0]);')
-            elif has_int_out(name):
+            if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iCurrent);").check_status()
                 st.ln('xil_printf("' + part + ' current = %d\\r\\n", iCurrent);')
             else:

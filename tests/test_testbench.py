@@ -706,8 +706,8 @@ class TestbenchTests(unittest.TestCase):
             ops = (out_dir / "tests" / "unit_ltc2991_current_testbench_ops.c").read_text(encoding="utf-8")
             manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
 
-        self.assertIn("int ltc2991CurrentRead(XIicPs* spIic, unsigned short* uspCurrent);", header)
-        self.assertIn("ltc2991CurrentRead(spIic, usArrValues)", ops)
+        self.assertIn("int ltc2991CurrentRead(XIicPs* spIic, SLtc2991Current* spCurrent);", header)
+        self.assertIn("ltc2991CurrentRead(spIic, &sCurrent)", ops)
         current = next(op for op in manifest["devices"][0]["operations"] if op["name"] == "current_read")
         self.assertEqual(current["fixed_read_length"], 16)
         self.assertEqual(current["risk"], "safe")
@@ -1100,8 +1100,8 @@ class TestbenchTests(unittest.TestCase):
         # Canlı bus izi: sürücünün en alt seviye okuma/yazması her gerçek
         # transferi raporlar (zayıf kanca; test bench güçlü impl TRACE satırı
         # yayınlar, Seri Hat gerçek baytlarla diyagram çizer).
-        self.assertIn("spec2codeBusTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
-        self.assertIn("spec2codeBusTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
+        self.assertIn("busTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
+        self.assertIn("busTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
         self.assertIn("spec2codeTestbenchTraceSetId(spRequest->uiId);", ops)
 
     def test_ltc2945_current_read_uses_board_shunt_config(self) -> None:
@@ -1142,7 +1142,7 @@ class TestbenchTests(unittest.TestCase):
         # I_mA = kod * 25 uV / R_mohm (5 mohm sönt).
         self.assertIn("(iCode * 25) / 5", driver)
         # Trace altyapısı dosyaları üretilir (zayıf kanca + güçlü impl).
-        self.assertIn("drivers/spec2code_bus_trace.h", written)
+        self.assertIn("drivers/bus_trace.h", written)
         self.assertIn("tests/spec2code_testbench_trace.c", written)
         ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertIn("current_read", ltc_ops)
@@ -1759,7 +1759,7 @@ class TestbenchTests(unittest.TestCase):
         # BAYTLI blok recv idi. Beklenen: (1) read_registers ardisik
         # register adreslerini kanitli tek-bayt okumalarla toplar (sayac
         # tutarliligi icin iki gecis + uyusmazsa ucuncu), (2) her I2C
-        # basarisizligi spec2codeBusTraceI2cError kancasiyla adres/register/
+        # basarisizligi busTraceI2cError kancasiyla adres/register/
         # asama raporlar (testbench guclu impl. ERROR seviyesinde loglar),
         # (3) mux kanal secimi de ayni kancayi kullanir.
         spec = load_sample_spec("unit_no_spi_testbench")
@@ -1788,7 +1788,7 @@ class TestbenchTests(unittest.TestCase):
             codegen.generate(spec, out_dir)
             ds1682 = (out_dir / "drivers" / "ds1682.c").read_text(encoding="utf-8")
             mux_source = (out_dir / "drivers" / "tca9548a.c").read_text(encoding="utf-8")
-            trace_header = (out_dir / "drivers" / "spec2code_bus_trace.h").read_text(encoding="utf-8")
+            trace_header = (out_dir / "drivers" / "bus_trace.h").read_text(encoding="utf-8")
             trace_source = (out_dir / "tests" / "spec2code_testbench_trace.c").read_text(encoding="utf-8")
 
         # (1) Blok recv uretimden kalkti; ardisik adresler tek-bayt okunur.
@@ -1797,14 +1797,14 @@ class TestbenchTests(unittest.TestCase):
         # Iki gecis + uyusmazsa ucuncu (DS1682 ETC 0.25 s'de artar).
         self.assertEqual(ds1682.count("ds1682RegistersReadOnce(spIic, ucReg,"), 3)
         # (2) Basarisizlik asamasi raporlanir: pointer/recv/yazma.
-        self.assertIn("spec2codeBusTraceI2cError(DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
-        self.assertIn("spec2codeBusTraceI2cError(DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
+        self.assertIn("busTraceI2cError(DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
+        self.assertIn("busTraceI2cError(DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
         # ('w' asamasi register_write kullanan cihazlarda uretilir; bu op
         # kumesi salt okuma oldugundan yazma yardimcisi budanir.)
         # (3) Mux secimi de konusur; kanca zayif varsayilanla driver'da,
         # guclu ERROR-log implementasyonuyla testbench'te bulunur.
-        self.assertIn("spec2codeBusTraceI2cError(TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
-        self.assertIn("void spec2codeBusTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
+        self.assertIn("busTraceI2cError(TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
+        self.assertIn("void busTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
         self.assertIn("TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", trace_source)
 
     def test_uint32_returning_ops_are_wired_into_the_testbench_dispatcher(self) -> None:

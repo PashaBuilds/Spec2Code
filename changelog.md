@@ -3,6 +3,35 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.168 - 2026-09-06
+
+KATMAN YENIDEN YAPILANMASI (kullanici karari): surucu struct API'si, CIT ust seviye, sanal cihaz
+Xilinx seviyesinde. Geriye donuk uyumluluk KORUNMADI (spec'ten yeniden uret + karta yukle).
+
+- **drivers/ (kullaniciya giden katman):** Xilinx API'si dogrudan; durum registerleri
+  `S<Mod>Status` bit alanlari + ham bayt ve `<mod>StatusRegistersRead()`; dizi donuslu op'lar
+  surucu struct'ini doldurur (`SLtc2991Voltage.usArrVoltage[8]`, `ltc2991VoltageRead(h, &s)`).
+  `spec2code_bus_trace.h` -> `bus_trace.h` (`busTraceI2c/Spi/I2cError`): kullaniciya giden
+  dosya/sembollerde `spec2code` adi yok. Self-test ve ajan dispatch'i struct API'yi kullanir.
+- **cit/ (ust seviye, surucu uzerinde):** eski HAL (`cit/hal/*`) ve `S<Mod>CitConfig` kaldirildi.
+  `cit_ortak.h` (`SCitLimit`, `citLimitDegerlendir`, `CIT_OK/NOK/HATA`), `<mod>_cit.*`
+  (`S<Mod>CitLimit` spec `config.cit.measurements`'tan varsayilan, `S<Mod>Cit` = bayraklar +
+  `S<Mod>Status sDurum` + olcum struct'lari, `ui<Op>Okundu` / `ui<Olcum>Ok` bitleri,
+  `uiHataSayac/uiNokSayac`), `sistem_cit.*` (`SSistemCitBus` Xilinx handle'lari, `SSistemCitLimit`,
+  `SSistemCit`). cit dogrudan Xilinx veri-yolu cagirmaz.
+- **tests/sim (yalniz test bench):** `spec2code_sim_xilinx.h` `-include` ile Xilinx veri-yolu
+  fonksiyonlarini (`XIic_DynSend/DynRecv/Send/Recv`, `XIicPs_Master*Polled`,
+  `XSpi_SetSlaveSelect/Transfer`, `XSpiPs_*`) sarmalayiciya yonlendirir; kayitli adres/CS sanal,
+  digerleri gercek (karisik mod). Ajan `simulate` cihazlari ilk dispatch'te kaydeder
+  (`spec2codeSimHazirla`), sarmalayici/rewrite kalkti: dispatch GERCEK surucuyu cagirir. Mux'un
+  arkasindaki her cihaz sanalsa sanal TCA9548A da kaydedilir. Vitis uretimi `compiler-misc`'e
+  `-include` bayragini ve `tests/sim` include yolunu ekler.
+- **Testler:** `tests/xilinx_stubs/` (xil_types/xstatus/xiic_l/xspi + stub gerceklemeleri) ile
+  drivers+cit+sim gcc'de uctan uca (`test_cit_layer.py`: 16 test). Nexys A7'de dogrulandi: ajan
+  (gercek ADT7420/S25FL128S + sanal LTC2991/LTC2945/DS1682/LMK04832, CIT 18 olcum) ve cit/
+  demosu (`test/0_temp_nexys/cit_demo4_main.c`: V1..V8, limit NOK, NACK -> HATA).
+- Tasarim notu: `docs/superpowers/specs/2026-09-06-driver-struct-api-design.md`; kilavuz guncellendi.
+
 ## v0.1.167 - 2026-09-06
 
 - **CIT: parca basina satir (kullanici istegi):** ayni entegre tipinden olanlar (orn. 3x LTC2991)

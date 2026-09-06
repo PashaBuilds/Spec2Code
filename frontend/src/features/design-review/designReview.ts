@@ -70,35 +70,27 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
     if (citEligible(device, controller?.type)) {
       const module = moduleNameFor(device.part, moduleCounts, false);
       files.push({ path: `cit/${module}_cit.h`, kind: "cit" }, { path: `cit/${module}_cit.c`, kind: "cit" });
-      // Sanal cihaz (simulasyon): I2C register entegreleri + SPI TICS-register entegreleri.
-      files.push({ path: `cit/sim/${module}_sim.h`, kind: "cit" }, { path: `cit/sim/${module}_sim.c`, kind: "cit" });
+      // Sanal cihaz (simulate): register-dosyasi simulatoru tests/sim altinda (yalniz test bench).
+      if (device.simulate) {
+        files.push({ path: `tests/sim/${module}_sim.h`, kind: "test" }, { path: `tests/sim/${module}_sim.c`, kind: "test" });
+      }
     }
   }
-  // CIT entegre katmani (cit/): HAL + sistem toplayici, en az bir uygun cihaz varsa.
+  // CIT ust katmani (cit/): ortak limit tipi + sistem toplayici, en az bir uygun cihaz varsa.
   if (files.some((file) => file.kind === "cit")) {
-    const busTypes = new Set(
-      spec.devices
-        .map((device) => controllers.get(device.attach.controller_id)?.type)
-        .filter((type): type is string => type === "i2c" || type === "spi"),
-    );
-    files.push({ path: "cit/hal/spec2code_cit_port.h", kind: "cit" });
-    if (busTypes.has("i2c")) {
-      files.push(
-        { path: "cit/hal/spec2code_i2c_bus.h", kind: "cit" },
-        { path: "cit/hal/spec2code_i2c_bus.c", kind: "cit" },
-        { path: "cit/hal/spec2code_i2c_sim.h", kind: "cit" },
-        { path: "cit/hal/spec2code_i2c_sim.c", kind: "cit" },
-      );
-    }
-    if (busTypes.has("spi")) {
-      files.push(
-        { path: "cit/hal/spec2code_spi_bus.h", kind: "cit" },
-        { path: "cit/hal/spec2code_spi_bus.c", kind: "cit" },
-      );
-    }
     files.push(
-      { path: "cit/spec2code_cit_sistem.h", kind: "cit" },
-      { path: "cit/spec2code_cit_sistem.c", kind: "cit" },
+      { path: "cit/cit_ortak.h", kind: "cit" },
+      { path: "cit/cit_ortak.c", kind: "cit" },
+      { path: "cit/sistem_cit.h", kind: "cit" },
+      { path: "cit/sistem_cit.c", kind: "cit" },
+    );
+  }
+  // Sanal cihaz altyapisi (tests/sim): Xilinx veri-yolu araya-girme + cihaz kaydi.
+  if (spec.devices.some((device) => device.simulate)) {
+    files.push(
+      { path: "tests/sim/spec2code_sim.h", kind: "test" },
+      { path: "tests/sim/spec2code_sim.c", kind: "test" },
+      { path: "tests/sim/spec2code_sim_xilinx.h", kind: "test" },
     );
   }
 
