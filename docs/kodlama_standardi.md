@@ -161,7 +161,9 @@ xil_printf("hazir\n");                          /* ❌ hata */
 
 ## Doxygen
 
-Public fonksiyonlarda Doxygen bloğu zorunludur.
+Doxygen blokları **varsayılan olarak üretilmez** (2026-09-06 kararı: prototip yeterli, temiz
+görünüm). Dosya başlığındaki `@file` bloğu her zaman kalır. İstenirse spec'te
+`generation_options.include_doxygen: true` ile fonksiyon blokları şu biçimde üretilir:
 
 ```c
 /**

@@ -197,7 +197,7 @@
       "additionalProperties": false,
       "properties": {
         "qc_max_rounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
-        "include_doxygen": { "type": "boolean", "default": true },
+        "include_doxygen": { "type": "boolean", "default": false },
         "line_ending": { "type": "string", "enum": ["crlf"], "default": "crlf" }
       }
     }

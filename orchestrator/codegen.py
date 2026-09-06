@@ -7122,6 +7122,22 @@ def make_descriptor_loader(root: Path = _ROOT) -> Callable[[str], dict]:
     return get
 
 
+_DOXYGEN_BLOCK_RE = re.compile(r"[ \t]*/\*\*(?:(?!\*/)[\s\S])*?\*/[ \t]*\r?\n")
+
+
+def strip_doxygen_blocks(text: str) -> str:
+    """Fonksiyon/struct ustu `/** ... */` Doxygen bloklarini kaldirir; `@file` basligi kalir.
+
+    Sira yorumlari (`/* ... */`) ve satir ici aciklamalar dokunulmaz. Blok kaldirilinca
+    kalan ardisik bos satirlar tek bos satira indirilir.
+    """
+    def _drop(match: "re.Match[str]") -> str:
+        return "" if "@file" not in match.group(0) else match.group(0)
+
+    out = _DOXYGEN_BLOCK_RE.sub(_drop, text)
+    return re.sub(r"(\r?\n)[ \t]*(?:\r?\n[ \t]*){2,}", r"\1\1", out)
+
+
 def generate(
     spec: dict,
     out_dir: Path,
@@ -7141,7 +7157,9 @@ def generate(
     units = cmodel.build_units(spec, get_descriptor)
 
     gen_opts = spec.get("generation_options", {})
-    include_doxygen = gen_opts.get("include_doxygen", True)
+    # Varsayilan KAPALI (kullanici istegi 2026-09-06): prototip yeterli, fonksiyon/struct
+    # ustu Doxygen bloklari temiz gorunumu bozuyor. Dosya basligi (@file) her zaman kalir.
+    include_doxygen = bool(gen_opts.get("include_doxygen", False))
     ruleset_ref = _DEFAULT_RULESET_REF
 
     drivers_dir = out_dir / "drivers"
@@ -7267,6 +7285,17 @@ def generate(
     written.append(str(hio.write_output(out_dir / "README.md", readme)))
 
     written.extend(write_testbench_harness(spec, out_dir, root=root))
+
+    if not include_doxygen:
+        # Sablon disi ureticiler (cit/, tests/sim, test bench, kart modulleri) Doxygen
+        # bloklarini dogrudan yazar; hepsi tek yerden temizlenir.
+        for rel in written:
+            path = Path(rel)
+            if path.suffix.lower() in {".c", ".h"} and path.is_file():
+                text = path.read_text(encoding="utf-8")
+                stripped = strip_doxygen_blocks(text)
+                if stripped != text:
+                    hio.write_output(path, stripped)
 
     emit({"event": "codegen.done", "files": len(written)})
     return written

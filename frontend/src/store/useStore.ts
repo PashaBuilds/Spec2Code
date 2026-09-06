@@ -439,7 +439,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       controllers: s.controllers,
       devices: boardsOn ? devices : devices.map(withoutBoardId),
       muxes: boardsOn ? s.muxes : s.muxes.map(withoutBoardId),
-      generation_options: { qc_max_rounds: 3, include_doxygen: true, line_ending: "crlf" },
+      generation_options: { qc_max_rounds: 3, include_doxygen: false, line_ending: "crlf" },
     };
     if (boardsOn) {
       spec.boards = s.boards.map(specBoard);

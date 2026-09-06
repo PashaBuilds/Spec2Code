@@ -57,5 +57,5 @@
       "tests_requested": ["self_test"]
     }
   ],
-  "generation_options": { "qc_max_rounds": 3, "include_doxygen": true, "line_ending": "crlf" }
+  "generation_options": { "qc_max_rounds": 3, "include_doxygen": false, "line_ending": "crlf" }
 }
