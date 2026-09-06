@@ -1759,7 +1759,7 @@ class TestbenchTests(unittest.TestCase):
         # BAYTLI blok recv idi. Beklenen: (1) read_registers ardisik
         # register adreslerini kanitli tek-bayt okumalarla toplar (sayac
         # tutarliligi icin iki gecis + uyusmazsa ucuncu), (2) her I2C
-        # basarisizligi busTraceI2cError kancasiyla adres/register/
+        # basarisizligi dbg_printf TRACEERR satiriyla adres/register/
         # asama raporlar (testbench guclu impl. ERROR seviyesinde loglar),
         # (3) mux kanal secimi de ayni kancayi kullanir.
         spec = load_sample_spec("unit_no_spi_testbench")
