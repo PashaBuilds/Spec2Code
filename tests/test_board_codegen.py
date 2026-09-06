@@ -289,7 +289,8 @@ class BoardStagingTests(unittest.TestCase):
     def test_staged_header_dirs_covers_every_board_folder(self) -> None:
         self.assertEqual(
             staged_header_dirs([
-                "drivers/bus_trace.h",
+                "drivers/dbg_printf.h",
+                "drivers/dbg_printf.c",
                 "drivers/ana_kart/ana_kart.h", "drivers/ana_kart/ltc2991.c",
                 "drivers/rf_kart/rf_kart.h", "drivers/rf_kart/tmp101.h",
                 "tests/tmp101_test.h", "spec2code_selftest_main.h",

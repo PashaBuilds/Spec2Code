@@ -24,12 +24,15 @@ Xilinx BSP
   `int ltc2991StatusRegistersRead(handle, SLtc2991Status* spStatus);` (bitler descriptor
   bit tanimlariyla birebir, ham bayt da yaninda).
 * Skaler op'lar degismez (`int*`, `unsigned short*`...).
-* `drivers/bus_trace.h`: zayif iz kancalari `busTraceI2c / busTraceSpi / busTraceI2cError`
-  (eski `spec2code_bus_trace.h`). Test bench guclu tanimla ezer; tek basina yan etkisiz.
+* `drivers/dbg_printf.h/.c` (v0.1.169): `dbg_printf(DEBUG_LEVEL_x, fmt, ...)`, seviyeler
+  ALWAYS 0 / ERROR 1 / WARNING 2 / MSG 3 / INFO 4 / TRACE 5, esik calisma zamaninda
+  (`dbgLevelSet`, varsayilan ERROR; yalniz esikten kucuk/esit basilir). Bus izleri
+  `dbgTraceI2c/Spi` (TRACE), bus hatalari `TRACEERR|...` (ERROR). Test bench `dbgSinkSet` ile
+  satiri S2C-LOG cercevesine sarar; tek basina xil_printf. (bus_trace.h kaldirildi.)
 
 ## cit/<mod>_cit.h (ust seviye; surucu uzerinde)
 
-* `S<Mod>CitLimit`: olcum basina `{iMin, iMax, uiLimitVar, uiEtkin, uiKritik}`; varsayilan
+* `S<Mod>CitLimit`: olcum basina `{iMin, iMax, uiLimitVar, uiEtkin}` (kapali aralik, min == max gecerli; kritik/uyari yok); varsayilan
   spec `config.cit.measurements` (kanal bazli), `<MOD>_CIT_LIMIT_VARSAYILAN`.
 * `S<Mod>Cit`: `sBayraklar` (op okuma-basari bitleri + olcum basina OK biti = okundu VE
   limit icinde), `S<Mod>Status sDurum`, olcum struct/alanlari (surucu tipleriyle),

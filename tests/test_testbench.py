@@ -1100,8 +1100,8 @@ class TestbenchTests(unittest.TestCase):
         # Canlı bus izi: sürücünün en alt seviye okuma/yazması her gerçek
         # transferi raporlar (zayıf kanca; test bench güçlü impl TRACE satırı
         # yayınlar, Seri Hat gerçek baytlarla diyagram çizer).
-        self.assertIn("busTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
-        self.assertIn("busTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
+        self.assertIn("dbgTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
+        self.assertIn("dbgTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
         self.assertIn("spec2codeTestbenchTraceSetId(spRequest->uiId);", ops)
 
     def test_ltc2945_current_read_uses_board_shunt_config(self) -> None:
@@ -1142,8 +1142,8 @@ class TestbenchTests(unittest.TestCase):
         # I_mA = kod * 25 uV / R_mohm (5 mohm sönt).
         self.assertIn("(iCode * 25) / 5", driver)
         # Trace altyapısı dosyaları üretilir (zayıf kanca + güçlü impl).
-        self.assertIn("drivers/bus_trace.h", written)
-        self.assertIn("tests/spec2code_testbench_trace.c", written)
+        self.assertIn("drivers/dbg_printf.h", written)
+        self.assertIn("drivers/dbg_printf.c", written)
         ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertIn("current_read", ltc_ops)
         self.assertIn("mA", ltc_ops["current_read"]["label"])
@@ -1788,8 +1788,8 @@ class TestbenchTests(unittest.TestCase):
             codegen.generate(spec, out_dir)
             ds1682 = (out_dir / "drivers" / "ds1682.c").read_text(encoding="utf-8")
             mux_source = (out_dir / "drivers" / "tca9548a.c").read_text(encoding="utf-8")
-            trace_header = (out_dir / "drivers" / "bus_trace.h").read_text(encoding="utf-8")
-            trace_source = (out_dir / "tests" / "spec2code_testbench_trace.c").read_text(encoding="utf-8")
+            trace_header = (out_dir / "drivers" / "dbg_printf.h").read_text(encoding="utf-8")
+            trace_source = (out_dir / "tests" / "spec2code_testbench_log.c").read_text(encoding="utf-8")
 
         # (1) Blok recv uretimden kalkti; ardisik adresler tek-bayt okunur.
         self.assertNotIn("XIicPs_MasterRecvPolled(spIic, ucpBuffer, (int)uiLength", ds1682)
@@ -1797,15 +1797,17 @@ class TestbenchTests(unittest.TestCase):
         # Iki gecis + uyusmazsa ucuncu (DS1682 ETC 0.25 s'de artar).
         self.assertEqual(ds1682.count("ds1682RegistersReadOnce(spIic, ucReg,"), 3)
         # (2) Basarisizlik asamasi raporlanir: pointer/recv/yazma.
-        self.assertIn("busTraceI2cError(DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
-        self.assertIn("busTraceI2cError(DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
+        err = 'dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", '
+        self.assertIn(err + "DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
+        self.assertIn(err + "DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
         # ('w' asamasi register_write kullanan cihazlarda uretilir; bu op
         # kumesi salt okuma oldugundan yazma yardimcisi budanir.)
         # (3) Mux secimi de konusur; kanca zayif varsayilanla driver'da,
         # guclu ERROR-log implementasyonuyla testbench'te bulunur.
-        self.assertIn("busTraceI2cError(TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
-        self.assertIn("void busTraceI2cError(unsigned char ucAddress, unsigned char ucReg,", trace_header)
-        self.assertIn("TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", trace_source)
+        self.assertIn(err + "TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
+        self.assertIn("void dbg_printf(unsigned int uiLevel, const char* cpFormat, ...);", trace_header)
+        # Test bench cercevesi TRACEERR govdesine komut id'sini ekler (Akis ekrani eslemesi).
+        self.assertIn("S2C-LOG|%s|TRACEERR|id=%u|%s", trace_source)
 
     def test_uint32_returning_ops_are_wired_into_the_testbench_dispatcher(self) -> None:
         # SAHA KOK NEDENI (2026-07-06, karar fotografi 13:10): v0.1.113
@@ -2124,19 +2126,24 @@ class TestbenchTests(unittest.TestCase):
             cs_source = (tests_dir / "spec2code_testbench_coresight.c").read_text(encoding="utf-8")
             manifest = json.loads(
                 (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            dbg_header = (out_dir / "drivers" / "dbg_printf.h").read_text(encoding="utf-8")
+            dbg_source = (out_dir / "drivers" / "dbg_printf.c").read_text(encoding="utf-8")
 
-        self.assertIn("#define SPEC2CODE_LOG_LEVEL_ERROR 1U", log_header)
-        self.assertIn("#define SPEC2CODE_LOG_LEVEL_DEBUG 5U", log_header)
-        self.assertIn("#define SPEC2CODE_LOG_LEVEL_DEFAULT SPEC2CODE_LOG_LEVEL_WARNING", log_header)
+        # Seviyeler kullaniciya giden drivers/dbg_printf.h'te; log katmani onu cerceveler.
+        self.assertIn('#include "dbg_printf.h"', log_header)
+        self.assertIn("#define DEBUG_LEVEL_ERROR 1U", dbg_header)
+        self.assertIn("#define DEBUG_LEVEL_TRACE 5U", dbg_header)
+        self.assertIn("#define DEBUG_LEVEL_DEFAULT DEBUG_LEVEL_ERROR", dbg_header)
         # Esik kurali: printin seviyesi ayarlanandan buyukse bastirilir.
-        self.assertIn("if ((uiLevel > S_uiLogLevel) || (cpFormat == NULL))", log_source)
+        self.assertIn("if ((uiLevel > S_uiDbgLevel) || (cpFormat == NULL))", dbg_source)
         # Runtime seviye degisimi + gelen/giden mesaj loglari + op sonucu.
         # DispatchLine silindi: RX/TX loglari artik binary Dispatch sarmalayicisinda
         # yapisal alanlardan uretilir (metin satir yok).
         self.assertIn('spec2codeTestbenchStringEqual(spRequest->cArrOperation, "log_level")', ops_source)
         self.assertIn("spRequest->uiHasValue == 1U", ops_source)
-        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "RX id=%u device=%s op=%s"', ops_source)
-        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, "TX id=%u ok=%u status=%d value=0x%X"', ops_source)
+        self.assertIn('dbg_printf(DEBUG_LEVEL_MSG, "RX id=%u device=%s op=%s"', ops_source)
+        self.assertIn('dbg_printf(DEBUG_LEVEL_MSG, "TX id=%u ok=%u status=%d value=0x%X"', ops_source)
+        self.assertIn('dbg_printf(DEBUG_LEVEL_TRACE, "i2c reg read: addr=0x%02X reg=0x%02X"', ops_source)
         self.assertIn('"op HATA: device=%s op=%s status=%d mesaj=%s"', ops_source)
         self.assertIn('"i2c reg read: addr=0x%02X reg=0x%02X"', ops_source)
         # Log METIN formati (S2C-LOG|...) binary gecisle DEGISMEDI: UI SerialLinePanel
@@ -2148,10 +2155,11 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("spec2codeMesajTraceCerceveKur(uiMesajId, 0U, cpLine,", cs_source)
         self.assertIn("uiMesajId = SPEC2CODE_MESAJ_TRACE_EVENT;", cs_source)
         self.assertIn("uiMesajId = SPEC2CODE_MESAJ_BUS_TRACE_EVENT;", cs_source)
-        self.assertIn('spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam', cs_source)
+        self.assertIn('dbg_printf(DEBUG_LEVEL_INFO, "board init tamam', cs_source)
         self.assertEqual(manifest["log"]["op"], "log_level")
-        self.assertEqual(manifest["log"]["default"], 2)
-        self.assertEqual(manifest["log"]["levels"]["debug"], 5)
+        self.assertEqual(manifest["log"]["default"], 1)
+        self.assertEqual(manifest["log"]["levels"]["trace"], 5)
+        self.assertEqual(manifest["log"]["levels"]["always"], 0)
         self.assertEqual(manifest["log"]["line_prefix"], "S2C-LOG|")
 
     def test_serial_send_matches_response_by_command_id(self) -> None:

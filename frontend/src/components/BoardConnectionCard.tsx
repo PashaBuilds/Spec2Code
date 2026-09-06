@@ -15,7 +15,7 @@ let S_logLevelCommandId = 9000;
 export default function BoardConnectionCard({ compact = false }: { compact?: boolean }) {
   const board = useBoardConnection();
   const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
-  const [agentLogLevel, setAgentLogLevel] = useState("2");
+  const [agentLogLevel, setAgentLogLevel] = useState("1");
   const [logLevelBusy, setLogLevelBusy] = useState(false);
 
   const locked = board.connected || board.busy;
@@ -49,7 +49,7 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
         operation: "log_level",
         command_id: S_logLevelCommandId++,
         session_id: board.sessionId,
-        value: Number.parseInt(value, 10) || 2,
+        value: Number.parseInt(value, 10) || 0,
         timeout_s: board.timeoutSeconds(),
       });
     } catch (err) {
@@ -209,13 +209,14 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
               onChange={(e) => void applyAgentLogLevel(e.target.value)}
               disabled={logLevelBusy}
               className="h-7 min-w-0 flex-1 rounded-md border border-border bg-inset px-1.5 font-mono text-[11px] text-text"
-              title="Karttaki agent'ın log eşiği; S2C-LOG satırları konsol ve Veri Akışı'nda görünür."
+              title="dbg_printf eşiği: yalnız eşitten küçük ya da eşit seviyeli printler basılır (varsayılan error). S2C-LOG satırları konsol ve Akış'ta görünür."
             >
-              <option value="1">1 — error</option>
-              <option value="2">2 — warning (varsayılan)</option>
-              <option value="3">3 — message (TX/RX)</option>
+              <option value="0">0 — always (yalnız banner)</option>
+              <option value="1">1 — error (varsayılan)</option>
+              <option value="2">2 — warning</option>
+              <option value="3">3 — msg (mesaj katmanı TX/RX)</option>
               <option value="4">4 — info</option>
-              <option value="5">5 — debug</option>
+              <option value="5">5 — trace (I2C/SPI baytları)</option>
             </select>
           </div>
         ) : null}

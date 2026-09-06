@@ -97,7 +97,7 @@ function storeOverride(
   return measurements?.find((m) => m.op === op && (m.channel ?? undefined) === channel);
 }
 
-/** Kanalsız (genel) override: kanallı op'ta limit/önem/enabled'ı bütün kanallara uygular. */
+/** Kanalsız (genel) override: kanallı op'ta limit/enabled'ı bütün kanallara uygular. */
 function genericOverride(
   measurements: DeviceCitMeasurement[] | undefined,
   op: string,
@@ -114,7 +114,6 @@ type Effective = {
   name: string;
   min: number | null;
   max: number | null;
-  severity: "critical" | "warning";
   enabled: boolean;
   pending: boolean; // henüz koşulmadı
   readOk: boolean; // kart okuma başarısı (durum === 0)
@@ -125,20 +124,19 @@ type Effective = {
 function effectiveOf(measurement: CitDecodeMeasurement, device: Device | undefined): Effective {
   const list = device?.config?.cit?.measurements;
   const exact = storeOverride(list, measurement.op, measurement.channel);
-  // Kanallı ölçümde kanalsız override limit/önem/enabled'ı verir (isim hariç) — codegen ile aynı kural.
+  // Kanallı ölçümde kanalsız override limit/enabled'ı verir (isim hariç) — codegen ile aynı kural.
   const generic = measurement.channel !== undefined ? genericOverride(list, measurement.op) : undefined;
   const override = exact ?? generic;
   const name = exact?.name ?? measurement.name;
   // Override VARSA değerleri olduğu gibi kullan (kullanıcı limiti bilerek boşalttıysa null = limitsiz).
   const min = override ? (override.min ?? null) : (measurement.min ?? null);
   const max = override ? (override.max ?? null) : (measurement.max ?? null);
-  const severityRaw = override?.severity ?? measurement.severity;
-  const severity = severityRaw === "critical" ? "critical" : "warning";
   const enabled = override?.enabled ?? measurement.enabled;
   const pending = measurement.durum === PENDING_DURUM;
   const readOk = measurement.durum === 0;
+  // Kapalı aralık: min <= değer <= max (min == max tek kabul edilen değer, örn. 0..0).
   const limitOk = min === null || max === null ? true : measurement.value >= min && measurement.value <= max;
-  return { name, min, max, severity, enabled, pending, readOk, limitOk, ok: readOk && limitOk };
+  return { name, min, max, enabled, pending, readOk, limitOk, ok: readOk && limitOk };
 }
 
 type Tone = "danger" | "warn" | "ok" | "neutral";
@@ -147,8 +145,7 @@ function badgeTone(measurement: CitDecodeMeasurement, eff: Effective): Tone {
   if (eff.pending) return "neutral";
   if (measurement.durum === 7) return "neutral"; // eski firmware / desteklenmiyor
   if (measurement.durum !== 0) return "danger";
-  if (eff.ok) return "ok";
-  return eff.severity === "critical" ? "danger" : "warn";
+  return eff.ok ? "ok" : "danger";
 }
 
 function badgeLabel(measurement: CitDecodeMeasurement, eff: Effective): string {
@@ -178,15 +175,13 @@ const TONE_TILE: Record<Tone, string> = {
 
 type Row = { m: CitDecodeMeasurement; eff: Effective; key: string };
 
-/** Özet rozeti: en kötü durum kazanır (kritik > uyarı > OK); kapalı-only grup "kapalı". */
+/** Özet rozeti: NOK varsa sayısı, yoksa n/n OK; kapalı-only grup "kapalı". */
 function summaryOf(rows: Row[]): { label: string; tone: Tone } {
   const active = rows.filter((r) => r.eff.enabled);
   if (active.length === 0) return { label: "kapalı", tone: "neutral" };
   if (active.every((r) => r.eff.pending)) return { label: `${active.length} ölçüm`, tone: "neutral" };
-  const critical = active.filter((r) => !r.eff.pending && !r.eff.ok && r.eff.severity === "critical").length;
-  const warning = active.filter((r) => !r.eff.pending && !r.eff.ok && r.eff.severity !== "critical").length;
-  if (critical > 0) return { label: `${critical} kritik NOK`, tone: "danger" };
-  if (warning > 0) return { label: `${warning} uyarı NOK`, tone: "warn" };
+  const nok = active.filter((r) => !r.eff.pending && !r.eff.ok).length;
+  if (nok > 0) return { label: `${nok} NOK`, tone: "danger" };
   const ok = active.filter((r) => r.eff.ok).length;
   return { label: `${ok}/${active.length} OK`, tone: "ok" };
 }
@@ -259,9 +254,7 @@ export default function CitPanel() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [error, setError] = useState("");
   const [editingKey, setEditingKey] = useState<string>("");
-  const [editDraft, setEditDraft] = useState<{ name: string; min: string; max: string; severity: "critical" | "warning" }>(
-    { name: "", min: "", max: "", severity: "warning" },
-  );
+  const [editDraft, setEditDraft] = useState<{ name: string; min: string; max: string }>({ name: "", min: "", max: "" });
   const runningRef = useRef(false);
 
   const hasCit = Boolean(manifest?.cit?.olcumler?.length);
@@ -315,7 +308,6 @@ export default function CitPanel() {
       name: eff.name,
       min: eff.min === null ? "" : String(eff.min),
       max: eff.max === null ? "" : String(eff.max),
-      severity: eff.severity,
     });
   }
 
@@ -337,7 +329,6 @@ export default function CitPanel() {
       name: current?.name,
       min: base?.min,
       max: base?.max,
-      severity: base?.severity ?? (measurement.severity === "critical" ? "critical" : "warning"),
       enabled: base?.enabled ?? measurement.enabled,
       ...patch,
     };
@@ -356,7 +347,6 @@ export default function CitPanel() {
     writeOverride(measurement, {
       min: Number.isFinite(min as number) ? min : undefined,
       max: Number.isFinite(max as number) ? max : undefined,
-      severity: editDraft.severity,
     });
     setEditingKey("");
   }
@@ -389,8 +379,7 @@ export default function CitPanel() {
   const rows: Row[] = measurements.map((m) => ({ m, eff: effectiveOf(m, deviceForMeasurement(m)), key: keyOf(m) }));
   const activeRows = rows.filter((r) => r.eff.enabled && !r.eff.pending);
   const disabledCount = rows.filter((r) => !r.eff.enabled).length;
-  const criticalNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity === "critical").length;
-  const warningNok = activeRows.filter((r) => !r.eff.ok && r.eff.severity !== "critical").length;
+  const nokCount = activeRows.filter((r) => !r.eff.ok).length;
   const okCount = activeRows.filter((r) => r.eff.ok).length;
 
   // Entegre başına gruplama — manifest devices[] sırası (her entegrenin yeri sabittir).
@@ -444,14 +433,7 @@ export default function CitPanel() {
           placeholder="max"
           className="h-6 w-14 min-w-0 px-1 font-mono text-[11px]"
         />
-        <select
-          value={editDraft.severity}
-          onChange={(e) => setEditDraft((d) => ({ ...d, severity: e.target.value as "critical" | "warning" }))}
-          className="h-6 min-w-0 flex-1 rounded-md border border-border bg-inset px-1 font-mono text-[11px] text-text"
-        >
-          <option value="warning">warning</option>
-          <option value="critical">critical</option>
-        </select>
+        <span className="min-w-0 flex-1 truncate text-[10px] text-faint">kapalı aralık; min = max olabilir</span>
         <button
           type="button"
           className="rounded p-1 text-ok hover:bg-inset"
@@ -475,7 +457,7 @@ export default function CitPanel() {
           className="rounded p-1 text-faint hover:bg-inset hover:text-accent disabled:opacity-40"
           onClick={() => startEdit(measurement)}
           disabled={!device}
-          title={device ? "isim/limit/önem düzenle (anında uygulanır)" : "cihaz spec'te bulunamadı"}
+          title={device ? "isim/limit düzenle (anında uygulanır)" : "cihaz spec'te bulunamadı"}
         >
           <Pencil className="h-3 w-3" aria-hidden />
         </button>
@@ -515,7 +497,6 @@ export default function CitPanel() {
           <div className="min-w-0 flex-1 text-[10px] text-faint">
             {opLabel(measurement.op)}
             {eff.min !== null && eff.max !== null ? ` · ${eff.min}..${eff.max}` : " · limitsiz"}
-            {eff.severity === "critical" ? " · kritik" : ""}
           </div>
           <div className="shrink-0 text-right" title={eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`}>
             <span className={cn("font-mono text-base font-semibold tabular-nums", TONE_TEXT[tone])}>
@@ -657,8 +638,7 @@ export default function CitPanel() {
             <Badge tone={connected ? "ok" : "neutral"}>{connected ? "bağlı" : "kopuk"}</Badge>
           </div>
 
-          <Badge tone={criticalNok > 0 ? "danger" : "neutral"}>kritik NOK {criticalNok}</Badge>
-          <Badge tone={warningNok > 0 ? "warn" : "neutral"}>uyarı NOK {warningNok}</Badge>
+          <Badge tone={nokCount > 0 ? "danger" : "neutral"}>NOK {nokCount}</Badge>
           <Badge tone="ok">OK {okCount}</Badge>
           {disabledCount > 0 ? <Badge tone="neutral">kapalı: {disabledCount}</Badge> : null}
           {result?.desteklenmiyor ? <Badge tone="warn">DESTEKLENMIYOR</Badge> : null}
@@ -689,7 +669,7 @@ export default function CitPanel() {
           </span>
         </div>
         <p className="mt-1.5 text-[11px] text-faint">
-          Her entegre kendi kutusunda; limit / önem / aç-kapa değişiklikleri <b className="text-muted">anında</b> uygulanır —
+          Her entegre kendi kutusunda; limit / aç-kapa değişiklikleri <b className="text-muted">anında</b> uygulanır —
           kod üretmeye ya da karta yeniden yüklemeye gerek yok. Bağlantı üstteki ortak karttan (Test Bench) gelir.
           {!result ? (connected ? ' Değerler için "CİT koştur".' : " Önce karta bağlan.") : ""}
         </p>

@@ -99,7 +99,7 @@ def format_file(path: Path, config_dir: Path) -> tuple[bool, bool, Optional[str]
     KAYNAK DOSYANIN uzerine yazar; yani arac ne donerse dosyanin yeni icerigi odur.
     Sahada gorulen veri kaybinda `proc.run` yerel ayar yuzunden cozemedigi ciktiyi
     `returncode=0` + `stdout=""` olarak dondurmus, burasi da o bosu geri yazip
-    `spec2code_cit.c` / `spec2code_cit.h` / `spec2code_testbench_trace.c`
+    `spec2code_cit.c` / `spec2code_cit.h` / `spec2code_testbench_log.c`
     dosyalarini 0 bayta dusurmustu - ustelik "basarili" raporlayarak.
 
     Kok neden `hostplat.proc` tarafinda giderildi. Buradaki kalkan ondan BAGIMSIZDIR:

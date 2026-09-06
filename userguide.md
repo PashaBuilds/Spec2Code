@@ -387,11 +387,14 @@ Uretilen kod uc katmandir; bagimlilik tek yonlu (yukaridan asagiya):
 | Katman | Klasor | Kime gider | Icerik |
 |---|---|---|---|
 | Test bench | `tests/` (+ `tests/sim/`) | yalniz Spec2Code | ajan, S2C-MSG, self-test'ler, `spec2code_cit.*` (host raporu), sanal cihazlar |
-| CIT ust katmani | `cit/` | senin firmware'ine | surucu struct'larini ANLAMLANDIRIR: limit, etkin/kritik, OK/NOK |
+| CIT ust katmani | `cit/` | senin firmware'ine | surucu struct'larini ANLAMLANDIRIR: kapali aralik limiti (min <= deger <= max, min = max gecerli), etkin, OK/NOK |
 | Surucu | `drivers/` | senin firmware'ine | Xilinx API'sini DOGRUDAN cagirir, ham veriyi kendi struct'larinda verir |
 
 Kullaniciya giden `drivers/` ve `cit/` dosyalarinda `spec2code` adli hicbir dosya/sembol
-yoktur (`bus_trace.h`, `busTraceI2c` zayif kancalari dahil).
+yoktur. Suruculer `drivers/dbg_printf.h/.c` ile loglar: `dbg_printf(DEBUG_LEVEL_x, fmt, ...)`,
+esik `dbgLevelSet()` ile calisma zamaninda (varsayilan ERROR; yalniz esikten kucuk/esit
+seviyeler basilir); bus baytlari `dbgTraceI2c/Spi` ile TRACE seviyesinde. Kendi projende
+cikti `xil_printf`e gider, test bench ise `dbgSinkSet` ile satirlari S2C-LOG cercevesine sarar.
 
 **Surucu (`drivers/<mod>.h`):**
 
@@ -413,13 +416,13 @@ ltc2991VoltageRead(ulIicBase, &sVoltaj);          /* sVoltaj.usArrVoltage[0..7] 
 
 | Dosya | Icerik |
 |---|---|
-| `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin, uiKritik}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
+| `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
 | `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari + `uiHataSayac/uiNokSayac`), `<mod>CitInit()`, `<mod>CitRead()` |
 | `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari), `SSistemCitLimit`, `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
 
 `<mod>CitRead` surucu fonksiyonlarini cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
-(okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE limit icinde; etkin degilse 1)
-bitleri dolar. Limitler calisma zamaninda degistirilebilir; NULL verilirse spec varsayilani.
+(okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE min <= deger <= max; etkin degilse 1)
+bitleri dolar. Kritik/uyari ayrimi yoktur: aralik disi = NOK. Limitler calisma zamaninda degistirilebilir; NULL verilirse spec varsayilani.
 
 ```c
 static SSistemCitBus S_sBus;
@@ -597,9 +600,10 @@ Test Bench sayfasinda:
   (binary cerceveden cozulmus) okunabilir sekilde gosterilir; ham istek/yanit
   kutulari artik cerceve ozeti + hex gosterir (eski ham `S2C|...` metin satiri
   DEGIL).
-- Agent trace/log seviyesi (error..debug) baglanti kartindan canli
-  degistirilir (`log_level` komutu); Akis ekranindaki TRACE
-  metinleri bu esige gore artar/azalir.
+- Agent debug esigi (`dbg_printf`: 0 always, 1 error [varsayilan], 2 warning, 3 msg,
+  4 info, 5 trace) baglanti kartindan canli degistirilir (`log_level` komutu); yalniz
+  esikten kucuk ya da esit seviyeli printler basilir. TRACE seviyesi I2C/SPI baytlarini
+  Akis ekranina tasir.
 
 LTC2991 icin test bench uzerinden tipik faydali operasyonlar:
 

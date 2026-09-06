@@ -3,6 +3,33 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.169 - 2026-09-06
+
+SEVIYELI DEBUG PRINT (kullanici istegi): `bus_trace` yapisi kalkti, yerine calisma zamaninda
+ayarlanan `dbg_printf` geldi; butun altyapi (surucu, test bench ajani, mesaj katmani) buna gecti.
+
+- **drivers/dbg_printf.h/.c** (kullaniciya giden katman): `DEBUG_LEVEL_ALWAYS 0 / ERROR 1 /
+  WARNING 2 / MSG 3 / INFO 4 / TRACE 5`; `dbg_printf(DEBUG_LEVEL_x, fmt, ...)` yalniz esikten
+  kucuk ya da esit seviyeyi basar (WARNING ayarliysa ALWAYS/ERROR/WARNING). Varsayilan esik
+  ERROR; `dbgLevelSet/Get/Name` ile calisma zamaninda degisir. Cikti: kayitli sink yoksa
+  `xil_printf`. Bus baytlari `dbgTraceI2c/dbgTraceSpi` ile TRACE seviyesinde
+  ("TRACE|bus=..|..."), bus hatalari `dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|...")`.
+- **Suruculer:** `bus_trace.h` ve zayif kancalar kaldirildi; `dbg_printf.h` include edilir.
+- **Test bench:** `spec2code_testbench_log.*` artik yalniz cerceveleyici sink: satiri
+  `S2C-LOG|<A/E/W/M/I/T>|...` yapar, TRACE/TRACEERR govdesine komut id'sini ekler (Akis ekrani
+  eslemesi ayni kalir), transport hattina/telnet'e verir. `spec2code_testbench_trace.*` silindi.
+  Ajan/mesaj katmani printleri `dbg_printf(DEBUG_LEVEL_MSG/INFO/ERROR...)`; generic I2C/SPI
+  register yardimcilari TRACE. `log_level` komutu 0..5 kabul eder (varsayilan 1 = error).
+- **UI:** baglanti kartindaki seviye secici 0 always .. 5 trace, varsayilan error.
+- **QC:** adlandirma denetcisi `dbg_printf` adini istisna sayar (printf ailesi gibi).
+- **Yigin (KOK BULGU, Nexys A7):** Vitis'in MicroBlaze app'i icin varsayilan yigini 1 KB (0x400);
+  ajanin CIT + dispatch + log yolu bunu asiyor, PC ASCII metne donuyordu. XSCT script'ine
+  `spec2codePatchLinkerStack` eklendi: `lscript.ld` yigini 16 KB, heap 8 KB'a cikarilir (sifirdan
+  kur + kaynak guncelleme; zaten buyukse dokunmaz). Log/trace tamponlari da statik yapildi.
+- **CIT limiti (kullanici istegi):** kritik/uyari ayrimi kalkti; `SCitLimit {iMin, iMax,
+  uiLimitVar, uiEtkin}` kapali aralik (min <= deger <= max, min == max gecerli, orn. 0..0).
+  CIT ekrani yalniz OK/NOK sayar; duzenleme seridinde onem secici yok.
+
 ## v0.1.168 - 2026-09-06
 
 KATMAN YENIDEN YAPILANMASI (kullanici karari): surucu struct API'si, CIT ust seviye, sanal cihaz

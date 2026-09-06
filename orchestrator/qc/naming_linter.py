@@ -184,6 +184,9 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
     tu = index.parse(str(path), args=args, options=0)  # default: parse bodies (needed for var decls)
     target = str(Path(path).resolve())
     func_re = re.compile(func_regex) if func_regex else None
+    # Kullanici tarafindan istenen sabit API adlari (kodlama standardinin disinda):
+    # dbg_printf(DEBUG_LEVEL_x, fmt, ...) - printf ailesi gibi okunsun diye alt cizgili.
+    exempt_functions = {"dbg_printf"}
 
     for cursor in tu.cursor.walk_preorder():
         loc = cursor.location
@@ -191,7 +194,7 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
             continue
         if cursor.kind == cindex.CursorKind.FUNCTION_DECL and cursor.is_definition():
             name = cursor.spelling
-            if func_re and not func_re.match(name):
+            if func_re and name not in exempt_functions and not func_re.match(name):
                 violations.append(Violation(
                     file=str(path), line=loc.line, column=loc.column, rule="naming.function_pattern",
                     severity="error",

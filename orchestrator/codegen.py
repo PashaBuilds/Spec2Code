@@ -1433,13 +1433,14 @@ def _operation_fixed_read_length(op: dict) -> int:
 #: Log seviyeleri artan detayla: yalnizca seviyesi ayarlanan esik degerden
 #: KUCUK VEYA ESIT printler basilir. Varsayilan warning (2).
 _TESTBENCH_LOG_LEVELS: dict[str, int] = {
+    "always": 0,   # banner vb. kesin basilir
     "error": 1,
     "warning": 2,
-    "message": 3,  # gelen/giden S2C satirlari
+    "msg": 3,      # mesaj gonderim/alim katmani
     "info": 4,
-    "debug": 5,
+    "trace": 5,    # I2C/SPI gelen-giden veri
 }
-_TESTBENCH_LOG_DEFAULT_LEVEL = "warning"
+_TESTBENCH_LOG_DEFAULT_LEVEL = "error"
 
 #: CIT (cihaz ici test) adayi olcum op'lari — v1 beyaz listesi (Board Contract
 #: v1, tasarim §4.1). Yalnizca "birimli okuma" niteligindeki op adlari; lock
@@ -1491,29 +1492,21 @@ def _testbench_log_header() -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_log.h\n"
-        " * @brief Leveled runtime logging for the Spec2Code test bench agent.\n"
+        " * @brief Test bench log cercevesi: dbg_printf ciktisini S2C-LOG|<TAG>|... satirina sarar.\n"
         " *\n"
-        " * Seviyeler artan detayla siralidir; bir print ancak seviyesi o an\n"
-        " * ayarli esikten KUCUK veya ESITSE basilir. Varsayilan: warning.\n"
-        ' * Cikti "S2C-LOG|<TAG>|..." satirlaridir: host tarafi bunlari yanit\n'
-        " * sanmaz (yanitlar S2C-MSG ikili cercevesiyle gelir), konsol ve Veri\n"
-        " * Akisi ekranlarinda gorunur. Esik calisma zamaninda log_level\n"
-        ' * komutunu tasiyan bir S2C-MSG cercevesiyle degistirilir.\n'
+        " * Seviyeler ve esik drivers/dbg_printf.h'tedir (DEBUG_LEVEL_ALWAYS..TRACE, varsayilan\n"
+        " * ERROR; log_level komutuyla calisma zamaninda degisir). Bu dosya yalniz test bench\n"
+        " * ajaninda derlenir: dbg sink'i olarak kaydolur, satiri komut id'siyle etiketler ve\n"
+        " * transport hat fonksiyonuna (UART/DCC cerceve) ya da xil_printf'e verir.\n"
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_LOG_H\n"
         "#define SPEC2CODE_TESTBENCH_LOG_H\n\n"
-        "#define SPEC2CODE_LOG_LEVEL_ERROR 1U\n"
-        "#define SPEC2CODE_LOG_LEVEL_WARNING 2U\n"
-        "#define SPEC2CODE_LOG_LEVEL_MESSAGE 3U\n"
-        "#define SPEC2CODE_LOG_LEVEL_INFO 4U\n"
-        "#define SPEC2CODE_LOG_LEVEL_DEBUG 5U\n"
-        "#define SPEC2CODE_LOG_LEVEL_DEFAULT SPEC2CODE_LOG_LEVEL_WARNING\n\n"
+        '#include "dbg_printf.h"\n\n'
         "typedef void (*FSpec2codeLogSink)(const char* cpLine);\n\n"
+        "/* Transport hat fonksiyonunu kaydeder ve dbg_printf sink'ini bu cerceveye baglar. */\n"
         "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink);\n"
-        "unsigned int spec2codeLogLevelGet(void);\n"
-        "unsigned int spec2codeLogLevelSet(unsigned int uiLevel);\n"
-        "const char* spec2codeLogLevelName(unsigned int uiLevel);\n"
-        "void spec2codeLog(unsigned int uiLevel, const char* cpFormat, ...);\n\n"
+        "/* TRACE satirlarina eklenen komut id'si (dispatch her istekte gunceller). */\n"
+        "void spec2codeTestbenchTraceSetId(unsigned int uiId);\n\n"
         "#endif /* SPEC2CODE_TESTBENCH_LOG_H */\n"
     )
 
@@ -1523,214 +1516,191 @@ def _testbench_log_source(telnet: bool = False) -> str:
     return (
         "/**\n"
         " * @file spec2code_testbench_log.c\n"
-        " * @brief Leveled runtime logging for the Spec2Code test bench agent.\n"
-        " *\n"
-        " * Sink kaydedilmemisse xil_printf (stdout) kullanilir; agent\n"
-        " * transportlari kendi hat fonksiyonlarini sink olarak kaydeder ki\n"
-        " * loglar S2C trafigiyle ayni kanaldan (CoreSight DCC / UART) aksin.\n"
+        " * @brief dbg_printf sink'i: S2C-LOG|<TAG>|govde satiri; TRACE govdesine komut id'si girer.\n"
         + (" *\n"
-           " * Telnet log sunucusu uretildiyse (PS Ethernet var) her satir AYRICA\n"
-           " * telnet feed'ine (port 23) non-blocking kuyruklanir; sink ya da\n"
-           " * transporttan bagimsizdir (uretim kosuluyla derlenir).\n"
-           if telnet else "")
+           " * Telnet log sunucusu uretildiyse (PS Ethernet var) her satir AYRICA telnet\n"
+           " * feed'ine (port 23) non-blocking kuyruklanir.\n" if telnet else "")
         + " */\n"
         '#include "spec2code_testbench_log.h"\n'
         '#include "xil_printf.h"\n'
         + telnet_include
-        + "\n"
-        "#include <stdarg.h>\n"
-        "#include <stdio.h>\n\n"
-        "#define SPEC2CODE_LOG_BODY_MAX 160U\n"
-        "#define SPEC2CODE_LOG_LINE_MAX 192U\n\n"
-        "static unsigned int S_uiLogLevel = SPEC2CODE_LOG_LEVEL_DEFAULT;\n"
-        "static FSpec2codeLogSink S_fpLogSink = NULL;\n\n"
-        "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink)\n"
-        "{\n"
-        "    S_fpLogSink = fpSink;\n"
-        "}\n\n"
-        "unsigned int spec2codeLogLevelGet(void)\n"
-        "{\n"
-        "    return S_uiLogLevel;\n"
-        "}\n\n"
-        "unsigned int spec2codeLogLevelSet(unsigned int uiLevel)\n"
-        "{\n"
-        "    if (uiLevel < SPEC2CODE_LOG_LEVEL_ERROR)\n"
-        "    {\n"
-        "        uiLevel = SPEC2CODE_LOG_LEVEL_ERROR;\n"
-        "    }\n"
-        "    if (uiLevel > SPEC2CODE_LOG_LEVEL_DEBUG)\n"
-        "    {\n"
-        "        uiLevel = SPEC2CODE_LOG_LEVEL_DEBUG;\n"
-        "    }\n"
-        "    S_uiLogLevel = uiLevel;\n"
-        "    return S_uiLogLevel;\n"
-        "}\n\n"
-        "const char* spec2codeLogLevelName(unsigned int uiLevel)\n"
-        "{\n"
-        "    switch (uiLevel)\n"
-        "    {\n"
-        "    case SPEC2CODE_LOG_LEVEL_ERROR: return \"error\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_WARNING: return \"warning\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_MESSAGE: return \"message\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_INFO: return \"info\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_DEBUG: return \"debug\";\n"
-        "    default: return \"unknown\";\n"
-        "    }\n"
-        "}\n\n"
-        "static const char* spec2codeLogLevelTag(unsigned int uiLevel)\n"
-        "{\n"
-        "    switch (uiLevel)\n"
-        "    {\n"
-        "    case SPEC2CODE_LOG_LEVEL_ERROR: return \"E\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_WARNING: return \"W\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_MESSAGE: return \"M\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_INFO: return \"I\";\n"
-        "    case SPEC2CODE_LOG_LEVEL_DEBUG: return \"D\";\n"
-        "    default: return \"?\";\n"
-        "    }\n"
-        "}\n\n"
-        "void spec2codeLog(unsigned int uiLevel, const char* cpFormat, ...)\n"
-        "{\n"
-        "    char cArrBody[SPEC2CODE_LOG_BODY_MAX];\n"
-        "    char cArrLine[SPEC2CODE_LOG_LINE_MAX];\n"
-        "    va_list sArgs;\n"
-        "    int iWritten;\n\n"
-        "    if ((uiLevel > S_uiLogLevel) || (cpFormat == NULL))\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    va_start(sArgs, cpFormat);\n"
-        "    iWritten = vsnprintf(cArrBody, sizeof(cArrBody), cpFormat, sArgs);\n"
-        "    va_end(sArgs);\n"
-        "    if (iWritten < 0)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    iWritten = snprintf(cArrLine, sizeof(cArrLine), \"S2C-LOG|%s|%s\\r\\n\",\n"
-        "                        spec2codeLogLevelTag(uiLevel), cArrBody);\n"
-        "    if (iWritten < 0)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        + ("    /* Telnet feed (port 23): AYNI satir non-blocking kuyruklanir; sink\n"
-           "     * ya da transporttan bagimsiz, uretim kosuluyla derlenir. */\n"
-           "    spec2codeTelnetLogYaz(cArrLine);\n"
-           if telnet else "")
-        + "    if (S_fpLogSink != NULL)\n"
-        "    {\n"
-        "        S_fpLogSink(cArrLine);\n"
-        "    }\n"
-        "    else\n"
-        "    {\n"
-        "        xil_printf(\"%s\", cArrLine);\n"
-        "    }\n"
-        "}\n"
-    )
-
-
-def _bus_trace_header() -> str:
-    """drivers/bus_trace.h — sürücülerin zayıf iz kancaları (kullaniciya giden katman: spec2code adi yok).
-
-    Sürücüler her GERÇEK bus transferinden sonra bu kancaları çağırır.
-    Standalone (dropin) kullanımda buradaki zayıf boş tanımlar geçerlidir
-    ve hiçbir maliyet/yan etki yoktur; test bench güçlü implementasyonu
-    (tests/spec2code_testbench_trace.c) transferleri komut id'siyle
-    S2C-LOG TRACE satırları olarak yayınlar — Seri Hat ekranı bunlardan
-    canlı, bit seviyesinde diyagram çizer.
-    """
-    return (
-        "/**\n"
-        " * @file bus_trace.h\n"
-        " * @brief Weak bus-transfer trace hooks (test bench overrides them).\n"
-        " *\n"
-        " * Standalone kullanimda zayif bos tanimlar gecerlidir (yan etkisiz);\n"
-        " * test bench guclu implementasyonu transferleri S2C-LOG TRACE\n"
-        " * satirlari olarak yayinlar (log seviyesi debug iken).\n"
-        " */\n"
-        "#ifndef BUS_TRACE_H\n"
-        "#define BUS_TRACE_H\n\n"
-        "void busTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
-        "                          const unsigned char* ucpData, unsigned int uiLength);\n"
-        "void busTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
-        "                          const unsigned char* ucpRx, unsigned int uiLength);\n"
-        "/* Basarisiz I2C transferi: hangi adres/register/asama dustu?\n"
-        " * cStage: 'w' register yazma, 'p' register pointer yazma,\n"
-        " * 'r' okuma (recv), 'm' mux kanal secimi. Test bench guclu\n"
-        " * implementasyonu ERROR seviyesinde loglar (varsayilan log\n"
-        " * seviyesinde bile gorunur) - sessiz hizli fail birakmaz. */\n"
-        "void busTraceI2cError(unsigned char ucAddress, unsigned char ucReg,\n"
-        "                               char cStage, int iStatus);\n\n"
-        "/* Guclu implementasyon (test bench) zayif varsayilanlari kapatmak icin\n"
-        " * include etmeden once BUS_TRACE_NO_WEAK tanimlar. */\n"
-        "#if defined(__GNUC__) && !defined(BUS_TRACE_NO_WEAK)\n"
-        "__attribute__((weak)) void busTraceI2c(unsigned char ucAddress, unsigned char ucReg,\n"
-        "                                                char cDir, const unsigned char* ucpData,\n"
-        "                                                unsigned int uiLength)\n"
-        "{\n"
-        "    (void)ucAddress;\n"
-        "    (void)ucReg;\n"
-        "    (void)cDir;\n"
-        "    (void)ucpData;\n"
-        "    (void)uiLength;\n"
-        "}\n\n"
-        "__attribute__((weak)) void busTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
-        "                                                const unsigned char* ucpRx, unsigned int uiLength)\n"
-        "{\n"
-        "    (void)uiSelect;\n"
-        "    (void)ucpTx;\n"
-        "    (void)ucpRx;\n"
-        "    (void)uiLength;\n"
-        "}\n\n"
-        "__attribute__((weak)) void busTraceI2cError(unsigned char ucAddress, unsigned char ucReg,\n"
-        "                                                     char cStage, int iStatus)\n"
-        "{\n"
-        "    (void)ucAddress;\n"
-        "    (void)ucReg;\n"
-        "    (void)cStage;\n"
-        "    (void)iStatus;\n"
-        "}\n"
-        "#endif /* __GNUC__ */\n\n"
-        "#endif /* BUS_TRACE_H */\n"
-    )
-
-
-def _testbench_trace_header() -> str:
-    return (
-        "/**\n"
-        " * @file spec2code_testbench_trace.h\n"
-        " * @brief Bus trace guclu implementasyonu icin komut baglami.\n"
-        " */\n"
-        "#ifndef SPEC2CODE_TESTBENCH_TRACE_H\n"
-        "#define SPEC2CODE_TESTBENCH_TRACE_H\n\n"
-        "void spec2codeTestbenchTraceSetId(unsigned int uiId);\n\n"
-        "#endif /* SPEC2CODE_TESTBENCH_TRACE_H */\n"
-    )
-
-
-def _testbench_trace_source() -> str:
-    """Güçlü iz implementasyonu: gerçek transfer baytlarını komut id'siyle
-    debug seviyesinde yayınlar. Sürücülerdeki zayıf kancaları linkte ezer."""
-    return (
-        "/**\n"
-        " * @file spec2code_testbench_trace.c\n"
-        " * @brief Bus transfer izleme: gercek TX/RX baytlari TRACE satiri olur.\n"
-        " *\n"
-        " * Suruculerdeki zayif kancalari ezer. Cikti yalniz log seviyesi\n"
-        ' * debug (5) iken uretilir: "S2C-LOG|D|TRACE|id=..|bus=..|..." —\n'
-        " * Seri Hat ekrani bu satirlardan canli bus diyagrami cizer.\n"
-        " */\n"
-        '#include "spec2code_testbench_trace.h"\n'
-        "#define BUS_TRACE_NO_WEAK 1\n"
-        '#include "bus_trace.h"\n'
-        '#include "spec2code_testbench_log.h"\n\n'
-        "#include <stddef.h>\n\n"
-        "#define SPEC2CODE_TRACE_DATA_MAX 16U\n\n"
+        + "\n#include <stddef.h>\n"
+        "#include <stdio.h>\n"
+        "#include <string.h>\n\n"
+        "#define SPEC2CODE_LOG_LINE_MAX 208U\n\n"
+        "static FSpec2codeLogSink S_fpLogSink = NULL;\n"
         "static unsigned int S_uiTraceCommandId = 0U;\n\n"
         "void spec2codeTestbenchTraceSetId(unsigned int uiId)\n"
         "{\n"
         "    S_uiTraceCommandId = uiId;\n"
         "}\n\n"
-        "static void spec2codeTraceHex(char* cpOut, const unsigned char* ucpData, unsigned int uiLength)\n"
+        "static const char* spec2codeLogLevelTag(unsigned int uiLevel)\n"
+        "{\n"
+        "    switch (uiLevel)\n"
+        "    {\n"
+        "    case DEBUG_LEVEL_ALWAYS: return \"A\";\n"
+        "    case DEBUG_LEVEL_ERROR: return \"E\";\n"
+        "    case DEBUG_LEVEL_WARNING: return \"W\";\n"
+        "    case DEBUG_LEVEL_MSG: return \"M\";\n"
+        "    case DEBUG_LEVEL_INFO: return \"I\";\n"
+        "    case DEBUG_LEVEL_TRACE: return \"T\";\n"
+        "    default: return \"?\";\n"
+        "    }\n"
+        "}\n\n"
+        "static void spec2codeLogCerceve(unsigned int uiLevel, const char* cpBody)\n"
+        "{\n"
+        "    /* Statik: MicroBlaze varsayilan yigini 1 KB; surucu->dbg_printf->cerceve->UART\n"
+        "     * zinciri yiginda tasmasin (bare-metal, tek baglam). */\n"
+        "    static char S_cArrLine[SPEC2CODE_LOG_LINE_MAX];\n"
+        "    int iWritten;\n\n"
+        "    if (strncmp(cpBody, \"TRACE|\", 6U) == 0)\n"
+        "    {\n"
+        "        /* Bus izi: komut id'si Akis ekraninin istek eslemesi icin TRACE|'dan sonra. */\n"
+        "        iWritten = snprintf(S_cArrLine, sizeof(S_cArrLine), \"S2C-LOG|%s|TRACE|id=%u|%s\\r\\n\",\n"
+        "                            spec2codeLogLevelTag(uiLevel), S_uiTraceCommandId, cpBody + 6);\n"
+        "    }\n"
+        "    else if (strncmp(cpBody, \"TRACEERR|\", 9U) == 0)\n"
+        "    {\n"
+        "        iWritten = snprintf(S_cArrLine, sizeof(S_cArrLine), \"S2C-LOG|%s|TRACEERR|id=%u|%s\\r\\n\",\n"
+        "                            spec2codeLogLevelTag(uiLevel), S_uiTraceCommandId, cpBody + 9);\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        iWritten = snprintf(S_cArrLine, sizeof(S_cArrLine), \"S2C-LOG|%s|%s\\r\\n\",\n"
+        "                            spec2codeLogLevelTag(uiLevel), cpBody);\n"
+        "    }\n"
+        "    if (iWritten < 0)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        + ("    spec2codeTelnetLogYaz(S_cArrLine);\n" if telnet else "")
+        + "    if (S_fpLogSink != NULL)\n"
+        "    {\n"
+        "        S_fpLogSink(S_cArrLine);\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        xil_printf(\"%s\", S_cArrLine);\n"
+        "    }\n"
+        "}\n\n"
+        "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink)\n"
+        "{\n"
+        "    S_fpLogSink = fpSink;\n"
+        "    dbgSinkSet(spec2codeLogCerceve);\n"
+        "}\n"
+    )
+
+
+def _dbg_printf_header() -> str:
+    """drivers/dbg_printf.h - seviyeli, calisma zamaninda ayarlanan debug print (kullaniciya gider).
+
+    Kural: bir print ancak seviyesi o an ayarli esikten KUCUK veya ESITSE basilir
+    (esik WARNING ise ALWAYS/ERROR/WARNING basilir). Varsayilan esik ERROR.
+    Tek basina kullanimda cikti xil_printf'e gider; test bench bir sink kaydedip
+    satirlari S2C-LOG cercevesine sarar. Bus izleri (I2C/SPI baytlari) TRACE
+    seviyesindeki dbgTraceI2c/dbgTraceSpi yardimcilariyla basilir.
+    """
+    return (
+        "/**\n"
+        " * @file dbg_printf.h\n"
+        " * @brief Seviyeli debug print: dbg_printf(DEBUG_LEVEL_x, fmt, ...).\n"
+        " *\n"
+        " * Esik calisma zamaninda dbgLevelSet ile degisir; yalniz esikten kucuk ya da esit\n"
+        " * seviyeli printler basilir. Varsayilan esik DEBUG_LEVEL_ERROR. Cikti: kayitli sink\n"
+        " * (test bench: S2C-LOG cercevesi) yoksa xil_printf.\n"
+        " */\n"
+        "#ifndef DBG_PRINTF_H\n"
+        "#define DBG_PRINTF_H\n\n"
+        "#define DEBUG_LEVEL_ALWAYS 0U  /* banner vb. kesin yazilacaklar            */\n"
+        "#define DEBUG_LEVEL_ERROR 1U   /* hata durumlari                           */\n"
+        "#define DEBUG_LEVEL_WARNING 2U /* hataya sebep olabilecek uyarilar          */\n"
+        "#define DEBUG_LEVEL_MSG 3U     /* mesaj gonderim/alim katmani               */\n"
+        "#define DEBUG_LEVEL_INFO 4U    /* debug'a faydali ekstra bilgi              */\n"
+        "#define DEBUG_LEVEL_TRACE 5U   /* I2C/SPI gelen-giden veriler (en alt katman) */\n"
+        "#define DEBUG_LEVEL_DEFAULT DEBUG_LEVEL_ERROR\n\n"
+        "/* Sink: formatlanmis govde (satir sonu YOK) + seviye. Kaydedilmemisse xil_printf. */\n"
+        "typedef void (*FDbgSink)(unsigned int uiLevel, const char* cpBody);\n\n"
+        "void dbgSinkSet(FDbgSink fpSink);\n"
+        "unsigned int dbgLevelGet(void);\n"
+        "unsigned int dbgLevelSet(unsigned int uiLevel); /* 0..5'e kirpar, yeni esigi dondurur */\n"
+        "const char* dbgLevelName(unsigned int uiLevel);\n"
+        "void dbg_printf(unsigned int uiLevel, const char* cpFormat, ...);\n\n"
+        "/* Bus izleri (DEBUG_LEVEL_TRACE): \"TRACE|bus=i2c|addr=..|reg=..|dir=..|len=..|data=..\". */\n"
+        "void dbgTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
+        "                 const unsigned char* ucpData, unsigned int uiLength);\n"
+        "void dbgTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx, const unsigned char* ucpRx,\n"
+        "                 unsigned int uiLength);\n\n"
+        "#endif /* DBG_PRINTF_H */\n"
+    )
+
+
+def _dbg_printf_source() -> str:
+    return (
+        "/**\n"
+        " * @file dbg_printf.c\n"
+        " * @brief Seviyeli debug print gerceklemesi.\n"
+        " */\n"
+        '#include "dbg_printf.h"\n'
+        '#include "xil_printf.h"\n\n'
+        "#include <stdarg.h>\n"
+        "#include <stddef.h>\n"
+        "#include <stdio.h>\n\n"
+        "#define DBG_BODY_MAX 160U\n"
+        "#define DBG_TRACE_DATA_MAX 16U\n\n"
+        "static unsigned int S_uiDbgLevel = DEBUG_LEVEL_DEFAULT;\n"
+        "static FDbgSink S_fpDbgSink = NULL;\n\n"
+        "void dbgSinkSet(FDbgSink fpSink)\n"
+        "{\n"
+        "    S_fpDbgSink = fpSink;\n"
+        "}\n\n"
+        "unsigned int dbgLevelGet(void)\n"
+        "{\n"
+        "    return S_uiDbgLevel;\n"
+        "}\n\n"
+        "unsigned int dbgLevelSet(unsigned int uiLevel)\n"
+        "{\n"
+        "    S_uiDbgLevel = (uiLevel > DEBUG_LEVEL_TRACE) ? DEBUG_LEVEL_TRACE : uiLevel;\n"
+        "    return S_uiDbgLevel;\n"
+        "}\n\n"
+        "const char* dbgLevelName(unsigned int uiLevel)\n"
+        "{\n"
+        "    switch (uiLevel)\n"
+        "    {\n"
+        "    case DEBUG_LEVEL_ALWAYS: return \"always\";\n"
+        "    case DEBUG_LEVEL_ERROR: return \"error\";\n"
+        "    case DEBUG_LEVEL_WARNING: return \"warning\";\n"
+        "    case DEBUG_LEVEL_MSG: return \"msg\";\n"
+        "    case DEBUG_LEVEL_INFO: return \"info\";\n"
+        "    case DEBUG_LEVEL_TRACE: return \"trace\";\n"
+        "    default: return \"unknown\";\n"
+        "    }\n"
+        "}\n\n"
+        "void dbg_printf(unsigned int uiLevel, const char* cpFormat, ...)\n"
+        "{\n"
+        "    static char S_cArrBody[DBG_BODY_MAX]; /* statik: kucuk yiginlarda tasma olmasin */\n"
+        "    va_list sArgs;\n"
+        "    int iWritten;\n\n"
+        "    if ((uiLevel > S_uiDbgLevel) || (cpFormat == NULL))\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    va_start(sArgs, cpFormat);\n"
+        "    iWritten = vsnprintf(S_cArrBody, sizeof(S_cArrBody), cpFormat, sArgs);\n"
+        "    va_end(sArgs);\n"
+        "    if (iWritten < 0)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        "    if (S_fpDbgSink != NULL)\n"
+        "    {\n"
+        "        S_fpDbgSink(uiLevel, S_cArrBody);\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        xil_printf(\"%s\\r\\n\", S_cArrBody);\n"
+        "    }\n"
+        "}\n\n"
+        "static void dbgHex(char* cpOut, const unsigned char* ucpData, unsigned int uiLength)\n"
         "{\n"
         "    static const char S_cArrDigits[] = \"0123456789ABCDEF\";\n"
         "    unsigned int uiIndex;\n"
@@ -1741,7 +1711,7 @@ def _testbench_trace_source() -> str:
         "        cpOut[1] = '\\0';\n"
         "        return;\n"
         "    }\n"
-        "    uiCount = (uiLength > SPEC2CODE_TRACE_DATA_MAX) ? SPEC2CODE_TRACE_DATA_MAX : uiLength;\n"
+        "    uiCount = (uiLength > DBG_TRACE_DATA_MAX) ? DBG_TRACE_DATA_MAX : uiLength;\n"
         "    for (uiIndex = 0U; uiIndex < uiCount; uiIndex++)\n"
         "    {\n"
         "        cpOut[(size_t)uiIndex * 2U] = S_cArrDigits[(ucpData[uiIndex] >> 4U) & 0x0FU];\n"
@@ -1749,43 +1719,31 @@ def _testbench_trace_source() -> str:
         "    }\n"
         "    cpOut[(size_t)uiCount * 2U] = '\\0';\n"
         "}\n\n"
-        "void busTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
-        "                          const unsigned char* ucpData, unsigned int uiLength)\n"
+        "void dbgTraceI2c(unsigned char ucAddress, unsigned char ucReg, char cDir,\n"
+        "                 const unsigned char* ucpData, unsigned int uiLength)\n"
         "{\n"
-        "    char cArrData[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n\n"
-        "    if (spec2codeLogLevelGet() < SPEC2CODE_LOG_LEVEL_DEBUG)\n"
+        "    static char S_cArrData[(DBG_TRACE_DATA_MAX * 2U) + 1U];\n\n"
+        "    if (S_uiDbgLevel < DEBUG_LEVEL_TRACE)\n"
+        "    {\n"
+        "        return; /* hex formatlamadan once ucuz esik kontrolu */\n"
+        "    }\n"
+        "    dbgHex(S_cArrData, ucpData, uiLength);\n"
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"TRACE|bus=i2c|addr=0x%02X|reg=0x%02X|dir=%c|len=%u|data=%s\",\n"
+        "               ucAddress, ucReg, cDir, uiLength, S_cArrData);\n"
+        "}\n\n"
+        "void dbgTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx, const unsigned char* ucpRx,\n"
+        "                 unsigned int uiLength)\n"
+        "{\n"
+        "    static char S_cArrTx[(DBG_TRACE_DATA_MAX * 2U) + 1U];\n"
+        "    static char S_cArrRx[(DBG_TRACE_DATA_MAX * 2U) + 1U];\n\n"
+        "    if (S_uiDbgLevel < DEBUG_LEVEL_TRACE)\n"
         "    {\n"
         "        return;\n"
         "    }\n"
-        "    spec2codeTraceHex(cArrData, ucpData, uiLength);\n"
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,\n"
-        "                 \"TRACE|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|dir=%c|len=%u|data=%s\",\n"
-        "                 S_uiTraceCommandId, ucAddress, ucReg, cDir, uiLength, cArrData);\n"
-        "}\n\n"
-        "void busTraceSpi(unsigned int uiSelect, const unsigned char* ucpTx,\n"
-        "                          const unsigned char* ucpRx, unsigned int uiLength)\n"
-        "{\n"
-        "    char cArrTx[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n"
-        "    char cArrRx[(SPEC2CODE_TRACE_DATA_MAX * 2U) + 1U];\n\n"
-        "    if (spec2codeLogLevelGet() < SPEC2CODE_LOG_LEVEL_DEBUG)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    spec2codeTraceHex(cArrTx, ucpTx, uiLength);\n"
-        "    spec2codeTraceHex(cArrRx, ucpRx, uiLength);\n"
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,\n"
-        "                 \"TRACE|id=%u|bus=spi|cs=%u|len=%u|tx=%s|rx=%s\",\n"
-        "                 S_uiTraceCommandId, uiSelect, uiLength, cArrTx, cArrRx);\n"
-        "}\n\n"
-        "void busTraceI2cError(unsigned char ucAddress, unsigned char ucReg,\n"
-        "                               char cStage, int iStatus)\n"
-        "{\n"
-        "    /* ERROR seviyesi: varsayilan logda bile gorunur. Sessiz hizli\n"
-        "     * fail'i (SAHA: DS1682 elapsed_read tek satir 'failed') hangi\n"
-        "     * adres/register/asamanin dusurdugu okunur hale gelir. */\n"
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR,\n"
-        "                 \"TRACEERR|id=%u|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d\",\n"
-        "                 S_uiTraceCommandId, ucAddress, ucReg, cStage, iStatus);\n"
+        "    dbgHex(S_cArrTx, ucpTx, uiLength);\n"
+        "    dbgHex(S_cArrRx, ucpRx, uiLength);\n"
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"TRACE|bus=spi|cs=%u|len=%u|tx=%s|rx=%s\", uiSelect, uiLength,\n"
+        "               S_cArrTx, S_cArrRx);\n"
         "}\n"
     )
 
@@ -3260,21 +3218,21 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    {",
         "        return XST_FAILURE;",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
         "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpValue, 1U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
-        "    busTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3290,14 +3248,14 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    }",
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucValue;",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
         "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 2U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3316,16 +3274,16 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpBuffer, 2U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3346,10 +3304,10 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 3U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3369,11 +3327,11 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    {",
         "        return XST_FAILURE;",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
         "    iStatus = XIicPs_MasterSendPolled(spIic, &ucReg, 1, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
@@ -3383,15 +3341,15 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    iStatus = XIicPs_MasterRecvPolled(spIic, ucpValue, 1, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
         "    {",
         "        /* wait */",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
-        "    busTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg read tamam: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, *ucpValue);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'r', ucpValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3407,18 +3365,18 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    }",
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucValue;",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
         "    iStatus = XIicPs_MasterSendPolled(spIic, ucArrBuffer, 2, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
         "    {",
         "        /* wait */",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'w', &ucValue, 1U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3437,7 +3395,7 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    iStatus = XIicPs_MasterSendPolled(spIic, &ucReg, 1, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
@@ -3447,14 +3405,14 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    iStatus = XIicPs_MasterRecvPolled(spIic, ucpBuffer, 2, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
         "    {",
         "        /* wait */",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'r', ucpBuffer, 2U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3475,14 +3433,14 @@ def _testbench_i2c_helpers(htype: str = "XIicPs") -> list[str]:
         "    iStatus = XIicPs_MasterSendPolled(spIic, ucArrBuffer, 3, ucAddress);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
         "    while (XIicPs_BusIsBusy(spIic) == TRUE)",
         "    {",
         "        /* wait */",
         "    }",
-        "    busTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
+        "    dbgTraceI2c(ucAddress, ucReg, 'w', &ucArrBuffer[1], 2U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3512,7 +3470,7 @@ def _testbench_spi_helpers_axi() -> list[str]:
         "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
         "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
         "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg write: word=0x%06X\", uiWord);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg write: word=0x%06X\", uiWord);",
         "    iStatus = XSpi_SetSlaveSelect(spSpi, (1U << ucSelect));",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
@@ -3521,10 +3479,10 @@ def _testbench_spi_helpers_axi() -> list[str]:
         "    iStatus = XSpi_Transfer(spSpi, ucArrTx, NULL, 3U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
         "        return iStatus;",
         "    }",
-        "    busTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
+        "    dbgTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3546,7 +3504,7 @@ def _testbench_spi_helpers_axi() -> list[str]:
         "    ucArrRx[0] = 0U;",
         "    ucArrRx[1] = 0U;",
         "    ucArrRx[2] = 0U;",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read: word=0x%06X\", uiWord);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg read: word=0x%06X\", uiWord);",
         "    iStatus = XSpi_SetSlaveSelect(spSpi, (1U << ucSelect));",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
@@ -3555,7 +3513,7 @@ def _testbench_spi_helpers_axi() -> list[str]:
         "    iStatus = XSpi_Transfer(spSpi, ucArrTx, ucArrRx, 3U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
         "        return iStatus;",
         "    }",
         "    if (uiDataBytes == 2U)",
@@ -3566,8 +3524,8 @@ def _testbench_spi_helpers_axi() -> list[str]:
         "    {",
         "        *uipValue = (unsigned int)ucArrRx[2];",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
-        "    busTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
+        "    dbgTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3591,7 +3549,7 @@ def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
         "    ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);",
         "    ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);",
         "    ucArrTx[2] = (unsigned char)(uiWord & 0xFFU);",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg write: word=0x%06X\", uiWord);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg write: word=0x%06X\", uiWord);",
         "    iStatus = XSpiPs_SetSlaveSelect(spSpi, ucSelect);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
@@ -3600,10 +3558,10 @@ def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
         "    iStatus = XSpiPs_PolledTransfer(spSpi, ucArrTx, NULL, 3U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"spi write HATA: word=0x%06X status=%d\", uiWord, iStatus);",
         "        return iStatus;",
         "    }",
-        "    busTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
+        "    dbgTraceSpi((unsigned int)ucSelect, ucArrTx, NULL, 3U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3625,7 +3583,7 @@ def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
         "    ucArrRx[0] = 0U;",
         "    ucArrRx[1] = 0U;",
         "    ucArrRx[2] = 0U;",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read: word=0x%06X\", uiWord);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg read: word=0x%06X\", uiWord);",
         "    iStatus = XSpiPs_SetSlaveSelect(spSpi, ucSelect);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
@@ -3634,7 +3592,7 @@ def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
         "    iStatus = XSpiPs_PolledTransfer(spSpi, ucArrTx, ucArrRx, 3U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"spi read HATA: word=0x%06X status=%d\", uiWord, iStatus);",
         "        return iStatus;",
         "    }",
         "    if (uiDataBytes == 2U)",
@@ -3645,8 +3603,8 @@ def _testbench_spi_helpers(htype: str = "XSpiPs") -> list[str]:
         "    {",
         "        *uipValue = (unsigned int)ucArrRx[2];",
         "    }",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
-        "    busTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
+        "    dbg_printf(DEBUG_LEVEL_TRACE, \"spi reg read tamam: word=0x%06X value=0x%04X\", uiWord, *uipValue);",
+        "    dbgTraceSpi((unsigned int)ucSelect, ucArrTx, ucArrRx, 3U);",
         "    return XST_SUCCESS;",
         "}",
         "",
@@ -3871,7 +3829,7 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
         # ERROR olarak adıyla görünmeli — genel "<op> failed" mesajı epilogda
         # bunu ezdiği için saha teşhisi haftalarca gecikti (DS1682 vakası).
         lines.append(
-            "spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "
+            "dbg_printf(DEBUG_LEVEL_ERROR, "
             "\"op imzasi eslenmemis (descriptor returns tipi testbench'e bagli degil): %s\", "
             "spRequest->cArrOperation);"
         )
@@ -4149,7 +4107,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "        {",
             # Debug seviyesinde op başlangıcı loglanır: uzun süren/asılı kalan
             # bir sürücü çağrısı, "basla" görünüp yanıt gelmemesinden anlaşılır.
-            f"            spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"op basla: {entry['device'].get('id', '')} {op_name}\");",
+            f"            dbg_printf(DEBUG_LEVEL_INFO, \"op basla: {entry['device'].get('id', '')} {op_name}\");",
         ])
         for call_line in _testbench_call_lines(entry, op):
             lines.append(f"            {call_line}" if call_line else "")
@@ -4226,7 +4184,7 @@ def _testbench_sim_setup_lines(spec: dict, sim_entries: list[dict], sim_plans: d
         L.append(f"    (void)spec2codeSimI2cEkle(&{var}.sCihaz);")
     L.extend([
         "    S_uiSimHazir = 1U;",
-        f"    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"sanal cihazlar hazir: %u\", spec2codeSimCihazSayisi());",
+        f"    dbg_printf(DEBUG_LEVEL_INFO, \"sanal cihazlar hazir: %u\", spec2codeSimCihazSayisi());",
         "}",
         "",
     ])
@@ -4292,7 +4250,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "            spec2codeTestbenchMessageSet(spResponse, \"unknown i2c controller\");",
         "            return XST_FAILURE;",
         "        }",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"i2c tarama basliyor: %s\", spRequest->cArrRegister);",
+        "        dbg_printf(DEBUG_LEVEL_INFO, \"i2c tarama basliyor: %s\", spRequest->cArrRegister);",
         "        uiFound = 0U;",
         "        ucProbe = 0x00U;",
         "        for (uiScanAddr = 0x08U; uiScanAddr <= 0x77U; uiScanAddr++)",
@@ -4307,7 +4265,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "            {",
         "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)uiScanAddr);",
         "                uiFound++;",
-        "                spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, \"i2c tarama ACK: 0x%02X\", uiScanAddr);",
+        "                dbg_printf(DEBUG_LEVEL_INFO, \"i2c tarama ACK: 0x%02X\", uiScanAddr);",
         "            }",
         "        }",
         "        spResponse->uiOk = 1U;",
@@ -4437,7 +4395,7 @@ def _testbench_gpio_lines(handle_types: set[str]) -> list[str]:
         "                (unsigned char)((uiCurrent >> ((3U - uiIndex) * 8U)) & 0xFFU));",
         "        }",
         "        spec2codeTestbenchMessageSet(spResponse, (iIsWrite == 1) ? \"gpio_write ok\" : \"gpio_read ok\");",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"gpio %s: %s kanal=%u maske=0x%X deger=0x%X\",",
+        "        dbg_printf(DEBUG_LEVEL_INFO, \"gpio %s: %s kanal=%u maske=0x%X deger=0x%X\",",
         "                     spRequest->cArrOperation, spRequest->cArrRegister, uiChannel, uiMask, uiCurrent);",
         "        return XST_SUCCESS;",
         "    }",
@@ -4453,8 +4411,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
     includes = [
         f'#include "{project_name}_testbench_ops.h"',
         '#include "spec2code_testbench_log.h"',
-        '#include "spec2code_testbench_trace.h"',
-        '#include "bus_trace.h"',
+        '#include "dbg_printf.h"',
         '#include "xstatus.h"',
         # Adres-tabanli genel bellek oku/yaz (mem_read/mem_write) icin:
         # Xil_In32/Xil_Out32 + u8/u16/u32. Tum platformlarin standalone BSP'sinde var.
@@ -4596,17 +4553,17 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"log_level\") == 1)",
         "    {",
         "        /* Calisma zamaninda log esigi: value verilirse ayarla, her",
-        "         * durumda gecerli seviyeyi dondur. 1=error..5=debug. */",
+        "         * durumda gecerli seviyeyi dondur. 0=always..5=trace (dbg_printf.h). */",
         "        if (spRequest->uiHasValue == 1U)",
         "        {",
-        "            (void)spec2codeLogLevelSet(spRequest->uiValue);",
-        "            spec2codeLog(SPEC2CODE_LOG_LEVEL_WARNING, \"log seviyesi degisti: %s (%u)\",",
-        "                         spec2codeLogLevelName(spec2codeLogLevelGet()), spec2codeLogLevelGet());",
+        "            (void)dbgLevelSet(spRequest->uiValue);",
+        "            dbg_printf(DEBUG_LEVEL_WARNING, \"log seviyesi degisti: %s (%u)\",",
+        "                         dbgLevelName(dbgLevelGet()), dbgLevelGet());",
         "        }",
         "        spResponse->uiOk = 1U;",
         "        spResponse->iStatus = XST_SUCCESS;",
-        "        spResponse->uiValue = spec2codeLogLevelGet();",
-        "        spec2codeTestbenchMessageSet(spResponse, spec2codeLogLevelName(spec2codeLogLevelGet()));",
+        "        spResponse->uiValue = dbgLevelGet();",
+        "        spec2codeTestbenchMessageSet(spResponse, dbgLevelName(dbgLevelGet()));",
         "        return XST_SUCCESS;",
         "    }",
         # Built-in: adres-tabanli genel bellek oku/yaz (Xil_In32/Out32). Cihaz
@@ -4664,15 +4621,15 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "                (unsigned char)((uiReadValue >> (uiByteIndex * 8U)) & 0xFFU));",
         "        }",
         "        spec2codeTestbenchMessageSet(spResponse, \"mem ok\");",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"mem %s addr=0x%X width=%u value=0x%X\",",
+        "        dbg_printf(DEBUG_LEVEL_INFO, \"mem %s addr=0x%X width=%u value=0x%X\",",
         "                     spRequest->cArrOperation, spRequest->uiAddress, uiWidth, uiReadValue);",
         "        return XST_SUCCESS;",
         "    }",
         *_testbench_i2c_scan_lines(handle_types),
         *_testbench_gpio_lines(handle_types),
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
+        "    dbg_printf(DEBUG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
         "                 spRequest->cArrDevice, spRequest->cArrOperation);",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG,",
+        "    dbg_printf(DEBUG_LEVEL_INFO,",
         "                 \"op parametreleri: reg=%s reg_addr=0x%X address=0x%X length=%u value=0x%X data_len=%u\",",
         "                 spRequest->cArrRegister, spRequest->uiRegister, spRequest->uiAddress,",
         "                 spRequest->uiLength, spRequest->uiValue, spRequest->uiDataLength);",
@@ -4700,22 +4657,22 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    }",
         "    /* Gelen istek (binary cerceveden cozuldu): device/op MESSAGE seviyesi.",
         "     * Metin satir protokolu yok; yapisal alanlardan loglanir. */",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"RX id=%u device=%s op=%s\",",
+        "    dbg_printf(DEBUG_LEVEL_MSG, \"RX id=%u device=%s op=%s\",",
         "                 spRequest->uiId, spRequest->cArrDevice, spRequest->cArrOperation);",
         "    iStatus = spec2codeTestbenchDispatchCore(spRequest, spResponse);",
         "    if (spResponse->uiOk == 1U)",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"op tamam: device=%s op=%s status=%d\",",
+        "        dbg_printf(DEBUG_LEVEL_INFO, \"op tamam: device=%s op=%s status=%d\",",
         "                     spRequest->cArrDevice, spRequest->cArrOperation, spResponse->iStatus);",
         "    }",
         "    else",
         "    {",
-        "        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, \"op HATA: device=%s op=%s status=%d mesaj=%s\",",
+        "        dbg_printf(DEBUG_LEVEL_ERROR, \"op HATA: device=%s op=%s status=%d mesaj=%s\",",
         "                     spRequest->cArrDevice, spRequest->cArrOperation, spResponse->iStatus,",
         "                     spResponse->cArrMessage);",
         "    }",
         "    /* Yanit (TX) MESSAGE seviyesi: cerceveleme mesaj katmaninda yapilir. */",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_MESSAGE, \"TX id=%u ok=%u status=%d value=0x%X\",",
+        "    dbg_printf(DEBUG_LEVEL_MSG, \"TX id=%u ok=%u status=%d value=0x%X\",",
         "                 spResponse->uiId, spResponse->uiOk, spResponse->iStatus, spResponse->uiValue);",
         "    return iStatus;",
         "}",
@@ -5126,24 +5083,24 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         handle = entry["handle"]
         if entry["htype"] == "XIicPs":
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (I2C)");',
+                f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (I2C)");',
                 f"    spIicConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spIicConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code I2C config bulunamadi: {entry["id"]}\\r\\n");',
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
                 "        return XST_FAILURE;",
                 "    }",
                 f"    iStatus = XIicPs_CfgInitialize(&{handle}, spIicConfig, spIicConfig->BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = XIicPs_SetSClk(&{handle}, 100000U);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} sclk status=%d", iStatus);',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} sclk status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
             ])
@@ -5173,18 +5130,18 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             ])
         elif entry["htype"] == "XQspiPsu":
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (QSPI)");',
+                f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (QSPI)");',
                 f"    spQspiConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spQspiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code QSPI config bulunamadi: {entry["id"]}\\r\\n");',
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
                 "        return XST_FAILURE;",
                 "    }",
                 f"    iStatus = XQspiPsu_CfgInitialize(&{handle}, spQspiConfig, spQspiConfig->BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = XQspiPsu_SetOptions(&{handle}, XQSPIPSU_MANUAL_START_OPTION);",
@@ -5204,18 +5161,18 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # edilecek surucu ornegi yok. Yine de hat gercekten bosta mi
             # bakilir - takili SDA/SCL burada YUKSEK SESLE dusar.
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI IIC, dinamik mod)");',
+                f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI IIC, dinamik mod)");',
                 f"    iStatus = XIic_DynInit({handle});",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} XIic_DynInit");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} XIic_DynInit");',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = (int)XIic_WaitBusFree({handle});",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI IIC hatti mesgul: {entry["id"]}\\r\\n");',
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} hat mesgul");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} hat mesgul");',
                 "        return iStatus;",
                 "    }",
             ])
@@ -5223,18 +5180,18 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # Resmi polled akis (spi_v4_11/examples/xspi_polled_example.c):
             # LookupConfig -> CfgInitialize -> SetOptions -> Start -> kesme kapat.
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI SPI)");',
+                f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI SPI)");',
                 f"    spAxiSpiConfig = XSpi_LookupConfig({instance}_DEVICE_ID);",
                 "    if (spAxiSpiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI SPI config bulunamadi: {entry["id"]}\\r\\n");',
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
                 "        return XST_FAILURE;",
                 "    }",
                 f"    iStatus = XSpi_CfgInitialize(&{handle}, spAxiSpiConfig, spAxiSpiConfig->BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
                 f"    iStatus = XSpi_SetOptions(&{handle}, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION);",
@@ -5258,17 +5215,17 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # descriptor'i) bilir; board init'te tahmin etmek bir reset
             # hattini yanlislikla surerdi.
             lines.extend([
-                f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_DEBUG, "controller init: {entry["id"]} (AXI GPIO)");',
+                f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI GPIO)");',
                 f"    iStatus = XGpio_Initialize(&{handle}, {instance}_DEVICE_ID);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI GPIO baslatilamadi: {entry["id"]}\\r\\n");',
-                f'        spec2codeLog(SPEC2CODE_LOG_LEVEL_ERROR, "controller init HATA: {entry["id"]} status=%d", iStatus);',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} status=%d", iStatus);',
                 "        return iStatus;",
                 "    }",
             ])
     lines.extend([
-        f'    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, "board init tamam ({len(entries)} controller); '
+        f'    dbg_printf(DEBUG_LEVEL_INFO, "board init tamam ({len(entries)} controller); '
         'device_init otomatik KOSULMAZ");',
         "    S_uiBoardReady = 1U;",
         "    return XST_SUCCESS;",
@@ -5313,7 +5270,7 @@ def _mesaj_trace_sink_lines(func_name: str, send_frame_call: str) -> list[str]:
     return [
         f"static void {func_name}(const char* cpLine)",
         "{",
-        "    unsigned char ucArrFrame[SPEC2CODE_MESAJ_CERCEVE_MAX];",
+        "    static unsigned char S_ucArrFrame[SPEC2CODE_MESAJ_CERCEVE_MAX]; /* yigin degil: log yolu derin */",
         "    unsigned int uiFrameLength;",
         "    unsigned int uiMesajId;",
         "    unsigned int uiIndex;",
@@ -5337,7 +5294,7 @@ def _mesaj_trace_sink_lines(func_name: str, send_frame_call: str) -> list[str]:
         "        }",
         "    }",
         "    uiFrameLength = spec2codeMesajTraceCerceveKur(uiMesajId, 0U, cpLine,",
-        "                                                  ucArrFrame, sizeof(ucArrFrame));",
+        "                                                  S_ucArrFrame, sizeof(S_ucArrFrame));",
         "    if (uiFrameLength > 0U)",
         "    {",
         f"        {send_frame_call};",
@@ -6619,7 +6576,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "",
         *_mesaj_trace_sink_lines(
             "spec2codeTestbenchUartSendLine",
-            "spec2codeTestbenchUartSendFrame(ucArrFrame, uiFrameLength)"),
+            "spec2codeTestbenchUartSendFrame(S_ucArrFrame, uiFrameLength)"),
         "void spec2codeTestbenchUartRun(void)",
         "{",
         "    unsigned char ucArrChunk[SPEC2CODE_TESTBENCH_RECV_CHUNK];",
@@ -6631,8 +6588,8 @@ def _testbench_uart_source(spec: dict) -> str:
         "",
         "    /* Loglar/izler S2C trafigiyle ayni UART'tan cerceveli aksin. */",
         "    spec2codeLogSinkSet(spec2codeTestbenchUartSendLine);",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"UART agent dongusu basladi; log seviyesi=%s\",",
-        "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
+        "    dbg_printf(DEBUG_LEVEL_INFO, \"UART agent dongusu basladi; log seviyesi=%s\",",
+        "                 dbgLevelName(dbgLevelGet()));",
         "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         *([
             "    /* Telnet log sunucusu (port 23): PS Ethernet ile ayaga kalkar;",
@@ -6843,7 +6800,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         "",
         *_mesaj_trace_sink_lines(
             "spec2codeTestbenchCoresightSendLine",
-            "spec2codeTestbenchCoresightSendFrame(ucArrFrame, uiFrameLength)"),
+            "spec2codeTestbenchCoresightSendFrame(S_ucArrFrame, uiFrameLength)"),
         *([
             "/* DCC alma-hazir mi (non-blocking): telnet feed'i bloke eden",
             " * RecvByte'a takilmasin diye status bitine bakilir. DccGetStatus",
@@ -6867,8 +6824,8 @@ def _testbench_coresight_source(spec: dict) -> str:
         "",
         "    /* Loglar/izler S2C trafigiyle ayni DCC kanalindan cerceveli aksin. */",
         "    spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);",
-        "    spec2codeLog(SPEC2CODE_LOG_LEVEL_INFO, \"CoreSight agent dongusu basladi; log seviyesi=%s\",",
-        "                 spec2codeLogLevelName(spec2codeLogLevelGet()));",
+        "    dbg_printf(DEBUG_LEVEL_INFO, \"CoreSight agent dongusu basladi; log seviyesi=%s\",",
+        "                 dbgLevelName(dbgLevelGet()));",
         "    spec2codeMesajParserSifirla(&S_sMesajParser);",
         *([
             "    /* Telnet log sunucusu (port 23): PS Ethernet ile ayaga kalkar. */",
@@ -6988,8 +6945,6 @@ def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         tests_dir / "spec2code_mesaj.c",
         tests_dir / "spec2code_testbench_log.h",
         tests_dir / "spec2code_testbench_log.c",
-        tests_dir / "spec2code_testbench_trace.h",
-        tests_dir / "spec2code_testbench_trace.c",
         tests_dir / f"{project_name}_testbench_ops.h",
         tests_dir / f"{project_name}_testbench_ops.c",
         tests_dir / "spec2code_testbench_manifest.json",
@@ -7047,8 +7002,6 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source(_telnet_log_enabled(spec))),
-        _apply_default_identifier_style(_testbench_trace_header()),
-        _apply_default_identifier_style(_testbench_trace_source()),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
@@ -7223,13 +7176,14 @@ def generate(
     header_t = env.get_template("header.h.j2")
     # Zayıf bus-trace kancaları: sürücüler her gerçek transferi raporlar;
     # standalone kullanımda no-op, test bench güçlü impl ile canlı iz olur.
-    written_trace = hio.write_output(drivers_dir / "bus_trace.h", _bus_trace_header())
+    written_trace = hio.write_output(drivers_dir / "dbg_printf.h", _dbg_printf_header())
+    written_dbg_src = hio.write_output(drivers_dir / "dbg_printf.c", _dbg_printf_source())
     driver_t = env.get_template("driver.c.j2")
     test_header_t = env.get_template("test.h.j2")
     test_t = env.get_template("test.c.j2")
     readme_t = env.get_template("readme.md.j2")
 
-    written: list[str] = [str(written_trace)]
+    written: list[str] = [str(written_trace), str(written_dbg_src)]
     for unit in units:
         emit({"event": "codegen.unit", "module": unit.module, "part": unit.part,
               "transport": unit.transport})

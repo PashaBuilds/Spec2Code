@@ -18,7 +18,7 @@ Sahada bulunan VERI KAYBEDEN hata (Windows + Turkce yerel ayar, cp1254):
 
 3. `runners.format_file` bu "basarili" sonucu dogrudan geri yazardi:
    `hio.write_output(path, "")` -> **dosya 0 bayta duser**. Kurbanlar:
-   `spec2code_cit.h`, `spec2code_cit.c`, `spec2code_testbench_trace.c`.
+   `spec2code_cit.h`, `spec2code_cit.c`, `spec2code_testbench_log.c`.
 
 Iki katmanli savunma test edilir: (a) kok neden - cikti makinenin yerel
 ayarindan BAGIMSIZ olarak UTF-8 cozulur; (b) yazma kalkani - formatlayici

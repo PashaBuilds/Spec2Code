@@ -94,6 +94,8 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
     );
   }
 
+  // Seviyeli debug print (kullaniciya giden katman; suruculer bunu include eder).
+  files.push({ path: "drivers/dbg_printf.h", kind: "driver" }, { path: "drivers/dbg_printf.c", kind: "driver" });
   files.push(
     { path: "tests/spec2code_testbench_protocol.h", kind: "test" },
     { path: "tests/spec2code_testbench_protocol.c", kind: "test" },
