@@ -222,14 +222,14 @@ class CitHeaderTest(unittest.TestCase):
                 (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
             self.assertFalse((tests_dir / "tmp101_test.c").exists())
             self.assertFalse((tests_dir / "tmp101_test.h").exists())
-        self.assertIn("int ltc2991SelfTest(unsigned long ulIicBase);", test_h)
+        self.assertIn("int ltc2991SelfTest(XIic* spIic);", test_h)
         self.assertNotIn("TestRun", test_h)
         self.assertNotIn("TestTask", test_h)
         self.assertNotIn("xil_printf", test_c)
         self.assertIn('dbg_printf(DEBUG_LEVEL_INFO, "LTC2991 status registers read OK");', test_c)
         self.assertIn('#include "ltc2991_test.h"', ops)
         self.assertNotIn('#include "tmp101_test.h"', ops)
-        self.assertIn("iStatus = ltc2991SelfTest(ulIicBase);", ops)
+        self.assertIn("iStatus = ltc2991SelfTest(spIic);", ops)
         self.assertNotIn("tmp101SelfTest(", ops)
         ops_by_device = {d["id"]: [op["name"] for op in d["operations"]] for d in manifest["devices"]}
         self.assertIn("self_test", ops_by_device["u2_ltc2991"])
@@ -245,6 +245,7 @@ _HOST_XPARAMETERS = """#ifndef XPARAMETERS_H
 #define XPAR_XIICPS_NUM_INSTANCES 0
 #define XPAR_XSPIPS_NUM_INSTANCES 0
 #define XPAR_AXI_IIC_0_BASEADDR 0x40800000UL
+#define XPAR_AXI_IIC_0_DEVICE_ID 0U
 #define XPAR_AXI_QUAD_SPI_0_DEVICE_ID 0U
 #endif
 """
@@ -325,14 +326,15 @@ class CitHostRoundTripTest(unittest.TestCase):
             '/* Ajan stub\'lari: denetleyiciler hazir, handle getter\'lari sabit; op dispatch\'i\n'
             ' * CIT yolunda KULLANILMAZ (boardCitRun cit/ katmanini kosar). */\n'
             'static XSpi S_sSpi;\n'
+            'static XIic S_sIic;\n'
             'static SLtc2991Sim S_sLtc;\n'
             'static STmp101Sim S_sTmp;\n'
             'static SLmk04832Sim S_sLmk;\n'
             'static SSpec2codeI2cSimSwitch S_sSwitch;\n'
             'int spec2codeTestbenchBoardInit(void) { return XST_SUCCESS; }\n'
             'void spec2codeSimHazirla(void) { /* sanal cihazlar main() icinde elle kuruldu */ }\n'
-            'unsigned long spec2codeTestbenchIicHandleGet(const char* cpControllerId)\n'
-            '{ (void)cpControllerId; return (unsigned long)XPAR_AXI_IIC_0_BASEADDR; }\n'
+            'XIic* spec2codeTestbenchIicHandleGet(const char* cpControllerId)\n'
+            '{ (void)cpControllerId; return &S_sIic; }\n'
             'XSpi* spec2codeTestbenchSpiHandleGet(const char* cpControllerId)\n'
             '{ (void)cpControllerId; return &S_sSpi; }\n'
             'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'

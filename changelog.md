@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.179 - 2026-09-06
+
+- **AXI IIC handle'i artik `XIic*` ornegi (kullanici kurali: ornek en alt seviyeye kadar iner):**
+  `unsigned long ulIicBase` taban adresi tamamen kalkti. Surucu, cit/ (`<mod>CitInit/CitRead`,
+  `SSistemCitBus`), self-test, ajan getter'i (`spec2codeTestbenchIicHandleGet` -> `XIic*`), I2C tarama
+  ve genel register yardimcilari hep `XIic* spIic` alir; xiic_l.h polled cagrilari (`XIic_DynSend/
+  DynRecv/DynInit/WaitBusFree`) taban adresi `spIic->BaseAddress` ile verir. Ornek ilk `DeviceInit`'te
+  `XIic_LookupConfig(<inst>_DEVICE_ID)` + `XIic_CfgInitialize` ile kurulur (IsReady korumali); ajan
+  board init ve `sistemCitBusVarsayilan` da statik `XIic` ornegi kurar. Basliklar `xiic.h`.
+  `BASE_ADDRESS_HANDLE_DRIVERS` / `_testbench_handle_is_base` ve butun taban-adres dallari silindi.
+  Host stub'larina `xiic.h` (XIic/XIic_Config, LookupConfig/CfgInitialize) eklendi; testler ve
+  kilavuz guncellendi.
+
 ## v0.1.178 - 2026-09-06
 
 - **"CIT kostur" artik cit/ katmanini kosar:** `tests/spec2code_cit.c` `boardCitRun()` dispatch

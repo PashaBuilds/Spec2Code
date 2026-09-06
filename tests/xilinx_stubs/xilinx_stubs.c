@@ -3,7 +3,7 @@
  * makrolar burada kaldirilir ki gercek adlar tanimlansin. */
 #include "xil_types.h"
 #include "xstatus.h"
-#include "xiic_l.h"
+#include "xiic.h"
 #include "xspi.h"
 #undef XIic_DynSend
 #undef XIic_DynRecv
@@ -13,6 +13,9 @@
 #undef XSpi_Transfer
 unsigned int g_uiStubGercekI2c = 0U; /* gercek hatta giden (sanal olmayan) I2C transfer sayisi */
 unsigned int g_uiStubGercekSpi = 0U;
+static XIic_Config S_sIicConfig = { 0U, 0x40800000UL, 0, 0U };
+XIic_Config* XIic_LookupConfig(u16 DeviceId) { (void)DeviceId; return &S_sIicConfig; }
+int XIic_CfgInitialize(XIic* i, XIic_Config* c, UINTPTR e) { i->BaseAddress = e; i->IsReady = XIL_COMPONENT_IS_READY; (void)c; return XST_SUCCESS; }
 int XIic_DynInit(UINTPTR BaseAddress) { (void)BaseAddress; return XST_SUCCESS; }
 u32 XIic_WaitBusFree(UINTPTR BaseAddress) { (void)BaseAddress; return 0U; }
 unsigned XIic_DynSend(UINTPTR b, u16 a, u8* p, u8 n, u8 o) { (void)b; (void)a; (void)p; (void)n; (void)o; g_uiStubGercekI2c++; return 0U; }

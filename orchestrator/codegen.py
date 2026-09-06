@@ -2413,7 +2413,7 @@ _TESTBENCH_HANDLE_HEADERS: list[tuple[str, str]] = [
     # AXI soft IP (MicroBlaze ve PL'li her platform). AXI IIC'nin polled API'si
     # xiic_l.h'tedir (taban adres tabanli); AXI Quad SPI normal xspi.h ornegini
     # kullanir.
-    ("XIic", "xiic_l.h"),
+    ("XIic", "xiic.h"),
     ("XSpi", "xspi.h"),
     ("XGpio", "xgpio.h"),
 ]
@@ -2422,21 +2422,15 @@ _TESTBENCH_HANDLE_HEADERS: list[tuple[str, str]] = [
 #: the "handle" IS the controller base address (see cmodel._handle_param), so
 #: its getter returns ``unsigned long`` and signals "unknown controller" with 0
 #: instead of NULL (base address 0 is never a valid AXI IIC aperture).
-_TESTBENCH_BASE_ADDRESS_HANDLES: frozenset[str] = frozenset({"XIic"})
-
-
-def _testbench_handle_is_base(htype: str) -> bool:
-    return htype in _TESTBENCH_BASE_ADDRESS_HANDLES
-
-
 def _testbench_handle_type(htype: str) -> str:
-    """C type of a board handle as returned by the getter / stored in a local."""
-    return "unsigned long" if _testbench_handle_is_base(htype) else f"{htype}*"
+    """C type of a board handle as returned by the getter / stored in a local (always an instance pointer)."""
+    return f"{htype}*"
 
 
 def _testbench_handle_none(htype: str) -> str:
     """The "no such controller" sentinel for this handle type."""
-    return "0U" if _testbench_handle_is_base(htype) else "NULL"
+    del htype
+    return "NULL"
 
 
 def _testbench_used_handle_types(spec: dict) -> set[str]:
@@ -2687,25 +2681,8 @@ def _c_hex(value: int) -> str:
 
 
 def _testbench_weak_getter_lines(htype: str) -> tuple[str, ...]:
-    """Weak default board-handle getter the board application may override.
-
-    The AXI IIC variant returns the base address by value, so its weak default
-    is 0 (no such controller) rather than a NULL pointer.
-    """
+    """Weak default board-handle getter the board application may override (NULL = no such controller)."""
     getter = _testbench_getter(htype)
-    if _testbench_handle_is_base(htype):
-        return (
-            f"SPEC2CODE_WEAK unsigned long {getter}(const char* cpControllerId)",
-            "{",
-            # volatile okuma: board uygulamasi bu weak varsayilani guclu
-            # tanimla ezer; statik analiz "hep 0" diye katlamasin.
-            "    static unsigned long volatile S_ulWeakDefault = 0U;",
-            "",
-            "    (void)cpControllerId;",
-            "    return S_ulWeakDefault;",
-            "}",
-            "",
-        )
     return (
         f"SPEC2CODE_WEAK {htype}* {getter}(const char* cpControllerId)",
         "{",
@@ -2733,7 +2710,7 @@ def _testbench_bus_helper_suffix(htype: str) -> str:
 def _testbench_i2c_helpers_axi() -> list[str]:
     """Generic I2C register access over the AXI IIC polled API (xiic_l.h).
 
-    ``XIic_Send``/``XIic_Recv`` are BASE-ADDRESS based and report the BYTE
+    ``XIic_Send``/``XIic_Recv`` take the base address (spIic->BaseAddress) and report the BYTE
     COUNT transferred (0 on a busy bus), not ``XST_*`` - the two wrappers below
     turn that into the XST_* contract the dispatch expects. They also block
     until the transfer completed and wait for bus-free themselves, so there is
@@ -2742,13 +2719,13 @@ def _testbench_i2c_helpers_axi() -> list[str]:
     return [
         "/* ucOption: XIIC_STOP (yazim) | XIIC_REPEATED_START (register pointer; ardindan",
         " * RecvAxi okumayi STOP ile bitirir). STOP'lu pointer + DynRecv IP'de takilir (SAHA). */",
-        "static int spec2codeTestbenchI2cSendAxi(unsigned long ulBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cSendAxi(XIic* spIic, unsigned char ucAddress,",
         "                                        unsigned char* ucpBuffer, unsigned int uiLength,",
         "                                        unsigned char ucOption)",
         "{",
         "    unsigned int uiSent;",
         "",
-        "    uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,",
+        "    uiSent = (unsigned int)XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,",
         "                                         (unsigned char)uiLength, ucOption);",
         "    if (uiSent != uiLength)",
         "    {",
@@ -2757,12 +2734,12 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    return XST_SUCCESS;",
         "}",
         "",
-        "static int spec2codeTestbenchI2cRecvAxi(unsigned long ulBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cRecvAxi(XIic* spIic, unsigned char ucAddress,",
         "                                        unsigned char* ucpBuffer, unsigned int uiLength)",
         "{",
         "    unsigned int uiGot;",
         "",
-        "    uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);",
+        "    uiGot = (unsigned int)XIic_DynRecv(spIic->BaseAddress, ucAddress, ucpBuffer, (unsigned char)uiLength);",
         "    if (uiGot != uiLength)",
         "    {",
         "        return XST_FAILURE;",
@@ -2770,23 +2747,23 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    return XST_SUCCESS;",
         "}",
         "",
-        "static int spec2codeTestbenchI2cRegisterReadAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cRegisterReadAxi(XIic* spIic, unsigned char ucAddress,",
         "                                                unsigned char ucReg, unsigned char* ucpValue)",
         "{",
         "    int iStatus;",
         "",
-        "    if ((ulIicBase == 0U) || (ucpValue == NULL))",
+        "    if ((spIic == NULL) || (ucpValue == NULL))",
         "    {",
         "        return XST_FAILURE;",
         "    }",
         "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg read: addr=0x%02X reg=0x%02X\", ucAddress, ucReg);",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(spIic, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpValue, 1U);",
+        "    iStatus = spec2codeTestbenchI2cRecvAxi(spIic, ucAddress, ucpValue, 1U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -2797,20 +2774,20 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    return XST_SUCCESS;",
         "}",
         "",
-        "static int spec2codeTestbenchI2cRegisterWriteAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cRegisterWriteAxi(XIic* spIic, unsigned char ucAddress,",
         "                                                 unsigned char ucReg, unsigned char ucValue)",
         "{",
         "    unsigned char ucArrBuffer[2];",
         "    int iStatus;",
         "",
-        "    if (ulIicBase == 0U)",
+        "    if (spIic == NULL)",
         "    {",
         "        return XST_FAILURE;",
         "    }",
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucValue;",
         "    dbg_printf(DEBUG_LEVEL_TRACE, \"i2c reg write: addr=0x%02X reg=0x%02X value=0x%02X\", ucAddress, ucReg, ucValue);",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 2U, XIIC_STOP);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(spIic, ucAddress, ucArrBuffer, 2U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -2823,22 +2800,22 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "/* GENIS (16-bit) tek register: baytlar ayni adresin icindedir",
         " * (AD7414/TMP101 TEMPERATURE gibi) - pointer bir kez yazilir,",
         " * iki bayt TEK islemde okunur/yazilir. */",
-        "static int spec2codeTestbenchI2cRegisterReadWideAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cRegisterReadWideAxi(XIic* spIic, unsigned char ucAddress,",
         "                                                    unsigned char ucReg, unsigned char* ucpBuffer)",
         "{",
         "    int iStatus;",
         "",
-        "    if ((ulIicBase == 0U) || (ucpBuffer == NULL))",
+        "    if ((spIic == NULL) || (ucpBuffer == NULL))",
         "    {",
         "        return XST_FAILURE;",
         "    }",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(spIic, ucAddress, &ucReg, 1U, XIIC_REPEATED_START);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c send HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
         "        return iStatus;",
         "    }",
-        "    iStatus = spec2codeTestbenchI2cRecvAxi(ulIicBase, ucAddress, ucpBuffer, 2U);",
+        "    iStatus = spec2codeTestbenchI2cRecvAxi(spIic, ucAddress, ucpBuffer, 2U);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c recv HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -2848,21 +2825,21 @@ def _testbench_i2c_helpers_axi() -> list[str]:
         "    return XST_SUCCESS;",
         "}",
         "",
-        "static int spec2codeTestbenchI2cRegisterWriteWideAxi(unsigned long ulIicBase, unsigned char ucAddress,",
+        "static int spec2codeTestbenchI2cRegisterWriteWideAxi(XIic* spIic, unsigned char ucAddress,",
         "                                                     unsigned char ucReg, unsigned char ucHigh,",
         "                                                     unsigned char ucLow)",
         "{",
         "    unsigned char ucArrBuffer[3];",
         "    int iStatus;",
         "",
-        "    if (ulIicBase == 0U)",
+        "    if (spIic == NULL)",
         "    {",
         "        return XST_FAILURE;",
         "    }",
         "    ucArrBuffer[0] = ucReg;",
         "    ucArrBuffer[1] = ucHigh;",
         "    ucArrBuffer[2] = ucLow;",
-        "    iStatus = spec2codeTestbenchI2cSendAxi(ulIicBase, ucAddress, ucArrBuffer, 3U, XIIC_STOP);",
+        "    iStatus = spec2codeTestbenchI2cSendAxi(spIic, ucAddress, ucArrBuffer, 3U, XIIC_STOP);",
         "    if (iStatus != XST_SUCCESS)",
         "    {",
         "        dbg_printf(DEBUG_LEVEL_ERROR, \"i2c write HATA: addr=0x%02X reg=0x%02X status=%d\", ucAddress, ucReg, iStatus);",
@@ -3787,9 +3764,9 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         return []
     getter = _testbench_getter(htype)
     is_axi = htype == "XIic"
-    hvar = "ulScanIic" if is_axi else "spScanIic"
-    hdecl = f"        unsigned long {hvar};" if is_axi else f"        XIicPs* {hvar};"
-    hnone = f"{hvar} == 0U" if is_axi else f"{hvar} == NULL"
+    hvar = "spScanIic"
+    hdecl = f"        {htype}* {hvar};"
+    hnone = f"{hvar} == NULL"
 
     def probe(buffer: str, addr_expr: str, indent: str) -> list[str]:
         """One-byte write probe + (PS only) bus-idle spin."""
@@ -3797,7 +3774,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
             # XIic_DynSend BAYT SAYISI dondurur: 1 bayt gitti = ACK alindi (dinamik mod;
             # standart XIic_Send tek bayti dusuruyordu - bkz. cmodel._I2cApi).
             return [
-                f"{indent}iProbeStatus = ((unsigned int)XIic_DynSend({hvar}, (unsigned short){addr_expr}, "
+                f"{indent}iProbeStatus = ((unsigned int)XIic_DynSend({hvar}->BaseAddress, (unsigned short){addr_expr}, "
                 f"{buffer}, 1U, XIIC_STOP) == 1U) ? XST_SUCCESS : XST_FAILURE;",
             ]
         return [
@@ -4440,10 +4417,8 @@ def _testbench_coresight_enabled(spec: dict) -> bool:
 
 
 def _controller_static_handle_name(controller: dict, htype: str = "") -> str:
+    del htype  # her denetleyici bir surucu ornegi (AXI IIC dahil)
     name = _pascal_identifier(str(controller.get("id", "controller")))
-    if _testbench_handle_is_base(htype):
-        # Taban adres bir struct degil: Hungarian oneki 'ul' olmali.
-        return f"S_ul{name}Base"
     return f"S_s{name}Handle"
 
 
@@ -4615,13 +4590,7 @@ def _testbench_lwip_header(spec: dict) -> str:
 def _testbench_board_handle_decls(entries: list[dict]) -> list[str]:
     lines: list[str] = []
     for entry in entries:
-        if _testbench_handle_is_base(entry["htype"]):
-            # AXI IIC: surucu ornegi yok; "handle" dogrudan taban adrestir ve
-            # xparameters.h'ten derleme zamaninda gelir.
-            lines.append(f"static unsigned long {entry['handle']} = "
-                         f"(unsigned long){entry['instance']}_BASEADDR;")
-        else:
-            lines.append(f"static {entry['htype']} {entry['handle']};")
+        lines.append(f"static {entry['htype']} {entry['handle']};")
     if entries:
         lines.append("")
     return lines
@@ -4641,6 +4610,8 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         lines.append("    XQspiPsu_Config* spQspiConfig;")
     if any(entry["htype"] == "XSpi" for entry in entries):
         lines.append("    XSpi_Config* spAxiSpiConfig;")
+    if any(entry["htype"] == "XIic" for entry in entries):
+        lines.append("    XIic_Config* spAxiIicConfig;")
     lines.extend([
         "",
         "    if (S_uiBoardReady == 1U)",
@@ -4736,18 +4707,31 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
                 f"    XQspiPsu_SelectFlash(&{handle}, XQSPIPSU_SELECT_FLASH_CS_LOWER, XQSPIPSU_SELECT_FLASH_BUS_LOWER);",
             ])
         elif entry["htype"] == "XIic":
-            # AXI IIC polled API'si (xiic_l.h) taban adresle calisir: init
-            # edilecek surucu ornegi yok. Yine de hat gercekten bosta mi
-            # bakilir - takili SDA/SCL burada YUKSEK SESLE dusar.
+            # AXI IIC ornegi (xiic.h) kurulur; polled veri-yolu cagrilari taban adresle
+            # (BaseAddress) gider. Hat gercekten bosta mi bakilir - takili SDA/SCL
+            # burada YUKSEK SESLE dusar.
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI IIC, dinamik mod)");',
-                f"    iStatus = XIic_DynInit({handle});",
+                f"    spAxiIicConfig = XIic_LookupConfig({instance}_DEVICE_ID);",
+                "    if (spAxiIicConfig == NULL)",
+                "    {",
+                f'        xil_printf("Spec2Code AXI IIC config bulunamadi: {entry["id"]}\\r\\n");',
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} config yok");',
+                "        return XST_FAILURE;",
+                "    }",
+                f"    iStatus = XIic_CfgInitialize(&{handle}, spAxiIicConfig, spAxiIicConfig->BaseAddress);",
+                "    if (iStatus != XST_SUCCESS)",
+                "    {",
+                f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} cfg status=%d", iStatus);',
+                "        return iStatus;",
+                "    }",
+                f"    iStatus = XIic_DynInit({handle}.BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 f'        dbg_printf(DEBUG_LEVEL_ERROR, "controller init HATA: {entry["id"]} XIic_DynInit");',
                 "        return iStatus;",
                 "    }",
-                f"    iStatus = (int)XIic_WaitBusFree({handle});",
+                f"    iStatus = (int)XIic_WaitBusFree({handle}.BaseAddress);",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI IIC hatti mesgul: {entry["id"]}\\r\\n");',
@@ -4815,7 +4799,6 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
 
 
 def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: str) -> list[str]:
-    is_base = _testbench_handle_is_base(htype)
     lines = [
         f"{_testbench_handle_type(htype)} {func_name}(const char* cpControllerId)",
         "{",
@@ -4825,7 +4808,7 @@ def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: st
         lines.extend([
             f"    if (spec2codeTestbenchStringEqual(cpControllerId, \"{entry['id']}\") == 1)",
             "    {",
-            f"        return {entry['handle']};" if is_base else f"        return &{entry['handle']};",
+            f"        return &{entry['handle']};",
             "    }",
         ])
     lines.extend([

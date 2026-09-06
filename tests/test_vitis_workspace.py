@@ -1456,8 +1456,8 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
     SAHA BULGUSU (MicroBlaze Faz 5, gercek Vitis kosusu): scaffold self-test
     prototipini ELLE yaziyordu (`int ltc2991SelfTest(XIic* spHandle);`) ve
     `XIic`'i bildiren hicbir basligi include etmiyordu. Gercek imza ise
-    `int ltc2991SelfTest(unsigned long ulIicBase)` (AXI IIC'de handle taban
-    adrestir). Sonuc: mb-gcc `error: unknown type name 'XIic'` ile duruyor ve
+    `int ltc2991SelfTest(unsigned long ulIicBase)` (o surumde AXI IIC handle'i taban
+    adresti; v0.1.179'dan beri `XIic*`). Sonuc: mb-gcc `error: unknown type name 'XIic'` ile duruyor ve
     UYGULAMA ELF'i HIC uretilmiyordu.
     """
 
@@ -1485,17 +1485,16 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
             ],
         }
 
-    def test_axi_iic_self_test_is_called_with_a_base_address(self) -> None:
+    def test_axi_iic_self_test_is_called_with_an_instance(self) -> None:
         from backend.vitis_workspace import vitis_selftest_source
 
         source = vitis_selftest_source(self._axi_spec())
-        self.assertIn("unsigned long ulU2Ltc2991Base = (unsigned long)XPAR_AXI_IIC_0_BASEADDR;",
-                      source)
-        self.assertIn("ltc2991SelfTest(ulU2Ltc2991Base);", source)
+        # v0.1.179: AXI IIC de XIic ornegi tasir (xiic.h); taban adres icerde cekilir.
+        self.assertIn("XIic sU2Ltc2991Handle;", source)
+        self.assertIn("ltc2991SelfTest(&sU2Ltc2991Handle);", source)
+        self.assertIn('#include "xiic.h"', source)
         # Yanlis (eski) sekil bir daha uretilmemeli.
-        self.assertNotIn("XIic ", source)
-        self.assertNotIn("XIic*", source)
-        self.assertNotIn("ltc2991SelfTest(&", source)
+        self.assertNotIn("unsigned long ul", source)
 
     def test_prototypes_come_from_the_generated_test_headers(self) -> None:
         from backend.vitis_workspace import vitis_selftest_source
@@ -1503,7 +1502,6 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
         source = vitis_selftest_source(self._axi_spec())
         self.assertIn('#include "ltc2991_test.h"', source)
         self.assertIn('#include "lmk04832_test.h"', source)
-        self.assertIn('#include "xparameters.h"', source)
         # Elle yazilmis prototip = codegen'den sapma riski; artik uretilmiyor.
         self.assertNotIn("int ltc2991SelfTest(", source)
         self.assertNotIn("int lmk04832SelfTest(", source)
@@ -1540,14 +1538,13 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
         })
         source = vitis_selftest_source(spec)
         self.assertIn('#include "ltc2991b_test.h"', source)
-        self.assertIn("ltc2991bSelfTest(ulU5Ltc2991Base);", source)
+        self.assertIn("ltc2991bSelfTest(&sU5Ltc2991Handle);", source)
 
     def test_handle_shape_matches_codegen_single_source_of_truth(self) -> None:
-        from orchestrator.cmodel import BASE_ADDRESS_HANDLE_DRIVERS, _handle_param
+        from orchestrator.cmodel import _handle_param
 
-        self.assertIn("XIic", BASE_ADDRESS_HANDLE_DRIVERS)
-        self.assertNotIn("XSpi", BASE_ADDRESS_HANDLE_DRIVERS)
-        self.assertEqual(_handle_param("XIic", "ulBase"), "unsigned long ulBase")
+        # Her surucu ornek isaretcisi (AXI IIC dahil, v0.1.179).
+        self.assertEqual(_handle_param("XIic", "spIic"), "XIic* spIic")
         self.assertEqual(_handle_param("XSpi", "spSpi"), "XSpi* spSpi")
 
 

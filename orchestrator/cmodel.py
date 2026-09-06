@@ -197,10 +197,9 @@ _SUPPORTED_BUS_DRIVERS: dict[str, set[str]] = {
     "gpio": {"XGpio"},
 }
 
-#: Handle variable name per driver. AXI IIC is the odd one out: its polled API
-#: (xiic_l.h) takes a BASE ADDRESS, not an instance pointer, so the Hungarian
-#: prefix is ``ul`` (unsigned long) rather than ``sp`` (struct pointer).
-_HANDLE_VARS: dict[str, str] = {"XIic": "ulIicBase"}
+#: Handle variable name overrides per driver (none: every driver, AXI IIC dahil, ornek
+#: isaretcisi tasir - kural: ornek en alt seviyeye kadar iner).
+_HANDLE_VARS: dict[str, str] = {}
 
 
 def _handle_for(controller: dict) -> tuple[str, str]:
@@ -228,28 +227,14 @@ def _handle_for(controller: dict) -> tuple[str, str]:
     return driver, _HANDLE_VARS.get(driver, var)
 
 
-#: Drivers whose "handle" is a BASE ADDRESS (value), not a driver-instance
-#: pointer. Single source of truth: ``_handle_param`` (parameter declaration),
-#: ``_test_unit`` (local variable + call site) and the Vitis self-test runner
-#: scaffold in ``backend/vitis_workspace.py`` all read this set, so a new
-#: base-address driver cannot be added to one of them and forgotten in another.
-BASE_ADDRESS_HANDLE_DRIVERS = frozenset({"XIic"})
 
 
 def _handle_param(htype: str, hvar: str) -> str:
-    """C parameter declaration for a bus-controller handle.
+    """C parameter declaration for a bus-controller handle: always a driver instance pointer.
 
-    KARAR (AXI IIC): the polled AXI IIC API lives in ``xiic_l.h`` and is
-    BASE-ADDRESS based - ``XIic_Send(UINTPTR BaseAddress, ...)``; there is no
-    driver instance at all (Xilinx' own ``xiic_low_level_tempsensor_example.c``
-    calls ``XIic_Recv`` with a bare ``XPAR_AXI_IIC_0_BASEADDR`` and never
-    initializes anything). So AXI IIC units carry the base address instead of a
-    handle pointer. ``unsigned long`` - not ``unsigned int`` - because that is
-    what ``uintptr_t`` (== ``UINTPTR``) is on every Xilinx GCC target: 32 bit on
-    MicroBlaze/Zynq-7000, 64 bit on ZynqMP/Versal PL apertures.
+    KARAR (v0.1.179, kullanici): AXI IIC de ``XIic*`` ornegi tasir; xiic_l.h polled
+    API'sine taban adres ``spIic->BaseAddress`` ile verilir. Ornek en alt seviyeye kadar iner.
     """
-    if htype in BASE_ADDRESS_HANDLE_DRIVERS:
-        return f"unsigned long {hvar}"
     return f"{htype}* {hvar}"
 
 
@@ -262,7 +247,7 @@ def _spi_header_for(htype: str) -> str:
 
 
 def _i2c_header_for(htype: str) -> str:
-    return "xiic_l.h" if htype == "XIic" else "xiicps.h"
+    return "xiic.h" if htype == "XIic" else "xiicps.h"
 
 
 def _gpio_header_for(htype: str) -> str:
@@ -434,19 +419,23 @@ class _I2cApi:
         return e
 
     def config_decl(self) -> Optional[str]:
-        return None if self.is_axi else f"{self.htype}_Config* spConfig;"
+        return f"{self.htype}_Config* spConfig;"
 
     def emit_init(self, e: Emit, instance: str, sclk_def: str) -> Emit:
         """Controller bring-up, guarded against re-initializing a live handle."""
         if self.is_axi:
-            e.ln("/* AXI IIC'nin polled API'si (xiic_l.h) TABAN ADRES ile calisir:")
-            e.ln(" * ortada surucu ornegi yoktur, SCL hizi da IP'de sabittir. Cekirdek")
-            e.ln(" * DINAMIK moda alinir (XIic_DynInit): standart-mod XIic_Send tek")
-            e.ln(" * baytlik STOP yaziminda bayti dusuruyor (SAHA: Nexys A7 ADT7420,")
-            e.ln(" * register pointer hic ulasmadi). Ardindan hat gercekten bosta mi")
-            e.ln(" * diye bakilir: takili SDA/SCL burada YUKSEK SESLE dusar. */")
-            e.ln(f"iStatus = XIic_DynInit({self.hvar});").check_status()
-            e.ln(f"iStatus = (int)XIic_WaitBusFree({self.hvar});").check_status()
+            e.ln("/* AXI IIC ornegi (xiic.h) ilk kullanimda kurulur; veri-yolu cagrilari polled")
+            e.ln(" * API'ye (xiic_l.h) taban adresle gider: spIic->BaseAddress. SCL hizi IP'de")
+            e.ln(" * sabittir. Cekirdek DINAMIK moda alinir (XIic_DynInit): standart-mod")
+            e.ln(" * XIic_Send tek baytlik STOP yaziminda bayti dusuruyor (SAHA: Nexys A7")
+            e.ln(" * ADT7420). Ardindan hat gercekten bosta mi diye bakilir. */")
+            e.open(f"if ({self.hvar}->IsReady != XIL_COMPONENT_IS_READY)")
+            e.ln(f"spConfig = XIic_LookupConfig({instance}_DEVICE_ID);")
+            e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
+            e.ln(f"iStatus = XIic_CfgInitialize({self.hvar}, spConfig, spConfig->BaseAddress);").check_status()
+            e.close()
+            e.ln(f"iStatus = XIic_DynInit({self.hvar}->BaseAddress);").check_status()
+            e.ln(f"iStatus = (int)XIic_WaitBusFree({self.hvar}->BaseAddress);").check_status()
         else:
             # Shared, already-running controllers (test bench boot) must not
             # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
@@ -469,11 +458,11 @@ class _I2cApi:
         """
         if not self.is_axi:
             return []
-        base_param = _handle_param(self.htype, "ulBase")
+        base_param = _handle_param(self.htype, "spIic")
 
         snd = Emit()
         snd.ln("unsigned int uiSent;").blank()
-        snd.ln("uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,")
+        snd.ln("uiSent = (unsigned int)XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,")
         snd.ln("                                     (unsigned char)uiLength, ucOption);")
         snd.open("if (uiSent != uiLength)")
         snd.ln("return XST_FAILURE;")
@@ -487,7 +476,7 @@ class _I2cApi:
 
         rcv = Emit()
         rcv.ln("unsigned int uiGot;").blank()
-        rcv.ln("uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);")
+        rcv.ln("uiGot = (unsigned int)XIic_DynRecv(spIic->BaseAddress, ucAddress, ucpBuffer, (unsigned char)uiLength);")
         rcv.open("if (uiGot != uiLength)")
         rcv.ln("return XST_FAILURE;")
         rcv.close()
@@ -553,9 +542,7 @@ def _is_lmk_byte_register_model(model: dict) -> bool:
 
 
 def _handle_var(module: str, htype: str = "") -> str:
-    if htype == "XIic":
-        # Taban adres bir struct degil: 'ul' oneki + "Base" adi.
-        return f"ul{_pascal_suffix(module)}Base"
+    del htype  # her surucu ornek isaretcisi tasir: tek adlandirma
     return f"s{_pascal_suffix(module)}Handle"
 
 

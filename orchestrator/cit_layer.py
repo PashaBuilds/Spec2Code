@@ -514,7 +514,7 @@ def bus_controllers(plans: list[_ChipPlan]) -> list[dict]:
 
 
 def _bus_field_type(htype: str) -> str:
-    return "unsigned long" if htype in cmodel.BASE_ADDRESS_HANDLE_DRIVERS else f"{htype}*"
+    return f"{htype}*"
 
 
 def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str:
@@ -608,8 +608,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("static const SSistemCitLimit S_sSistemCitLimitVarsayilan = SISTEM_CIT_LIMIT_VARSAYILAN;")
     for c in controllers:
         htype, _ = cmodel._handle_for(c)
-        if htype not in cmodel.BASE_ADDRESS_HANDLE_DRIVERS:
-            e.ln(f"static {htype} S_{controller_field(c)}Instance; /* {c.get('id')} */")
+        e.ln(f"static {htype} S_{controller_field(c)}Instance; /* {c.get('id')} */")
     e.blank()
     e.ln("void sistemCitBusVarsayilan(SSistemCitBus* spBus)")
     e.ln("{")
@@ -618,12 +617,8 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("        return;")
     e.ln("    }")
     for c in controllers:
-        htype, _ = cmodel._handle_for(c)
         fld = controller_field(c)
-        if htype in cmodel.BASE_ADDRESS_HANDLE_DRIVERS:
-            e.ln(f"    spBus->{fld} = (unsigned long){c.get('instance', 'XPAR_UNKNOWN')}_BASEADDR;")
-        else:
-            e.ln(f"    spBus->{fld} = &S_{fld}Instance;")
+        e.ln(f"    spBus->{fld} = &S_{fld}Instance;")
     e.ln("}")
     e.blank()
     e.ln("int sistemCitInit(SSistemCitBus* spBus)")

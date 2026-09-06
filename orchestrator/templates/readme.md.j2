@@ -30,5 +30,5 @@ All files use **CRLF** line endings and follow `{{ spec.coding_standard_ref }}`.
 {% endfor %}{% endif %}{% endfor %}```
 
 > The drivers initialize their own controller instance via `XIicPs_LookupConfig` /
-> `XSpiPs_LookupConfig` using the `xparameters.h` device IDs. Mux-attached devices select
+> `XIic_LookupConfig` / `XSpiPs_LookupConfig` using the `xparameters.h` device IDs. Mux-attached devices select
 > their channel automatically before each access.

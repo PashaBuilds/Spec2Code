@@ -114,17 +114,17 @@ class DriverStructApiTests(unittest.TestCase):
         self.assertIn("unsigned int uiBusy : 1; /* STATUS_HIGH bit 2 */", header)
         self.assertIn("unsigned char ucStatusLow; /* ham STATUS_LOW (0x00) */", header)
         self.assertIn("} SLtc2991Status;", header)
-        self.assertIn("int ltc2991StatusRegistersRead(unsigned long ulIicBase, SLtc2991Status* spStatus);", header)
+        self.assertIn("int ltc2991StatusRegistersRead(XIic* spIic, SLtc2991Status* spStatus);", header)
         source = _read(self.out_dir, "drivers/ltc2991.c")
         self.assertIn("spStatus->uiV2Ready = (unsigned int)((spStatus->ucStatusLow >> 1U) & 0x1U);", source)
         # mux arkasindaki cihaz: durum okumasi da kanal secer
-        self.assertIn("iStatus = tca9548aChannelSelect(ulIicBase, 3U);", source)
+        self.assertIn("iStatus = tca9548aChannelSelect(spIic, 3U);", source)
 
     def test_array_op_fills_driver_struct(self) -> None:
         header = _read(self.out_dir, "drivers/ltc2991.h")
         self.assertIn("unsigned short usArrVoltage[8];", header)
         self.assertIn("} SLtc2991Voltage;", header)
-        self.assertIn("int ltc2991VoltageRead(unsigned long ulIicBase, SLtc2991Voltage* spVoltage);", header)
+        self.assertIn("int ltc2991VoltageRead(XIic* spIic, SLtc2991Voltage* spVoltage);", header)
         source = _read(self.out_dir, "drivers/ltc2991.c")
         # Donusum ayri STATIK yardimcida: op govdesi yalniz okur, helper mask/isaret/olcek/kirpma yapar.
         self.assertIn("static int ltc2991VoltageConvert(unsigned int uiRaw)", source)
@@ -132,7 +132,7 @@ class DriverStructApiTests(unittest.TestCase):
         self.assertIn("static int ltc2991TemperatureConvert(unsigned int uiRaw)", source)
         self.assertIn("*ipTemperature = (int)ltc2991TemperatureConvert(", source)
         # skaler op degismez
-        self.assertIn("int ltc2991TemperatureRead(unsigned long ulIicBase, int* ipTemperature);", header)
+        self.assertIn("int ltc2991TemperatureRead(XIic* spIic, int* ipTemperature);", header)
 
     def test_spi_tics_device_gets_status_struct(self) -> None:
         header = _read(self.out_dir, "drivers/lmk04832.h")
@@ -162,13 +162,13 @@ class DriverStructApiTests(unittest.TestCase):
         test = _read(self.out_dir, "tests/ltc2991_test.c")
         self.assertIn("SLtc2991Voltage sVoltage;", test)
         self.assertIn("SLtc2991Status sStatusRegs;", test)
-        self.assertIn("iStatus = ltc2991StatusRegistersRead(ulIicBase, &sStatusRegs);", test)
-        self.assertIn("iStatus = ltc2991VoltageRead(ulIicBase, &sVoltage);", test)
+        self.assertIn("iStatus = ltc2991StatusRegistersRead(spIic, &sStatusRegs);", test)
+        self.assertIn("iStatus = ltc2991VoltageRead(spIic, &sVoltage);", test)
 
     def test_testbench_dispatch_uses_struct_api(self) -> None:
         ops = _read(self.out_dir, "tests/unit_driver_struct_api_testbench_ops.c")
         self.assertIn("SLtc2991Voltage sVoltage;", ops)
-        self.assertIn("iStatus = ltc2991VoltageRead(ulIicBase, &sVoltage);", ops)
+        self.assertIn("iStatus = ltc2991VoltageRead(spIic, &sVoltage);", ops)
         self.assertIn("sVoltage.usArrVoltage[uiIndex]", ops)
         self.assertNotIn("usArrValues", ops)
         self.assertNotIn("spec2codeSanal", ops)
@@ -205,12 +205,12 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("SLtc2991Status sDurum;", header)
         self.assertIn("SLtc2991Voltage sVoltage;", header)
         self.assertIn("int iTemperature;", header)
-        self.assertIn("int ltc2991CitRead(unsigned long ulIicBase, const SLtc2991CitLimit* spLimit, SLtc2991Cit* spCit);", header)
+        self.assertIn("int ltc2991CitRead(XIic* spIic, const SLtc2991CitLimit* spLimit, SLtc2991Cit* spCit);", header)
         source = _read(self.out_dir, "cit/ltc2991_cit.c")
-        self.assertIn("iStatus = ltc2991StatusRegistersRead(ulIicBase, &spCit->sDurum);", source)
-        self.assertIn("iStatus = ltc2991VoltageRead(ulIicBase, &spCit->sVoltage);", source)
+        self.assertIn("iStatus = ltc2991StatusRegistersRead(spIic, &spCit->sDurum);", source)
+        self.assertIn("iStatus = ltc2991VoltageRead(spIic, &spCit->sVoltage);", source)
         self.assertIn("spCit->sBayraklar.uiV1Ok = ltc2991CitOlcum(&spLimit->sV1, (int)spCit->sVoltage.usArrVoltage[0U], &spCit->uiNokSayac);", source)
-        self.assertIn("return (ltc2991DeviceInit(ulIicBase) == XST_SUCCESS) ? CIT_OK : CIT_HATA;", source)
+        self.assertIn("return (ltc2991DeviceInit(spIic) == XST_SUCCESS) ? CIT_OK : CIT_HATA;", source)
         # cit dogrudan Xilinx veri-yolu cagirmaz: surucu uzerinden gider
         self.assertNotIn("XIic_", source)
 
@@ -224,14 +224,15 @@ class CitLayerGenerationTests(unittest.TestCase):
 
     def test_system_aggregate(self) -> None:
         header = _read(self.out_dir, "cit/sistem_cit.h")
-        self.assertIn("unsigned long sPlI2c0; /* pl_i2c_0 (XPAR_AXI_IIC_0) */", header)
+        self.assertIn("XIic* sPlI2c0; /* pl_i2c_0 (XPAR_AXI_IIC_0) */", header)
         self.assertIn("XSpi* sPlSpi0; /* pl_spi_0 (XPAR_AXI_QUAD_SPI_0) */", header)
         self.assertIn("SLtc2991CitLimit sU2Ltc2991;", header)
         self.assertIn("SLtc2991Cit sU2Ltc2991;", header)
         self.assertIn("#define SISTEM_CIT_LIMIT_VARSAYILAN", header)
         self.assertIn("int sistemCitRead(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit);", header)
         source = _read(self.out_dir, "cit/sistem_cit.c")
-        self.assertIn("spBus->sPlI2c0 = (unsigned long)XPAR_AXI_IIC_0_BASEADDR;", source)
+        self.assertIn("static XIic S_sPlI2c0Instance;", source)
+        self.assertIn("spBus->sPlI2c0 = &S_sPlI2c0Instance;", source)
         self.assertIn("static XSpi S_sPlSpi0Instance;", source)
         self.assertIn("(void)ltc2991CitRead(spBus->sPlI2c0, &spLimit->sU2Ltc2991, &spCit->sU2Ltc2991);", source)
 
@@ -267,7 +268,7 @@ class SimulatedDeviceAgentTests(unittest.TestCase):
             self.assertIn("spec2codeSimSwitchKur(&S_sSimSwitchU1Tca9548a, 0x70U);", ops)
             self.assertIn("    spec2codeSimHazirla();", ops)
             # dispatch GERCEK surucuyu cagirir; sarmalayici yok
-            self.assertIn("iStatus = ltc2991VoltageRead(ulIicBase, &sVoltage);", ops)
+            self.assertIn("iStatus = ltc2991VoltageRead(spIic, &sVoltage);", ops)
             self.assertNotIn("spec2codeSanal", ops)
             manifest = json.loads(_read(out_dir, "tests/spec2code_testbench_manifest.json"))
             self.assertTrue(all(d.get("simulated") for d in manifest["devices"]))
@@ -306,6 +307,7 @@ _HOST_XPARAMETERS = """#ifndef XPARAMETERS_H
 #define XPAR_XIICPS_NUM_INSTANCES 0
 #define XPAR_XSPIPS_NUM_INSTANCES 0
 #define XPAR_AXI_IIC_0_BASEADDR 0x40800000UL
+#define XPAR_AXI_IIC_0_DEVICE_ID 0U
 #define XPAR_AXI_QUAD_SPI_0_DEVICE_ID 0U
 #endif
 """

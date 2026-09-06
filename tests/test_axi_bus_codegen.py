@@ -121,14 +121,14 @@ class AxiI2cCodegenTests(unittest.TestCase):
         header = files["drivers/tmp101.h"]
 
         # xiic_l.h - the POLLED AXI IIC API - not xiicps.h, and no PS literals.
-        self.assertIn('#include "xiic_l.h"', header)
+        self.assertIn('#include "xiic.h"', header)
         self.assertNotIn("xiicps.h", header)
         self.assertNotIn("XIicPs_", source)
 
-        # The handle is the controller BASE ADDRESS (unsigned long / 'ul'
-        # prefix), because xiic_l.h has no driver instance at all.
-        self.assertIn("int tmp101TemperatureRead(unsigned long ulIicBase, int* ipTemperature)", source)
-        self.assertNotIn("XIic*", source)
+        # Handle XIic ORNEGIDIR (kural: ornek en alt seviyeye kadar iner); polled
+        # xiic_l.h cagrilari spIic->BaseAddress ile yapilir.
+        self.assertIn("int tmp101TemperatureRead(XIic* spIic, int* ipTemperature)", source)
+        self.assertNotIn("unsigned long ulIicBase", source)
 
     def test_axi_iic_checks_returned_byte_count_and_uses_stop(self) -> None:
         spec = _microblaze_spec("unit_axi_iic_bytecount")
@@ -139,10 +139,10 @@ class AxiI2cCodegenTests(unittest.TestCase):
         # XIic_Send/XIic_Recv return BYTES TRANSFERRED (0 on a busy bus), never
         # XST_*: a short count is the only failure signal there is.
         self.assertIn(
-            "uiSent = (unsigned int)XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,",
+            "uiSent = (unsigned int)XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,",
             source)
         self.assertIn(
-            "uiGot = (unsigned int)XIic_DynRecv(ulBase, ucAddress, ucpBuffer, (unsigned char)uiLength);",
+            "uiGot = (unsigned int)XIic_DynRecv(spIic->BaseAddress, ucAddress, ucpBuffer, (unsigned char)uiLength);",
             source)
         for guard in ("if (uiSent != uiLength)", "if (uiGot != uiLength)"):
             self.assertIn(guard, source)
@@ -152,22 +152,21 @@ class AxiI2cCodegenTests(unittest.TestCase):
         # (SAHA Nexys A7: dinamik modda STOP'lu pointer + DynRecv IP'de takilir).
         # (Bu spec'te yazim yok: STOP'lu yazim mux testinde dogrulanir.)
         # Register okumalarinda pointer REPEATED_START ile gider (SAHA: Nexys A7).
-        self.assertIn("tmp101BusSend(ulIicBase, TMP101_I2C_ADDR, &ucReg, 1U, XIIC_REPEATED_START);", source)
+        self.assertIn("tmp101BusSend(spIic, TMP101_I2C_ADDR, &ucReg, 1U, XIIC_REPEATED_START);", source)
 
-    def test_axi_iic_device_init_probes_the_bus_instead_of_faking_a_controller_init(self) -> None:
+    def test_axi_iic_device_init_sets_up_the_instance_and_probes_the_bus(self) -> None:
         spec = _microblaze_spec("unit_axi_iic_init")
         spec["devices"] = [_tmp101("pl_i2c_0")]
 
         source = _generate(spec)["drivers/tmp101.c"]
 
-        # No instance -> no LookupConfig/CfgInitialize. device_init must still
-        # do something honest: confirm the AXI IIC core answers and SDA/SCL are
-        # not stuck, so a dead bus fails loudly at init.
-        self.assertIn("int tmp101DeviceInit(unsigned long ulIicBase)", source)
-        self.assertIn("iStatus = XIic_DynInit(ulIicBase);", source)
-        self.assertIn("iStatus = (int)XIic_WaitBusFree(ulIicBase);", source)
-        self.assertNotIn("XIic_LookupConfig", source)
-        self.assertNotIn("XIic_CfgInitialize", source)
+        # Ornek ilk kullanimda kurulur (LookupConfig/CfgInitialize), sonra cekirdek
+        # dinamik moda alinir ve SDA/SCL takili mi bakilir (olu hat init'te dusar).
+        self.assertIn("int tmp101DeviceInit(XIic* spIic)", source)
+        self.assertIn("iStatus = XIic_DynInit(spIic->BaseAddress);", source)
+        self.assertIn("iStatus = (int)XIic_WaitBusFree(spIic->BaseAddress);", source)
+        self.assertIn("spConfig = XIic_LookupConfig(XPAR_AXI_IIC_0_DEVICE_ID);", source)
+        self.assertIn("iStatus = XIic_CfgInitialize(spIic, spConfig, spConfig->BaseAddress);", source)
 
     def test_axi_iic_mux_unit_generates_over_the_low_level_api(self) -> None:
         # The user's boards put devices behind a TCA9548A; the mux emitter must
@@ -181,30 +180,30 @@ class AxiI2cCodegenTests(unittest.TestCase):
         mux_source = files["drivers/tca9548a.c"]
         device_source = files["drivers/tmp101.c"]
 
-        self.assertIn("int tca9548aChannelSelect(unsigned long ulIicBase, unsigned char ucChannel)",
+        self.assertIn("int tca9548aChannelSelect(XIic* spIic, unsigned char ucChannel)",
                       mux_source)
-        self.assertIn("XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,", mux_source)
+        self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,", mux_source)
         self.assertNotIn("XIicPs_", mux_source)
         # The mux select is still injected before every device access, with the
         # base address handed straight through.
-        self.assertIn("iStatus = tca9548aChannelSelect(ulIicBase, 3U);", device_source)
+        self.assertIn("iStatus = tca9548aChannelSelect(spIic, 3U);", device_source)
 
-    def test_axi_iic_testbench_wires_base_address_handles_and_scan(self) -> None:
+    def test_axi_iic_testbench_wires_instance_handles_and_scan(self) -> None:
         spec = _microblaze_spec("unit_axi_iic_testbench")
         spec["devices"] = [_tmp101("pl_i2c_0")]
 
         ops = _generate(spec)["tests/unit_axi_iic_testbench_testbench_ops.c"]
 
-        # Board-handle hook: base address by value, 0 == "unknown controller".
+        # Board-handle hook: XIic ornek isaretcisi, NULL == "unknown controller".
         self.assertIn(
-            "SPEC2CODE_WEAK unsigned long spec2codeTestbenchIicHandleGet(const char* cpControllerId)",
+            "SPEC2CODE_WEAK XIic* spec2codeTestbenchIicHandleGet(const char* cpControllerId)",
             ops)
-        self.assertIn('ulIicBase = spec2codeTestbenchIicHandleGet("pl_i2c_0");', ops)
-        self.assertIn("if (ulIicBase == 0U)", ops)
+        self.assertIn('spIic = spec2codeTestbenchIicHandleGet("pl_i2c_0");', ops)
+        self.assertIn("if (spIic == NULL)", ops)
         # Generic register helpers and the muxed-line bus scan both run on the
         # AXI API; no PS driver may leak into a MicroBlaze application.
         self.assertIn("spec2codeTestbenchI2cRegisterReadAxi", ops)
-        self.assertIn("XIic_DynSend(ulScanIic, (unsigned short)uiScanAddr, &ucProbe, 1U, XIIC_STOP)", ops)
+        self.assertIn("XIic_DynSend(spScanIic->BaseAddress, (unsigned short)uiScanAddr, &ucProbe, 1U, XIIC_STOP)", ops)
         self.assertNotIn("XIicPs_", ops)
 
     def test_axi_iic_controllers_are_published_for_scanning_in_the_manifest(self) -> None:
@@ -338,7 +337,7 @@ class PsOutputUnchangedTests(unittest.TestCase):
         self.assertIn("iStatus = XIicPs_SetSClk(spIic, TMP101_I2C_SCLK_HZ);", source)
         self.assertIn("int tca9548aChannelSelect(XIicPs* spIic, unsigned char ucChannel)", mux_source)
         # No AXI machinery may bleed into a PS project.
-        for token in ("XIic_", "XIIC_STOP", "tmp101BusSend", "tca9548aBusSend", "unsigned long ulIicBase"):
+        for token in ("XIic_", "XIIC_STOP", "tmp101BusSend", "tca9548aBusSend", "XIic* spIic"):
             self.assertNotIn(token, source + mux_source)
 
     def test_ps_spi_path_still_emits_the_instance_api_verbatim(self) -> None:

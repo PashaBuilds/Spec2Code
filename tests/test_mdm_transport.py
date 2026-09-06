@@ -286,7 +286,7 @@ class MdmAgentCodegenTests(unittest.TestCase):
         self.assertIn(
             "XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_DEVICE_ID)", source)
         self.assertNotIn("SetBaudRate", source)
-        self.assertNotIn("LookupConfig", source)
+        self.assertNotIn("XUartLite_LookupConfig", source)  # denetleyici (XIic) LookupConfig ayri
         self.assertIn("MicroBlaze Debug Module", source)
         # Banner: host bu satiri gorup MDM ajanini tanir.
         self.assertIn("S2C-MDM-AGENT-READY", main)

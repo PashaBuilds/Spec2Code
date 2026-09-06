@@ -1557,7 +1557,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn('#include "xuartlite.h"', uart_source)
         self.assertIn("XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_DEVICE_ID)", uart_source)
         self.assertNotIn("SetBaudRate", uart_source)
-        self.assertNotIn("LookupConfig", uart_source)
+        self.assertNotIn("XUartLite_LookupConfig", uart_source)  # denetleyici (XIic) LookupConfig ayri
         self.assertIn("uartlite", main_source)
         self.assertEqual(manifest["uart"]["driver"], "XUartLite")
 
@@ -1577,10 +1577,10 @@ class TestbenchTests(unittest.TestCase):
             device_header = (out_dir / "drivers" / "tmp101.h").read_text(encoding="utf-8")
 
         # Base-address polled API (xiic_l.h), no PS driver literals anywhere.
-        self.assertIn('#include "xiic_l.h"', device_header)
-        self.assertIn("int tmp101TemperatureRead(unsigned long ulIicBase, int* ipTemperature)",
+        self.assertIn('#include "xiic.h"', device_header)
+        self.assertIn("int tmp101TemperatureRead(XIic* spIic, int* ipTemperature)",
                       device_source)
-        self.assertIn("XIic_DynSend(ulBase, (unsigned short)ucAddress, ucpBuffer,", device_source)
+        self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,", device_source)
         self.assertNotIn("XIicPs_", device_source)
 
     def test_coresight_agent_generated_when_transport_is_coresight(self) -> None:

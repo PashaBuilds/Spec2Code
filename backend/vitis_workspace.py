@@ -763,13 +763,12 @@ def _controller_handle_type(controller: dict) -> str | None:
 def _controller_header(handle_type: str) -> str | None:
     """BSP header that declares ``handle_type``.
 
-    Kept for the AXI soft-IP drivers too (``XSpi``/``XGpio``): the self-test
+    Kept for the AXI soft-IP drivers too (``XIic``/``XSpi``/``XGpio``): the self-test
     runner declares a handle of this exact type, and without the header the app
-    fails to compile with ``unknown type name 'XSpi'``. ``XIic`` has no entry on
-    purpose - its handle is a base address, not a driver instance
-    (see ``cmodel.BASE_ADDRESS_HANDLE_DRIVERS``).
+    fails to compile with ``unknown type name 'XSpi'``.
     """
     return {
+        "XIic": "xiic.h",
         "XIicPs": "xiicps.h",
         "XSpiPs": "xspips.h",
         "XQspiPs": "xqspips.h",
@@ -814,9 +813,10 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
     before - the AXI IIC self-test takes ``unsigned long`` base address, not an
     ``XIic*``, so the scaffold declared a signature that both mismatched the
     real one and referenced a type nothing had included
-    (``error: unknown type name 'XIic'``, MicroBlaze Faz 5 E2E).
+    (``error: unknown type name 'XIic'``, MicroBlaze Faz 5 E2E). v0.1.179: AXI IIC de
+    ``XIic`` ornegi tasir (``xiic.h``), tek imza kaynagi yine uretilen test basligi.
     """
-    from orchestrator.cmodel import BASE_ADDRESS_HANDLE_DRIVERS, device_module_map
+    from orchestrator.cmodel import device_module_map
 
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     devices = spec.get("devices", [])
@@ -849,19 +849,10 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
         # of truth); the driver header is pulled in transitively by it.
         includes.add(f"{module}_test.h")
         self_test = _driver_function(module, "self_test")
-        if handle_type in BASE_ADDRESS_HANDLE_DRIVERS:
-            # Base-address driver (AXI IIC): the "handle" is the controller
-            # aperture from xparameters.h, passed BY VALUE - mirrors
-            # cmodel._test_unit so both runners drive the same signature.
-            handle_name = f"ul{handle_base}Base"
-            handle_decl = (f"    unsigned long {handle_name} = "
-                           f"(unsigned long){controller.get('instance', '')}_BASEADDR;")
-            handle_arg = handle_name
-            includes.add("xparameters.h")
-        else:
-            handle_name = f"s{handle_base}Handle"
-            handle_decl = f"    {handle_type} {handle_name};"
-            handle_arg = f"&{handle_name}"
+        handle_name = f"s{handle_base}Handle"
+        # static: sifirlanmis ornek (surucu DeviceInit IsReady bayragina bakar).
+        handle_decl = f"    static {handle_type} {handle_name};"
+        handle_arg = f"&{handle_name}"
         calls.extend([
             handle_decl,
             f"    iStatus = {self_test}({handle_arg});",
