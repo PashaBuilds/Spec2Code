@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.184 - 2026-09-06
+
+- **Kilavuz bastan yazildi (`userguide.md`):** eski bilgiler kaldirildi (`bus_trace`,
+  `spec2code_testbench_trace`, kart modulleri `<kart>Init/CitRun`, taban-adres handle, host tarafi
+  limit karari, `ltc2991b` kopya moduller, `<MOD>_I2C_ADDR`), guncel yapi eklendi: I2C cihaz tablosu,
+  `<kart>_<parca>[_<n>]` kimlik kurali, canli CIT limitleri ve kartta karar, self-test op'u, dbg_printf,
+  simulasyon, tasiyicilar (TCP/Seri/CoreSight/MDM), ortak baglanti karti, Bring-up/Registers/Akis/
+  Register Map/YATT ozetleri, Vitis kaynak guncelleme modu ve Board'da calistirma, kodu projeye
+  tasima adimlari, sorun giderme. Bolumler numarali ve icindekiler eklendi.
+
 ## v0.1.183 - 2026-09-06
 
 - **Cihaz kimligi kurali `<kart>_<parca>[_<n>]` (kullanici istegi):** `u1_adt7420` yerine

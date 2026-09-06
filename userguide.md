@@ -1,30 +1,54 @@
-# Spec2Code User Guide
+# Spec2Code Kullanim Kilavuzu
 
-Bu dosya release paketinin icine girer. Amaci, Spec2Code'u kullanan bir gomulu
-yazilimcinin uygulamayi acip proje uretmesine, ciktiyi incelemesine ve gerekirse
-Vitis workspace hazirlamasina yetecek pratik bilgiyi tek yerde vermektir.
+Bu dosya release paketinin icinde gelir. Amaci, Spec2Code'u kullanan bir gomulu
+yazilimcinin uygulamayi acip proje kurmasina, kod uretmesine, ciktiyi kendi
+firmware'ine tasimasina ve gercek kartta dogrulamasina yetecek bilgiyi tek yerde,
+kisa ve dogru vermektir. Ayrintili protokol tablosu (YATT) ve kodlama standardi
+kendi belgelerindedir; burada tekrar edilmez.
 
-## 1. Spec2Code Nedir?
+Icindekiler:
 
-Spec2Code, Xilinx/Vitis tabanli kartlarda kullanilan I2C, SPI ve QSPI bagli
-entegreler icin deterministik C driver ve test dosyalari ureten lokal bir web
-uygulamasidir.
+1. Spec2Code nedir
+2. Calistirma
+3. Yardimci araclar
+4. Uctan uca akis
+5. Ekranlar
+6. Setup: platform, `xparameters.h`, Vivado ile XSA
+7. Schematic: entegreler, kartlar, kimlikler
+8. Generate: uretilen kod ve katmanlar
+9. Kodu kendi projene tasima
+10. Karta baglanma
+11. Test Bench
+12. CIT (Cihaz Ici Test)
+13. Bring-up, Registers, Akis, Register Map, Arayuz/YATT
+14. Vitis workspace ve Board'da calistirma
+15. Kodlama standardi (ozet)
+16. LLM kullanimi
+17. Air-gap notlari
+18. Desteklenen entegreler
+19. Sorun giderme
+20. Release dosyalari
 
-Uygulama cloud uzerinde calismaz. `Spec2Code.exe` lokal bir FastAPI backend ve
-React UI baslatir. Browser'da gordugun ekran kendi bilgisayarinda calisir.
+---
 
-Ana hedefler:
+## 1. Spec2Code nedir
 
-- `xparameters.h` icinden controller bilgisini okumak.
-- Schematic ekraninda harici entegre baglantilarini kurmak.
-- Desteklenen entegreler icin `.c/.h` driver ve test dosyalari uretmek.
-- Generated kodu sabit coding standard ve QC kontrollerinden gecirmek.
-- Gerekirse `.xsa` ile Vitis workspace olusturmak.
-- Gercek karta baglanan test bench agent uzerinden register ve operasyon seviyesinde okuma/yazma denemeleri yapmak.
+Spec2Code, Xilinx/AMD (Zynq-7000, Zynq UltraScale+, Versal, MicroBlaze) kartlarda
+I2C, SPI/QSPI ve GPIO ile bagli entegreler icin **deterministik** C surucu, CIT
+(cihaz ici test) katmani, test bench ajani ve Vitis workspace ureten lokal bir web
+uygulamasidir. Bulut yoktur: `Spec2Code.exe` bilgisayarinda bir backend ve
+tarayici arayuzu baslatir.
 
-## 2. Windows'ta Calistirma
+Uretim akisi bastan sona "spec"e dayanir: Setup + Schematic ekranlarinda kurdugun
+model bir JSON spec'e yazilir, kod bu spec'ten uretilir, ayni spec test bench
+manifestini ve YATT'i besler. Elle duzenlenecek dosya yoktur; degistirmek icin
+ekranda degistirip yeniden uretirsin.
 
-Release paketini acinca bu dosyalari gorursun:
+---
+
+## 2. Calistirma
+
+Release paketi:
 
 ```text
 Spec2Code.exe
@@ -33,957 +57,561 @@ userguide.md
 glm52_handoff.md
 ```
 
-Calistirmak icin:
-
 ```powershell
-.\Spec2Code.exe
+.\Spec2Code.exe                              # varsayilan http://127.0.0.1:8077, tarayici acilir
+.\Spec2Code.exe --host 127.0.0.1 --port 8078 # port degistir
+.\Spec2Code.exe --no-browser                 # tarayici acma
 ```
 
-Varsayilan adres:
+Kaynak koddan calistiriyorsan `python run_spec2code.py` ayni parametreleri alir.
+Eski bir surum hala 8077'yi dinliyorsa uygulama bunu fark edip uyarir; eski sureci
+kapatip tekrar baslat. Ust cubuktaki surum etiketi her zaman calisan surumu gosterir.
 
-```text
-http://127.0.0.1:8077
-```
+---
 
-Otomatik browser acilmazsa bu adresi manuel ac.
+## 3. Yardimci araclar
 
-Port degistirmek icin:
+Uygulama LLVM veya Cppcheck olmadan da acilir; ama gercek QC icin onerilir:
 
-```powershell
-.\Spec2Code.exe --host 127.0.0.1 --port 8078
-```
-
-Browser acilmasin istersen:
-
-```powershell
-.\Spec2Code.exe --no-browser
-```
-
-## 3. Gerekli Yardimci Tool'lar
-
-Uygulama acilmak icin LLVM veya Cppcheck'e mecbur degildir; ama gercek QC icin
-bu tool'lar onerilir:
-
-- LLVM: `clang-format`, `clang-tidy`, `libclang`
+- LLVM: `clang-format`, `clang-tidy`, `libclang` (adlandirma denetimi libclang ister)
 - Cppcheck
+- Vitis (yalniz workspace/kart islemleri icin), Vivado (yalniz XSA/bitstream uretimi icin)
 
-Tipik Windows kurulum path'leri otomatik aranir:
-
-```text
-C:\Program Files\LLVM\bin
-C:\Program Files\Cppcheck
-```
-
-Farkli yerde kuruluysa environment variable verebilirsin:
+Tipik yollar (`C:\Program Files\LLVM\bin`, `C:\Program Files\Cppcheck`) otomatik
+aranir. Farkli yerdeyse:
 
 ```powershell
 $env:SPEC2CODE_CLANG_FORMAT_PATH = "D:\Tools\LLVM\bin\clang-format.exe"
-$env:SPEC2CODE_CLANG_TIDY_PATH = "D:\Tools\LLVM\bin\clang-tidy.exe"
-$env:SPEC2CODE_CPPCHECK_PATH = "D:\Tools\Cppcheck\cppcheck.exe"
-$env:SPEC2CODE_LIBCLANG_PATH = "D:\Tools\LLVM\bin\libclang.dll"
+$env:SPEC2CODE_CLANG_TIDY_PATH   = "D:\Tools\LLVM\bin\clang-tidy.exe"
+$env:SPEC2CODE_CPPCHECK_PATH     = "D:\Tools\Cppcheck\cppcheck.exe"
+$env:SPEC2CODE_LIBCLANG_PATH     = "D:\Tools\LLVM\bin\libclang.dll"
 ```
 
-Tool algilama durumunu kontrol etmek icin:
+Algilama durumu: `http://127.0.0.1:8077/api/health`. Generate konsolu hangi
+aracin bulunup hangisinin kosmadigini acikca yazar; "QC GECTI" yalniz kosan
+araclar icin gecerlidir.
 
-```text
-http://127.0.0.1:8077/api/health
-```
+---
 
-## 4. Temel Kullanim Akisi
+## 4. Uctan uca akis
 
-Spec2Code kullanimi genelde su sirayla ilerler:
+1. **Setup**: proje adi, platform, cekirdek, runtime, test bench tasiyicisi.
+2. `xparameters.h` yukle (ya da Vivado ile XSA/bitstream uret).
+3. **Schematic**: entegreleri denetleyicilere bagla, config ve CIT limitlerini gir,
+   gerekiyorsa kartlari ve konnektorleri tanimla, sanal cihazlari isaretle.
+4. **Generate**: kod uret; QC sonucunu ve dosya agacini incele.
+5. Ciktiyi indir ya da **Vitis workspace** paneliyle `.xsa` uzerinden workspace kur.
+6. **Board'da calistir** (JTAG/xsdb) ya da flash'a kaz.
+7. **Karta baglan** (TCP / seri / CoreSight / MDM) - tek baglanti butun ekranlar icin.
+8. **Test Bench** ile tek op'lari, **CIT** ile butun olcumleri, **Bring-up** ile
+   sirali acilis senaryosunu kos; **Registers** ve **Akis** ile derinlestir.
+9. `drivers/` + `cit/` klasorlerini kendi firmware'ine tasi (bolum 9).
 
-1. **Setup** ekraninda platformu sec.
-2. `xparameters.h` dosyasini yukle veya icerigini yapistir.
-3. Parser tarafindan bulunan controller'lari kontrol et.
-4. **Schematic** ekraninda entegreleri controller'lara bagla.
-5. Gerekirse entegre configuration ayarlarini yap.
-6. **Generate** ekraninda kod uret.
-7. Code viewer'da dosya agacini, QC sonucunu ve Test Bench dosyalarini incele.
-8. Istersen tek dosya, tum output zip veya Vitis-ready paket indir.
-9. Istersen Vitis workspace paneliyle `.xsa` uzerinden workspace olustur.
-10. Kart tarafinda TCP test agent hazirsa **Test Bench** sayfasindan canli okuma/yazma denemeleri yap.
+---
 
-## 5. Setup Ekrani
+## 5. Ekranlar
 
-Setup ekraninda proje adi, platform, target core ve runtime secilir.
+Ust cubuktaki uc akis adimi: **Setup -> Schematic -> Generate**. Ikinci satirdaki
+gorunumler:
 
-Desteklenen platformlar:
-
-- Zynq-7000
-- Zynq UltraScale+ MPSoC
-- Versal ACAP
-- MicroBlaze 7-series (Artix-7 / Kintex-7 / Spartan-7 PL)
-
-### MicroBlaze 7-series notu (durust kapsam)
-
-Uctan uca **masa ustunde** dogrulandi: urunun Vivado akisiyla uretilen gercek
-`.xsa` -> XSA parser -> codegen + QC -> Vitis platform/BSP/app -> gercek
-MicroBlaze ELF'i (`ELF 32-bit LSB executable, Xilinx MicroBlaze 32-bit RISC`).
-Kapsam:
-
-- **AXI IIC (`XIic`)** cihazlari, TCA9548A mux arkasindakiler dahil.
-- **AXI Quad SPI (`XSpi`)** cihazlari (TICS register cihazlari dahil).
-- **AXI GPIO (`XGpio`)** — hem cihaz transportu hem denetleyici op'lari
-  (`gpio_read` / `gpio_write`).
-- Test bench ajani: **MDM UART** (`testbench_transport: "mdm"`, xsdb
-  `jtagterminal` koprusu) veya **AXI UARTLite** (fiziksel seri pin).
-- `run_on_board`: bitstream ZORUNLU (soft cekirdek, PL programlanmadan JTAG'de
-  hicbir islemci hedefi gorunmez).
-
-**Yerel bellek (LMB) siniri — onemli:** MicroBlaze firmware'i yalniz LMB (BRAM)
-icinde kosar. Olcum (gercek `mb-gcc` link'i): tam test bench ajani + 3 cihaz
-surucusu + BSP ~**156 KB**. Vivado blok otomasyonunun tavani 128 KB'dir, bu
-yuzden Spec2Code 256KB/512KB'i LMB adres segmentini buyuterek kurar ve geri
-okuyup dogrular. Vivado Tasarimi ekraninda MicroBlaze varsayilani **256KB**'dir;
-kucuk secersen link `S2C-VITIS-MEMORY-012` (yerel bellek tasmasi) ile duser.
-
-**Gercek kart (2026-09-05, Digilent Nexys A7-100T):** `scripts/make_nexys_a7_design.tcl`
-ile uretilen bitstream (MB 256K LMB + AXI UARTLite 115200 + AXI IIC + AXI Quad SPI
-STARTUPE2 uzerinden konfigurasyon flash'ina) kartta kosuldu: UART ajani, kart ustu
-ADT7420 (ID 0xCB, sicaklik), I2C tarama, S25FL128S flash sil/yaz/oku (0xF00000) ve
-karisik-mod CIT (ADT7420 gercek + LTC2991 sanal) uctan uca dogrulandi. Kartta bulunan
-saha bug'i: AXI IIC standart modda tek baytlik STOP yazimi bayti dusuruyor - uretilen
-kod artik DINAMIK mod (`XIic_DynInit/DynSend/DynRecv`) kullanir ve register
-okumalarinda pointer'i `XIIC_REPEATED_START` ile gonderir (STOP'lu pointer + DynRecv
-IP'de takilir). Nexys A7 pinleri: saat E3, CPU_RESETN C12 (aktif-dusuk), UART C4/D4,
-I2C C14/C15, QSPI CS L13 / DQ0 K17 / DQ1 K18 (SCK STARTUPE2). Kesme yolu (`axi_intc`)
-ve DDR/MIG yoktur.
-
-`xparameters.h` yuklediginde uygulama controller'lari cikartir. Ayni controller
-farkli macro alias'lariyla geldiyse tek controller olarak dedupe edilir.
-
-Ornek:
-
-```text
-XPAR_PSU_I2C_0
-XPAR_XIICPS_0
-```
-
-Bu iki macro ayni donanim controller'ini isaret ediyorsa UI'da tek I2C controller
-olarak gorunmelidir.
-
-## 6. Schematic Ekrani
-
-Schematic ekraninda controller, mux ve entegre baglantilari kurulur.
-
-Yapabileceklerin:
-
-- I2C cihaz eklemek.
-- SPI/QSPI cihaz eklemek.
-- TCA9548A gibi I2C mux eklemek.
-- Cihazi mux channel uzerinden veya dogrudan controller'a baglamak.
-- I2C address, SPI chip select, reset GPIO ve IRQ gibi attach bilgilerini girmek.
-- Desteklenen cihazlarda configuration panelinden init ayarlarini yapmak.
-
-Baglanti validasyonu generate oncesinde yapilir. Ornegin:
-
-- Ayni I2C bus uzerinde address cakismasi.
-- Ayni SPI controller uzerinde chip select cakismasi.
-- Var olmayan controller referansi.
-- Descriptor ile uyumsuz transport tipi.
-
-## 7. Cok-kartli Sistemler
-
-Gercek projelerde sistem tek karttan ibaret degildir: FPGA'in bulundugu bir ana
-kart vardir, I2C/SPI hatlari fiziksel konnektorlerle baska kartlara cikar.
-Spec2Code kartlari birinci sinif olarak modeller: sematikte kutu, uretimde klasor
-ve kart fonksiyonlari, CIT/Test Bench'te grup, YATT'ta topoloji bolumu.
-
-Onemli kural: kart tanimlamadigin surece hicbir sey degismez. Kart tanimsiz bir
-projede uretilen cikti bugunku duzeniyle bayt-bayt aynidir. Kart katmani yalnizca
-sen kart tanimlayinca devreye girer.
-
-### Kart olusturma
-
-Schematic ekraninin sag panelindeki **Kartlar** kutusunda "Kart ekle" dugmesi
-vardir.
-
-- Ilk eklenen kart **ana karttir** ve o ana kadar eklenmis butun controller, mux
-  ve entegreler ona tasinir. Sonraki kartlar cevre karti olur.
-- Tam olarak bir ana kart olmalidir. Controller'lar her zaman ana karttadir (tek
-  FPGA ilkesi), onlar icin kart secilemez.
-- Kart kimligi ilk verilen addan turer (`RF Kart` -> `rf_kart`). Adi sonradan
-  degistirmek kimligi degistirmez, cunku cihazlar ve konnektorler o kimlige
-  referans verir. Uretilen klasor ve C fonksiyon adlari ise her zaman GUNCEL
-  addan turer.
-- Kart kutulari sematikte yeniden boyutlandirilabilir; ana kartta "ana" rozeti
-  gorunur.
-- Bir karti silersen icindeki cihazlar ana karta duser ve o karta degen
-  konnektorler silinir. Silme onaylidir.
-
-### Cihaz atama
-
-Entegre veya mux'u fare ile hedef kart kutusunun icine surukle; birakildiginda
-`board_id` o karta ayarlanir. Kutularin disina birakilan cihaz ana karta doner.
-
-Cihazin elektriksel baglantisi (`attach.controller_id` ve `via_mux`) bundan
-ETKILENMEZ. Kart, elektriksel modele dik bir konum katmanidir: yalnizca cihazin
-fiziksel olarak hangi PCB uzerinde oldugunu soyler.
-
-### Konnektor tanimlama
-
-Kart kutusuna tiklayip sag paneldeki **Konnektorler** bolumunden ekle:
-
-- **Ad**: serbest metin, ornegin `J7 -> J1`.
-- **Kaynak kart / Hedef kart**: iki uc farkli kart olmalidir.
-- **Hat (denetleyici)**: hattin ciktigi controller.
-- **Switch (ops.) + Kanal**: hat bir I2C mux kanalindan geciyorsa.
-- **Not**: saha bilgisi, ornegin `10-pin FFC`.
-
-Konnektor hattin kartlar arasi gecisini BELGELER, elektriksel yolu degistirmez.
-Sematikte kesikli ok olarak cizilir; etiketi `ad - hat - mux ch N` seklindedir.
-
-Ana kart disindaki bir kartta cihaz varsa ama o baglantiyi belgeleyen konnektor
-yoksa validasyon uyari verir (hata degil): "... kartinda cihaz var ama
-baglantisini belgeleyen konnektor yok".
-
-### Uretilen ciktida ne degisir?
-
-Kart tanimliyken surucu dosyalari kart klasorlerine ayrilir:
-
-```text
-drivers/ana_kart/ltc2991.c    (+ .h)
-drivers/ana_kart/tca9548a.c   (+ .h)
-drivers/rf_kart/tmp101.c      (+ .h)
-drivers/rf_kart/sht21.c       (+ .h)
-cit/, tests/                           (degismez: CIT katmani ve ajan SISTEM genelidir)
-```
-
-Klasor adi kart ADINDAN turetilir:
-
-- Turkce harfler ASCII karsiligina katlanir (`i I s S g G u U o O c C`).
-- Alfanumerik olmayan her karakter ayrac sayilir; klasor adi `snake_case` olur
-  (`"RF Kart"` -> `rf_kart`).
-- Iki kart ayni ada duserse uretim sessizce devam etmez, acik hata ile durur.
-
-Cihaz surucu dosyalarinin ICERIGI ve fonksiyon adlari degismez; sembol onekleme
-yoktur, yalniz klasor degisir. Kart basina ayri bir C modulu URETILMEZ (v0.1.178:
-hic cagrilmayan `<kart>Init/CitRun/SelfTest` kaldirildi); kart bilgisi manifest
-uzerinden tasinir, CIT ve Test Bench ekranlari kutulari kart basliklari altinda
-gruplar. Sistem geneli `boardCitRun()` ve `SBoardCit` bit sirasi kart sayisindan
-bagimsizdir - `boardCit*` adlarindaki "board" SISTEM anlamindadir, fiziksel kart degil.
-
-`drivers/<kart>/` klasorleri Vitis workspace uretiminde application include
-yoluna otomatik eklenir; bu yuzden nitelenmemis `#include "tmp101.h"` calismaya
-devam eder.
-
-### CIT, Test Bench ve YATT
-
-- **CIT** ekrani (Bring-up sekmesinin yanindadir) her entegreyi KENDI kutusunda
-  gosterir: baslik (parca, cihaz id, adres/CS, mux, SANAL rozeti, ozet), dizi
-  donuslu op'lar icin kanal karolari (LTC2991 V1..V8 / I1..I8), skaler olcumler
-  icin deger satirlari. Kart tanimliysa kutular kart basliklari altinda gruplanir;
-  ustteki sistem toplamlari korunur. Kanal karosuna tiklayinca o kanalin
-  isim/limit/onem duzenleme seridi acilir; kalem = duzenle, guc = ac/kapa.
-- **Dizi donuslu olcumler (voltages[8] gibi):** CIT'te her kanal AYRI bir olcum
-  slotudur (manifest `cit.olcumler[].channel`, `channel_label` = "V1".."V8";
-  varsayilan isim `<PART>_V<k>_<i>`). Kart op'u BIR kez okur, kanallari yanittan
-  ayristirir. `config.cit.measurements[]` girdisinde `channel` verilirse yalniz o
-  kanala, verilmezse (isim haric) butun kanallara uygulanir.
-- **Test Bench** entegre listesini kart basliklari altinda gruplar; "butun
-  cihazlari ilklendir" kart kart ilerler ve ozet kart bazinda gosterilir.
-- **YATT** dokumanina **Sistem Topolojisi** bolumu eklenir: kart tablosu
-  (ad, rol, not, cihaz sayisi) ve konnektor tablosu (ad, kartlar, hat, mux
-  kanali, not).
-- Test bench manifesti `boards[]` ve `connectors[]` bolumlerini, ayrica her cihaz
-  ve her CIT olcumu icin `board_id` alanini tasir.
-
-### Ornek proje
-
-`specs/samples/multi_board_demo.spec.json` calisan iki kartli bir ornektir: ana
-kartta ZynqMP PS I2C controller, TCA9548A switch ve LTC2991; RF kartta TMP101 ve
-SHT21 (ikisi de switch kanal 3'un arkasinda). Aradaki gecisi `J7 -> J1`
-konnektoru belgeler. Headless uretmek icin:
-
-```powershell
-python spec2code_cli.py build --spec specs/samples/multi_board_demo.spec.json
-```
-
-## 8. Catalog ve Knowledge
-
-Catalog ekrani desteklenen entegreleri listeler. Arama ve protokol filtreleri ile
-I2C/SPI cihazlari daraltabilirsin.
-
-Knowledge bolumunde su bilgiler bulunur:
-
-- Register veya command map.
-- Bit field seviyesi anlamlar.
-- Deger aciklamalari.
-- Pin map.
-- Tipik kullanim receteleri.
-- Driver view.
-- Bus transaction waveform.
-
-Bu bilgiler runtime'da LLM'e yazdirilmaz. Repo icindeki dogrulanmis statik bilgi
-paketlerinden gelir. LLM soru merkezi de cevap verirken bu dogrulanmis context'i
-kullanir.
-
-## 9. Bilgi Soru Merkezi
-
-Bilgi soru merkezi, catalog knowledge uzerinden lokal OpenAI-compatible modele
-soru sormak icindir.
-
-Ornek sorular:
-
-```text
-LMK04832 PLL2 lock nereden okunur?
-Flash sector erase icin hangi byte'lar gider?
-LTC2991 differential ayari hangi register'lari etkiler?
-```
-
-Model sadece verilen knowledge context'i kullanmalidir. Backend cevap icindeki
-register, opcode ve bit field gibi token'lari context ile karsilastirir. Context
-disi bilgi varsa hata verir.
-
-Qwen 3.5 397B gibi 256K context destekli modeller icin context limiti yuksek
-tutulmustur. Daha kucuk modellerde soru daha dar sorulmalidir.
-
-## 10. Generate Ekrani
-
-Generate basladiginda pipeline console su asamalari gosterir:
-
-- Codegen.
-- Imported reference source kopyalama.
-- LLM destekli QC fixer varsa LLM adimlari.
-- Deterministik QC round'lari.
-- Result summary.
-
-Generate bittiginde Code viewer'da dosya agaci acilir.
-
-Output klasor yapisi tipik olarak:
-
-```text
-drivers/
-tests/
-cit/
-tests/sim/   (yalniz sanal cihaz isaretliyken)
-reference_sources/
-qc_report.json
-README.md
-.clang-format
-```
-
-Her `.c` dosyasinin karsilik gelen `.h` dosyasi olmalidir. Test ve Test Bench
-agent dosyalari da bu kurala dahildir.
-
-### Katmanlar: surucu struct API'si, CIT ust katmani, simulasyon
-
-Uretilen kod uc katmandir; bagimlilik tek yonlu (yukaridan asagiya):
-
-| Katman | Klasor | Kime gider | Icerik |
-|---|---|---|---|
-| Test bench | `tests/` (+ `tests/sim/`) | yalniz Spec2Code | ajan, S2C-MSG, `<mod>_test.*` self-test'ler (Test Bench `self_test` op'u), `spec2code_cit.*` (CIT kosusu: `cit/` katmanini cagirir, host raporu), sanal cihazlar |
-| CIT ust katmani | `cit/` | senin firmware'ine | surucu struct'larini ANLAMLANDIRIR: kapali aralik limiti (min <= deger <= max, min = max gecerli), etkin, OK/NOK |
-| Surucu | `drivers/` | senin firmware'ine | Xilinx API'sini DOGRUDAN cagirir, ham veriyi kendi struct'larinda verir |
-
-Kullaniciya giden `drivers/` ve `cit/` dosyalarinda `spec2code` adli hicbir dosya/sembol
-yoktur. Suruculer `drivers/dbg_printf.h/.c` ile loglar: `dbg_printf(DEBUG_LEVEL_x, fmt, ...)`,
-esik `dbgLevelSet()` ile calisma zamaninda (varsayilan ERROR; yalniz esikten kucuk/esit
-seviyeler basilir); bus baytlari `dbgTraceI2c/Spi` ile TRACE seviyesinde. Kendi projende
-cikti `xil_printf`e gider, test bench ise `dbgSinkSet` ile satirlari S2C-LOG cercevesine sarar.
-
-**Surucu (`drivers/<mod>.h`):**
-
-- Durum registerleri (fields tanimli, width <= 16, `access: ro` ya da `post_init_status`):
-  `S<Mod>Status` bit alanlari + ham baytlar; `<mod>StatusRegistersRead(handle, &sStatus)`.
-- Dizi donuslu op (`returns: voltages[8]`): `S<Mod>Voltage { unsigned short usArrVoltage[8]; }`,
-  `<mod>VoltageRead(handle, &sVoltage)`. Skaler op'lar `int*` / `unsigned short*` alir.
-- **I2C cihazlari `drivers/i2c_cihazlar.h/.c` tablosuyla calisir:** her cihaz icin bir enum
-  (`I2C_CIHAZ_<CIHAZ_ID>`) ve bir satir `SI2cCihaz { spIic, ucAdres, ucSwitchAdres,
-  ucSwitchKanal, spInit, ucInitSayisi }`. Surucu fonksiyonlari ornek/adres yerine bu satiri alir
-  (`const SI2cCihaz* spCihaz`); bus ornegini, adresi, (varsa) TCA9548A switch adres/kanalini ve
-  cihaza ozel `device_init` yazimlarini oradan okur. Ayni parcadan N cihaz TEK surucu paylasir
-  (`ltc2991b` gibi kopya modul YOK); ayrim tablo satirindan yapilir. Tabloyu once
-  `i2cCihazlarInit(&sIic)` ile denetleyici orneklerine baglarsin.
-- SPI/GPIO cihazlarinda handle Xilinx surucu ornegi isaretcisidir (`XSpi*`, `XSpiPs*`, `XGpio*`);
-  kural: ornek en alt seviyeye kadar iner. AXI IIC'de polled cagrilar (`xiic_l.h`) taban adresi
-  ornekten (`spCihaz->spIic->BaseAddress`) alir; ornek ilk `DeviceInit`'te
-  `XIic_LookupConfig/CfgInitialize` ile kurulur.
-
-```c
-static XIic S_sIic;                                        /* AXI IIC ornegi (xiic.h) */
-const SI2cCihaz* spLtc;
-
-i2cCihazlarInit(&S_sIic);                                  /* tablo -> denetleyici ornegi (bir kez) */
-spLtc = i2cCihaz(I2C_CIHAZ_U2_LTC2991);                    /* satir: 0x48, switch yok, init dizisi */
-ltc2991DeviceInit(spLtc);                                  /* ornek kurulur + cihaza ozel init yazimlari */
-ltc2991StatusRegistersRead(spLtc, &sDurum);                /* sDurum.uiV1Ready, sDurum.uiBusy ... */
-ltc2991VoltageRead(spLtc, &sVoltaj);                       /* sVoltaj.usArrVoltage[0..7] mV */
-ltc2991VoltageRead(i2cCihaz(I2C_CIHAZ_U7_LTC2991), &sV2);  /* ikinci LTC2991 (0x49): AYNI surucu */
-```
-
-**CIT ust katmani (`cit/`):**
-
-| Dosya | Icerik |
+| Gorunum | Ne icin |
 |---|---|
-| `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
-| `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari), `<mod>CitInit()`, `<mod>CitRead()` |
-| `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari; `sistemCitBusVarsayilan` I2C cihaz tablosunu da baglar), `SSistemCitLimit` (cihaz basina varsayilan), `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` - I2C cihazlari `i2cCihaz(I2C_CIHAZ_X)` satiriyla cagrilir |
+| Bilgi | Katalog bilgisi uzerinden lokal LLM'e soru (opsiyonel) |
+| Katalog | Desteklenen entegreler, register/komut haritalari, pin/waveform bilgisi |
+| Test Bench | Karta tek tek op gonderme, register oku/yaz, flash dosya transferi, I2C tarama |
+| Akis | Kart ile host arasindaki S2C-MSG cerceveleri ve ajan loglari canli |
+| Bring-up | Mission Control: guc -> sensor -> saat agaci -> bellek -> RF sirali acilis, dogum sertifikasi |
+| CIT | Cihaz ici test: her entegre kendi kutusunda, OK/NOK karari kartta |
+| Registers | Register anlik goruntusu, reset degeriyle/onceki goruntuyle diff, isi haritasi |
+| Register Map | Sayisal ekipten gelen register haritasi editoru; .h/.c, HTML, Excel |
+| Arayuz/YATT | S2C-MSG mesaj katalogu ve govde sablonlari (tek dogruluk kaynagi); HTML/MD disa aktarim |
+| Kilavuz | Bu kilavuzun uygulama ici surumu |
 
-`<mod>CitRead` surucu fonksiyonlarini cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
-(okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE min <= deger <= max; etkin degilse 1)
-bitleri dolar. Kritik/uyari ayrimi yoktur: aralik disi = NOK. Limitler calisma zamaninda degistirilebilir; NULL verilirse spec varsayilani.
+`Ctrl+K` komut paleti her ekrana ve sik aksiyonlara (Generate, Karta baglan) kisayoldur.
 
-```c
-static SSistemCitBus S_sBus;
-static SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
-static SSistemCit S_sCit;
+---
 
-sistemCitBusVarsayilan(&S_sBus);                 /* XPAR taban adresleri / surucu ornekleri */
-sistemCitInit(&S_sBus);                          /* her entegrenin DeviceInit'i (ilk hata doner) */
-S_sLimit.sU2Ltc2991.sV1.iMin = 3135;             /* isteğe bagli: canli limit */
-S_sLimit.sU2Ltc2991.sV1.iMax = 3465;
-S_sLimit.sU2Ltc2991.sV1.uiLimitVar = 1U;
-sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);      /* S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok ... */
+## 6. Setup
+
+### Platform ve runtime
+
+- Zynq-7000, Zynq UltraScale+ MPSoC, Versal ACAP, MicroBlaze 7-series (Artix/Kintex/Spartan-7 PL).
+- Runtime: bare-metal ya da FreeRTOS (yalniz ajan main'i ve lwIP API modu degisir).
+- **Test bench tasiyicisi**: `auto` (Ethernet varsa lwIP, yoksa UART), `eth`, `uart`,
+  `coresight` (ZynqMP DCC, JTAG), `mdm` (MicroBlaze Debug Module UART, JTAG).
+  JTAG tasiyicilari hicbir zaman otomatik secilmez.
+
+### `xparameters.h`
+
+Dosyayi yukle ya da icerigini yapistir; denetleyiciler (I2C, SPI/QSPI, GPIO, UART,
+Ethernet) cikarilir. Ayni denetleyici farkli makro takma adlariyla geliyorsa
+(`XPAR_PSU_I2C_0` / `XPAR_XIICPS_0`) tek denetleyici olarak birlestirilir.
+
+### Vivado ile XSA uret (Setup icinde)
+
+Kartin `.xsa` dosyasi yoksa Vivado kuruluysa Spec2Code onu uretebilir: PS
+yapilandirma formu (MIO, DDR, saat) -> arka planda batch Vivado -> iki asama:
+(1) sentezsiz `.xsa` dakikalar icinde hazir ve tek tusla Setup akisina baglanir,
+(2) istenirse sentez + implementasyon ile `.bit` (ZynqMP) / `.pdi` (Versal).
+MicroBlaze icin bitstream uretmek **XDC kisit dosyasi** ister (saat, reset ve disari
+cikan her arayuz gercek pinlere baglanmali; Spec2Code pin uydurmaz).
+
+### MicroBlaze notlari
+
+- Firmware yalniz LMB (BRAM) icinde kosar. Tam test bench ajani + birkac surucu +
+  BSP ~156 KB tuttugundan Spec2Code LMB'yi **256 KB** kurar (kucuk secersen link
+  `S2C-VITIS-MEMORY-012` ile duser).
+- Vitis'in varsayilan 1 KB yigini yetmez; workspace uretimi `lscript.ld`'yi
+  yigin 16 KB / heap 8 KB olacak sekilde yamar.
+- AXI IIC surucusu **dinamik mod** kullanir (`XIic_DynInit/DynSend/DynRecv`):
+  standart modda tek baytlik STOP'lu yazim (register pointer, switch kontrol bayti)
+  IP tarafindan dusuruluyordu (saha bulgusu, Nexys A7). Register okumasinda pointer
+  `XIIC_REPEATED_START` ile gider.
+- Referans tasarim: `scripts/make_nexys_a7_design.tcl` (Digilent Nexys A7-100T: MB
+  256K LMB, AXI UARTLite 115200, AXI IIC, AXI Quad SPI STARTUPE2 uzerinden
+  konfigurasyon flash'i). Bu kartta UART ajani, kart ustu ADT7420, S25FL128S flash,
+  karisik-mod CIT ve QSPI'dan acilis uctan uca dogrulanmistir.
+
+---
+
+## 7. Schematic
+
+### Entegre ekleme ve baglama
+
+- Katalogdan I2C, SPI/QSPI veya GPIO cihazi ekle; denetleyiciye dogrudan ya da
+  TCA9548A switch kanali uzerinden bagla.
+- Attach bilgileri: I2C adresi, SPI chip-select, reset GPIO, IRQ.
+- Config paneli: entegreye ozel init ayarlari (LTC2991 kanal ciftleri, LMK04832
+  TICS Pro register listesi...), istenen op'lar, `self_test`, CIT olcum limitleri.
+- **Kart verisi**: bazi donusumler kartta belirlenen bir degere ihtiyac duyar
+  (LTC2945 akimi icin `sense_resistor_mohms`). Descriptor bunu ister; bos birakip
+  op'u istersen Generate acik hata verir.
+- **Sanal cihaz**: kutudaki "gercek / sanal" anahtari cihazi `simulate: true` yapar
+  (eflatun kutu). Test bench ajani o cihazi yazilim simulatorunden cevaplar; ayni
+  hattaki gercek cihazlar gercek kalir (bolum 8, simulasyon). Yalniz I2C register
+  ve SPI TICS-register cihazlari sanal olabilir.
+
+Generate oncesi validasyon: ayni hatta adres/CS cakismasi, var olmayan denetleyici,
+descriptor ile uyumsuz transport, eksik kart verisi.
+
+### Cihaz kimlikleri
+
+Kimlik kurali `<kart>_<parca>[_<n>]`:
+
+```text
+sakk_adt7420        tek ADT7420
+sakk_ltc2991_1      ayni kartta birden fazla LTC2991: ekleme sirasiyla _1, _2 ...
+sakk_ltc2991_2
 ```
 
-Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
-tabanli SPI flash, I2C EEPROM.
+Kart oneki kart adinin snake_case halidir (kart tanimsiz projede `kart`). Kimlikler
+her degisiklikte otomatik kurala cekilir (mux referanslari tasinir). Uretilen enum
+(`I2C_CIHAZ_SAKK_LTC2991_1`) ve CIT varsayilan olcum adlari
+(`SAKK_LTC2991_1_V1`, `SAKK_LTC2991_1_TEMPERATURE_READ`) bu kimlikten turer.
 
-**"CIT kostur" akisi (CIT ekrani / Test Bench):** host `CIT_RUN` gonderir; ajan
-`tests/spec2code_cit.c` `boardCitRun()` -> `spec2codeTestbenchBoardInit()` (denetleyiciler)
--> `SSistemCitBus` ajanin handle getter'larindan doldurulur -> `cit/sistem_cit.c`
-`sistemCitRead()` -> `cit/<mod>_cit.c` `<mod>CitRead()` -> `drivers/<mod>.c` okuma
-fonksiyonlari. Sonuc manifest sirasiyla `SBoardCit`'e kopyalanir: deger, okuma durumu
-(`uiDurum`) ve KARTIN OK/NOK biti (`ui<Ad>Ok` = okundu VE limit icinde; etkin degilse OK).
-CIT ekraninda degistirdigin limit/etkin degerleri bagliyken ANINDA karta yazilir
-(`CIT_LIMIT_SET` -> `boardCitLimitAyarla()` -> `cit/` `S<Mod>CitLimit` alani) ve her "CIT
-kostur"dan once yeniden gonderilir; karari kart verir, ekran yalnizca kartin bitini gosterir.
-Sayac yoktur: o kosuda hata/NOK olup olmadigi bitlerden ve `<mod>CitRead` donusunden
-(CIT_OK/NOK/HATA) okunur. Ekranda gordugun CIT sonucu, projene tasiyacagin `cit/` ve
-`drivers/` kodunun KENDISINDEN gelir. Anlik okumalar ("sicaklik oku"
-gibi tek op'lar) ise ajan dispatch'inden dogrudan surucu fonksiyonunu cagirir.
+### Cok kartli sistemler
 
-**Self-test (`tests/<mod>_test.c`):** yalniz `tests_requested: ["self_test"]` olan cihazlar
-icin uretilir; `<mod>SelfTest(handle)` = DeviceInit + butun okuma fonksiyonlari (ilk hatada
-durur), loglar `dbg_printf(DEBUG_LEVEL_INFO, ...)` ile. Test Bench'te cihazin `self_test`
-op'u olarak kosulur; ayri bir harness/FreeRTOS gorevi ya da `spec2code_selftest_main.c`
-runner'i ajanli projede uretilmez (yalniz ajansiz projede `main()` runner'i sahnelenir).
+Sistem tek karttan ibaret degilse kartlari birinci sinif olarak modelle. Kart
+tanimlamadigin surece hicbir sey degismez.
 
-### Seviyeli debug print: `dbg_printf`
+- **Kart ekle** (sag panel): ilk kart ana karttir, o ana kadar eklenen her sey ona
+  tasinir; sonrakiler cevre kartidir. Denetleyiciler her zaman ana karttadir.
+- Cihazi/mux'u kart kutusunun icine surukleyerek atarsin; elektriksel baglanti
+  (`attach`) degismez, yalniz fiziksel konum degisir.
+- **Konnektor**: iki kart arasi hat gecisini belgeler (ad, kaynak/hedef kart,
+  denetleyici, varsa switch kanali, not). Elektriksel yolu degistirmez; cevre
+  kartinda cihaz olup konnektor yoksa uyari alirsin.
+- Ciktida surucu dosyalari kart klasorlerine ayrilir (`drivers/ana_kart/ltc2991.c`,
+  `drivers/rf_kart/tmp101.c`); `cit/` ve `tests/` sistem genelidir. Vitis include
+  yolu otomatik eklenir. CIT/Test Bench kutulari kart basliklari altinda gruplanir,
+  YATT'a **Sistem Topolojisi** bolumu gelir.
 
-Uretilen kodun tek log kapisi `drivers/dbg_printf.h/.c`'dir; kullaniciya giden katmanda
-oldugundan adinda `spec2code` yoktur ve kendi projene suruculerle birlikte tasinir.
+Ornek: `specs/samples/multi_board_demo.spec.json`
+(`python spec2code_cli.py build --spec specs/samples/multi_board_demo.spec.json`).
 
-**Seviyeler** (`dbg_printf.h`):
+---
+
+## 8. Generate: uretilen kod ve katmanlar
+
+Generate konsolu codegen, referans kaynak kopyalama, (aciksa) LLM ve deterministik
+QC turlarini gosterir; bitince Code viewer acilir.
+
+```text
+drivers/            surucular + i2c_cihazlar.* + dbg_printf.*        -> senin firmware'ine
+cit/                CIT ust katmani (limit, OK/NOK)                  -> senin firmware'ine
+tests/              test bench ajani, S2C-MSG, self-test'ler, manifest -> yalniz Spec2Code
+tests/sim/          sanal cihaz simulatorleri (yalniz sanal cihaz varsa)
+reference_sources/  ithal edilen referans kaynaklar (varsa)
+qc_report.json, README.md, .clang-format
+```
+
+Her `.c` dosyasinin `.h` esi vardir. Kullaniciya giden `drivers/` ve `cit/`
+dosyalarinda `spec2code` adli hicbir dosya ya da sembol yoktur ve test bench
+basliklarina bagimlilik yoktur; oldugu gibi tasinirlar.
+
+### 8.1 Surucu katmani (`drivers/`)
+
+**I2C cihaz tablosu (`drivers/i2c_cihazlar.h/.c`)** - butun I2C cihazlari icin tek
+dogruluk kaynagi:
+
+```c
+typedef enum { I2C_CIHAZ_SAKK_ADT7420 = 0, I2C_CIHAZ_SAKK_LTC2991_1, ..., I2C_CIHAZ_SAYISI } EI2cCihaz;
+
+typedef struct
+{
+    XIic* spIic;                 /* denetleyici ornegi (i2cCihazlarInit ile atanir) */
+    unsigned char ucAdres;       /* 7-bit I2C adresi                               */
+    unsigned char ucSwitchAdres; /* TCA9548A adresi; 0 = switch yok                */
+    unsigned char ucSwitchKanal; /* switch kanali 0..7                             */
+    const SI2cInitYazim* spInit; /* cihaza ozel device_init yazimlari (NULL = yok) */
+    unsigned char ucInitSayisi;
+} SI2cCihaz;
+
+void i2cCihazlarInit(XIic* spPlI2c0);   /* denetleyici basina bir parametre */
+const SI2cCihaz* i2cCihaz(EI2cCihaz eCihaz);
+```
+
+Surucu fonksiyonlari ornek/adres yerine tablo satirini alir: `int ltc2991VoltageRead(const SI2cCihaz* spCihaz, SLtc2991Voltage* spVoltage)`.
+Bus ornegi, adres, switch secimi ve init yazimlari satirdan gelir; ayni parcadan N
+cihaz **tek surucu** paylasir, ayrim satirdan yapilir. SPI/GPIO cihazlarinda handle
+Xilinx surucu ornegi isaretcisidir (`XSpi*`, `XSpiPs*`, `XGpio*`); kural: ornek en
+alt seviyeye kadar iner, taban adres icerde (`spIic->BaseAddress`) cekilir.
+
+**Struct API'si:**
+
+- Durum registerleri: `S<Mod>Status` (bit alanlari + ham baytlar), `<mod>StatusRegistersRead(spCihaz, &sStatus)`.
+- Dizi donuslu op (`voltages[8]`): `S<Mod>Voltage { unsigned short usArrVoltage[8]; }`, `<mod>VoltageRead(spCihaz, &sVoltage)` - mV tam sayi.
+- Skaler op'lar `int*` / `unsigned short*` alir; birim donusumleri `static <mod><Olcum>Convert()` yardimcilarindadir.
+- Donus degerleri: durum icin `XST_SUCCESS/XST_FAILURE`, dogru/yanlis icin `TRUE/FALSE`; ciplak 0/1 donen fonksiyon yoktur.
+
+```c
+static XIic S_sIic;
+const SI2cCihaz* spLtc;
+SLtc2991Status sDurum;
+SLtc2991Voltage sVoltaj;
+
+i2cCihazlarInit(&S_sIic);                            /* tablo -> denetleyici ornegi (bir kez) */
+spLtc = i2cCihaz(I2C_CIHAZ_SAKK_LTC2991_1);
+ltc2991DeviceInit(spLtc);                            /* ornek kurulur + cihaza ozel init yazimlari */
+ltc2991StatusRegistersRead(spLtc, &sDurum);          /* sDurum.uiV1Ready, sDurum.uiBusy ... */
+ltc2991VoltageRead(spLtc, &sVoltaj);                 /* sVoltaj.usArrVoltage[0..7] mV */
+ltc2991VoltageRead(i2cCihaz(I2C_CIHAZ_SAKK_LTC2991_2), &sVoltaj); /* ikinci LTC2991: ayni surucu */
+```
+
+**Seviyeli debug print (`drivers/dbg_printf.h/.c`)** - uretilen kodun tek log kapisi:
 
 | Sabit | Deger | Ne icin |
 |---|---|---|
 | `DEBUG_LEVEL_ALWAYS` | 0 | banner vb. kesin yazilacaklar |
 | `DEBUG_LEVEL_ERROR` | 1 | hata durumlari (**varsayilan esik**) |
-| `DEBUG_LEVEL_WARNING` | 2 | hataya sebep olabilecek uyarilar |
-| `DEBUG_LEVEL_MSG` | 3 | mesaj gonderim/alim katmani (S2C-MSG RX/TX) |
-| `DEBUG_LEVEL_INFO` | 4 | debug'a faydali ekstra bilgi |
-| `DEBUG_LEVEL_TRACE` | 5 | I2C/SPI gelen-giden baytlar (en alt katman) |
+| `DEBUG_LEVEL_WARNING` | 2 | uyarilar |
+| `DEBUG_LEVEL_MSG` | 3 | mesaj katmani TX/RX |
+| `DEBUG_LEVEL_INFO` | 4 | debug bilgisi |
+| `DEBUG_LEVEL_TRACE` | 5 | I2C/SPI gelen-giden baytlar |
 
-**Kural:** bir print ancak seviyesi o an ayarli esikten KUCUK ya da ESITSE basilir. Esik
-WARNING (2) ise ALWAYS, ERROR ve WARNING basilir; MSG/INFO/TRACE bastirilir.
-
-**API:**
+Bir print ancak seviyesi esikten kucuk ya da esitse basilir.
 
 ```c
-#include "dbg_printf.h"
-
-dbg_printf(DEBUG_LEVEL_ALWAYS, "kart yazilimi v%u basladi", uiSurum);   /* her zaman */
 dbg_printf(DEBUG_LEVEL_ERROR, "LTC2991 init dustu: status=%d", iStatus);
-dbg_printf(DEBUG_LEVEL_INFO, "yazilacak veri: %d", iVeri);              /* esik >= 4 ise */
-
-dbgLevelSet(DEBUG_LEVEL_INFO);          /* calisma zamaninda esik; 0..5'e kirpar, yeniyi dondurur */
-unsigned int uiEsik = dbgLevelGet();    /* gecerli esik */
-const char* cpAd = dbgLevelName(uiEsik);/* "error", "info" ... */
+dbgLevelSet(DEBUG_LEVEL_INFO);            /* calisma zamaninda esik */
+dbgSinkSet(fp);                           /* ciktiyi yonlendir: void fp(unsigned int uiLevel, const char* cpBody) */
 ```
 
-- Cikti: kayitli bir sink yoksa `xil_printf` (satir sonu `
-` eklenir). Cikti hedefini
-  degistirmek icin `dbgSinkSet(fp)` ile `void fp(unsigned int uiLevel, const char* cpBody)`
-  imzali bir fonksiyon kaydet (govde satir sonsuz gelir).
-- Format govdesi en fazla 159 karakterdir (`DBG_BODY_MAX`); uzun mesajlar kesilir.
-- Tamponlar statiktir (tek baglam, bare-metal): kesme icinden cagirma.
-- Bus izleri: suruculer her transferi `dbgTraceI2c(adres, reg, 'r'|'w', veri, boy)` ve
-  `dbgTraceSpi(cs, tx, rx, boy)` ile TRACE seviyesinde basar
-  (`TRACE|bus=i2c|addr=0x48|reg=0x0A|dir=r|len=1|data=0C`); dusen transfer
-  `dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|bus=i2c|addr=..|reg=..|asama=p|status=-1")`
-  uretir (asama: `w` yazma, `p` pointer, `r` okuma, `m` mux). Esik TRACE'in altindayken
-  hex formatlama hic yapilmaz (maliyet sifira yakin).
+Sink kaydetmezsen `xil_printf` ile STDOUT UART'ina yazar. Suruculer her transferi
+TRACE seviyesinde (`TRACE|bus=i2c|addr=0x48|reg=0x0A|dir=r|len=1|data=0C`), dusen
+transferi ERROR seviyesinde (`TRACEERR|...|asama=p|status=-1`; asama `w` yazma,
+`p` pointer, `r` okuma, `m` switch) basar. Tamponlar statiktir; kesme icinden cagirma.
 
-**Test bench'te:** ajan `spec2codeLogSinkSet()` ile bir sink kaydeder; her satir
-`S2C-LOG|<A/E/W/M/I/T>|govde` cercevesine sarilip UART/DCC'den host'a gider. TRACE ve
-TRACEERR govdelerine komut id'si eklenir (`TRACE|id=7|bus=...`) ki Akis ekrani izi ilgili
-istekle eslestirsin. Esik baglanti kartindaki secici ya da `log_level` komutuyla (deger 0..5)
-canli degistirilir; kart varsayilan olarak ERROR ile acilir.
+### 8.2 CIT ust katmani (`cit/`)
 
-**Kendi projende:** `drivers/dbg_printf.c`'yi derlemeye ekle; sink kaydetmezsen
-`xil_printf` uzerinden STDOUT UART'ina yazar. Uretimde gurultuyu kesmek icin
-`dbgLevelSet(DEBUG_LEVEL_ERROR)` (varsayilan) yeterlidir; sorun kovalarken
-`DEBUG_LEVEL_TRACE` bus baytlarini gosterir.
+| Dosya | Icerik |
+|---|---|
+| `cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()` (TRUE/FALSE), `CIT_OK/NOK/HATA` |
+| `<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari), `<mod>CitInit()`, `<mod>CitRead()` |
+| `sistem_cit.h/.c` | `SSistemCitBus` (denetleyici ornekleri), `SSistemCitLimit` (cihaz basina varsayilan), `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
 
-### Simulasyon ve karisik mod (`tests/sim/`)
-
-Sanal cihazlar YALNIZ test bench derlemesine girer; surucu ve cit dosyalari sanal cihazi
-bilmez. Mekanizma: `tests/sim/spec2code_sim_xilinx.h` derleme bayragi `-include` ile her
-ceviri birimine girer ve Xilinx veri-yolu fonksiyonlarini (`XIic_DynSend/DynRecv`,
-`XIicPs_Master*Polled`, `XSpi_SetSlaveSelect/Transfer`, `XSpiPs_*`) `spec2codeSim*`
-sarmalayicilarina yonlendirir. Sarmalayici adres/CS'i kayitli sanal cihaz zincirinde bulursa
-simulatoru kosturur, bulamazsa GERCEK Xilinx fonksiyonunu cagirir (karisik mod). Vitis
-uretimi bayragi ve include yolunu kendisi ekler.
-
-- `tests/sim/spec2code_sim.h/.c`: cihaz kaydi (`spec2codeSimI2cEkle/Kaldir`,
-  `spec2codeSimSpiEkle/Kaldir`), sanal TCA9548A switch, sarmalayicilar.
-- `tests/sim/<mod>_sim.h/.c`: descriptor'dan uretilen register modeli + davranis bloklari;
-  `<mod>SimKur()`, `<mod>SimHataAyarla()`, `<mod>SimRegisterYaz()`.
-- Ajan (`<proje>_testbench_ops.c`): `simulate` isaretli cihazlari ilk dispatch'te kaydeder
-  (`spec2codeSimHazirla`); dispatch dogrudan GERCEK surucuyu cagirir, sarmalayici yoktur.
-  Bir mux'un arkasindaki HER cihaz sanalsa sanal switch de kaydedilir.
-
-**Sematikte sanal cihaz isareti:** entegre kutusundaki "gercek / sanal" piline tikla. Spec'e
-`simulate: true` yazilir, kutu eflatun olur ve test bench ajani o cihazin butun op'larini
-simulatorden cevaplar; ayni hattaki gercek cihazlar gercek kalir. Yalniz I2C register ve
-SPI TICS-register cihazlari isaretlenebilir.
-
-**Hata enjeksiyonu:** `ltc2991SimHataAyarla(&sim, SPEC2CODE_SIM_HATA_NACK)` cihazi hattan
-kaldirir (her erisim duser); `SPEC2CODE_SIM_HATA_HAZIR_YOK` READY bitlerini hic kurmaz
-(poll zaman asimi).
-
-Davranisli simulatorler (statik register modelinin ustune):
-
-| Entegre | Davranis | Senaryo API'si |
-|---|---|---|
-| LTC2991 | READY bitleri (repeated / tek-atis tetik, LSB okununca temizlenir), 2991f kod uretimi, STATUS_HIGH ro bit korumasi | `ltc2991SimKanalAyarla(mV)`, `SicaklikAyarla(santi-C)`, `VccAyarla(mV)` |
-| LTC2945 | SHUTDOWN degilse her okumada SENSE/VIN/ADIN 12-bit kodlari + 24-bit guc carpimi, MAX/MIN izleme, ADC_BUSY, FAULT_CLEAR | `ltc2945SimAkimAyarla(mA, Rsense mohm)`, `SenseAyarla(uV)`, `VinAyarla(mV)`, `AdinAyarla(uV)` |
-| DS1682 | Her I2C okuma isleminde ETC ilerler (vars. 4 tik = 1 s), EVENT sayaci + CONFIGURATION[0] (bit 16), ETC >= ALARM -> ALARM_FLAG, RESET_COMMAND 0x55 + RESET_ENABLE sifirlar | `ds1682SimEtcAyarla(s)`, `OlayAyarla(n)`, `OlayEkle(n)`, `TikAdimiAyarla(tik)` |
-| LMK04832 | `register_model` cercevesi cozulur; RB_PLL_STATUS DLD/LOST bitleri | `lmk04832SimKilitAyarla(&sim, pll1, pll2)` |
-
-Host tarafinda `tests/xilinx_stubs/` (xil_types/xstatus/xiic_l/xspi stub'lari) ile
-`drivers + cit + tests/sim` gcc'de derlenip kosulur (`tests/test_cit_layer.py`).
-
-**Kart verisi (`sense_resistor_mohms` gibi):** bazi donusumler kartta belirlenen bir
-degere ihtiyac duyar (LTC2945 `current_read` icin sont direnci). Descriptor bunu
-`convert.scale_den_config` ile ister; codegen degeri `device.config` icinde arar ve op
-acikca istenmisse deger yoksa `device.config.<anahtar> gerekli` hatasiyla durur.
-Schematic'te cihazi secince config editoru bu alanlari **Kart verisi** basligiyla
-gosterir; istenen op icin bos birakilan alan kirmizi uyarilir.
-
-## 11. Code Viewer ve Download
-
-Code viewer'da:
-
-- Generated dosyalari hiyerarsik agacta gorursun.
-- Tek dosya indirebilirsin.
-- Tum generated output'u zip olarak indirebilirsin.
-- Vitis-ready export zip indirebilirsin.
-- QC bulgularini aktif dosya ozelinde gorebilirsin.
-- Test bench manifest ve agent kaynaklarini `tests/` altinda gorebilirsin.
-
-## 12. Test Bench
-
-Test Bench sayfasi, generate sonucu uretilen su manifest dosyasindan beslenir:
-
-```text
-tests/spec2code_testbench_manifest.json
-```
-
-Generate sonucu ayrica hedef uygulamaya eklenebilecek **S2C-MSG binary mesaj
-katmani** kaynaklarini uretir:
-
-```text
-tests/spec2code_mesaj.c/.h                 (kodek: parser + dispatch koprusu)
-tests/spec2code_testbench_protocol.c/.h
-tests/spec2code_testbench_log.c/.h
-tests/spec2code_testbench_trace.c/.h
-tests/<project>_testbench_ops.c/.h
-```
-
-Platforma gore ayrica UART, lwIP (TCP) veya CoreSight DCC tasiyici uretilir
-(asagida). Metin satir protokolu (eski `S2C|id=..|op=..`) TAMAMEN KALKMISTIR;
-uc tasiyicinin ucu de ayni **12 baytli little-endian binary cerceveyi** tasir:
+`<mod>CitRead` surucuyu cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
+(okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE `iMin <= deger <= iMax`;
+etkin degilse OK) bitleri dolar. Kapali aralik: `min == max` gecerlidir (or. 0..0).
+Kritik/uyari ayrimi yoktur. Donus `CIT_OK` / `CIT_NOK` (etkin olcum limit disi) /
+`CIT_HATA` (surucu okumasi dustu); sayac tutulmaz.
 
 ```c
-typedef struct
-{
-    unsigned int uiMesajKomut;  /* mesaja ozgu ID           */
-    unsigned int uiMesajBoyu;   /* govde boyu (byte), 4 katı */
-    unsigned int uiMesajSayac;  /* yon basina artan sayac    */
-} SMesajBaslik;
+static SSistemCitBus S_sBus;
+static SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;   /* spec'ten cihaz basina */
+static SSistemCit S_sCit;
+
+sistemCitBusVarsayilan(&S_sBus);        /* surucu ornekleri + I2C cihaz tablosu baglanir */
+sistemCitInit(&S_sBus);                 /* her entegrenin DeviceInit'i */
+S_sLimit.sSakkLtc29911.sV1.iMin = 3135; /* istege bagli canli limit */
+S_sLimit.sSakkLtc29911.sV1.iMax = 3465;
+S_sLimit.sSakkLtc29911.sV1.uiLimitVar = 1U;
+sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);   /* S_sCit.sSakkLtc29911.sBayraklar.uiV1Ok ... */
 ```
 
-Her mesaj kataloglanmistir (`backend/data/message_catalog.json`); tam ID/govde
-tablosu ve hata kodlari uygulamadaki **Arayuz/YATT** sayfasindan (self-contained
-HTML/MD olarak da) indirilebilir — bu userguide kod uretecinin sozlesmesini
-tekrar etmez, tek dogruluk kaynagi YATT sayfasidir.
+Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
+tabanli SPI flash, I2C EEPROM.
 
-Bu agent dosyalari kart tarafinda `spec2codeMesajBesle()` / `spec2codeMesajIsle()`
-fonksiyonlarini sunar (eski `spec2codeTestbenchDispatchLine()` SILINDI). Windows
-UI dogrudan donanim bus'ina dokunmaz; secilen tasiyici (TCP, seri UART veya
-CoreSight DCC) uzerinden karta baglanir ve binary cerceveleri bu baglanti
-uzerinden gonderir. Kart tarafi gelen her bayt/chunk/segment'i parser'a
-besleyip (`spec2codeMesajBesle`) tamamlanan cerceveyi isler (`spec2codeMesajIsle`)
-ve yanit cercevesini ayni baglanti uzerinden geri dondurur.
+### 8.3 Test bench katmani (`tests/`)
 
-Platform `zynq_ultrascale` ise ve `xparameters.h` icinden PS Ethernet controller'i
-(`XEmacPs`) yakalandiysa Spec2Code ek olarak hazir lwIP TCP agent uretir:
+Yalniz Spec2Code'un kullandigi dosyalar:
 
 ```text
-tests/spec2code_testbench_lwip.c/.h
-tests/spec2code_testbench_lwip_main.c/.h
+spec2code_testbench_protocol.c/.h   istek/yanit veri yapilari
+spec2code_mesaj.c/.h                S2C-MSG cerceve cozucu + dispatch koprusu
+spec2code_testbench_log.c/.h        dbg_printf sink: satirlari S2C-LOG cercevesine sarar
+<proje>_testbench_ops.c/.h          op dispatch (her cihaz kendi tablo satiriyla)
+spec2code_cit.c/.h                  CIT kosusu (cit/ katmanini cagirir) - olcum varsa
+spec2code_testbench_manifest.json   Test Bench / CIT / YATT'in okudugu manifest
+<mod>_test.c/.h                     self-test (yalniz self_test istenen cihazlar)
+spec2code_testbench_uart|lwip|coresight.* + _main.*   secilen tasiyici ve main()
+sim/                                sanal cihazlar (asagida)
 ```
 
-Bu dosyalar Zynq UltraScale+ PS Ethernet uzerinden lwIP TCP server acar. Vitis
-workspace uretiminde standalone runtime icin BSP `RAW_API`, FreeRTOS runtime icin
-BSP `SOCKET_API` mode secimi denenir. Varsayilan port `5000`, varsayilan IP
-`192.168.1.10` olarak gelir. Bunlari
-Vitis compile define veya generated header uzerinden su makrolarla degistirebilirsin:
+**Self-test**: `<mod>SelfTest(spCihaz)` = DeviceInit + butun okuma fonksiyonlari
+(ilk hatada durur); Test Bench'te cihazin `self_test` op'u olarak kosulur.
+
+**Simulasyon (`tests/sim/`)**: `spec2code_sim_xilinx.h` derleme bayragi `-include`
+ile her ceviri birimine girer ve Xilinx veri-yolu fonksiyonlarini
+(`XIic_DynSend/DynRecv`, `XIicPs_Master*Polled`, `XSpi_SetSlaveSelect/Transfer`,
+`XSpiPs_*`) sarmalayicilara yonlendirir. Adres/CS kayitli bir sanal cihaza aitse
+simulator cevap verir, degilse gercek Xilinx fonksiyonu cagrilir (karisik mod).
+Surucu ve cit dosyalari sanal cihazi bilmez. `<mod>_sim.*` descriptor'dan uretilen
+register modelidir; davranis bloklari (LTC2991 READY/deger uretimi, LTC2945 guc
+carpimi, DS1682 gecen zaman sayaci, LMK04832 kilit bitleri) ve hata enjeksiyonu
+(`SPEC2CODE_SIM_HATA_NACK`, `SPEC2CODE_SIM_HATA_HAZIR_YOK`) vardir.
+
+---
+
+## 9. Kodu kendi projene tasima
+
+1. `drivers/` (kart klasorleri dahil) ve `cit/` klasorlerini kaynak agacina ekle;
+   include yoluna bu klasorleri koy. Baska hicbir Spec2Code dosyasi gerekmez.
+2. Denetleyici orneklerini olustur, `i2cCihazlarInit(...)` ile tabloyu bagla (ya da
+   cit/ kullaniyorsan `sistemCitBusVarsayilan()` bunu senin yerine yapar).
+3. Her entegre icin `<mod>DeviceInit(i2cCihaz(...))` / SPI icin `<mod>DeviceInit(&sSpi)`.
+4. Okumalar icin surucu fonksiyonlarini ya da `sistemCitRead()`'i cagir.
+5. `dbg_printf.c`'yi derlemeye ekle; gurultu icin `dbgLevelSet(DEBUG_LEVEL_ERROR)`.
+
+Test bench ajanini kendi projende kullanma; o yalniz Spec2Code ekranlari icindir.
+
+---
+
+## 10. Karta baglanma
+
+Her ekranin ustundeki **Baglanti** karti ortaktir: bir kez baglanirsin, Test Bench,
+Akis, Bring-up, CIT ve Registers ayni oturumu kullanir.
+
+| Tip | Ne zaman | Alanlar |
+|---|---|---|
+| TCP | lwIP Ethernet ajani (ZynqMP PS Ethernet) | host, port (vars. 5000), timeout |
+| Seri | UART ajani (PS UART / AXI UARTLite) | COM portu, baud (or. 115200) |
+| CoreSight | ZynqMP DCC, JTAG (xsdb jtagterminal) | Vitis yolu, cekirdek |
+| MDM | MicroBlaze Debug Module UART, JTAG | Vitis yolu |
+
+SmartLynq / uzak `hw_server` icin `connect -url` alani vardir. Ilk JTAG baglantisi
+xsdb acilisi yuzunden 10-30 sn surebilir. Ayni COM portunu tutan eski oturum sunucu
+tarafinda devralinir. Kartin debug esigi (0 always .. 5 trace, varsayilan error)
+buradan canli degistirilir (`log_level` komutu).
+
+Protokol: uc tasiyici da ayni 12 baytlik little-endian cerceveyi tasir
+(`uiMesajKomut`, `uiMesajBoyu`, `uiMesajSayac`); mesajlar katalogludur ve tam tablo
+Arayuz/YATT sayfasindadir. Kart yazilimi bu surumun uretimiyle yuklenmemisse ilk
+komutta zaman asimi / GECERSIZ_MESAJ alirsin: Generate + Vitis ile yeniden derleyip
+yukle.
+
+---
+
+## 11. Test Bench
+
+Manifestteki entegreleri (kart basliklari altinda) listeler; her entegre icin gercekten
+uretilmis op'lari sunar:
+
+- `device_init`, okuma op'lari (`voltage_read`, `temperature_read`, ...), `self_test`.
+- `register_read` / `register_write`: register adi ya da adres (genis registerler tek
+  islemde).
+- Flash/EEPROM: adres, uzunluk, veri hex; flash'ta **Dosya transferi** modu (256 baytlik
+  parcalarla .bin okuma/yazma + geri okuma dogrulamasi).
+- **Butun cihazlari ilklendir** (kart kart ilerler) ve **I2C tarama** (denetleyici ve
+  switch kanali secilerek).
+- Riskli op'lar (`init`, `write`, `program`, `erase`) onay ister.
+- Yanit alanlari (`ok`, `status`, `value`, `data`, `message`) cozulmus gosterilir;
+  ham istek/yanit cerceve ozeti + hex olarak durur.
+
+LTC2991 ornegi: `voltage_read` 8 kanal mV, `temperature_read` 0.01 C, `vcc_read` mV,
+`current_read` ham kanal kodu (sont uzerinden akim hesabi uygulama katmanindadir).
+
+Karti ilk kez dogrularken `docs/s2cmsg_parite_listesi.md` kontrol listesini kullan.
+
+---
+
+## 12. CIT (Cihaz Ici Test)
+
+CIT ekrani her entegreyi kendi kutusunda gosterir: baslik (parca, kimlik, adres/CS,
+switch, SANAL rozeti), dizi donuslu op'lar icin kanal karolari (V1..V8 / I1..I8),
+skaler olcumler icin satirlar. Ayni parcadan entegreler bir satirda yan yana durur.
+
+**Karar karttadir.** Bir karoya tiklayip limit (min/max, kapali aralik) ya da etkin
+durumunu degistirdiginde bagliysan bu degerler ANINDA karta yazilir (`CIT_LIMIT_SET`
+mesaji -> `cit/` limit yapisi) ve her "CIT kostur"dan once yeniden gonderilir. Kart
+`sistemCitRead()` ile okur, OK/NOK bitini kendisi hesaplar; ekran yalnizca kartin
+bitini ve okuma durumunu gosterir. Yani ekranda gordugun sonuc, projene tasidigin
+`cit/` + `drivers/` kodunun kendisinden gelir.
+
+Akis: `CIT_RUN` -> ajan `boardCitRun()` -> `spec2codeTestbenchBoardInit()` -> I2C cihaz
+tablosu baglanir -> `sistemCitRead()` -> `<mod>CitRead()` -> surucu okumalari -> sonuc
+manifest sirasiyla `SBoardCit`'e (deger, okuma durumu, OK biti) -> host.
+"Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
+
+Not: cit/ okumalari ilklendirilmis entegre ister; once Test Bench'ten "butun
+cihazlari ilklendir" ya da Bring-up kos.
+
+---
+
+## 13. Bring-up, Registers, Akis, Register Map, Arayuz/YATT
+
+- **Bring-up (Mission Control)**: guc -> sensor -> saat agaci -> bellek -> RF sirasiyla
+  cihazlari ilklendirir ve okur; her adim yesil/kirmizi, sonunda dogum sertifikasi.
+- **Registers**: bir cihazin butun registerlerinin anlik goruntusu; karsilastirma
+  tabani olarak reset degerleri (datasheet) ya da onceki goruntu; degisen bitler isi
+  haritasinda. Yazma onay ister.
+- **Akis**: karta giden/gelen cerceveler ve `S2C-LOG` satirlari canli; TRACE
+  seviyesinde I2C/SPI baytlari komut kimligiyle eslestirilir. Telnet log sunucusu
+  uretildiyse onun satirlari da burada.
+- **Register Map**: sayisal ekipten gelen memory-mapped PL IP register haritasini
+  duzenle; self-contained HTML editor, Excel ve `.h/.c` (struct/union, bit alanli)
+  uret. Register genisligi offset'lerden cikarilir.
+- **Arayuz/YATT**: S2C-MSG mesaj katalogu (ID, yon, govde sablonu, durum kodlari),
+  manifest ile zenginlestirilmis; cok kartli projede Sistem Topolojisi; HTML/MD olarak
+  paylasilabilir. Protokolun tek dogruluk kaynagi budur.
+
+---
+
+## 14. Vitis workspace ve Board'da calistirma
+
+Generate bittikten sonra **Vitis workspace** paneli: Vitis dizini
+(`C:\Xilinx\Vitis\2023.2`), `.xsa` dosya yolu, workspace ve temp/staging dizinleri,
+platform/system/application adlari, islemci (`psu_cortexa53_0`, `microblaze_0`...).
+
+Akis: XSCT bulunur -> `.xsa` ve uretilen kaynaklar staging'e kopyalanir (uretim
+ciktisi diskte eksikse acik hata: once Generate'i yeniden calistir) -> custom PL IP
+adaylari `.hwh`'dan algilanir -> lwIP gerekiyorsa BSP kutuphanesi/API modu denenir ->
+`spec2code_create_workspace.tcl` yazilir -> platform/system/application kurulur ->
+`app build` -> uygulama adiyla eslesen `.elf` dogrulanir. **Kaynak guncelleme modu**
+platform/BSP'ye dokunmadan yalniz kaynaklari yeniler ve uygulamayi derler
+(CLI: `--vitis-update`). Sanal cihaz varsa `-include spec2code_sim_xilinx.h` bayragi ve
+`tests/sim` include yolu otomatik eklenir.
+
+Staging dizini:
 
 ```text
-SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT
-SPEC2CODE_TESTBENCH_IP_ADDR0..3
-SPEC2CODE_TESTBENCH_NETMASK_ADDR0..3
-SPEC2CODE_TESTBENCH_GATEWAY_ADDR0..3
-SPEC2CODE_TESTBENCH_MAC0..5
+<temp>\<vitis_job>\hw\  src\  spec2code_create_workspace.tcl
+                     spec2code_self_heal_workspace.tcl  spec2code_vitis_manifest.json
+                     logs\xsct_stdout.log  logs\xsct_stderr.log  (+ self_heal loglari)
 ```
 
-PS UART veya CoreSight DCC uzerinden baglanmak istersen (Ethernet yoksa/JTAG
-disinda erisim yoksa) generate ayrica su dosyalari uretir:
+**Custom PL IP**: varsayilan politika `auto_none` - Xilinx/AMD disi (ya da standart
+IP ailesine benzemeyen) PL modulleri icin BSP surucusu `none` denenir; source'suz
+`make.libs` dosyalari yamalanir, gerekirse self-heal script'i `bsp regenerate` +
+`app build` ile toparlar (`BSP patch N`, `self-heal gecti` rozetleri). Custom IP gercek
+bir surucuyle geliyorsa `BSP default'u koru` sec.
+
+**Vitis Doctor**: tamamen lokal; `S2C-VITIS-...` hata kodlari, custom IP/make.libs
+sayilari, self-heal sonucu, beklenen ELF adi. Compile error mapper eksik header,
+undefined reference, coklu tanim, `XPAR_*` uyusmazligi gibi hatalari one cikarir; ham
+log gizlenmez.
+
+**Board'da calistir (JTAG / xsdb)**: workspace'teki ELF'i (MicroBlaze'de zorunlu
+bitstream ile birlikte) JTAG'dan yukleyip calistirir. Kalici acilis icin ELF'i
+`updatemem` ile BRAM'e gomulu bitstream'e yazip konfigurasyon flash'ina kazirsin
+(Nexys A7 akisi changelog'da belgelidir).
+
+En sik hatalar: yanlis Vitis/XSA yolu, XSA'daki islemci adinin farkli olmasi,
+BSP/toolchain eksigi, lwIP kutuphanesinin BSP'de acilamamasi, custom IP surucusu.
+Once UI'daki son ilerleme mesajina, sonra `xsct_stderr.log`'a bak.
+
+---
+
+## 15. Kodlama standardi (ozet)
+
+Tam referans: `docs/kodlama_standardi.md`. Uretilen kod `clang-format` + `clang-tidy`
++ adlandirma denetcisinden gecer; standart sabittir, kullanici belge vermez.
+
+- Fonksiyonlar camelCase: `tca9548aChannelSelect`. Allman parantez. Satir en fazla 160 sutun.
+- Primitive tipler (`unsigned char`, `unsigned int`); `uint8_t` gibi sabit genislikli
+  typedef'ler yasak.
+- Hungarian onekler: `uc c us s ui i ul ull`, struct `S<Ad>` / degisken `s`, struct
+  pointer `sp`, diger pointer tip oneki + `p`, dizi tip oneki + `Arr`, global `G_`,
+  static `S_`, enum `E<Ad>`. Bit alani uyelerinde onek yok.
+- Pointer yildizi tipe bitisik: `XIicPs* spIic`.
+- Donus degerleri: `XST_*` (durum), `TRUE/FALSE` (dogru/yanlis), adlandirilmis makro;
+  ciplak 0/1 yok. Sayi donenler (bayt sayisi, boy) serbest.
+- Doxygen fonksiyon bloklari varsayilan kapali (dosya basligi kalir).
+
+---
+
+## 16. LLM kullanimi
+
+Varsayilan kapali. OpenAI-uyumlu bir endpoint, model adi ve gerekirse API key
+girilir (GLM, Qwen, Kimi...). Generate icinde yardimci roldedir: aday dosya
+deterministik QC'den gecmeden kabul edilmez, reddedilirse mevcut cikti korunur;
+bos/uzun/timeout cevaplar net hata olarak gosterilir. Bilgi soru merkezi yalniz
+katalogdaki dogrulanmis context'i kullanir; context disi register/bit adlari
+reddedilir.
+
+---
+
+## 17. Air-gap notlari
+
+Executable paket icin gereken: `Spec2Code.exe` + bu belgeler; opsiyonel LLVM/Cppcheck,
+Vitis/Vivado, lokal LLM endpoint'i. Vitis Doctor ve loglar disari hicbir sey
+gondermez. Kaynak koddan gelistirme icin release'teki source archive ve offline
+bagimlilik onbellegi gerekir (`glm52_handoff.md`).
+
+---
+
+## 18. Desteklenen entegreler
+
+TCA9548A (I2C switch), LTC2991, LTC2945, ADT7420, AD7414, TMP101, SHT21, DS1682,
+24LC32A (I2C EEPROM), LMK04832, LMX2820, LMX1204, LMX1205, ADAR1000, LTM4681,
+MT25Q128, MT25QU02G, S25FL128S (SPI/QSPI NOR flash), GPIO hat cihazlari.
+Guncel liste Katalog ekranindadir; katalogda olmayan cihaz icin deterministik
+uretim yoktur (Driver import sihirbaziyla kendi descriptor'ini ekleyebilirsin).
+
+---
+
+## 19. Sorun giderme
+
+**Tarayici eski surumu gosteriyor** - eski backend calisiyor olabilir; butun
+Spec2Code sureclerini kapatip yeniden baslat, `Ctrl+F5` ile yenile, ust cubuktaki
+surumu kontrol et.
+
+**Generate tamamlanmiyor** - konsoldaki son hata satiri; LLM aciksa zaman asimi /
+context disi cevap; `/api/health` ile arac yollari.
+
+**Vitis workspace olusmuyor** - Vitis/XSA/temp yollari, islemci adi,
+`logs\xsct_stderr.log`, compile error listesi; "Generate ciktisi diskte eksik"
+uyarisinda once Generate'i yeniden calistir (ayni proje adiyla baska bir uretim
+klasoru ezmis olabilir).
+
+**Karta baglanamiyor** - TCP: ajan (lwIP) kosuyor mu, host/port/firewall. Seri: COM
+portu ve baud. CoreSight/MDM: Vitis yolu ve JTAG kablosu; ilk baglanti 10-30 sn.
+Ilk komutta zaman asimi / GECERSIZ_MESAJ: karttaki yazilim eski, yeniden derleyip yukle.
+
+**"CIT yanit govdesi boyu uyusmuyor" / init'te cihaz bulunamiyor** - karttaki ajan
+ile ekrandaki manifest farkli uretimlerden: karti mevcut spec'ten yeniden derleyip
+yukle (cihaz eklediysen ajan da degismelidir).
+
+**Sanal cihaz NACK veriyor** - sanal cihaz da `device_init` ister; once "butun
+cihazlari ilklendir".
+
+---
+
+## 20. Release dosyalari
 
 ```text
-tests/spec2code_testbench_uart.c/.h + _main.c/.h
-tests/spec2code_testbench_coresight.c/.h + _main.c/.h
+Spec2Code.exe      uygulama
+changelog.md       en yeni surumden baslayan tum degisiklik gecmisi
+userguide.md       bu kilavuz
+glm52_handoff.md   air-gap'te kaynak kod uzerinde calisacak lokal model icin gelistirme handoff'u
 ```
-
-Generated lwIP/UART agent ayni zamanda schematic'te kullanilan `XIicPs`, `XSpiPs`
-ve `XQspiPsu` controller handle'larini initialize eder. Test bench dispatch
-icindeki weak hook'lar bu dosyada strong olarak override edilir; yani UI'dan
-gelen operasyon dogrudan generated driver fonksiyonuna gider.
-
-Test Bench sayfasinda:
-
-- Baglanti tipi secilir: **TCP**, **Seri** (UART/COM portu + baud) veya
-  **CoreSight** (Vitis kurulum yolu + JTAG cekirdek); host/port yalniz TCP'de,
-  timeout hepsinde girilir.
-- **Baglan** ile kart tarafindaki agent'a tek session acilir; bu session Test
-  Bench, UART konsolu, Bring-up, Registers ve telemetri ekranlari arasinda
-  ORTAKTIR (bir kez baglanmak yeter).
-- Generate edilmis manifest icindeki entegre secilir.
-- Entegre icin gercekten uretilmis operasyonlar listelenir.
-- Register read/write icin register adi veya manuel register address verilebilir.
-- Flash/EEPROM gibi adresli islemlerde address, length ve data hex alanlari
-  kullanilir; flash cihazlarinda ayrica "Dosya transferi" modu 256 baytlik
-  komutlara bolunmus toplu okuma (.bin indirme) ve sayfa hizali yazma (.bin'den
-  page_program + istege bagli geri-okuma dogrulamasi) sunar.
-- Riskli islemler (`init`, `write`, `program`, `erase`) gonderilmeden once onay ister.
-- **Gonder** ile komutlar mevcut session uzerinden gider; her komutta yeni
-  baglanti acilmaz.
-- Baglanti koparsa UI bunu hata olarak gosterir ve tekrar **Baglan** gerekir.
-- Response icindeki `ok`, `status`, `value`, `data` ve `message` alanlari
-  (binary cerceveden cozulmus) okunabilir sekilde gosterilir; ham istek/yanit
-  kutulari artik cerceve ozeti + hex gosterir (eski ham `S2C|...` metin satiri
-  DEGIL).
-- Agent debug esigi (`dbg_printf`: 0 always, 1 error [varsayilan], 2 warning, 3 msg,
-  4 info, 5 trace) baglanti kartindan canli degistirilir (`log_level` komutu); yalniz
-  esikten kucuk ya da esit seviyeli printler basilir. TRACE seviyesi I2C/SPI baytlarini
-  Akis ekranina tasir.
-
-LTC2991 icin test bench uzerinden tipik faydali operasyonlar:
-
-- `voltage_read`: 8 kanal, milivolt cinsinden donusturulmus deger (LSB 305.18 µV).
-- `current_read`: current-shunt veya differential kullanilan pair'ler icin raw channel code okur.
-- `temperature_read`: internal temperature, 0.01 °C cozunurlukte donusturulmus deger.
-- `vcc_read`: VCC, milivolt cinsinden donusturulmus deger.
-- `register_read` / `register_write`: 8-bit register seviyesinde tek byte okuma/yazma yapar.
-
-`current_read` dogrudan amper hesaplamasi yapmaz. LTC2991'de akim, shunt uzerindeki
-differential raw code ve board tarafinda bilinen shunt milliohm degeriyle application
-katmaninda hesaplanmalidir.
-
-Karti test etmeden once tum akislarin gercek donanimda dogrulanmasi icin
-`docs/s2cmsg_parite_listesi.md` kontrol listesini kullan (uc tasiyicinin
-ucunde de tekrarlanmasi gereken adimlar + bilinen v1 kisitlari orada).
-
-## 13. Vitis Workspace Uretimi
-
-Generate tamamlandiktan sonra **Vitis workspace** paneli gorunur.
-
-Girilmesi gereken bilgiler:
-
-- Vitis dizini: ornek `C:\Xilinx\Vitis\2024.2`
-- `.xsa` dosyasi: klasor degil, dogrudan dosyanin tam yolu; ornek `D:\Board\export\system.xsa`
-- Workspace dizini: ornek `D:\VitisWorkspaces\spec2code`
-- Temp/Staging dizini: ornek `D:\VitisTemp\spec2code`
-- Platform proje adi: ornek `my_io_board_platform`
-- System proje adi: ornek `my_io_board_system`
-- Application proje adi: ornek `my_io_board_app`
-- Processor: ornek `psu_cortexa53_0`
-
-Backend Vitis dizininden `xsct.bat` veya `xsct` bulur. Sonra:
-
-1. Vitis/XSCT surumunu algilar.
-2. `.xsa` dosyasini ve generated kaynaklari kullanicinin verdigi temp/staging dizinine kopyalar.
-3. XSA icindeki non-Xilinx/AMD custom PL IP adaylarini `.hwh` uzerinden algilar.
-4. lwIP test bench dosyasi varsa BSP icin lwIP library ve API mode secimini dener.
-5. Custom PL IP driver policy `auto_none` ise aday IP'lerin BSP driver'ini `none`
-   yapmayi dener; gerekirse source'suz custom IP `make.libs` dosyalarini no-op
-   hale getirerek BSP build'in `*.c` literal hatasina dusmesini engeller.
-6. `spec2code_create_workspace.tcl` dosyasini yazar.
-7. XSCT ile once adlandirilmis platform/system/application akisini dener.
-8. `app build` calistirir.
-9. Workspace ve staging dizinlerinde application adiyla eslesen `.elf` dosyasini
-   dogrular.
-
-Temp/Staging dizini altinda olusan yardimci klasor:
-
-```text
-<temp-staging-dizini>\<vitis_job>\
-  hw\
-  src\
-  spec2code_create_workspace.tcl
-  spec2code_self_heal_workspace.tcl
-  spec2code_vitis_manifest.json
-  logs\xsct_stdout.log
-  logs\xsct_stderr.log
-  logs\xsct_self_heal_stdout.log
-  logs\xsct_self_heal_stderr.log
-```
-
-Hata olursa once UI'daki son progress mesajina, sonra `xsct_stderr.log` dosyasina
-bak. En sik hatalar:
-
-- Yanlis Vitis dizini.
-- Yanlis `.xsa` path'i.
-- XSA icinde beklenen processor instance adinin farkli olmasi.
-- Vitis surumunde template adinin farkli davranmasi.
-- BSP/toolchain eksigi.
-- lwIP agent uretilmis ama Vitis BSP icinde lwIP library/API mode enable edilememis olmasi.
-- PL tarafinda driver'i olmayan custom IP'nin BSP tarafinda driver ile build edilmeye calisilmasi.
-
-lwIP agent uretilirse Vitis panelinde `lwIP RAW_API` veya `lwIP SOCKET_API` rozeti
-gorunur ve staging manifest icinde `requires_lwip: true` ile `lwip_api_mode`
-yazar. Tcl script `lwip220`, `lwip213`, `lwip211` ve `lwip202` library adlarini
-sirayla dener. Standalone icin `RAW_API`, FreeRTOS icin `SOCKET_API` secmeye
-calisir. Kullanilan Vitis surumunde bu isimler veya `api_mode` parametresi
-farkliysa BSP/domain ayarlarindan lwIP library'yi ve API mode'u manuel kontrol
-etmek gerekebilir.
-
-Custom PL IP driver policy varsayilan olarak `auto_none` gelir. Bu modda XSA
-icindeki `.hwh` dosyasi okunur; `VLNV` vendor'i `xilinx.com` veya `amd.com`
-olmayan `PERIPHERAL` moduller custom PL IP adayi sayilir. Ayrica
-`xilinx.com:ip:<custom_ad>` gibi gorunen ama `axi_gpio`, `clk_wiz`, `xlconcat`,
-`smartconnect` gibi standart Xilinx IP ailelerine benzemeyen PL peripheral'lar da
-custom-like adayi sayilir. Tcl script bu instance'lar icin
-`bsp setdriver -ip <instance> -driver none` varyantlarini dener.
-Vitis buna ragmen `libsrc/<custom_ip>*/src/make.libs` altinda source'suz driver
-build etmeye calisirsa Spec2Code bunu uc katmanda yakalamaya calisir: staged
-`.xsa` icindeki driver `make.libs` dosyalarini Vitis gormeden once patchler, Tcl
-script `bsp regenerate`/`app build` oncesi workspace'i tarar ve XSCT calisirken
-host watcher application, FSBL ve PMU/PMUFW BSP `libsrc` klasorlerini izler.
-Vitis build log'u `psu_cortexa53_0/libsrc/<driver>/src/make.libs` gibi bir hedef
-gosteriyor ama taramada fiziksel dosya bulunmuyorsa self-heal ayni processor BSP
-koku altinda sentetik no-op `make.libs` olusturup recovery build'i dener.
-Orijinal var olan `make.libs` dosyalari `.spec2code_backup` olarak saklanir. Bu,
-driver dosyasi olmayan custom IP'lerin BSP build'i bozmasini engellemek icin
-tasarlanmistir. Vitis panelindeki `BSP patch N` rozeti toplam patch sayisini
-gosterir; Doctor icindeki `Log make.libs hedefleri` ise log'da gorulen hedefleri
-ayrica listeler. `BSP patch 0`, hic patch uygulanmadigi veya hedefin ancak
-self-heal sirasinda sentetik olusturulabildigi anlamina gelebilir. Eger custom IP
-gercek ve kullanilacak bir sirket driver'i ile geliyorsa Vitis panelinde
-`BSP default'u koru` secilmelidir.
-
-### Vitis Doctor ve Lokal Self-Heal
-
-Vitis workspace panelindeki **Vitis Doctor** bolumu tamamen lokal calisir ve
-otomatik olarak disari dosya, log veya zip aktarmaz. Airgap kullaniminda buradaki
-soyut bilgiler debug surecini hizlandirmak icin tasarlanmistir:
-
-- `S2C-VITIS-...` hata kodlari.
-- Self-heal ile kapanmis hata kodlari; bunlar aktif blokaj degil, onceki denemede
-  gorulup recovery build ile asilmis durumlardir.
-- Custom IP aday sayisi.
-- XSA icinde kac `make.libs` bulundugu.
-- Workspace/FSBL/PMU/application BSP tarafinda kac riskli `make.libs` goruldugu.
-- `BSP patch N` sayisi.
-- Self-heal denenip denenmedigi ve sonucu.
-- Application ELF sayisi ve beklenen ELF adi.
-
-Bu bilgilerden yalnizca hata kodunu veya sayisal ozeti paylasmak genelde yeterli
-olur; sirket icindeki path, IP adi veya log dosyasini disari cikarmak gerekmez.
-
-Custom IP BSP kaynakli `*.c Invalid argument` hatasi gorulurse Spec2Code ilk
-build sonrasinda workspace/temp altini tekrar tarar. Patchlenecek source'suz
-`make.libs` bulunursa mevcut workspace'i bozmadan
-`spec2code_self_heal_workspace.tcl` calistirilir. Bu recovery script
-platform/application projesini bastan kurmaz; mevcut workspace uzerinde
-driver-none, `bsp regenerate` ve `app build` dener. Log'da `make.libs` hedefi
-olup dosya taramada yoksa self-heal sentetik no-op `make.libs` olusturabilir; bu
-path `Sentetik make.libs` olarak gorunur. Self-heal basarili olursa panelde
-`self-heal gecti` rozeti gorunur. Bu rozet icin recovery XSCT donus kodunun
-basarili olmasi yetmez; recovery logunda `cc1.exe fatal error`, `make: ***`,
-`Failed to build` veya benzer build-fatal imzalari kalmamali. Basarisiz olursa
-Doctor panelindeki hata kodu ve sayilar kok sebebi anlamak icin kalir.
-
-XSCT/app build hata vermese bile application adiyla eslesen `.elf` dosyasi
-bulunamazsa workspace `hazir` sayilmaz. Bu durumda `S2C-VITIS-ELF-009` hata kodu
-gosterilir ve Doctor panelinde beklenen ELF adi ile bulunan diger `.elf`
-ornekleri listelenir. Bu ozellikle `BSP patch` basarili gorunup `Debug` altinda
-application ELF bulunamayan durumlari ayirt etmek icindir.
-
-Vitis compile error mapper, uzun build log icindeki bazi yaygin hatalari UI'da
-ayri liste olarak gosterir:
-
-- Missing include/header.
-- Undefined reference.
-- Multiple definition.
-- Eksik veya uyumsuz `XPAR_*` macro.
-- Unknown type veya implicit function declaration.
-- Yanlis processor/XSA/platform secimi.
-
-Mapper raw log'u gizlemez; yalnizca ilk aksiyon alinacak ipucunu one cikarir.
-
-## 14. Kodlama Standardi
-
-Spec2Code sabit default coding standard kullanir. Kullanici Word, Markdown veya
-ayri JSON standard dokumani vermez.
-
-Kurallarin tamami, onek bilesim tablosu ve ornekleri icin ayrintili referans:
-`docs/kodlama_standardi.md`.
-
-Ozet kurallar:
-
-- Fonksiyon isimleri camelCase: `tca9548aChannelSelect`.
-- Primitive C tipleri kullanilir: `unsigned char`, `unsigned int`.
-- `uint8_t`, `uint16_t`, `uint32_t` gibi fixed-width typedef kullanilmaz.
-- Hungarian prefix kullanilir:
-  - `unsigned char -> uc`
-  - `char -> c`
-  - `unsigned short -> us`
-  - `short -> s`
-  - `unsigned int -> ui`
-  - `int -> i`
-  - `unsigned long -> ul`
-  - `unsigned long long -> ull`
-- Struct typedef adi buyuk `S` ile baslar: `SOrnekStruct`.
-- Struct degiskeni kucuk `s` prefix'i alir: `SOrnekStruct sMyStruct;`.
-- Struct pointer `sp` prefix'i alir.
-- Diger pointer'lar tip prefix'i + `p` kullanir.
-- Pointer yildizi tipe bitisik yazilir: `XIicPs* spIic`.
-- Array'ler tip prefix'i + `Arr` kullanir.
-- Global degiskenler `G_`, static degiskenler `S_` ile baslar.
-- Allman brace stili kullanilir.
-- Bitfield uyelerinde Hungarian prefix kullanilmaz.
-
-## 15. LLM Kullanimi
-
-LLM varsayilan olarak kapali gelir. Acmak icin OpenAI-compatible endpoint,
-tam model adi ve gerekirse API key girilir.
-
-Desteklenen model ailesi uygulama tarafindan sinirlanmaz. GLM, Qwen, Kimi veya
-baska bir OpenAI-compatible model kullanilabilir.
-
-LLM generate akisi icinde yardimci roldedir:
-
-- Cevap bos, cok uzun, eksik veya timeout olursa hata net gosterilir.
-- LLM output dogrudan dosyaya yazilmaz.
-- Aday dosya deterministic QC'den gecmeden kabul edilmez.
-- Aday reddedilirse mevcut deterministic output korunur.
-
-## 16. Air-gap Notlari
-
-Air-gap Windows ortaminda executable paket en kolay yoldur. Tek gereken:
-
-- `Spec2Code.exe`
-- `changelog.md`
-- `userguide.md`
-- `glm52_handoff.md`
-- Opsiyonel LLVM/Cppcheck kurulumlari
-- Opsiyonel Vitis kurulumu
-- Opsiyonel lokal/internal LLM endpoint'i
-
-Source uzerinden gelistirme yapacaksan GitHub Release icindeki source archive ve
-offline dependency cache gerekir. Bu kullanici paketinin konusu degildir; source
-developer akisi icin repo dokumanlarina bakilmalidir.
-
-## 17. Desteklenen Entegreler
-
-Bu surumde desteklenen baslica entegreler:
-
-- TCA9548A
-- LTC2991
-- MT25Q128
-- MT25QU02G
-- AD7414
-- TMP101
-- SHT21
-- 24LC32A
-- DS1682
-- LTC2945
-- ADAR1000
-- LMK04832
-- LMX2820
-- LMX1204
-- LMX1205
-- LTM4681
-- ADT7420 (I2C sicaklik sensoru; Digilent Nexys A7 kart ustu, 0x4B)
-- S25FL128S (SPI NOR flash, 3-bayt adres; Nexys A7 konfigurasyon flash'i)
-
-Desteklenen cihaz listesi Catalog ekraninda gorulur. Bir cihaz Catalog'da yoksa
-deterministik descriptor/codegen destegi yoktur.
-
-## 18. Sorun Giderme
-
-**Browser aciliyor ama eski surum gibi davranıyor**
-
-- Eski backend hala calisiyor olabilir.
-- Tum eski Spec2Code sureclerini kapat.
-- Yeni exe'yi tekrar calistir.
-- Uygulamanin ust kismindaki versiyonu kontrol et.
-
-**Generate tamamlanmiyor**
-
-- Generate console'daki son hata satirini oku.
-- LLM aciksa timeout, bos cevap veya context disi cevap olabilir.
-- QC tool path'lerini `/api/health` ile kontrol et.
-
-**Windows'ta UnicodeDecodeError benzeri hata**
-
-- Yeni surumu kullandigindan emin ol.
-- Vendor dosyalari farkli encoding ile geldiyse parser toleransli okur; hata
-  devam ederse problemli dosyayi ayri incelemek gerekir.
-
-**Vitis workspace olusmuyor**
-
-- Vitis path'ini kontrol et.
-- `.xsa` path'ini kontrol et.
-- Temp/Staging path'inin yazilabilir oldugunu kontrol et.
-- Processor adinin XSA icindeki gercek processor instance adi oldugundan emin ol.
-- UI'da gorunen `staging_path` altindaki `logs\xsct_stderr.log` dosyasini oku.
-- UI'da Vitis compile hata eslestirme listesi ciktiysa kategori ve oneriyi takip et.
-
-**Test Bench karta baglanmiyor**
-
-- TCP: kart tarafinda agent'in (lwIP TCP server) calistigindan, host/port
-  alanlarinin Windows makineden ulasilabilir oldugundan ve firewall/air-gap ag
-  kurallarinin engellemedigi emin ol. Seri: dogru COM portu/baud secildiginden
-  emin ol. CoreSight: Vitis kurulum yolunun/JTAG baglantisinin dogru oldugundan
-  emin ol (ilk baglanti xsdb acilisi nedeniyle 10-30 sn surebilir).
-- Kart tarafi gelen bayt/chunk/segment'leri `spec2codeMesajBesle()` fonksiyonuna
-  besleyip tamamlanan cerceveyi `spec2codeMesajIsle()` ile islemeli ve yanit
-  cercevesini ayni baglanti uzerinden geri yazmalidir (eski
-  `spec2codeTestbenchDispatchLine()` artik yok — karttaki firmware bu arktan
-  ONCEKI bir surumse ilk komutta timeout/GECERSIZ_MESAJ alinir; Generate +
-  Vitis workspace ile yeniden derleyip YUKLEMEK gerekir).
-- UI once **Baglan** demeden **Gonder** komutunu aktif etmez; baglanti durumu kopuksa yeniden baglan.
-
-## 19. Release Dosyalari
-
-Executable release zip'i sade tutulur:
-
-```text
-Spec2Code.exe
-changelog.md
-userguide.md
-glm52_handoff.md
-```
-
-`changelog.md` en yeni surumden baslayarak tum gecmis release degisikliklerini
-icerir. `userguide.md` bu dosyadir. `glm52_handoff.md`, airgap Windows'ta kaynak
-kod uzerinde gelistirme yapacak lokal GLM 5.2 FP-8 modeli icin kapsamli gelistirme
-handoff'udur: repo haritasi, mimari, kodlama standardi, QC dongusu, calistirma/test
-komutlari, gorev bataryasi ve Vitis/XSCT debug brief'i icerir.
