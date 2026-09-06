@@ -3,6 +3,27 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.182 - 2026-09-06
+
+- **I2C cihaz tablosu (kullanici kurali: "structure array en alt katmana kadar gitsin"):** yeni
+  `drivers/i2c_cihazlar.h/.c` - `EI2cCihaz` enum'u (`I2C_CIHAZ_<CIHAZ_ID>`) + `SI2cCihaz { spIic,
+  ucAdres, ucSwitchAdres, ucSwitchKanal, spInit, ucInitSayisi }` satirlari, `i2cCihazlarInit(bus
+  ornekleri)` ve `i2cCihaz(enum)`. Butun I2C surucu fonksiyonlari, `<mod>SelfTest`, `<mod>CitInit/
+  CitRead` artik `const SI2cCihaz* spCihaz` alir; bus ornegi/adres/switch/init dizisi satirdan gelir.
+  `<MOD>_I2C_ADDR` sabitleri ve surucudeki statik init dizisi kalkti (init yazimlari cihaz basina
+  tabloda); switch secimi calisma zamaninda (`ucSwitchAdres != 0`), `tca9548aChannelSelect(spIic,
+  ucSwitchAdres, ucKanal)`.
+- **Ayni parcadan N I2C cihaz = TEK surucu/cit/sim modulu:** `ltc2991b` gibi kopya moduller kalkti;
+  surucu cihazlarin istedigi op'larin birlesimini icerir, cit/ `S<Mod>Cit` birlesik olcum yapisi
+  (cihazda olmayan olcum varsayilan "etkin degil"), `SISTEM_CIT_LIMIT_VARSAYILAN` cihaz basina.
+  Farkli `pairs` config'li iki LTC2991 (0x48 tek uclu, 0x49 diferansiyel) ayni surucuyle calisir.
+  Donusum sabitine giren config (or. sont direnci) ayni parcada esit olmali (acik hata).
+- Ajan: dispatch `spCihaz = i2cCihaz(I2C_CIHAZ_X)`, tablo `spec2codeTestbenchI2cCihazlarBagla()` ile
+  ilk dispatch'te/CIT'te getter'lardan baglanir; sanal cihaz kaydi spec adresiyle. Ajansiz self-test
+  runner ve tasarim incelemesi dosya plani (tek modul, `i2c_cihazlar.*`) guncellendi.
+- SAHA: ikinci sanal LTC2991 eklenince "init hatasi" - UI'daki 7 cihazli manifest ile kartta kosan 6
+  cihazli ajan uyusmuyordu; ajan artik UI spec'inden (`specs/nexys_a7_board`) derlenip kazindi.
+
 ## v0.1.181 - 2026-09-06
 
 - **CIT limitleri karta iletilir, OK/NOK karari KARTTA (kullanici istegi):** yeni mesaj

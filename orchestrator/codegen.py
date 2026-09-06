@@ -2167,6 +2167,7 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     """
     project_name = spec["project"]["name"]
     has_sim = any(d.get("simulate") for d in spec.get("devices", []))
+    has_i2c = any(cmodel.is_i2c_device(d) for d in spec.get("devices", []))
     olcumler = _cit_measurements(spec, get_descriptor)
     plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor), olcumler)
     plan_by_device = {str(plan.device.get("id")): plan for plan in plans}
@@ -2272,6 +2273,7 @@ def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "        return;\n"
         "    }\n"
         + ("    spec2codeSimHazirla(); /* sanal cihazlar (tests/sim): ilk CIT dispatch'ten once gelebilir */\n" if has_sim else "")
+        + ("    spec2codeTestbenchI2cCihazlarBagla(); /* I2C cihaz tablosu -> denetleyici ornekleri */\n" if has_i2c else "")
         + "    /* Denetleyici handle'lari: ajanin ilklendirdigi denetleyiciler. */\n"
         + "\n".join(bus_lines) + "\n"
         "    /* cit/ katmani: entegre CIT'leri surucu fonksiyonlariyla okur, CANLI limitle degerlendirir. */\n"
@@ -2496,7 +2498,7 @@ def _testbench_used_handle_types(spec: dict) -> set[str]:
     return {entry["htype"] for entry in _testbench_board_controller_entries(spec)}
 
 
-def _testbench_ops_header(project_name: str, handle_types: set[str], has_sim: bool = False) -> str:
+def _testbench_ops_header(project_name: str, handle_types: set[str], has_sim: bool = False, has_i2c: bool = False) -> str:
     guard = _header_guard(f"{project_name}_testbench_ops_h")
     controller_includes = "".join(
         f'#include "{header}"\n'
@@ -2529,6 +2531,7 @@ def _testbench_ops_header(project_name: str, handle_types: set[str], has_sim: bo
         + getter_prototypes
         + "int spec2codeTestbenchBoardInit(void);\n"
         + ("void spec2codeSimHazirla(void); /* sanal cihazlari (tests/sim) kaydeder; tekrar cagrisi no-op */\n" if has_sim else "")
+        + ("void spec2codeTestbenchI2cCihazlarBagla(void); /* I2C cihaz tablosunu denetleyici orneklerine baglar */\n" if has_i2c else "")
         + "unsigned int spec2codeTestbenchOperationCount(void);\n"
         "const SSpec2codeTestbenchOperation* spec2codeTestbenchOperationGet(unsigned int uiIndex);\n"
         "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n"
@@ -2554,6 +2557,8 @@ def _testbench_device_entries(spec: dict, get_descriptor: Callable[[str], dict])
     # Ayni parcadan birden cok cihaz kendi moduluyle eslesmelidir (adres/mux
     # derleme sabiti) - surucu birimleriyle ayni harita kullanilir.
     modules = cmodel.device_module_map(spec)
+    switch_modules = sorted({cmodel._module_of(m["part"]) for m in spec.get("muxes", [])})
+    switch_module = switch_modules[0] if switch_modules else None
     entries: list[dict] = []
     for device in spec.get("devices", []):
         descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
@@ -2564,18 +2569,25 @@ def _testbench_device_entries(spec: dict, get_descriptor: Callable[[str], dict])
         htype, hvar = cmodel._handle_for(controller)
         via_mux = attach.get("via_mux") or {}
         mux = muxes.get(via_mux.get("mux_id")) if isinstance(via_mux, dict) else None
+        is_i2c = cmodel.is_i2c_device(device)
+        # I2C cihazi tablo satiriyla calisir: handle/adres/switch `spCihaz`'dan; switch secimi
+        # calisma zamaninda (ucSwitchAdres != 0) spec'teki switch surucusuyle yapilir.
         entries.append({
             "device": device,
             "descriptor": descriptor,
             "controller": controller,
             "module": modules.get(device.get("id", ""), cmodel._module_of(device.get("part", ""))),
             "htype": htype,
-            "hvar": hvar,
+            "hvar": cmodel.I2C_DEVICE_VAR if is_i2c else hvar,
             "getter": _testbench_getter(htype),
             "mux": mux,
-            "mux_module": cmodel._module_of(mux["part"]) if mux else None,
+            "mux_module": switch_module if is_i2c else None,
             "mux_channel": via_mux.get("channel") if isinstance(via_mux, dict) else None,
             "simulate": bool(device.get("simulate")),
+            "i2c": is_i2c,
+            "i2c_enum": cmodel.i2c_enum_name(str(device.get("id", ""))) if is_i2c else "",
+            "bus": f"{cmodel.I2C_DEVICE_VAR}->spIic" if is_i2c else hvar,
+            "addr": f"{cmodel.I2C_DEVICE_VAR}->ucAdres" if is_i2c else "",
         })
     return entries
 
@@ -3239,7 +3251,7 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
             lines.append(f"    /* init dogrulamasi: {status['reg']} geri okunur (value + data). */")
             if status["transport"] == "i2c":
                 lines.extend([
-                    f"    iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({hvar}, {MOD}_I2C_ADDR, {MOD}_REG_{status['reg']}, &ucValue);",
+                    f"    iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({entry['bus']}, {entry['addr']}, {MOD}_REG_{status['reg']}, &ucValue);",
                     "    if (iStatus == XST_SUCCESS)",
                     "    {",
                     "        spResponse->uiValue = (unsigned int)ucValue;",
@@ -3475,10 +3487,12 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         any(step.get("op") == "read_command_address" for step in op.get("steps", []))
         for op in operations
     )
+    bus = entry["bus"]
+    addr = entry["addr"]
     lines = [
         f"    if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, \"{device.get('id', '')}\") == TRUE)",
         "    {",
-        f"        {_testbench_handle_type(htype)} {hvar};",
+        (f"        {cmodel.I2C_DEVICE_PARAM};" if entry["i2c"] else f"        {_testbench_handle_type(htype)} {hvar};"),
     ]
     if needs_us_value:
         lines.append("        unsigned short usValue;")
@@ -3526,23 +3540,37 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         ])
         return lines
 
-    lines.extend([
-        f"        {hvar} = {getter}(\"{entry['controller'].get('id', '')}\");",
-        f"        if ({hvar} == {_testbench_handle_none(htype)})",
-        "        {",
-        "            spResponse->iStatus = XST_FAILURE;",
-        "            spec2codeTestbenchMessageSet(spResponse, \"board handle hook returned NULL\");",
-        "            return XST_FAILURE;",
-        "        }",
-    ])
+    if entry["i2c"]:
+        lines.extend([
+            f"        {hvar} = i2cCihaz({entry['i2c_enum']});",
+            f"        if (({hvar} == NULL) || ({hvar}->spIic == NULL))",
+            "        {",
+            "            spResponse->iStatus = XST_FAILURE;",
+            "            spec2codeTestbenchMessageSet(spResponse, \"board handle hook returned NULL\");",
+            "            return XST_FAILURE;",
+            "        }",
+        ])
+    else:
+        lines.extend([
+            f"        {hvar} = {getter}(\"{entry['controller'].get('id', '')}\");",
+            f"        if ({hvar} == {_testbench_handle_none(htype)})",
+            "        {",
+            "            spResponse->iStatus = XST_FAILURE;",
+            "            spec2codeTestbenchMessageSet(spResponse, \"board handle hook returned NULL\");",
+            "            return XST_FAILURE;",
+            "        }",
+        ])
     if entry["mux_module"] is not None:
         lines.extend([
-            f"        iStatus = {cmodel._func_name(entry['mux_module'], 'channel_select')}({hvar}, {int(entry['mux_channel'])}U);",
-            "        if (iStatus != XST_SUCCESS)",
+            f"        if ({hvar}->ucSwitchAdres != 0U)",
             "        {",
-            "            spResponse->iStatus = iStatus;",
-            "            spec2codeTestbenchMessageSet(spResponse, \"mux channel select failed\");",
-            "            return iStatus;",
+            f"            iStatus = {cmodel._func_name(entry['mux_module'], 'channel_select')}({bus}, {hvar}->ucSwitchAdres, {hvar}->ucSwitchKanal);",
+            "            if (iStatus != XST_SUCCESS)",
+            "            {",
+            "                spResponse->iStatus = iStatus;",
+            "                spec2codeTestbenchMessageSet(spResponse, \"mux channel select failed\");",
+            "                return iStatus;",
+            "            }",
             "        }",
         ])
 
@@ -3558,7 +3586,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 f"            ucWidthBytes = {module}TestbenchRegisterWidthBytes(spRequest->cArrRegister, spRequest->uiRegister);",
                 "            if (ucWidthBytes == 2U)",
                 "            {",
-                f"                iStatus = spec2codeTestbenchI2cRegisterReadWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, ucArrWide);",
+                f"                iStatus = spec2codeTestbenchI2cRegisterReadWide{sfx}({bus}, {addr}, ucReg, ucArrWide);",
                 "                spResponse->iStatus = iStatus;",
                 "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
                 ("                spResponse->uiValue = ((unsigned int)ucArrWide[0] << 8U) | (unsigned int)ucArrWide[1];"
@@ -3578,10 +3606,10 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 "            if (ucWidthBytes == 2U)",
                 "            {",
                 # Hatta ilk giden bayt: big-endian cihazda MSB, little'da LSB.
-                (f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, "
+                (f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({bus}, {addr}, ucReg, "
                  "(unsigned char)((spRequest->uiValue >> 8U) & 0xFFU), (unsigned char)(spRequest->uiValue & 0xFFU));"
                  if entry["descriptor"].get("transport", {}).get("byte_order", "big") != "little"
-                 else f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, "
+                 else f"                iStatus = spec2codeTestbenchI2cRegisterWriteWide{sfx}({bus}, {addr}, ucReg, "
                  "(unsigned char)(spRequest->uiValue & 0xFFU), (unsigned char)((spRequest->uiValue >> 8U) & 0xFFU));"),
                 "                spResponse->iStatus = iStatus;",
                 "                spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
@@ -3600,7 +3628,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                return iStatus;",
             "            }",
             *wide_read_lines,
-            f"            iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, &ucValue);",
+            f"            iStatus = spec2codeTestbenchI2cRegisterRead{sfx}({bus}, {addr}, ucReg, &ucValue);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spResponse->uiValue = (unsigned int)ucValue;",
@@ -3621,7 +3649,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "                return iStatus;",
             "            }",
             *wide_write_lines,
-            f"            iStatus = spec2codeTestbenchI2cRegisterWrite{sfx}({hvar}, {MOD}_I2C_ADDR, ucReg, (unsigned char)spRequest->uiValue);",
+            f"            iStatus = spec2codeTestbenchI2cRegisterWrite{sfx}({bus}, {addr}, ucReg, (unsigned char)spRequest->uiValue);",
             "            spResponse->iStatus = iStatus;",
             "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
             "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"register_write ok\" : \"register_write failed\");",
@@ -3776,7 +3804,7 @@ def _testbench_sim_setup_lines(spec: dict, sim_entries: list[dict], sim_plans: d
         var = f"S_sSim{_pascal_identifier(str(entry['device'].get('id')))}"
         MOD = entry["module"].upper()
         if plan.transport == "i2c":
-            L.append(f"    {plan.module}SimKur(&{var}, {MOD}_I2C_ADDR);")
+            L.append(f"    {plan.module}SimKur(&{var}, {_c_hex(plan.i2c_addr)});")
             L.append(f"    (void)spec2codeSimI2cEkle(&{var}.sCihaz);")
         else:
             L.append(f"    {plan.module}SimKur(&{var}, (unsigned char){MOD}_SPI_SELECT);")
@@ -3792,6 +3820,32 @@ def _testbench_sim_setup_lines(spec: dict, sim_entries: list[dict], sim_plans: d
         "",
     ])
     return L
+
+
+def _testbench_i2c_table_bind_lines(spec: dict, entries: list[dict]) -> list[str]:
+    """`i2cCihazlarInit(...)`: tablo satirlarinin bus ornegi ajanin getter'larindan (bir kez)."""
+    if not any(entry["i2c"] for entry in entries):
+        return []
+    args = []
+    for controller in cmodel.i2c_controllers(spec):
+        htype, _hvar = cmodel._handle_for(controller)
+        getter = _testbench_getter(htype)
+        args.append(f'{getter}("{controller.get("id")}")' if getter else "NULL")
+    return [
+        "",
+        "static unsigned int S_uiI2cCihazlarBagli = 0U;",
+        "",
+        "void spec2codeTestbenchI2cCihazlarBagla(void)",
+        "{",
+        "    if (S_uiI2cCihazlarBagli == 1U)",
+        "    {",
+        "        return;",
+        "    }",
+        f"    i2cCihazlarInit({', '.join(args)});",
+        "    S_uiI2cCihazlarBagli = 1U;",
+        "}",
+        "",
+    ]
 
 
 def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
@@ -4023,6 +4077,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "",
     ]
     emitted_includes: set[str] = set()
+    if any(entry["i2c"] for entry in entries):
+        includes.append(f'#include "{cmodel.I2C_TABLE_MODULE}.h"')
     for entry in entries:
         include = f'#include "{entry["module"]}.h"'
         if include not in emitted_includes:
@@ -4102,6 +4158,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
             emitted_resolvers.add(module)
     # Sanal cihaz kaydi dosya kapsaminda, dispatch fonksiyonundan ONCE.
     lines.extend(_testbench_sim_setup_lines(spec, sim_entries, sim_plans))
+    lines.extend(_testbench_i2c_table_bind_lines(spec, entries))
 
     lines.extend([
         f"#define SPEC2CODE_TESTBENCH_OPERATION_COUNT {len(rows)}U",
@@ -4242,6 +4299,10 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "                 spRequest->cArrRegister, spRequest->uiRegister, spRequest->uiAddress,",
         "                 spRequest->uiLength, spRequest->uiValue, spRequest->uiDataLength);",
     ])
+    if any(entry["i2c"] for entry in entries):
+        # I2C cihaz tablosu ajanin denetleyici orneklerine baglanir (ilk dispatch'te, bir kez).
+        marker = "    spec2codeTestbenchTraceSetId(spRequest->uiId);"
+        lines.insert(lines.index(marker) + 1, "    spec2codeTestbenchI2cCihazlarBagla();")
     if sim_entries:
         # Ilk dispatch'te simulatorler kurulur (acilista ayri cagri gerekmez).
         marker = "    spec2codeTestbenchTraceSetId(spRequest->uiId);"
@@ -6617,7 +6678,8 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source(_telnet_log_enabled(spec))),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec),
-                                                              has_sim=any(d.get("simulate") for d in spec.get("devices", [])))),
+                                                              has_sim=any(d.get("simulate") for d in spec.get("devices", [])),
+                                                              has_i2c=any(cmodel.is_i2c_device(d) for d in spec.get("devices", [])))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
     ]
@@ -6811,12 +6873,19 @@ def generate(
     # standalone kullanımda no-op, test bench güçlü impl ile canlı iz olur.
     written_trace = hio.write_output(drivers_dir / "dbg_printf.h", _dbg_printf_header())
     written_dbg_src = hio.write_output(drivers_dir / "dbg_printf.c", _dbg_printf_source())
+    written_i2c: list[Path] = []
+    if any(cmodel.is_i2c_device(d) for d in spec.get("devices", [])):
+        # I2C cihaz tablosu (tasinabilir): enum + {bus ornegi, adres, switch adresi/kanali}.
+        written_i2c = [
+            hio.write_output(drivers_dir / f"{cmodel.I2C_TABLE_MODULE}.h", cmodel.i2c_table_header(spec)),
+            hio.write_output(drivers_dir / f"{cmodel.I2C_TABLE_MODULE}.c", cmodel.i2c_table_source(spec, get_descriptor)),
+        ]
     driver_t = env.get_template("driver.c.j2")
     test_header_t = env.get_template("test.h.j2")
     test_t = env.get_template("test.c.j2")
     readme_t = env.get_template("readme.md.j2")
 
-    written: list[str] = [str(written_trace), str(written_dbg_src)]
+    written: list[str] = [str(written_trace), str(written_dbg_src), *[str(w) for w in written_i2c]]
     for unit in units:
         emit({"event": "codegen.unit", "module": unit.module, "part": unit.part,
               "transport": unit.transport})
@@ -6867,7 +6936,10 @@ def generate(
     if any(device.get("simulate") for device in spec.get("devices", [])):
         plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor),
                                       _cit_measurements(spec, get_descriptor))
-        sims = [plan for plan in cit_sim.sim_plans(plans) if plan.device.get("simulate")]
+        sims = []
+        for plan in cit_sim.sim_plans(plans):
+            if plan.device.get("simulate") and plan.module not in {p.module for p in sims}:
+                sims.append(plan)  # ayni parcadan N cihaz: tek simulator modulu
         sim_files = sim_xilinx.write_sim_infra(out_dir)
         sim_dir = out_dir / "tests" / sim_xilinx.SIM_DIR
         for plan in sims:

@@ -53,7 +53,7 @@ class GeneratedOutputTests(unittest.TestCase):
                 )
 
             ltc_test_header = (out_dir / "tests" / "ltc2991_test.h").read_text(encoding="utf-8")
-            self.assertIn("int ltc2991SelfTest(XIicPs* spIic);", ltc_test_header)
+            self.assertIn("int ltc2991SelfTest(const SI2cCihaz* spCihaz);", ltc_test_header)
             # Sarmalayici (TestRun/TestTask) yok: self-test ajanin `self_test` op'uyla kosar.
             self.assertNotIn("TestTask", ltc_test_header)
             self.assertNotIn("TestRun", ltc_test_header)

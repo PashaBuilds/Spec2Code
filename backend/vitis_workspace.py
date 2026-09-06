@@ -816,7 +816,8 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
     (``error: unknown type name 'XIic'``, MicroBlaze Faz 5 E2E). v0.1.179: AXI IIC de
     ``XIic`` ornegi tasir (``xiic.h``), tek imza kaynagi yine uretilen test basligi.
     """
-    from orchestrator.cmodel import device_module_map
+    from orchestrator.cmodel import (I2C_TABLE_MODULE, device_module_map, i2c_controllers, i2c_enum_name,
+                                     is_i2c_device)
 
     controllers = {controller["id"]: controller for controller in spec.get("controllers", [])}
     devices = spec.get("devices", [])
@@ -824,6 +825,7 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
     # deriving the module from the part alone would test the first one twice.
     module_of = device_module_map(spec)
     calls: list[str] = []
+    i2c_bound = False
     includes = {
         "spec2code_selftest_main.h",
         "xstatus.h",
@@ -849,12 +851,27 @@ def vitis_selftest_source(spec: dict, *, emit_main: bool = True) -> str:
         # of truth); the driver header is pulled in transitively by it.
         includes.add(f"{module}_test.h")
         self_test = _driver_function(module, "self_test")
-        handle_name = f"s{handle_base}Handle"
-        # static: sifirlanmis ornek (surucu DeviceInit IsReady bayragina bakar).
-        handle_decl = f"    static {handle_type} {handle_name};"
-        handle_arg = f"&{handle_name}"
+        if is_i2c_device(device):
+            # I2C cihazi: tablo satiri; denetleyici ornekleri bir kez baglanir.
+            includes.add(f"{I2C_TABLE_MODULE}.h")
+            handle_decl = ""
+            handle_arg = f"i2cCihaz({i2c_enum_name(str(device.get('id', '')))})"
+            if not i2c_bound:
+                i2c_bound = True
+                args = []
+                for ctrl in i2c_controllers(spec):
+                    ctrl_type = _controller_handle_type(ctrl)
+                    name = f"s{_pascal_identifier(str(ctrl.get('id', '')))}Handle"
+                    calls.append(f"    static {ctrl_type} {name};")
+                    args.append(f"&{name}")
+                calls.append(f"    i2cCihazlarInit({', '.join(args)});")
+        else:
+            handle_name = f"s{handle_base}Handle"
+            # static: sifirlanmis ornek (surucu DeviceInit IsReady bayragina bakar).
+            handle_decl = f"    static {handle_type} {handle_name};"
+            handle_arg = f"&{handle_name}"
         calls.extend([
-            handle_decl,
+            *([handle_decl] if handle_decl else []),
             f"    iStatus = {self_test}({handle_arg});",
             "    if (iStatus != XST_SUCCESS)",
             "    {",

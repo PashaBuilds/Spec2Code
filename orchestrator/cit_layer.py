@@ -120,6 +120,10 @@ class _ChipPlan:
     mux_channel: int = 0
     i2c_addr: int = 0
     spi_select: int = 0
+    i2c: bool = False        # I2C cihazi: handle = tablo satiri (const SI2cCihaz*)
+    i2c_enum: str = ""       # I2C_CIHAZ_<ID>
+    #: Bu cihazin KENDI manifest olcumleri: (op, kanal) -> olcum (varsayilan limit icin).
+    own_olcum: dict = field(default_factory=dict)
 
     @property
     def mod(self) -> str:
@@ -131,7 +135,16 @@ class _ChipPlan:
 
     @property
     def handle_param(self) -> str:
+        if self.i2c:
+            return cmodel.I2C_DEVICE_PARAM
         return cmodel._handle_param(self.htype, self.hvar)
+
+    @property
+    def handle_arg(self) -> str:
+        """sistem_cit'in <mod>CitInit/CitRead'e verdigi handle ifadesi."""
+        if self.i2c:
+            return f"i2cCihaz({self.i2c_enum})"
+        return f"spBus->{controller_field(self.controller)}"
 
     @property
     def has_status(self) -> bool:
@@ -231,6 +244,9 @@ def build_plans(spec: dict, get_descriptor: Callable[[str], dict],
                          part=str(device["part"]), transport=transport, htype=htype, hvar=hvar)
         attach = device["attach"]
         if transport == "i2c":
+            plan.i2c = True
+            plan.i2c_enum = cmodel.i2c_enum_name(str(device["id"]))
+            plan.hvar = cmodel.I2C_DEVICE_VAR
             plan.i2c_addr = int(str(attach["i2c_address"]), 0)
             via = attach.get("via_mux")
             if via and via.get("mux_id") in muxes:
@@ -241,10 +257,40 @@ def build_plans(spec: dict, get_descriptor: Callable[[str], dict],
         regs = cmodel.status_register_plans(descriptor)
         plan.status_regs = regs if transport == "i2c" else [r for r in regs if r.width <= 8]
         _measures(plan, olcumler)
+        for m in plan.measures:
+            for ch in m.channels:
+                plan.own_olcum[(m.name, ch.index)] = ch.olcum
         if not plan.status_regs and not plan.measures:
             continue
         plans.append(plan)
+    _unify_module_measures(plans)
     return plans
+
+
+def _unify_module_measures(plans: list[_ChipPlan]) -> None:
+    """Ayni modulu paylasan planlar (ayni parcadan N I2C cihaz) TEK S<Mod>Cit yapisi kullanir:
+    olcum listesi cihazlarin birlesimi; eksik olcum o cihazda 'etkin degil' varsayilanla gelir."""
+    by_module: dict[str, list[_ChipPlan]] = {}
+    for plan in plans:
+        by_module.setdefault(plan.module, []).append(plan)
+    for group in by_module.values():
+        if len(group) < 2:
+            continue
+        union: list[_Measure] = []
+        for plan in group:
+            for m in plan.measures:
+                existing = next((u for u in union if u.name == m.name), None)
+                if existing is None:
+                    union.append(_Measure(name=m.name, func=m.func, is_array=m.is_array, ctype=m.ctype,
+                                          field=m.field, array_field=m.array_field, op_ok=m.op_ok, unit=m.unit,
+                                          channels=list(m.channels)))
+                else:
+                    for ch in m.channels:
+                        if all(c.index != ch.index for c in existing.channels):
+                            existing.channels.append(ch)
+                    existing.channels.sort(key=lambda c: c.index)
+        for plan in group:
+            plan.measures = union
 
 
 # --- cit_ortak --------------------------------------------------------------------------
@@ -400,7 +446,7 @@ def chip_header(plan: _ChipPlan) -> str:
     e.blank()
     e.ln("/**")
     e.ln(f" * @brief {plan.part} ilklendirme (surucu {module}DeviceInit).")
-    e.ln(f" * @param {plan.hvar} Denetleyici handle'i.")
+    e.ln(f" * @param {plan.hvar} {'I2C cihaz tablosu satiri' if plan.i2c else 'Denetleyici handle'}i.")
     e.ln(" * @return CIT_OK ya da CIT_HATA.")
     e.ln(" */")
     e.ln(f"int {module}CitInit({plan.handle_param});")
@@ -408,7 +454,7 @@ def chip_header(plan: _ChipPlan) -> str:
     e.ln("/**")
     e.ln(f" * @brief {plan.part} CIT okumasi: surucu fonksiyonlarini cagirir, limitle degerlendirir.")
     e.ln(" *        Bir okuma dusse de digerlerine DEVAM eder.")
-    e.ln(f" * @param {plan.hvar} Denetleyici handle'i.")
+    e.ln(f" * @param {plan.hvar} {'I2C cihaz tablosu satiri' if plan.i2c else 'Denetleyici handle'}i.")
     e.ln(" * @param spLimit Limit politikasi (NULL -> <MOD>_CIT_LIMIT_VARSAYILAN).")
     e.ln(" * @param spCit Doldurulacak sonuc (once sifirlanir).")
     e.ln(" * @return CIT_OK / CIT_NOK (limit disi) / CIT_HATA (okuma dustu).")
@@ -508,7 +554,7 @@ def _bus_field_type(htype: str) -> str:
     return f"{htype}*"
 
 
-def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str:
+def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]], spec: Optional[dict] = None) -> str:
     controllers = bus_controllers(plans)
     e = _E(0)
     e.ln("/**")
@@ -533,8 +579,10 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.ln("#ifndef SISTEM_CIT_H")
     e.ln("#define SISTEM_CIT_H")
     e.blank()
-    for plan in plans:
-        e.ln(f'#include "{plan.module}_cit.h"')
+    for module in sorted({plan.module for plan in plans}, key=[p.module for p in plans].index):
+        e.ln(f'#include "{module}_cit.h"')
+    if any(plan.i2c for plan in plans):
+        e.ln(f'#include "{cmodel.I2C_TABLE_MODULE}.h"')
     e.blank()
     e.ln(f"#define SISTEM_CIT_CIHAZ_SAYISI {len(plans)}U")
     e.blank()
@@ -560,10 +608,14 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.blank()
     e.ln("#define SISTEM_CIT_LIMIT_VARSAYILAN \\")
     for i, plan in enumerate(plans):
+        # Cihaz basina varsayilan (ayni parcadan N cihazin limitleri farkli olabilir); modulde
+        # olup bu cihazda olmayan olcum: limitsiz + etkin degil.
+        inits = [_limit_initializer(plan.own_olcum.get((m.name, ch.index), {"enabled": False}))
+                 for m in plan.measures for ch in m.channels] or ["0U"]
         tail = "," if i < len(plans) - 1 else ""
         prefix = "    {" if i == 0 else "     "
         suffix = "}" if i == len(plans) - 1 else " \\"
-        e.ln(f"{prefix}{plan.mod}_CIT_LIMIT_VARSAYILAN{tail}{suffix}")
+        e.ln(f"{prefix}{{{', '.join(inits)}}}{tail} /* {plan.device['id']} */{suffix}")
     e.blank()
     e.ln("/**")
     e.ln(" * @brief Butun entegrelerin CIT sonucu (alan adi = spec cihaz id'si).")
@@ -583,7 +635,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     return e.text()
 
 
-def sistem_source(plans: list[_ChipPlan]) -> str:
+def sistem_source(plans: list[_ChipPlan], spec: Optional[dict] = None) -> str:
     controllers = bus_controllers(plans)
     e = _E(0)
     e.ln("/**")
@@ -608,6 +660,11 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     for c in controllers:
         fld = controller_field(c)
         e.ln(f"    spBus->{fld} = &S_{fld}Instance;")
+    if any(plan.i2c for plan in plans):
+        by_id = {c.get("id"): controller_field(c) for c in controllers}
+        args = [f"spBus->{by_id[c['id']]}" if c["id"] in by_id else "NULL"
+                for c in cmodel.i2c_controllers(spec or {"controllers": [], "devices": []})]
+        e.ln(f"    i2cCihazlarInit({', '.join(args) or ''}); /* I2C cihaz tablosu -> denetleyici ornekleri */")
     e.ln("}")
     e.blank()
     e.ln("int sistemCitInit(SSistemCitBus* spBus)")
@@ -620,7 +677,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln(f"        return {STATUS_FAIL};")
     e.ln("    }")
     for plan in plans:
-        e.ln(f"    iStatus = {plan.module}CitInit(spBus->{controller_field(plan.controller)});")
+        e.ln(f"    iStatus = {plan.module}CitInit({plan.handle_arg});")
         e.ln(f"    if ((iStatus != {STATUS_OK}) && (iIlkHata == {STATUS_OK}))")
         e.ln("    {")
         e.ln("        iIlkHata = iStatus;")
@@ -645,7 +702,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("    uiSayac = spCit->uiSayac + 1U;")
     for plan in plans:
         dev = device_field(plan.device)
-        e.ln(f"    iStatus = {plan.module}CitRead(spBus->{controller_field(plan.controller)}, &spLimit->{dev}, &spCit->{dev});")
+        e.ln(f"    iStatus = {plan.module}CitRead({plan.handle_arg}, &spLimit->{dev}, &spCit->{dev});")
         e.ln("    if (iStatus > iEnKotu)")
         e.ln("    {")
         e.ln("        iEnKotu = iStatus;")
@@ -719,10 +776,14 @@ def write_cit_layer(spec: dict, out_dir: Path, get_descriptor: Callable[[str], d
         hio.write_output(cit_dir / "cit_ortak.h", ortak_header()),
         hio.write_output(cit_dir / "cit_ortak.c", ortak_source()),
     ]
+    done_modules: set[str] = set()
     for plan in plans:
+        if plan.module in done_modules:
+            continue  # ayni parcadan N cihaz: tek <mod>_cit.* (ayrim I2C cihaz tablosundan)
+        done_modules.add(plan.module)
         written.append(hio.write_output(cit_dir / f"{plan.module}_cit.h", chip_header(plan)))
         written.append(hio.write_output(cit_dir / f"{plan.module}_cit.c", chip_source(plan)))
     skipped = skipped_devices(spec, get_descriptor, plans)
-    written.append(hio.write_output(cit_dir / "sistem_cit.h", sistem_header(plans, skipped)))
-    written.append(hio.write_output(cit_dir / "sistem_cit.c", sistem_source(plans)))
+    written.append(hio.write_output(cit_dir / "sistem_cit.h", sistem_header(plans, skipped, spec)))
+    written.append(hio.write_output(cit_dir / "sistem_cit.c", sistem_source(plans, spec)))
     return [str(p) for p in written], readme_section(plans, skipped)

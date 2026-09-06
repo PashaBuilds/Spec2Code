@@ -65,10 +65,12 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       bus: controller?.instance ?? device.attach.controller_id,
       endpoint,
     });
-    pushUnitFiles(files, device.part, moduleCounts, (device.tests_requested ?? []).includes("self_test"));
+    // I2C cihazi: ayni parcadan N cihaz TEK modul (ayrim drivers/i2c_cihazlar tablosundan) -> sonek yok.
+    const isI2c = device.attach.i2c_address !== undefined && device.attach.i2c_address !== null;
+    pushUnitFiles(files, device.part, isI2c ? undefined : moduleCounts, (device.tests_requested ?? []).includes("self_test"));
     initWrites.push(...deviceInitWrites(device));
     if (citEligible(device, controller?.type)) {
-      const module = moduleNameFor(device.part, moduleCounts, false);
+      const module = isI2c ? moduleOf(device.part) : moduleNameFor(device.part, moduleCounts, false);
       files.push({ path: `cit/${module}_cit.h`, kind: "cit" }, { path: `cit/${module}_cit.c`, kind: "cit" });
       // Sanal cihaz (simulate): register-dosyasi simulatoru tests/sim altinda (yalniz test bench).
       if (device.simulate) {
@@ -96,6 +98,9 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
 
   // Seviyeli debug print (kullaniciya giden katman; suruculer bunu include eder).
   files.push({ path: "drivers/dbg_printf.h", kind: "driver" }, { path: "drivers/dbg_printf.c", kind: "driver" });
+  if (spec.devices.some((d) => d.attach.i2c_address !== undefined && d.attach.i2c_address !== null)) {
+    files.push({ path: "drivers/i2c_cihazlar.h", kind: "driver" }, { path: "drivers/i2c_cihazlar.c", kind: "driver" });
+  }
   files.push(
     { path: "tests/spec2code_testbench_protocol.h", kind: "test" },
     { path: "tests/spec2code_testbench_protocol.c", kind: "test" },

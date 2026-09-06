@@ -164,11 +164,19 @@ def device_module_map(spec: dict) -> dict[str, str]:
     sabiti olduğundan her örnek kendi modülünü alır: ilki geriye dönük
     uyumlu kalır (ltc2991), sonrakiler harf soneki alır (ltc2991b,
     ltc2991c, ...).
+
+    v0.1.182 (kullanici kurali): I2C cihazlarinda sonek YOK - ayni parcadan N cihaz TEK
+    surucu modulu paylasir; bus ornegi, adres ve switch bilgisi `drivers/i2c_cihazlar.*`
+    tablosundan (`const SI2cCihaz*` parametresi) gelir. Sonek yalniz SPI/GPIO cihazlarinda
+    (chip-select/maske derleme sabiti) kalir.
     """
     counts: dict[str, int] = {}
     mapping: dict[str, str] = {}
     for device in spec.get("devices", []):
         base = _module_of(device.get("part", ""))
+        if is_i2c_device(device):
+            mapping[device.get("id", "")] = base
+            continue
         n = counts.get(base, 0)
         counts[base] = n + 1
         if n == 0:
@@ -178,6 +186,204 @@ def device_module_map(spec: dict) -> dict[str, str]:
         else:
             mapping[device.get("id", "")] = f"{base}x{n}"
     return mapping
+
+
+def is_i2c_device(device: dict) -> bool:
+    """Spec'te I2C adresiyle bagli cihaz (register cihazi ya da EEPROM)."""
+    return (device.get("attach") or {}).get("i2c_address") is not None
+
+
+# --- I2C cihaz tablosu (drivers/i2c_cihazlar.h/.c) ------------------------------------------
+#: Tasinabilir tablo: enum (cihaz id'sinden) + {bus ornegi, adres, switch adresi/kanali}.
+#: Surucu, cit/ ve test bench ayni satiri `const SI2cCihaz*` olarak alir; ornek/adres AYRI
+#: parametre olarak dolasmaz (kullanici kurali 2026-09-06: "structure array en alt katmana
+#: kadar gitsin").
+I2C_TABLE_MODULE = "i2c_cihazlar"
+I2C_DEVICE_PARAM = "const SI2cCihaz* spCihaz"
+I2C_DEVICE_VAR = "spCihaz"
+
+
+def i2c_enum_name(device_id: str) -> str:
+    return "I2C_CIHAZ_" + re.sub(r"[^A-Za-z0-9]+", "_", str(device_id)).strip("_").upper()
+
+
+def i2c_init_writes_for(device: dict, descriptor: Optional[dict]) -> list[dict]:
+    """Cihaza ozel init yazimlari (profil + config.init_sequence): {reg, offset, value, note}."""
+    if descriptor is None:
+        return []
+    regs = {rg["name"]: rg for rg in descriptor.get("registers", [])}
+    writes = [*device_profiles.i2c_init_writes(device), *_generic_i2c_init_writes(device, regs)]
+    out = []
+    for w in writes:
+        reg = regs.get(str(w.get("reg")))
+        if reg is None:
+            raise CodegenError(f"{device.get('id')}: init yazimi bilinmeyen register '{w.get('reg')}'")
+        out.append({"reg": str(w["reg"]), "offset": int(reg["offset"]), "value": int(w["value"]) & 0xFF,
+                    "note": str(w.get("note") or "")})
+    return out
+
+
+def i2c_device_rows(spec: dict, get_descriptor: Optional[Callable[[str], dict]] = None) -> list[dict]:
+    """Tablo satirlari (spec cihaz sirasi): enum, adres, switch adresi/kanali, denetleyici, init dizisi."""
+    muxes = {m["id"]: m for m in spec.get("muxes", [])}
+    rows: list[dict] = []
+    for device in spec.get("devices", []):
+        if not is_i2c_device(device):
+            continue
+        attach = device["attach"]
+        via = attach.get("via_mux") or {}
+        mux = muxes.get(via.get("mux_id")) if isinstance(via, dict) else None
+        descriptor = None
+        if get_descriptor is not None:
+            descriptor = get_descriptor(device.get("descriptor_ref") or device.get("part", ""))
+            if descriptor.get("memory"):
+                descriptor = None  # EEPROM: init yazimi yok
+        rows.append({
+            "init": i2c_init_writes_for(device, descriptor),
+            "id": str(device.get("id", "")),
+            "part": str(device.get("part", "")),
+            "enum": i2c_enum_name(str(device.get("id", ""))),
+            "address": int(str(attach["i2c_address"]), 0),
+            "switch_address": int(str(mux["i2c_address"]), 0) if mux else 0,
+            "switch_channel": int(via.get("channel", 0)) if mux else 0,
+            "controller_id": str(attach.get("controller_id", "")),
+        })
+    return rows
+
+
+def i2c_controllers(spec: dict) -> list[dict]:
+    """I2C cihazlarin bagli oldugu denetleyiciler (spec sirasi, tekil)."""
+    used = {r["controller_id"] for r in i2c_device_rows(spec)}
+    return [c for c in spec.get("controllers", []) if c.get("id") in used]
+
+
+def i2c_table_htype(spec: dict) -> str:
+    """Tablodaki bus ornegi tipi (XIic / XIicPs). Karisik tip desteklenmez (tek struct)."""
+    types = {_handle_for(c)[0] for c in i2c_controllers(spec)}
+    if not types:
+        return "XIic"
+    if len(types) > 1:
+        raise CodegenError(f"I2C cihaz tablosu tek denetleyici tipi ister, spec'te karisik: {sorted(types)}")
+    return next(iter(types))
+
+
+def i2c_controller_var(controller: dict) -> str:
+    return "sp" + _pascal_suffix(str(controller.get("id", "iic")))
+
+
+def i2c_table_header(spec: dict) -> str:
+    rows = i2c_device_rows(spec)
+    htype = i2c_table_htype(spec)
+    ctrls = i2c_controllers(spec)
+    enum_lines = []
+    for i, r in enumerate(rows):
+        note = f"{r['id']} ({r['part']}) 0x{r['address']:02X}"
+        if r["switch_address"]:
+            note += f", switch 0x{r['switch_address']:02X} kanal {r['switch_channel']}"
+        enum_lines.append(f"    {r['enum']} = {i}, /* {note} */")
+    params = ", ".join(f"{htype}* {i2c_controller_var(c)}" for c in ctrls) or "void"
+    lines = [
+        "/**",
+        " * @file i2c_cihazlar.h",
+        " * @brief I2C cihaz tablosu: her cihazin bus ornegi, adresi ve (varsa) I2C switch",
+        " *        adresi/kanali TEK satirda. Suruculer ve cit/ katmani cihazi bu satirla alir;",
+        " *        ayni parcadan N cihaz ayni surucuyu paylasir. Generated by Spec2Code.",
+        " */",
+        "#ifndef I2C_CIHAZLAR_H",
+        "#define I2C_CIHAZLAR_H",
+        "",
+        f'#include "{_i2c_header_for(htype)}"',
+        "",
+        "typedef enum",
+        "{",
+        *enum_lines,
+        f"    I2C_CIHAZ_SAYISI = {len(rows)}",
+        "} EI2cCihaz;",
+        "",
+        "/* device_init'te sirayla yazilan register/deger cifti (cihaza ozel config'ten). */",
+        "typedef struct",
+        "{",
+        "    unsigned char ucReg;",
+        "    unsigned char ucDeger;",
+        "} SI2cInitYazim;",
+        "",
+        "typedef struct",
+        "{",
+        f"    {htype}* spIic;              /* denetleyici ornegi (i2cCihazlarInit ile atanir)      */",
+        "    unsigned char ucAdres;       /* 7-bit I2C adresi                                    */",
+        "    unsigned char ucSwitchAdres; /* I2C switch (TCA9548A) adresi; 0 = switch yok         */",
+        "    unsigned char ucSwitchKanal; /* switch kanali 0..7 (ucSwitchAdres != 0 ise gecerli)  */",
+        "    const SI2cInitYazim* spInit; /* device_init yazim dizisi (NULL = yok)                */",
+        "    unsigned char ucInitSayisi;  /* spInit eleman sayisi                                */",
+        "} SI2cCihaz;",
+        "",
+        "/* Denetleyici ornekleri tabloya baglanir (bir kez, ornekler ilklendirildikten sonra). */",
+        f"void i2cCihazlarInit({params});",
+        "",
+        "/* Cihazin tablo satiri; gecersiz indekste NULL. */",
+        "const SI2cCihaz* i2cCihaz(EI2cCihaz eCihaz);",
+        "",
+        "#endif /* I2C_CIHAZLAR_H */",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def i2c_table_source(spec: dict, get_descriptor: Optional[Callable[[str], dict]] = None) -> str:
+    rows = i2c_device_rows(spec, get_descriptor)
+    htype = i2c_table_htype(spec)
+    ctrls = i2c_controllers(spec)
+    var_of = {c["id"]: i2c_controller_var(c) for c in ctrls}
+    init_blocks: list[str] = []
+    table: list[str] = []
+    for r in rows:
+        if r["init"]:
+            name = f"S_sArrInit{_pascal_suffix(r['id'])}"
+            init_blocks.append(f"/* {r['id']} ({r['part']}) device_init yazimlari (spec config'ten). */")
+            init_blocks.append(f"static const SI2cInitYazim {name}[{len(r['init'])}] = {{")
+            for w in r["init"]:
+                note = f" /* {w['reg']}: {w['note']} */" if w["note"] else f" /* {w['reg']} */"
+                init_blocks.append(f"    {{{_hexu8(w['offset'])}, {_hexu8(w['value'])}}},{note}")
+            init_blocks.append("};")
+            init_blocks.append("")
+            init_ref = f"{name}, {len(r['init'])}U"
+        else:
+            init_ref = "NULL, 0U"
+        table.append(f"    {{NULL, {_hexu8(r['address'])}, {_hexu8(r['switch_address'])}, "
+                     f"{_hexu8(r['switch_channel'])}, {init_ref}}}, /* {r['enum']} */")
+    if not table:
+        table = ["    {NULL, 0x00U, 0x00U, 0x00U, NULL, 0U}"]
+    params = ", ".join(f"{htype}* {var_of[c['id']]}" for c in ctrls) or "void"
+    assigns = [f"    S_sArrI2cCihaz[{r['enum']}].spIic = {var_of[r['controller_id']]};" for r in rows]
+    lines = [
+        "/**",
+        " * @file i2c_cihazlar.c",
+        " * @brief I2C cihaz tablosu gerceklemesi. Generated by Spec2Code.",
+        " */",
+        '#include "i2c_cihazlar.h"',
+        "#include <stddef.h>",
+        "",
+        *init_blocks,
+        f"static SI2cCihaz S_sArrI2cCihaz[{max(1, len(rows))}] = {{",
+        *table,
+        "};",
+        "",
+        f"void i2cCihazlarInit({params})",
+        "{",
+        *assigns,
+        "}",
+        "",
+        "const SI2cCihaz* i2cCihaz(EI2cCihaz eCihaz)",
+        "{",
+        "    if ((unsigned int)eCihaz >= (unsigned int)I2C_CIHAZ_SAYISI)",
+        "    {",
+        "        return NULL;",
+        "    }",
+        "    return &S_sArrI2cCihaz[eCihaz];",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 #: Drivers the deterministic bus-op emitters actually speak. Every bus fragment
@@ -373,6 +579,8 @@ class _I2cApi:
         self.module = module
         self.htype = htype
         self.hvar = hvar
+        self.param_override: str = ""
+        self.bus: str = hvar  # Xilinx cagrilarindaki handle ifadesi
 
     @property
     def is_axi(self) -> bool:
@@ -380,6 +588,8 @@ class _I2cApi:
 
     @property
     def param(self) -> str:
+        if self.param_override:
+            return self.param_override
         return _handle_param(self.htype, self.hvar)
 
     @property
@@ -396,26 +606,26 @@ class _I2cApi:
              hold_bus: bool = False, status: str = "iStatus") -> Emit:
         if self.is_axi:
             option = "XIIC_REPEATED_START" if hold_bus else "XIIC_STOP"
-            e.ln(f"{status} = {_func_name(self.module, 'bus_send')}({self.hvar}, {addr_def}, "
+            e.ln(f"{status} = {_func_name(self.module, 'bus_send')}({self.bus}, {addr_def}, "
                  f"{buffer}, {self._count(count)}, {option});")
         else:
-            e.ln(f"{status} = XIicPs_MasterSendPolled({self.hvar}, {buffer}, "
+            e.ln(f"{status} = XIicPs_MasterSendPolled({self.bus}, {buffer}, "
                  f"{self._count(count)}, {addr_def});")
         return e
 
     def recv(self, e: Emit, buffer: str, count: int | str, addr_def: str, *,
              status: str = "iStatus") -> Emit:
         if self.is_axi:
-            e.ln(f"{status} = {_func_name(self.module, 'bus_recv')}({self.hvar}, {addr_def}, "
+            e.ln(f"{status} = {_func_name(self.module, 'bus_recv')}({self.bus}, {addr_def}, "
                  f"{buffer}, {self._count(count)});")
         else:
-            e.ln(f"{status} = XIicPs_MasterRecvPolled({self.hvar}, {buffer}, "
+            e.ln(f"{status} = XIicPs_MasterRecvPolled({self.bus}, {buffer}, "
                  f"{self._count(count)}, {addr_def});")
         return e
 
     def wait_idle(self, e: Emit, comment: str = "/* wait */") -> Emit:
         if not self.is_axi:
-            e.open(f"while (XIicPs_BusIsBusy({self.hvar}) == TRUE)").ln(comment).close()
+            e.open(f"while (XIicPs_BusIsBusy({self.bus}) == TRUE)").ln(comment).close()
         return e
 
     def config_decl(self) -> Optional[str]:
@@ -429,22 +639,22 @@ class _I2cApi:
             e.ln(" * sabittir. Cekirdek DINAMIK moda alinir (XIic_DynInit): standart-mod")
             e.ln(" * XIic_Send tek baytlik STOP yaziminda bayti dusuruyor (SAHA: Nexys A7")
             e.ln(" * ADT7420). Ardindan hat gercekten bosta mi diye bakilir. */")
-            e.open(f"if ({self.hvar}->IsReady != XIL_COMPONENT_IS_READY)")
+            e.open(f"if ({self.bus}->IsReady != XIL_COMPONENT_IS_READY)")
             e.ln(f"spConfig = XIic_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-            e.ln(f"iStatus = XIic_CfgInitialize({self.hvar}, spConfig, spConfig->BaseAddress);").check_status()
+            e.ln(f"iStatus = XIic_CfgInitialize({self.bus}, spConfig, spConfig->BaseAddress);").check_status()
             e.close()
-            e.ln(f"iStatus = XIic_DynInit({self.hvar}->BaseAddress);").check_status()
-            e.ln(f"iStatus = (int)XIic_WaitBusFree({self.hvar}->BaseAddress);").check_status()
+            e.ln(f"iStatus = XIic_DynInit({self.bus}->BaseAddress);").check_status()
+            e.ln(f"iStatus = (int)XIic_WaitBusFree({self.bus}->BaseAddress);").check_status()
         else:
             # Shared, already-running controllers (test bench boot) must not
             # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
             # on some drivers and resets live bus settings on others.
-            e.open(f"if ({self.hvar}->IsReady != XIL_COMPONENT_IS_READY)")
+            e.open(f"if ({self.bus}->IsReady != XIL_COMPONENT_IS_READY)")
             e.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
-            e.ln(f"iStatus = XIicPs_CfgInitialize({self.hvar}, spConfig, spConfig->BaseAddress);").check_status()
-            e.ln(f"iStatus = XIicPs_SetSClk({self.hvar}, {sclk_def});").check_status()
+            e.ln(f"iStatus = XIicPs_CfgInitialize({self.bus}, spConfig, spConfig->BaseAddress);").check_status()
+            e.ln(f"iStatus = XIicPs_SetSClk({self.bus}, {sclk_def});").check_status()
             e.close()
         return e
 
@@ -492,6 +702,15 @@ class _I2cApi:
 def _i2c_api(module: str, controller: dict) -> _I2cApi:
     htype, hvar = _handle_for(controller)
     return _I2cApi(module, htype, hvar)
+
+
+def _i2c_device_api(module: str, controller: dict) -> _I2cApi:
+    """Cihaz surucusu: handle TABLO SATIRINDAN (spCihaz->spIic), adres spCihaz->ucAdres."""
+    htype, _hvar = _handle_for(controller)
+    api = _I2cApi(module, htype, I2C_DEVICE_VAR)
+    api.bus = f"{I2C_DEVICE_VAR}->spIic"
+    api.param_override = I2C_DEVICE_PARAM
+    return api
 
 
 def _hexu8(value: int) -> str:
@@ -822,36 +1041,6 @@ def _scalar_assign_expr(byte_count: int, c_type: str, byte_order: str,
     return " | ".join(terms) if terms else "0U"
 
 
-def _private_i2c_init_sequence(module: str, mod: str, writes: list[dict]) -> list[str]:
-    if not writes:
-        return []
-
-    type_name = _struct_type(module, "InitWrite")
-    seq_name = _static_array_name(module, "InitSequence")
-    count_name = f"{mod}_INIT_SEQUENCE_COUNT"
-    lines = [
-        "typedef struct",
-        "{",
-        "    unsigned char ucReg;",
-        "    unsigned char ucValue;",
-        f"}} {type_name};",
-        "",
-        f"#define {count_name} {len(writes)}U",
-        "",
-        f"static const {type_name} {seq_name}[{count_name}] =",
-        "{",
-    ]
-    for write in writes:
-        note = str(write.get("note", "")).strip()
-        comment = f"  /* {note} */" if note else ""
-        lines.append(f"    {{ {mod}_REG_{write['reg']}, {_hexu8(int(write['value']))} }},{comment}")
-    lines.extend([
-        "};",
-        "",
-    ])
-    return lines
-
-
 def _private_spi_register_init_sequence(module: str, mod: str, words: list[tics.TicsRegisterWord],
                                         model: dict | None = None) -> list[str]:
     if not words:
@@ -950,9 +1139,8 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     module = _module_of(mux["part"])
     api = _i2c_api(module, controller)
     hvar = api.hvar
-    MOD = module.upper()
-    addr_def = f"{MOD}_I2C_ADDR"
-    addr = int(str(mux["i2c_address"]), 0)
+    # Switch adresi PARAMETREDIR (ucSwitchAdres): ayni parcadan N switch tek modul.
+    addr_def = "ucSwitchAdres"
 
     sel = Emit()
     sel.ln("unsigned char ucMask;").ln("int iStatus;").blank()
@@ -967,9 +1155,10 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     sel.ln("return XST_SUCCESS;")
     select = CFunc(
         name=_func_name(module, "channel_select"), ret="int",
-        params=[api.param, "unsigned char ucChannel"], body=sel.out(),
+        params=[api.param, "unsigned char ucSwitchAdres", "unsigned char ucChannel"], body=sel.out(),
         brief="Enable exactly one downstream channel on the I2C switch.",
         doxy_params=[(hvar, "Initialized I2C controller handle the mux sits on."),
+                     ("ucSwitchAdres", "7-bit I2C address of the switch."),
                      ("ucChannel", "Channel index 0..7 to enable.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code.")
 
@@ -984,21 +1173,32 @@ def _mux_unit(mux: dict, controller: dict, descriptor: dict) -> CUnit:
     api.wait_idle(dis, "/* wait for the transfer to complete */")
     dis.ln("return XST_SUCCESS;")
     disable = CFunc(
-        name=_func_name(module, "channel_disable"), ret="int", params=[api.param], body=dis.out(),
-        brief="Disable all downstream channels on the I2C switch.",
-        doxy_params=[(hvar, "Initialized I2C controller handle the mux sits on.")],
+        name=_func_name(module, "channel_disable"), ret="int", params=[api.param, "unsigned char ucSwitchAdres"],
+        body=dis.out(), brief="Disable all downstream channels on the I2C switch.",
+        doxy_params=[(hvar, "Initialized I2C controller handle the mux sits on."),
+                     ("ucSwitchAdres", "7-bit I2C address of the switch.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code.")
 
     return CUnit(
         module=module, part=mux["part"], summary=descriptor.get("summary", ""), transport="i2c_mux",
         header_includes=["xil_types.h", api.header],
         driver_includes=[f"{module}.h", "dbg_printf.h", "xparameters.h", "xstatus.h"],
-        defines=[(addr_def, _hexu8(addr), f"{mux['part']} I2C address")],
+        defines=[],
         funcs=_prune_unused_static_funcs([*api.wrapper_funcs(), select, disable]),
         public_names=[select.name, disable.name])
 
 
 # --- I2C device unit --------------------------------------------------------------------
+
+def _inject_switch_select(e: "Emit", mux_module: Optional[str]) -> None:
+    """Tablo satirinda switch varsa (ucSwitchAdres != 0) kanali sec; yoksa dogrudan gecer."""
+    if mux_module is None:
+        return
+    e.open(f"if ({I2C_DEVICE_VAR}->ucSwitchAdres != 0U)")
+    e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({I2C_DEVICE_VAR}->spIic, "
+         f"{I2C_DEVICE_VAR}->ucSwitchAdres, {I2C_DEVICE_VAR}->ucSwitchKanal);").check_status()
+    e.close()
+
 
 def _i2c_low_level(module: str, api: "_I2cApi", addr_def: str) -> list[CFunc]:
     hvar = api.hvar
@@ -1155,21 +1355,21 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
                      module: Optional[str] = None) -> CUnit:
     module = module or _module_of(device["part"])
-    api = _i2c_api(module, controller)
+    api = _i2c_device_api(module, controller)
     hvar = api.hvar
     MOD = module.upper()
-    attach = device["attach"]
-    addr_def, sclk_def, to_def = f"{MOD}_I2C_ADDR", f"{MOD}_I2C_SCLK_HZ", f"{MOD}_POLL_TIMEOUT"
+    addr_def, sclk_def, to_def = f"{I2C_DEVICE_VAR}->ucAdres", f"{MOD}_I2C_SCLK_HZ", f"{MOD}_POLL_TIMEOUT"
     regs = {rg["name"]: rg for rg in descriptor.get("registers", [])}
     instance = controller["instance"]
     byte_order = descriptor.get("transport", {}).get("byte_order", "big")
+    # Cihaza ozel init yazimlari TABLODADIR (spCihaz->spInit): surucu config'ten bagimsiz.
+    # Profil/config yazimi olan parcada descriptor device_init adimlari yerine tablo kosar.
     profile_writes = [
         *device_profiles.i2c_init_writes(device),
         *_generic_i2c_init_writes(device, regs),
     ]
 
     defines = [
-        (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
         (sclk_def, "100000U", "I2C SCL frequency (Hz)"),
         # Her poll denemesi tam bir I2C register okumasıdır (~0.5 ms @100
         # kHz): 1000 deneme ~0.5 s tavan demektir. Onceki 100000U butcesi
@@ -1177,7 +1377,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         (to_def, "1000U", "poll attempts; each is one I2C register read (~0.5 s cap)"),
     ]
     defines += [(f"{MOD}_REG_{n}", _hexu8(rg["offset"]), "") for n, rg in regs.items()]
-    private_decls = _private_i2c_init_sequence(module, MOD, profile_writes)
+    private_decls: list[str] = []
 
     funcs = _i2c_low_level(module, api, addr_def)
     public: list[str] = []
@@ -1186,8 +1386,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
     requested = device.get("operations_requested") or list(ops_by_name)
 
     def inject_mux(e: Emit) -> None:
-        if mux_module is not None:
-            e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({hvar}, {mux_channel}U);").check_status()
+        _inject_switch_select(e, mux_module)
 
     # Durum registerleri: S<Mod>Status + <mod>StatusRegistersRead (op'lardan bagimsiz; cit/
     # katmani ve kullanici bunu dogrudan kullanir).
@@ -1243,8 +1442,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             config_decl = api.config_decl()
             if config_decl:
                 e.ln(config_decl)
-            if profile_writes:
-                e.ln("unsigned int uiIndex;")
+            e.ln("unsigned int uiIndex;")
         if has_channels:
             e.ln("unsigned char ucIndex;")
         if has_channels:
@@ -1266,13 +1464,15 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
         read_seen = 0
         scalar_pieces: list[dict[str, int]] = []
-        if is_init and profile_writes:
-            seq_name = _static_array_name(module, "InitSequence")
-            e.open(f"for (uiIndex = 0U; uiIndex < {MOD}_INIT_SEQUENCE_COUNT; uiIndex++)")
-            e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {seq_name}[uiIndex].ucReg,")
-            e.ln(f"                                {seq_name}[uiIndex].ucValue);")
+        if is_init:
+            e.ln("/* Cihaza ozel init yazimlari tablodan (spec config: profil + init_sequence). */")
+            e.open(f"for (uiIndex = 0U; uiIndex < (unsigned int){hvar}->ucInitSayisi; uiIndex++)")
+            e.ln(f"iStatus = {_func_name(module, 'register_write')}({hvar}, {hvar}->spInit[uiIndex].ucReg, "
+                 f"{hvar}->spInit[uiIndex].ucDeger);")
             e.check_status()
             e.close()
+        if is_init and profile_writes:
+            pass  # descriptor device_init adimlari yerine tablo dizisi (yukarida) kosar
         else:
             for step in op["steps"]:
                 sop = step["op"]
@@ -1342,7 +1542,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                 e.ln(f"*{out_param} = ({out_c_type})({expr});")
         e.ln("return XST_SUCCESS;")
 
-        doxy_params = [(hvar, "Initialized I2C controller handle.")]
+        doxy_params = [(I2C_DEVICE_VAR, "I2C cihaz tablosu satiri (bus ornegi, adres, switch).")]
         if out_param:
             doxy_params.append((out_param, f"Out parameter: {returns}."))
         funcs.append(CFunc(
@@ -1356,7 +1556,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c",
-        header_includes=["xil_types.h", api.header], driver_includes=includes_c,
+        header_includes=["xil_types.h", api.header, f"{I2C_TABLE_MODULE}.h"], driver_includes=includes_c,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public,
         private_decls=private_decls, public_types=public_types)
 
@@ -1365,12 +1565,11 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
                      module: Optional[str] = None) -> CUnit:
     module = module or _module_of(device["part"])
-    api = _i2c_api(module, controller)
+    api = _i2c_device_api(module, controller)
     hvar = api.hvar
     MOD = module.upper()
-    attach = device["attach"]
     instance = controller["instance"]
-    addr_def = f"{MOD}_I2C_ADDR"
+    addr_def = f"{I2C_DEVICE_VAR}->ucAdres"
     sclk_def = f"{MOD}_I2C_SCLK_HZ"
     to_def = f"{MOD}_POLL_TIMEOUT"
     size_def = f"{MOD}_MEMORY_SIZE_BYTES"
@@ -1380,7 +1579,6 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     page_size = int(memory.get("page_size", 32))
 
     defines = [
-        (addr_def, _hexu8(int(str(attach["i2c_address"]), 0)), f"{device['part']} I2C address"),
         (sclk_def, "100000U", "I2C SCL frequency (Hz)"),
         # ACK poll denemesi kisa bir adres yazimidir (~0.2 ms); EEPROM write
         # cycle max ~5 ms oldugundan 1000 deneme (>=100 ms) bol tavandir.
@@ -1390,8 +1588,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     ]
 
     def inject_mux(e: Emit) -> None:
-        if mux_module is not None:
-            e.ln(f"iStatus = {_func_name(mux_module, 'channel_select')}({hvar}, {mux_channel}U);").check_status()
+        _inject_switch_select(e, mux_module)
 
     funcs: list[CFunc] = [*api.wrapper_funcs()]
     public: list[str] = []
@@ -1408,7 +1605,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
     funcs.append(CFunc(
         name=_func_name(module, "device_init"), ret="int", params=[api.param], body=init.out(),
         brief="Initialize the I2C controller for EEPROM access.",
-        doxy_params=[(hvar, "Initialized I2C controller handle.")],
+        doxy_params=[("spCihaz", "I2C cihaz tablosu satiri.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code."))
     public.append(_func_name(module, "device_init"))
 
@@ -1434,7 +1631,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         name=_func_name(module, "ack_poll"), ret="int",
         params=[api.param, "unsigned int uiAddress"], body=ack.out(),
         brief="Poll until the EEPROM internal write cycle accepts I2C traffic again.",
-        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "Word address used for the harmless pointer write.")],
+        doxy_params=[("spCihaz", "I2C cihaz tablosu satiri."), ("uiAddress", "Word address used for the harmless pointer write.")],
         doxy_return="XST_SUCCESS when the EEPROM acknowledges, else XST_FAILURE.", static=True))
 
     read = Emit()
@@ -1457,7 +1654,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         params=[api.param, "unsigned int uiAddress", "unsigned char* ucpBuffer", "unsigned int uiLength"],
         body=read.out(),
         brief="Read bytes from the EEPROM using random-read addressing followed by sequential read.",
-        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+        doxy_params=[("spCihaz", "I2C cihaz tablosu satiri."), ("uiAddress", "12-bit EEPROM word address."),
                      ("ucpBuffer", "Output buffer."), ("uiLength", "Number of bytes to read.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code."))
     public.append(_func_name(module, "data_read"))
@@ -1480,7 +1677,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         params=[api.param, "unsigned int uiAddress", "unsigned char ucValue"],
         body=byte.out(),
         brief="Write one EEPROM byte and poll until the internal write cycle finishes.",
-        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+        doxy_params=[("spCihaz", "I2C cihaz tablosu satiri."), ("uiAddress", "12-bit EEPROM word address."),
                      ("ucValue", "Byte value to program.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code."))
     public.append(_func_name(module, "byte_write"))
@@ -1511,7 +1708,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         params=[api.param, "unsigned int uiAddress", "const unsigned char* ucpBuffer", "unsigned int uiLength"],
         body=page.out(),
         brief="Write up to one EEPROM page without crossing a physical page boundary.",
-        doxy_params=[(hvar, "Initialized I2C controller handle."), ("uiAddress", "12-bit EEPROM word address."),
+        doxy_params=[("spCihaz", "I2C cihaz tablosu satiri."), ("uiAddress", "12-bit EEPROM word address."),
                      ("ucpBuffer", "Input buffer."), ("uiLength", "Number of bytes to write, maximum one page.")],
         doxy_return="XST_SUCCESS on success, else an XST_* error code."))
     public.append(_func_name(module, "page_write"))
@@ -1521,7 +1718,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         includes_c.insert(1, f"{mux_module}.h")
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="i2c_eeprom",
-        header_includes=["xil_types.h", api.header], driver_includes=includes_c,
+        header_includes=["xil_types.h", api.header, f"{I2C_TABLE_MODULE}.h"], driver_includes=includes_c,
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 
@@ -2241,6 +2438,8 @@ def _gpio_device_unit(device: dict, controller: dict, descriptor: dict,
 def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTest:
     module = unit.module
     htype, hvar = _handle_for(controller)
+    if unit.transport in {"i2c", "i2c_eeprom"}:
+        hvar = I2C_DEVICE_VAR  # tablo satiri: <mod>Op(spCihaz, ...)
     MOD = module.upper()
     part = unit.part
     # Non-destructive ops only: device init + *Read functions.
@@ -2466,7 +2665,9 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' data[0] = %02X", ucArrBuffer[0]);')
     st.ln("return XST_SUCCESS;")
     self_test = CFunc(
-        name=_func_name(module, "self_test"), ret="int", params=[_handle_param(htype, hvar)], body=st.out(),
+        name=_func_name(module, "self_test"), ret="int",
+        params=[I2C_DEVICE_PARAM if unit.transport in {"i2c", "i2c_eeprom"} else _handle_param(htype, hvar)],
+        body=st.out(),
         brief=f"Non-destructive self-test for the {part}: init + reads.",
         doxy_params=[(hvar, "Uninitialized controller handle; this routine initializes it.")],
         doxy_return="XST_SUCCESS if all checks pass, else an XST_* error code.")
@@ -2487,13 +2688,24 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
     modules = device_module_map(spec)
     units: list[CUnit] = []
 
+    built_mux: set[str] = set()
     for mux in spec.get("muxes", []):
         controller = controllers.get(mux["controller_id"])
         if controller is None:
             raise CodegenError(f"mux {mux['id']} references unknown controller {mux['controller_id']}")
         mux_unit = _mux_unit(mux, controller, get_descriptor(mux["part"]))
+        if mux_unit.module in built_mux:
+            continue  # ayni parcadan N switch: tek modul (adres parametre)
+        built_mux.add(mux_unit.module)
         mux_unit.board_id = boards.board_id_of(mux)
         units.append(mux_unit)
+    # Switch secimi calisma zamaninda tablo satirindan yapilir; hangi switch surucusu?
+    # Spec'teki switch parcalari tek modulde bulusur (hepsi 1<<kanal kontrol bayti).
+    switch_modules = sorted({_module_of(m["part"]) for m in spec.get("muxes", [])})
+    if len(switch_modules) > 1:
+        raise CodegenError(f"I2C switch parcalari tek tip olmali (spec'te: {switch_modules})")
+    spec_switch_module = switch_modules[0] if switch_modules else None
+    built_i2c: dict[str, dict] = {}
 
     for device in spec.get("devices", []):
         attach = device["attach"]
@@ -2504,13 +2716,26 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
         transport = descriptor.get("transport", {}).get("type")
 
         if transport == "i2c":
-            mux_module = mux_channel = None
+            mux_module, mux_channel = spec_switch_module, None
             via = attach.get("via_mux")
-            if via:
-                mux = muxes.get(via["mux_id"])
-                if mux is None:
-                    raise CodegenError(f"device {device['id']} via unknown mux {via['mux_id']}")
-                mux_module, mux_channel = _module_of(mux["part"]), via["channel"]
+            if via and muxes.get(via["mux_id"]) is None:
+                raise CodegenError(f"device {device['id']} via unknown mux {via['mux_id']}")
+            mod_name = modules.get(device["id"], _module_of(device["part"]))
+            prior = built_i2c.get(mod_name)
+            if prior is not None:
+                # Ayni parcadan ikinci cihaz: TEK surucu (op birlesimi ilk cihazda uretildi);
+                # ayrim tablo satirindan. Yalniz donusum sabitine giren config esit olmali.
+                _assert_same_convert_config(prior, device, descriptor)
+                if "self_test" in (device.get("tests_requested") or []):
+                    for u in units:
+                        if u.module == mod_name and u.test is None:
+                            u.test = _test_unit(u, device, controller, runtime)
+                continue
+            built_i2c[mod_name] = device
+            siblings = [d for d in spec.get("devices", [])
+                        if is_i2c_device(d) and modules.get(d["id"], _module_of(d["part"])) == mod_name]
+            if len(siblings) > 1:
+                device = _i2c_union_device(device, siblings, descriptor)
             if descriptor.get("memory"):
                 unit = _i2c_eeprom_unit(device, controller, descriptor, mux_module, mux_channel,
                                         module=modules.get(device["id"]))
@@ -2539,3 +2764,32 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
         units.append(unit)
 
     return units
+
+
+def _i2c_union_device(first: dict, siblings: list[dict], descriptor: dict) -> dict:
+    """Ayni parcadan N cihaz: surucu HEPSININ istedigi op'lari icerir (descriptor sirasiyla)."""
+    wanted: set[str] = set()
+    explicit = False
+    for d in siblings:
+        req = d.get("operations_requested")
+        if req:
+            explicit = True
+            wanted.update(str(x) for x in req)
+    if not explicit:
+        return first
+    order = [op["name"] for op in descriptor.get("operations", [])]
+    union = [name for name in order if name in wanted] + sorted(wanted - set(order))
+    return {**first, "operations_requested": union}
+
+
+def _assert_same_convert_config(first: dict, other: dict, descriptor: dict) -> None:
+    """Donusum sabitine giren config (or. sont direnci) ayni surucude tek deger olabilir."""
+    keys = {str((op.get("convert") or {}).get("scale_den_config"))
+            for op in descriptor.get("operations", []) if (op.get("convert") or {}).get("scale_den_config")}
+    for key in sorted(keys):
+        a = (first.get("config") or {}).get(key)
+        b = (other.get("config") or {}).get(key)
+        if a != b:
+            raise CodegenError(
+                f"{other.get('id')} ile {first.get('id')} ayni parca ({first.get('part')}) ama config.{key} farkli "
+                f"({a!r} / {b!r}): bu deger surucuye derleme sabiti olarak girer; ayni parcadan cihazlarda esit olmali")

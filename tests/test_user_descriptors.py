@@ -117,7 +117,7 @@ class UserDescriptorGenerateTests(_UserDirMixin):
             manifest = json.loads(
                 (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
 
-        self.assertIn("int mymon16TemperatureRead(XIicPs* spIic, int* ipTemperature)", driver)
+        self.assertIn("int mymon16TemperatureRead(const SI2cCihaz* spCihaz, int* ipTemperature)", driver)
         self.assertIn("mymon16DeviceInit", ops)
         device = next(d for d in manifest["devices"] if d["part"] == "MYMON16")
         self.assertEqual({r["name"] for r in device["registers"]},

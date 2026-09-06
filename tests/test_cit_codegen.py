@@ -228,14 +228,15 @@ class CitHeaderTest(unittest.TestCase):
                 (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
             self.assertFalse((tests_dir / "tmp101_test.c").exists())
             self.assertFalse((tests_dir / "tmp101_test.h").exists())
-        self.assertIn("int ltc2991SelfTest(XIic* spIic);", test_h)
+        self.assertIn("int ltc2991SelfTest(const SI2cCihaz* spCihaz);", test_h)
         self.assertNotIn("TestRun", test_h)
         self.assertNotIn("TestTask", test_h)
         self.assertNotIn("xil_printf", test_c)
         self.assertIn('dbg_printf(DEBUG_LEVEL_INFO, "LTC2991 status registers read OK");', test_c)
         self.assertIn('#include "ltc2991_test.h"', ops)
         self.assertNotIn('#include "tmp101_test.h"', ops)
-        self.assertIn("iStatus = ltc2991SelfTest(spIic);", ops)
+        self.assertIn("iStatus = ltc2991SelfTest(spCihaz);", ops)
+        self.assertIn("spCihaz = i2cCihaz(I2C_CIHAZ_U2_LTC2991);", ops)
         self.assertNotIn("tmp101SelfTest(", ops)
         ops_by_device = {d["id"]: [op["name"] for op in d["operations"]] for d in manifest["devices"]}
         self.assertIn("self_test", ops_by_device["u2_ltc2991"])
@@ -330,6 +331,7 @@ class CitHostRoundTripTest(unittest.TestCase):
             '#include "lmk04832_sim.h"\n'
             '#include "xstatus.h"\n'
             '#include "xparameters.h"\n'
+            '#include "i2c_cihazlar.h"\n'
             '/* Ajan stub\'lari: denetleyiciler hazir, handle getter\'lari sabit; op dispatch\'i\n'
             ' * CIT yolunda KULLANILMAZ (boardCitRun cit/ katmanini kosar). */\n'
             'static XSpi S_sSpi;\n'
@@ -339,6 +341,7 @@ class CitHostRoundTripTest(unittest.TestCase):
             'static SLmk04832Sim S_sLmk;\n'
             'static SSpec2codeI2cSimSwitch S_sSwitch;\n'
             'int spec2codeTestbenchBoardInit(void) { return XST_SUCCESS; }\n'
+            'void spec2codeTestbenchI2cCihazlarBagla(void) { i2cCihazlarInit(&S_sIic); }\n'
             'void spec2codeSimHazirla(void) { /* sanal cihazlar main() icinde elle kuruldu */ }\n'
             'XIic* spec2codeTestbenchIicHandleGet(const char* cpControllerId)\n'
             '{ (void)cpControllerId; return &S_sIic; }\n'
@@ -381,9 +384,9 @@ class CitHostRoundTripTest(unittest.TestCase):
             '{\n'
             '    SSistemCitBus sBus;\n'
             '    /* Sanal cihazlar (tests/sim): mux arkasinda LTC2991 + TMP101, SPI LMK04832. */\n'
-            '    ltc2991SimKur(&S_sLtc, LTC2991_I2C_ADDR);\n'
+            '    ltc2991SimKur(&S_sLtc, 0x48U);\n'
             '    (void)spec2codeSimI2cEkle(&S_sLtc.sCihaz);\n'
-            '    tmp101SimKur(&S_sTmp, TMP101_I2C_ADDR);\n'
+            '    tmp101SimKur(&S_sTmp, 0x4AU);\n'
             '    S_sTmp.ucArrReg[0x00U][0] = 0x19U; /* TMP101 sicaklik registeri: 25.00 C (12 bit, MSB) */\n'
             '    S_sTmp.ucArrReg[0x00U][1] = 0x00U;\n'
             '    (void)spec2codeSimI2cEkle(&S_sTmp.sCihaz);\n'
@@ -395,6 +398,7 @@ class CitHostRoundTripTest(unittest.TestCase):
             '    ltc2991SimKanalAyarla(&S_sLtc, 7U, 1200);\n'
             '    /* Ajanin "init all" adimi yerine: entegre ilklendirmeleri (surucu DeviceInit). */\n'
             '    sBus.sPlI2c0 = spec2codeTestbenchIicHandleGet("pl_i2c_0");\n'
+            '    spec2codeTestbenchI2cCihazlarBagla(); /* tablo -> denetleyici ornegi */\n'
             '    sBus.sPlSpi0 = spec2codeTestbenchSpiHandleGet("pl_spi_0");\n'
             '    (void)sistemCitInit(&sBus);\n'
             + run_extra +

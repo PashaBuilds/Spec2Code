@@ -389,18 +389,28 @@ cikti `xil_printf`e gider, test bench ise `dbgSinkSet` ile satirlari S2C-LOG cer
   `S<Mod>Status` bit alanlari + ham baytlar; `<mod>StatusRegistersRead(handle, &sStatus)`.
 - Dizi donuslu op (`returns: voltages[8]`): `S<Mod>Voltage { unsigned short usArrVoltage[8]; }`,
   `<mod>VoltageRead(handle, &sVoltage)`. Skaler op'lar `int*` / `unsigned short*` alir.
-- Handle HER ZAMAN Xilinx surucu ornegi isaretcisidir (`XIic*`, `XIicPs*`, `XSpi*`, `XSpiPs*`);
+- **I2C cihazlari `drivers/i2c_cihazlar.h/.c` tablosuyla calisir:** her cihaz icin bir enum
+  (`I2C_CIHAZ_<CIHAZ_ID>`) ve bir satir `SI2cCihaz { spIic, ucAdres, ucSwitchAdres,
+  ucSwitchKanal, spInit, ucInitSayisi }`. Surucu fonksiyonlari ornek/adres yerine bu satiri alir
+  (`const SI2cCihaz* spCihaz`); bus ornegini, adresi, (varsa) TCA9548A switch adres/kanalini ve
+  cihaza ozel `device_init` yazimlarini oradan okur. Ayni parcadan N cihaz TEK surucu paylasir
+  (`ltc2991b` gibi kopya modul YOK); ayrim tablo satirindan yapilir. Tabloyu once
+  `i2cCihazlarInit(&sIic)` ile denetleyici orneklerine baglarsin.
+- SPI/GPIO cihazlarinda handle Xilinx surucu ornegi isaretcisidir (`XSpi*`, `XSpiPs*`, `XGpio*`);
   kural: ornek en alt seviyeye kadar iner. AXI IIC'de polled cagrilar (`xiic_l.h`) taban adresi
-  ornekten (`spIic->BaseAddress`) alir; ornek ilk `DeviceInit`'te `XIic_LookupConfig/CfgInitialize`
-  ile kurulur.
+  ornekten (`spCihaz->spIic->BaseAddress`) alir; ornek ilk `DeviceInit`'te
+  `XIic_LookupConfig/CfgInitialize` ile kurulur.
 
 ```c
-SLtc2991Status sDurum;
-SLtc2991Voltage sVoltaj;
-static XIic S_sIic;                                /* AXI IIC ornegi (xiic.h) */
-ltc2991DeviceInit(&S_sIic);                       /* ornek kurulur + dinamik mod */
-ltc2991StatusRegistersRead(&S_sIic, &sDurum);     /* sDurum.uiV1Ready, sDurum.uiBusy ... */
-ltc2991VoltageRead(&S_sIic, &sVoltaj);            /* sVoltaj.usArrVoltage[0..7] mV */
+static XIic S_sIic;                                        /* AXI IIC ornegi (xiic.h) */
+const SI2cCihaz* spLtc;
+
+i2cCihazlarInit(&S_sIic);                                  /* tablo -> denetleyici ornegi (bir kez) */
+spLtc = i2cCihaz(I2C_CIHAZ_U2_LTC2991);                    /* satir: 0x48, switch yok, init dizisi */
+ltc2991DeviceInit(spLtc);                                  /* ornek kurulur + cihaza ozel init yazimlari */
+ltc2991StatusRegistersRead(spLtc, &sDurum);                /* sDurum.uiV1Ready, sDurum.uiBusy ... */
+ltc2991VoltageRead(spLtc, &sVoltaj);                       /* sVoltaj.usArrVoltage[0..7] mV */
+ltc2991VoltageRead(i2cCihaz(I2C_CIHAZ_U7_LTC2991), &sV2);  /* ikinci LTC2991 (0x49): AYNI surucu */
 ```
 
 **CIT ust katmani (`cit/`):**
@@ -409,7 +419,7 @@ ltc2991VoltageRead(&S_sIic, &sVoltaj);            /* sVoltaj.usArrVoltage[0..7] 
 |---|---|
 | `cit/cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()`, `CIT_OK/NOK/HATA` |
 | `cit/<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit; `<MOD>_CIT_LIMIT_VARSAYILAN` spec `config.cit.measurements`'tan), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari), `<mod>CitInit()`, `<mod>CitRead()` |
-| `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari), `SSistemCitLimit`, `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
+| `cit/sistem_cit.h/.c` | `SSistemCitBus` (denetleyici handle'lari; `sistemCitBusVarsayilan` I2C cihaz tablosunu da baglar), `SSistemCitLimit` (cihaz basina varsayilan), `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` - I2C cihazlari `i2cCihaz(I2C_CIHAZ_X)` satiriyla cagrilir |
 
 `<mod>CitRead` surucu fonksiyonlarini cagirir; `sBayraklar` icinde op basina `ui<Op>Okundu`
 (okuma basarili) ve olcum/kanal basina `ui<Ad>Ok` (okundu VE min <= deger <= max; etkin degilse 1)

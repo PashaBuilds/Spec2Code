@@ -706,8 +706,8 @@ class TestbenchTests(unittest.TestCase):
             ops = (out_dir / "tests" / "unit_ltc2991_current_testbench_ops.c").read_text(encoding="utf-8")
             manifest = json.loads((out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
 
-        self.assertIn("int ltc2991CurrentRead(XIicPs* spIic, SLtc2991Current* spCurrent);", header)
-        self.assertIn("ltc2991CurrentRead(spIic, &sCurrent)", ops)
+        self.assertIn("int ltc2991CurrentRead(const SI2cCihaz* spCihaz, SLtc2991Current* spCurrent);", header)
+        self.assertIn("ltc2991CurrentRead(spCihaz, &sCurrent)", ops)
         current = next(op for op in manifest["devices"][0]["operations"] if op["name"] == "current_read")
         self.assertEqual(current["fixed_read_length"], 16)
         self.assertEqual(current["risk"], "safe")
@@ -757,9 +757,9 @@ class TestbenchTests(unittest.TestCase):
 
         self.assertNotIn("DEV24LC32A_REG_", ops)
         self.assertNotIn("register_read", ops)
-        self.assertIn("dev24lc32aDataRead(spIic, spRequest->uiAddress, ucArrData, uiLength)", ops)
-        self.assertIn("dev24lc32aByteWrite(spIic, spRequest->uiAddress, (unsigned char)spRequest->uiValue)", ops)
-        self.assertIn("dev24lc32aPageWrite(spIic, spRequest->uiAddress, spRequest->ucArrData, spRequest->uiDataLength)", ops)
+        self.assertIn("dev24lc32aDataRead(spCihaz, spRequest->uiAddress, ucArrData, uiLength)", ops)
+        self.assertIn("dev24lc32aByteWrite(spCihaz, spRequest->uiAddress, (unsigned char)spRequest->uiValue)", ops)
+        self.assertIn("dev24lc32aPageWrite(spCihaz, spRequest->uiAddress, spRequest->ucArrData, spRequest->uiDataLength)", ops)
         ops_by_name = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertTrue(ops_by_name["data_read"]["requires_address"])
         self.assertTrue(ops_by_name["data_read"]["requires_length"])
@@ -1061,7 +1061,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("iCode += 2500", driver)
         # Dispatch carries the signed scalar (int32 path).
         self.assertIn("int iValue;", ops)
-        self.assertIn("ltc2991TemperatureRead(spIic, &iValue)", ops)
+        self.assertIn("ltc2991TemperatureRead(spCihaz, &iValue)", ops)
         ltc_ops = {op["name"]: op for op in manifest["devices"][0]["operations"]}
         self.assertEqual(ltc_ops["temperature_read"]["fixed_read_length"], 4)
         self.assertIn("mV", ltc_ops["voltage_read"]["label"])
@@ -1096,12 +1096,12 @@ class TestbenchTests(unittest.TestCase):
         # device_init, testbench'in başlattığı paylaşılan denetleyiciyi
         # yeniden CfgInitialize etmemeli (mt25qu02g'de XST_DEVICE_IS_STARTED
         # olarak görüldü; I2C'de canlı SCLK ayarını bozuyordu).
-        self.assertIn("if (spIic->IsReady != XIL_COMPONENT_IS_READY)", driver)
+        self.assertIn("if (spCihaz->spIic->IsReady != XIL_COMPONENT_IS_READY)", driver)
         # Canlı bus izi: sürücünün en alt seviye okuma/yazması her gerçek
         # transferi raporlar (zayıf kanca; test bench güçlü impl TRACE satırı
         # yayınlar, Seri Hat gerçek baytlarla diyagram çizer).
-        self.assertIn("dbgTraceI2c(LTC2991_I2C_ADDR, ucReg, 'r', ucpValue, 1U);", driver)
-        self.assertIn("dbgTraceI2c(LTC2991_I2C_ADDR, ucReg, 'w', &ucValue, 1U);", driver)
+        self.assertIn("dbgTraceI2c(spCihaz->ucAdres, ucReg, 'r', ucpValue, 1U);", driver)
+        self.assertIn("dbgTraceI2c(spCihaz->ucAdres, ucReg, 'w', &ucValue, 1U);", driver)
         self.assertIn("spec2codeTestbenchTraceSetId(spRequest->uiId);", ops)
 
     def test_ltc2945_current_read_uses_board_shunt_config(self) -> None:
@@ -1148,7 +1148,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("current_read", ltc_ops)
         self.assertIn("mA", ltc_ops["current_read"]["label"])
         # device_init doğrulaması: CONTROL geri okunur, data 1 bayt taşır.
-        self.assertIn("spec2codeTestbenchI2cRegisterRead(spIic, LTC2945_I2C_ADDR, LTC2945_REG_CONTROL, &ucValue)", ops)
+        self.assertIn("spec2codeTestbenchI2cRegisterRead(spCihaz->spIic, spCihaz->ucAdres, LTC2945_REG_CONTROL, &ucValue)", ops)
         self.assertEqual(ltc_ops["device_init"]["fixed_read_length"], 1)
 
         # Config yokken varsayılan (tümü) listesinden sessizce düşer.
@@ -1453,7 +1453,7 @@ class TestbenchTests(unittest.TestCase):
         self.assertTrue(result["suspect_all_ack"])
         self.assertEqual(len(result["direct_addresses"]), 112)
 
-    def test_multiple_devices_of_same_part_get_isolated_modules(self) -> None:
+    def test_multiple_devices_of_same_part_share_one_module_via_table(self) -> None:
         # SAHA BULGUSU (2026-07-05): aynı parçadan birden çok cihaz varken
         # modül adı parçadan türediği için her örnek AYNI ltc2991.c'yi ve
         # tek LTC2991_I2C_ADDR sabitini paylaşıyordu — kullanıcı hangi
@@ -1484,19 +1484,23 @@ class TestbenchTests(unittest.TestCase):
             out_dir = Path(tmp) / spec["project"]["name"]
             written = {Path(path).relative_to(out_dir).as_posix() for path in codegen.generate(spec, out_dir)}
             first = (out_dir / "drivers" / "ltc2991.h").read_text(encoding="utf-8")
-            second = (out_dir / "drivers" / "ltc2991b.h").read_text(encoding="utf-8")
+            table = (out_dir / "drivers" / "i2c_cihazlar.c").read_text(encoding="utf-8")
             ops = (out_dir / "tests" / "unit_multi_ltc2991_testbench_ops.c").read_text(encoding="utf-8")
             manifest = json.loads(
                 (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
 
+        # v0.1.182: ayni parcadan iki cihaz TEK surucu (ltc2991b YOK); adresler I2C cihaz tablosunda.
         self.assertIn("drivers/ltc2991.c", written)
-        self.assertIn("drivers/ltc2991b.c", written)
-        self.assertIn("#define LTC2991_I2C_ADDR 0x48U", first)
-        self.assertIn("#define LTC2991B_I2C_ADDR 0x49U", second)
-        # Dispatch her cihazı kendi modülüne bağlar.
-        self.assertIn("ltc2991TemperatureRead(spIic, &iValue)", ops)
-        self.assertIn("ltc2991bTemperatureRead(spIic, &iValue)", ops)
-        self.assertIn("LTC2991B_I2C_ADDR", ops)  # ikinci cihazın register/post-init yolu
+        self.assertNotIn("drivers/ltc2991b.c", written)
+        self.assertIn("drivers/i2c_cihazlar.c", written)
+        self.assertNotIn("_I2C_ADDR", first)
+        # LTC2991 profili init yazimi uretir: her cihazin KENDI init dizisi tablo satirinda.
+        self.assertIn("{NULL, 0x48U, 0x00U, 0x00U, S_sArrInitU1Ltc2991, ", table)
+        self.assertIn("{NULL, 0x49U, 0x00U, 0x00U, S_sArrInitU2Ltc2991, ", table)
+        # Dispatch her cihazi kendi tablo satiriyla ayni surucuye baglar.
+        self.assertEqual(ops.count("ltc2991TemperatureRead(spCihaz, &iValue)"), 2)
+        self.assertIn("spCihaz = i2cCihaz(I2C_CIHAZ_U1_LTC2991);", ops)
+        self.assertIn("spCihaz = i2cCihaz(I2C_CIHAZ_U2_LTC2991);", ops)
         parts = [device["id"] for device in manifest["devices"]]
         self.assertEqual(parts, ["u1_ltc2991", "u2_ltc2991"])
 
@@ -1578,7 +1582,7 @@ class TestbenchTests(unittest.TestCase):
 
         # Base-address polled API (xiic_l.h), no PS driver literals anywhere.
         self.assertIn('#include "xiic.h"', device_header)
-        self.assertIn("int tmp101TemperatureRead(XIic* spIic, int* ipTemperature)",
+        self.assertIn("int tmp101TemperatureRead(const SI2cCihaz* spCihaz, int* ipTemperature)",
                       device_source)
         self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)ucAddress, ucpBuffer,", device_source)
         self.assertNotIn("XIicPs_", device_source)
@@ -1792,19 +1796,19 @@ class TestbenchTests(unittest.TestCase):
             trace_source = (out_dir / "tests" / "spec2code_testbench_log.c").read_text(encoding="utf-8")
 
         # (1) Blok recv uretimden kalkti; ardisik adresler tek-bayt okunur.
-        self.assertNotIn("XIicPs_MasterRecvPolled(spIic, ucpBuffer, (int)uiLength", ds1682)
-        self.assertIn("ds1682RegisterRead(spIic, (unsigned char)(ucReg + uiIndex), &ucpBuffer[uiIndex]);", ds1682)
+        self.assertNotIn("XIicPs_MasterRecvPolled(spCihaz->spIic, ucpBuffer, (int)uiLength", ds1682)
+        self.assertIn("ds1682RegisterRead(spCihaz, (unsigned char)(ucReg + uiIndex), &ucpBuffer[uiIndex]);", ds1682)
         # Iki gecis + uyusmazsa ucuncu (DS1682 ETC 0.25 s'de artar).
-        self.assertEqual(ds1682.count("ds1682RegistersReadOnce(spIic, ucReg,"), 3)
+        self.assertEqual(ds1682.count("ds1682RegistersReadOnce(spCihaz, ucReg,"), 3)
         # (2) Basarisizlik asamasi raporlanir: pointer/recv/yazma.
         err = 'dbg_printf(DEBUG_LEVEL_ERROR, "TRACEERR|bus=i2c|addr=0x%02X|reg=0x%02X|asama=%c|status=%d", '
-        self.assertIn(err + "DS1682_I2C_ADDR, ucReg, 'p', iStatus);", ds1682)
-        self.assertIn(err + "DS1682_I2C_ADDR, ucReg, 'r', iStatus);", ds1682)
+        self.assertIn(err + "spCihaz->ucAdres, ucReg, 'p', iStatus);", ds1682)
+        self.assertIn(err + "spCihaz->ucAdres, ucReg, 'r', iStatus);", ds1682)
         # ('w' asamasi register_write kullanan cihazlarda uretilir; bu op
         # kumesi salt okuma oldugundan yazma yardimcisi budanir.)
         # (3) Mux secimi de konusur; kanca zayif varsayilanla driver'da,
         # guclu ERROR-log implementasyonuyla testbench'te bulunur.
-        self.assertIn(err + "TCA9548A_I2C_ADDR, ucChannel, 'm', iStatus);", mux_source)
+        self.assertIn(err + "ucSwitchAdres, ucChannel, 'm', iStatus);", mux_source)
         self.assertIn("void dbg_printf(unsigned int uiLevel, const char* cpFormat, ...);", trace_header)
         # Test bench cercevesi TRACEERR govdesine komut id'sini ekler (Akis ekrani eslemesi).
         self.assertIn("S2C-LOG|%s|TRACEERR|id=%u|%s", trace_source)
@@ -1928,8 +1932,8 @@ class TestbenchTests(unittest.TestCase):
             offsets = [int(r["offset"]) for r in device["registers"]]
             self.assertEqual(offsets, sorted(offsets), device["part"])
         # (b) genis register: tek islemde 2 bayt; ardisik-adres yolu YOK.
-        self.assertIn("ad7414RegisterReadWide(spIic, AD7414_REG_TEMPERATURE, &ucArrBytes[0U], 2U);", driver)
-        self.assertNotIn("ad7414RegistersRead(spIic, AD7414_REG_TEMPERATURE", driver)
+        self.assertIn("ad7414RegisterReadWide(spCihaz, AD7414_REG_TEMPERATURE, &ucArrBytes[0U], 2U);", driver)
+        self.assertNotIn("ad7414RegistersRead(spCihaz, AD7414_REG_TEMPERATURE", driver)
         # Manifest 16-bit registeri genisligiyle listeler.
         ad7414 = next(d for d in manifest["devices"] if d["part"] == "AD7414")
         temp = next(r for r in ad7414["registers"] if r["name"] == "TEMPERATURE")

@@ -1490,8 +1490,9 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
 
         source = vitis_selftest_source(self._axi_spec())
         # v0.1.179: AXI IIC de XIic ornegi tasir (xiic.h); taban adres icerde cekilir.
-        self.assertIn("XIic sU2Ltc2991Handle;", source)
-        self.assertIn("ltc2991SelfTest(&sU2Ltc2991Handle);", source)
+        self.assertIn("static XIic sPlI2c0Handle;", source)
+        self.assertIn("i2cCihazlarInit(&sPlI2c0Handle);", source)
+        self.assertIn("ltc2991SelfTest(i2cCihaz(I2C_CIHAZ_U2_LTC2991));", source)
         self.assertIn('#include "xiic.h"', source)
         # Yanlis (eski) sekil bir daha uretilmemeli.
         self.assertNotIn("unsigned long ul", source)
@@ -1519,15 +1520,15 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
         from backend.vitis_workspace import vitis_selftest_source
 
         source = vitis_selftest_source(load_sample_spec("ps_selftest"))
-        self.assertIn("XIicPs sU12Ltc2991Handle;", source)
-        self.assertIn("ltc2991SelfTest(&sU12Ltc2991Handle);", source)
+        self.assertIn("static XIicPs sPsI2c0Handle;", source)
+        self.assertIn("ltc2991SelfTest(i2cCihaz(I2C_CIHAZ_U12_LTC2991));", source)
         self.assertIn("XSpiPs sU20Mt25qu02gHandle;", source)
         self.assertIn("mt25qu02gSelfTest(&sU20Mt25qu02gHandle);", source)
         self.assertIn('#include "xiicps.h"', source)
         self.assertIn('#include "xspips.h"', source)
 
-    def test_duplicate_parts_get_distinct_modules(self) -> None:
-        """Ayni parcadan iki cihaz -> ikinci modul soneki (ltc2991b) test edilir."""
+    def test_duplicate_parts_share_one_module(self) -> None:
+        """Ayni parcadan iki cihaz -> tek modul, ayrim I2C cihaz tablosundan."""
         from backend.vitis_workspace import vitis_selftest_source
 
         spec = self._axi_spec()
@@ -1537,8 +1538,9 @@ class VitisSelfTestScaffoldTests(unittest.TestCase):
             "tests_requested": ["self_test"],
         })
         source = vitis_selftest_source(spec)
-        self.assertIn('#include "ltc2991b_test.h"', source)
-        self.assertIn("ltc2991bSelfTest(&sU5Ltc2991Handle);", source)
+        # v0.1.182: ayni parca tek modul; ikinci cihaz kendi tablo satiriyla ayni self-test.
+        self.assertNotIn("ltc2991b", source)
+        self.assertIn("ltc2991SelfTest(i2cCihaz(I2C_CIHAZ_U5_LTC2991));", source)
 
     def test_handle_shape_matches_codegen_single_source_of_truth(self) -> None:
         from orchestrator.cmodel import _handle_param
