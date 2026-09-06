@@ -2654,7 +2654,7 @@ class TestbenchTests(unittest.TestCase):
                 '        unsigned int uiTuketilen = 0U;\n'
                 '        int iTam = spec2codeMesajBesle(&sParser, &S_ucArrStream[uiPos], 1U, &uiTuketilen);\n'
                 '        uiPos += uiTuketilen;\n'
-                '        if (iTam == 1)\n'
+                '        if (iTam == TRUE)\n'
                 '        {\n'
                 '            unsigned int uiCiktiBoy = spec2codeMesajIsle(&sParser.sBaslik,\n'
                 '                sParser.ucArrGovde, ucArrCikti, (unsigned int)sizeof(ucArrCikti));\n'
@@ -2666,7 +2666,7 @@ class TestbenchTests(unittest.TestCase):
                 encoding="utf-8")
             binary = work / "mesaj_roundtrip"
             compile_run = subprocess.run(
-                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
+                [compiler, "-Wall", "-Wextra", "-I", str(work), "-I", str(ROOT / "tests" / "xilinx_stubs"), "-o", str(binary),
                  str(work / "main.c"), str(work / "spec2code_mesaj.c"),
                  str(work / "spec2code_testbench_protocol.c")] + extra_sources,
                 capture_output=True, text=True)

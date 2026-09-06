@@ -73,6 +73,9 @@ def sim_header() -> str:
 #ifndef SPEC2CODE_SIM_H
 #define SPEC2CODE_SIM_H
 
+#include "xil_types.h" /* TRUE / FALSE */
+#include "xstatus.h"   /* XST_SUCCESS / XST_FAILURE */
+
 #define SPEC2CODE_CIT_SIM 1
 
 /* Hata enjeksiyon modlari (<mod>SimHataAyarla). */
@@ -82,7 +85,7 @@ def sim_header() -> str:
 
 /**
  * @brief Sanal I2C cihazi zincir dugumu. Simulator struct'i bunu ILK alani olarak tasir;
- *        pfYaz/pfOku o cihazin register modelini kosturur (0 basari, sifir disi NACK).
+ *        pfYaz/pfOku o cihazin register modelini kosturur (XST_SUCCESS basari, XST_FAILURE NACK).
  */
 typedef struct SSpec2codeI2cSimCihaz
 {
@@ -160,13 +163,13 @@ int spec2codeSimI2cEkle(SSpec2codeI2cSimCihaz* spCihaz)
 {{
     if (spCihaz == NULL)
     {{
-        return 1;
+        return XST_FAILURE;
     }}
     (void)spec2codeSimI2cKaldir(spCihaz);
     spCihaz->spSonraki = S_spI2cZincir;
     S_spI2cZincir = spCihaz;
     S_uiCihazSayisi++;
-    return 0;
+    return XST_SUCCESS;
 }}
 
 int spec2codeSimI2cKaldir(SSpec2codeI2cSimCihaz* spCihaz)
@@ -180,11 +183,11 @@ int spec2codeSimI2cKaldir(SSpec2codeI2cSimCihaz* spCihaz)
             *sppNode = spCihaz->spSonraki;
             spCihaz->spSonraki = NULL;
             S_uiCihazSayisi--;
-            return 0;
+            return XST_SUCCESS;
         }}
         sppNode = &(*sppNode)->spSonraki;
     }}
-    return 1;
+    return XST_FAILURE;
 }}
 
 SSpec2codeI2cSimCihaz* spec2codeSimI2cBul(unsigned char ucAdres)
@@ -206,13 +209,13 @@ int spec2codeSimSpiEkle(SSpec2codeSpiSimCihaz* spCihaz)
 {{
     if (spCihaz == NULL)
     {{
-        return 1;
+        return XST_FAILURE;
     }}
     (void)spec2codeSimSpiKaldir(spCihaz);
     spCihaz->spSonraki = S_spSpiZincir;
     S_spSpiZincir = spCihaz;
     S_uiCihazSayisi++;
-    return 0;
+    return XST_SUCCESS;
 }}
 
 int spec2codeSimSpiKaldir(SSpec2codeSpiSimCihaz* spCihaz)
@@ -226,11 +229,11 @@ int spec2codeSimSpiKaldir(SSpec2codeSpiSimCihaz* spCihaz)
             *sppNode = spCihaz->spSonraki;
             spCihaz->spSonraki = NULL;
             S_uiCihazSayisi--;
-            return 0;
+            return XST_SUCCESS;
         }}
         sppNode = &(*sppNode)->spSonraki;
     }}
-    return 1;
+    return XST_FAILURE;
 }}
 
 SSpec2codeSpiSimCihaz* spec2codeSimSpiBul(unsigned char ucSelect)
@@ -260,11 +263,11 @@ static int spec2codeSimSwitchYaz(void* vpDurum, const unsigned char* ucpVeri, un
 
     if (uiBoy == 0U)
     {{
-        return 0;
+        return XST_SUCCESS;
     }}
     spSwitch->ucKontrol = ucpVeri[0];
     spSwitch->uiSecimSayac++;
-    return 0;
+    return XST_SUCCESS;
 }}
 
 static int spec2codeSimSwitchOku(void* vpDurum, unsigned char* ucpVeri, unsigned int uiBoy)
@@ -276,7 +279,7 @@ static int spec2codeSimSwitchOku(void* vpDurum, unsigned char* ucpVeri, unsigned
     {{
         ucpVeri[uiIndex] = spSwitch->ucKontrol;
     }}
-    return 0;
+    return XST_SUCCESS;
 }}
 
 void spec2codeSimSwitchKur(SSpec2codeI2cSimSwitch* spSwitch, unsigned char ucAdres)
@@ -310,7 +313,7 @@ unsigned spec2codeSimXIicDynSend(UINTPTR BaseAddress, u16 Address, u8* BufferPtr
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfYaz(spCihaz->vpDurum, BufferPtr, (unsigned int)ByteCount) == 0)
+        return (spCihaz->pfYaz(spCihaz->vpDurum, BufferPtr, (unsigned int)ByteCount) == XST_SUCCESS)
                    ? (unsigned)ByteCount
                    : 0U;
     }}
@@ -323,7 +326,7 @@ unsigned spec2codeSimXIicDynRecv(UINTPTR BaseAddress, u8 Address, u8* BufferPtr,
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfOku(spCihaz->vpDurum, BufferPtr, (unsigned int)ByteCount) == 0)
+        return (spCihaz->pfOku(spCihaz->vpDurum, BufferPtr, (unsigned int)ByteCount) == XST_SUCCESS)
                    ? (unsigned)ByteCount
                    : 0U;
     }}
@@ -337,7 +340,7 @@ unsigned spec2codeSimXIicSend(UINTPTR BaseAddress, u8 Address, u8* BufferPtr, un
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfYaz(spCihaz->vpDurum, BufferPtr, ByteCount) == 0) ? ByteCount : 0U;
+        return (spCihaz->pfYaz(spCihaz->vpDurum, BufferPtr, ByteCount) == XST_SUCCESS) ? ByteCount : 0U;
     }}
     return XIic_Send(BaseAddress, Address, BufferPtr, ByteCount, Option);
 }}
@@ -349,7 +352,7 @@ unsigned spec2codeSimXIicRecv(UINTPTR BaseAddress, u8 Address, u8* BufferPtr, un
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfOku(spCihaz->vpDurum, BufferPtr, ByteCount) == 0) ? ByteCount : 0U;
+        return (spCihaz->pfOku(spCihaz->vpDurum, BufferPtr, ByteCount) == XST_SUCCESS) ? ByteCount : 0U;
     }}
     return XIic_Recv(BaseAddress, Address, BufferPtr, ByteCount, Option);
 }}
@@ -367,7 +370,7 @@ s32 spec2codeSimXIicPsMasterSendPolled(XIicPs* InstancePtr, u8* MsgPtr, s32 Byte
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfYaz(spCihaz->vpDurum, MsgPtr, (unsigned int)ByteCount) == 0)
+        return (spCihaz->pfYaz(spCihaz->vpDurum, MsgPtr, (unsigned int)ByteCount) == XST_SUCCESS)
                    ? XST_SUCCESS
                    : XST_FAILURE;
     }}
@@ -380,7 +383,7 @@ s32 spec2codeSimXIicPsMasterRecvPolled(XIicPs* InstancePtr, u8* MsgPtr, s32 Byte
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfOku(spCihaz->vpDurum, MsgPtr, (unsigned int)ByteCount) == 0)
+        return (spCihaz->pfOku(spCihaz->vpDurum, MsgPtr, (unsigned int)ByteCount) == XST_SUCCESS)
                    ? XST_SUCCESS
                    : XST_FAILURE;
     }}
@@ -424,7 +427,7 @@ int spec2codeSimXSpiTransfer(XSpi* InstancePtr, u8* SendBufPtr, u8* RecvBufPtr, 
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfTransfer(spCihaz->vpDurum, SendBufPtr, RecvBufPtr, ByteCount) == 0)
+        return (spCihaz->pfTransfer(spCihaz->vpDurum, SendBufPtr, RecvBufPtr, ByteCount) == XST_SUCCESS)
                    ? XST_SUCCESS
                    : XST_FAILURE;
     }}
@@ -455,7 +458,7 @@ s32 spec2codeSimXSpiPsPolledTransfer(XSpiPs* InstancePtr, u8* SendBufPtr, u8* Re
 
     if (spCihaz != NULL)
     {{
-        return (spCihaz->pfTransfer(spCihaz->vpDurum, SendBufPtr, RecvBufPtr, (unsigned int)ByteCount) == 0)
+        return (spCihaz->pfTransfer(spCihaz->vpDurum, SendBufPtr, RecvBufPtr, (unsigned int)ByteCount) == XST_SUCCESS)
                    ? XST_SUCCESS
                    : XST_FAILURE;
     }}

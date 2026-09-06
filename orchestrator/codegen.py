@@ -203,6 +203,7 @@ def _testbench_protocol_header() -> str:
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_PROTOCOL_H\n"
         "#define SPEC2CODE_TESTBENCH_PROTOCOL_H\n\n"
+        '#include "xil_types.h" /* TRUE / FALSE */\n\n'
         "#define SPEC2CODE_TESTBENCH_TEXT_MAX 64U\n"
         "#define SPEC2CODE_TESTBENCH_MESSAGE_MAX 160U\n"
         "#define SPEC2CODE_TESTBENCH_DATA_MAX 256U\n\n"
@@ -232,6 +233,7 @@ def _testbench_protocol_header() -> str:
         "} SSpec2codeTestbenchResponse;\n\n"
         "void spec2codeTestbenchRequestClear(SSpec2codeTestbenchRequest* spRequest);\n"
         "void spec2codeTestbenchResponseClear(SSpec2codeTestbenchResponse* spResponse);\n"
+        "/* Iki metin ayni mi: TRUE / FALSE. */\n"
         "int spec2codeTestbenchStringEqual(const char* cpLeft, const char* cpRight);\n"
         "void spec2codeTestbenchMessageSet(SSpec2codeTestbenchResponse* spResponse, const char* cpMessage);\n"
         "int spec2codeTestbenchDataPush(SSpec2codeTestbenchResponse* spResponse, unsigned char ucValue);\n\n"
@@ -271,17 +273,17 @@ def _testbench_protocol_source() -> str:
         "    unsigned int uiIndex;\n\n"
         "    if ((cpLeft == NULL) || (cpRight == NULL))\n"
         "    {\n"
-        "        return 0;\n"
+        "        return FALSE;\n"
         "    }\n"
         "    for (uiIndex = 0U; ; uiIndex++)\n"
         "    {\n"
         "        if (cpLeft[uiIndex] != cpRight[uiIndex])\n"
         "        {\n"
-        "            return 0;\n"
+        "            return FALSE;\n"
         "        }\n"
         "        if (cpLeft[uiIndex] == '\\0')\n"
         "        {\n"
-        "            return 1;\n"
+        "            return TRUE;\n"
         "        }\n"
         "    }\n"
         "}\n\n"
@@ -731,10 +733,10 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "    {\n"
     "        if (S_uiArrDenetleyiciOpTablosu[uiIndex] == uiIstekId)\n"
     "        {\n"
-    "            return 1;\n"
+    "            return TRUE;\n"
     "        }\n"
     "    }\n"
-    "    return 0;\n"
+    "    return FALSE;\n"
     "}\n\n"
     "static void spec2codeMesajMetinKopya(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
     "{\n"
@@ -781,7 +783,7 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "    }\n"
     "    if ((spParser == (SMesajParser*)0) || (ucpVeri == (const unsigned char*)0))\n"
     "    {\n"
-    "        return 0;\n"
+    "        return FALSE;\n"
     "    }\n"
     "    uiGiris = 0U;\n"
     "    while (uiGiris < uiBoy)\n"
@@ -850,9 +852,9 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "        {\n"
     "            *uipTuketilen = uiGiris;\n"
     "        }\n"
-    "        return 1;\n"
+    "        return TRUE;\n"
     "    }\n"
-    "    return 0;\n"
+    "    return FALSE;\n"
     "}\n\n"
     "/* Yanit cercevesi kur: yanit ID = istek ID | YANIT_BIT; sayac monoton. */\n"
     "static unsigned int spec2codeMesajYanitCerceveKur(unsigned int uiIstekKomut,\n"
@@ -1003,7 +1005,7 @@ _MESAJ_SOURCE_BODY_TEMPLATE = (
     "     * uiCihazIndeks cihaz tablosuna girer ve cArrDevice'i cozer. */\n"
     "    if (uiCihazIndeks != 0xFFFFFFFFU)\n"
     "    {\n"
-    "        if (spec2codeMesajDenetleyiciOpMu(spBaslik->uiMesajKomut) == 1)\n"
+    "        if (spec2codeMesajDenetleyiciOpMu(spBaslik->uiMesajKomut) == TRUE)\n"
     "        {\n"
     "            if (uiCihazIndeks >= SPEC2CODE_MESAJ_DENETLEYICI_SAYISI)\n"
     "            {\n"
@@ -2623,7 +2625,7 @@ def _testbench_register_resolver(entry: dict, *, wide: bool = False) -> list[str
     ]
     for reg in regs:
         lines.extend([
-            f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == 1)",
+            f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == TRUE)",
             "    {",
             f"        *{out_var} = {MOD}_REG_{reg['name']};",
             "        return XST_SUCCESS;",
@@ -2656,7 +2658,7 @@ def _testbench_register_resolver(entry: dict, *, wide: bool = False) -> list[str
         for reg in regs:
             is_wide = int(reg.get("width", 8)) > 8
             lines.extend([
-                f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == 1)",
+                f"    if (spec2codeTestbenchStringEqual(cpRegister, \"{reg['name']}\") == TRUE)",
                 "    {",
                 f"        return {'2U' if is_wide else '1U'};",
                 "    }",
@@ -3424,7 +3426,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         for op in operations
     )
     lines = [
-        f"    if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, \"{device.get('id', '')}\") == 1)",
+        f"    if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, \"{device.get('id', '')}\") == TRUE)",
         "    {",
         f"        {_testbench_handle_type(htype)} {hvar};",
     ]
@@ -3538,7 +3540,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 "            }",
             ]
         lines.extend([
-            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_read\") == 1)",
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_read\") == TRUE)",
             "        {",
             f"            iStatus = {module}TestbenchRegisterResolve(spRequest->cArrRegister, spRequest->uiRegister, &ucReg);",
             "            if (iStatus != XST_SUCCESS)",
@@ -3559,7 +3561,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "            }",
             "            return iStatus;",
             "        }",
-            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_write\") == 1)",
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_write\") == TRUE)",
             "        {",
             f"            iStatus = {module}TestbenchRegisterResolve(spRequest->cArrRegister, spRequest->uiRegister, &ucReg);",
             "            if (iStatus != XST_SUCCESS)",
@@ -3600,7 +3602,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         ]
         if spi_readback is not None:
             lines.extend([
-                "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_read\") == 1)",
+                "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_read\") == TRUE)",
                 "        {",
                 *resolve,
                 f"            uiWord = ((unsigned int){read_value}U << {rw_bit}U) | ((uiReg & {address_mask}) << {address_shift}U);",
@@ -3626,7 +3628,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         write_word_terms.append(f"((uiReg & {address_mask}) << {address_shift}U)")
         write_word_terms.append(f"((unsigned int)spRequest->uiValue & {data_mask})")
         lines.extend([
-            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_write\") == 1)",
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"register_write\") == TRUE)",
             "        {",
             *resolve,
             f"            uiWord = {' | '.join(write_word_terms)};",
@@ -3641,7 +3643,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     for op in operations:
         op_name = op.get("name", "")
         lines.extend([
-            f"        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"{op_name}\") == 1)",
+            f"        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"{op_name}\") == TRUE)",
             "        {",
             # Debug seviyesinde op başlangıcı loglanır: uzun süren/asılı kalan
             # bir sürücü çağrısı, "basla" görünüp yanıt gelmemesinden anlaşılır.
@@ -3659,7 +3661,7 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     if _self_test_requested(device):
         # tests/<mod>_test.c self-test'i ajandan kosulur (Test Bench "self_test" op'u).
         lines.extend([
-            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"self_test\") == 1)",
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"self_test\") == TRUE)",
             "        {",
             f"            dbg_printf(DEBUG_LEVEL_INFO, \"op basla: {device.get('id', '')} self_test\");",
             f"            iStatus = {module}SelfTest({hvar});",
@@ -3786,7 +3788,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         ]
 
     return [
-        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_scan\") == 1)",
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_scan\") == TRUE)",
         "    {",
         hdecl,
         "        unsigned char ucProbe;",
@@ -3825,7 +3827,7 @@ def _testbench_i2c_scan_lines(handle_types: set[str]) -> list[str]:
         "        spec2codeTestbenchMessageSet(spResponse, \"i2c_scan ok\");",
         "        return XST_SUCCESS;",
         "    }",
-        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_mux_set\") == 1)",
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"i2c_mux_set\") == TRUE)",
         "    {",
         hdecl,
         "        unsigned char ucControl;",
@@ -3874,8 +3876,8 @@ def _testbench_gpio_lines(handle_types: set[str]) -> list[str]:
         return []
     getter = _testbench_getter("XGpio")
     return [
-        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_read\") == 1) ||",
-        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_write\") == 1))",
+        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_read\") == TRUE) ||",
+        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_write\") == TRUE))",
         "    {",
         "        XGpio* spGpioTarget;",
         "        unsigned int uiChannel;",
@@ -3912,7 +3914,7 @@ def _testbench_gpio_lines(handle_types: set[str]) -> list[str]:
         "        /* uiUzunluk = pin maskesi; 0 = tum pinler. */",
         "        uiMask = (spRequest->uiLength == 0U) ? 0xFFFFFFFFU : spRequest->uiLength;",
         "        iIsWrite = spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"gpio_write\");",
-        "        if (iIsWrite == 1)",
+        "        if (iIsWrite == TRUE)",
         "        {",
         "            /* Yon maskesinde bit=1 GIRIS, bit=0 CIKIS (xgpio.c doxygen).",
         "             * Yalniz maskelenen pinler cikisa alinir: ayni kanaldaki",
@@ -4090,8 +4092,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "    spec2codeTestbenchTraceSetId(spRequest->uiId);",
         "    spec2codeTestbenchResponseClear(spResponse);",
         "    spResponse->uiId = spRequest->uiId;",
-        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"spec2code_version\") == 1) ||",
-        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"version\") == 1))",
+        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"spec2code_version\") == TRUE) ||",
+        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"version\") == TRUE))",
         "    {",
         "        const char* cpVersion = SPEC2CODE_TESTBENCH_AGENT_VERSION;",
         "        unsigned int uiVersionIndex;",
@@ -4106,7 +4108,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        }",
         "        return XST_SUCCESS;",
         "    }",
-        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"log_level\") == 1)",
+        "    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"log_level\") == TRUE)",
         "    {",
         "        /* Calisma zamaninda log esigi: value verilirse ayarla, her",
         "         * durumda gecerli seviyeyi dondur. 0=always..5=trace (dbg_printf.h). */",
@@ -4125,8 +4127,8 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         # Built-in: adres-tabanli genel bellek oku/yaz (Xil_In32/Out32). Cihaz
         # (I2C/SPI) gerektirmez; register map "Canli Izleme" bunu her transport
         # uzerinden kullanir. length=1/2/4 -> 8/16/32-bit erisim (varsayilan 32).
-        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_read\") == 1) ||",
-        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_write\") == 1))",
+        "    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_read\") == TRUE) ||",
+        "        (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_write\") == TRUE))",
         "    {",
         "        unsigned int uiWidth = spRequest->uiLength;",
         "        unsigned int uiReadValue;",
@@ -4135,7 +4137,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        {",
         "            uiWidth = 4U;",
         "        }",
-        "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_write\") == 1)",
+        "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"mem_write\") == TRUE)",
         "        {",
         "            if (spRequest->uiHasValue != 1U)",
         "            {",
@@ -4806,7 +4808,7 @@ def _testbench_board_getter_lines(entries: list[dict], htype: str, func_name: st
     matching = [entry for entry in entries if entry["htype"] == htype]
     for entry in matching:
         lines.extend([
-            f"    if (spec2codeTestbenchStringEqual(cpControllerId, \"{entry['id']}\") == 1)",
+            f"    if (spec2codeTestbenchStringEqual(cpControllerId, \"{entry['id']}\") == TRUE)",
             "    {",
             f"        return &{entry['handle']};",
             "    }",
@@ -5002,7 +5004,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "        {",
         "            uiTuketilen = 0U;",
         "            if (spec2codeMesajBesle(&S_sMesajParser, &ucArrChunk[uiOfset],",
-        "                                    (unsigned int)iReceived - uiOfset, &uiTuketilen) == 1)",
+        "                                    (unsigned int)iReceived - uiOfset, &uiTuketilen) == TRUE)",
         "            {",
         "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
         "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
@@ -5300,7 +5302,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "        {",
         "            uiTuketilen = 0U;",
         "            if (spec2codeMesajBesle(&S_sMesajParser, &ucpPayload[uiOfset],",
-        "                                    (unsigned int)spCurrent->len - uiOfset, &uiTuketilen) == 1)",
+        "                                    (unsigned int)spCurrent->len - uiOfset, &uiTuketilen) == TRUE)",
         "            {",
         "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
         "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
@@ -6174,7 +6176,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "        {",
         "            uiTuketilen = 0U;",
         "            if (spec2codeMesajBesle(&S_sMesajParser, &ucArrChunk[uiOfset],",
-        "                                    uiReceived - uiOfset, &uiTuketilen) == 1)",
+        "                                    uiReceived - uiOfset, &uiTuketilen) == TRUE)",
         "            {",
         "                uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
         "                    S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",
@@ -6408,7 +6410,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         "         * uzerinde de cerceve tamamlaninca isle+gonder yapar. */",
         "        ucByte = (unsigned char)XCoresightPs_DccRecvByte(0U);",
         "        uiTuketilen = 0U;",
-        "        if (spec2codeMesajBesle(&S_sMesajParser, &ucByte, 1U, &uiTuketilen) == 1)",
+        "        if (spec2codeMesajBesle(&S_sMesajParser, &ucByte, 1U, &uiTuketilen) == TRUE)",
         "        {",
         "            uiCiktiBoy = spec2codeMesajIsle(&S_sMesajParser.sBaslik,",
         "                S_sMesajParser.ucArrGovde, ucArrCikti, sizeof(ucArrCikti));",

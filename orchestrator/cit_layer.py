@@ -259,6 +259,8 @@ def ortak_header() -> str:
 #ifndef CIT_ORTAK_H
 #define CIT_ORTAK_H
 
+#include "xil_types.h" /* TRUE / FALSE */
+
 #define CIT_OK 0   /* butun okumalar basarili, etkin olcumler limit icinde */
 #define CIT_NOK 1  /* okumalar basarili, en az bir etkin olcum limit disi   */
 #define CIT_HATA 2 /* en az bir surucu cagrisi dustu (bus/NACK/timeout)      */
@@ -277,7 +279,7 @@ typedef struct
 
 /**
  * @brief Degeri limite gore degerlendirir: iMin <= iDeger <= iMax ise OK.
- * @return 1 = OK (etkin degil, limit yok ya da aralikta), 0 = NOK (aralik disi).
+ * @return TRUE = OK (etkin degil, limit yok ya da aralikta), FALSE = NOK (aralik disi).
  */
 unsigned int citLimitDegerlendir(const SCitLimit* spLimit, int iDeger);
 
@@ -296,13 +298,13 @@ unsigned int citLimitDegerlendir(const SCitLimit* spLimit, int iDeger)
 {
     if ((spLimit == (const SCitLimit*)0) || (spLimit->uiEtkin == 0U) || (spLimit->uiLimitVar == 0U))
     {
-        return 1U;
+        return TRUE;
     }
     if ((iDeger < spLimit->iMin) || (iDeger > spLimit->iMax))
     {
-        return 0U;
+        return FALSE;
     }
-    return 1U;
+    return TRUE;
 }
 """
 
@@ -436,12 +438,12 @@ def chip_source(plan: _ChipPlan) -> str:
     e.blank()
     e.ln(f"static const S{pas}CitLimit S_s{pas}CitLimitVarsayilan = {mod}_CIT_LIMIT_VARSAYILAN;")
     e.blank()
-    e.ln("/* Olcumu degerlendirir; NOK ise sayaci artirir. Donus: OK biti (1/0). */")
+    e.ln("/* Olcumu degerlendirir; NOK ise sayaci artirir. Donus: TRUE (OK) / FALSE (NOK). */")
     e.ln(f"static unsigned int {module}CitOlcum(const SCitLimit* spLimit, int iDeger, unsigned int* uipNok)")
     e.ln("{")
     e.ln("    unsigned int uiOk = citLimitDegerlendir(spLimit, iDeger);")
     e.blank()
-    e.ln("    if (uiOk == 0U)")
+    e.ln("    if (uiOk == FALSE)")
     e.ln("    {")
     e.ln("        (*uipNok)++;")
     e.ln("    }")

@@ -3,6 +3,18 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.180 - 2026-09-06
+
+- **Ciplak 0/1 donus yok (kullanici kurali; butun altyapi tarandi):** dogru/yanlis donen
+  fonksiyonlar `TRUE`/`FALSE` (xil_types.h): `citLimitDegerlendir`, `<mod>CitOlcum`,
+  `spec2codeTestbenchStringEqual`, `spec2codeMesajBesle`, `spec2codeMesajDenetleyiciOpMu`,
+  `<mod>SimYazilabilir` (+ yazilabilirlik tablolari); durum donenler `XST_SUCCESS`/`XST_FAILURE`:
+  sanal cihaz geri cagrilari (`<mod>SimYaz/SimOku/SimTransfer`, sanal switch),
+  `spec2codeSimI2c/SpiEkle/Kaldir`. Butun cagri yerleri (`== 1` -> `== TRUE`, `== 0` ->
+  `== XST_SUCCESS`) ve host testleri guncellendi; `cit_ortak.h`, protokol basligi ve
+  `spec2code_sim.h` gerekli basliklari include eder. Kural `docs/kodlama_standardi.md`'ye yazildi.
+  Sayi donen fonksiyonlar (bayt/genislik/cerceve boyu) kapsam disi.
+
 ## v0.1.179 - 2026-09-06
 
 - **AXI IIC handle'i artik `XIic*` ornegi (kullanici kurali: ornek en alt seviyeye kadar iner):**

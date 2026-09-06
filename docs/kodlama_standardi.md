@@ -221,3 +221,20 @@ python spec2code_cli.py build --spec specs/samples/radar_io_board.spec.json
 ```
 
 Son satır `QC GEÇTİ` olmalı. Ayrıntı için `outputs/radar_io_board/qc_report.json`.
+
+## Donus degerleri: ciplak 0/1 yok
+
+Hicbir fonksiyon "1" ya da "0" sayisini dogrudan dondurmez; degerin ne oldugu adindan
+okunmalidir:
+
+- Durum donen fonksiyonlar Xilinx genel kodlarini kullanir: `XST_SUCCESS` / `XST_FAILURE`
+  (surucu op'lari, `<mod>CitInit`, sanal cihaz geri cagrilari `pfYaz/pfOku/pfTransfer`,
+  `spec2codeSimI2cEkle/Kaldir`).
+- Dogru/yanlis donen fonksiyonlar `TRUE` / `FALSE` (xil_types.h) kullanir:
+  `citLimitDegerlendir`, `<mod>CitOlcum`, `spec2codeTestbenchStringEqual`,
+  `spec2codeMesajBesle` (cerceve tamam mi), `spec2codeMesajDenetleyiciOpMu`,
+  `<mod>SimYazilabilir`.
+- Baska anlam tasiyan sonuclar icin adlandirilmis makro kullanilir (`CIT_OK/NOK/HATA`,
+  `SPEC2CODE_MESAJ_DURUM_*`, `SPEC2CODE_SIM_HATA_*`).
+- Sayi olan sonuclar (bayt sayisi, register genisligi, cerceve boyu) sayidir; `0`
+  orada "sifir bayt" anlamina gelir ve serbesttir.
