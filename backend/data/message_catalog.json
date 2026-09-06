@@ -33,6 +33,7 @@
     {"id": "0x53430209", "name": "GPIO_WRITE", "op": "gpio_write", "dir": "req", "body": "request_std", "aciklama": "AXI GPIO kanal yazmasi. DENETLEYICI-adresli: uiCihazIndeks = denetleyici indeksi. uiAdres = kanal (1|2), uiDeger = yazilacak deger, uiUzunluk = pin maskesi (0 = tum pinler). Maskelenen pinler CIKIS yapilir (ayni kanaldaki diger pinlerin ve diger kanalin yonu degismez), sonra oku-degistir-yaz. Yanit uiDeger = yazma sonrasi kanal degeri."},
     {"id": "0x53430301", "name": "CIT_RUN", "op": null, "dir": "req", "body": "cit", "aciklama": "Belirlenmi test kosturulsun."},
     {"id": "0x53430302", "name": "CIT_READ", "op": null, "dir": "req", "body": "cit", "aciklama": "Test sonucu oku."},
+    {"id": "0x53430303", "name": "SELF_TEST", "op": "self_test", "dir": "req", "body": "request_std", "aciklama": "Cihaz self-test'i (tests/<mod>_test.c: device_init + butun okumalar; ilk hatada durur)."},
     {"id": "0x53430401", "name": "DEVICE_INIT", "op": "device_init", "dir": "req", "body": "request_std", "aciklama": "Cihaz baslat."},
     {"id": "0x53430402", "name": "VOLTAGE_READ", "op": "voltage_read", "dir": "req", "body": "request_std", "aciklama": "Birimli voltaj okumasi (mV)."},
     {"id": "0x53430403", "name": "TEMPERATURE_READ", "op": "temperature_read", "dir": "req", "body": "request_std", "aciklama": "Sicaklik okumasi."},

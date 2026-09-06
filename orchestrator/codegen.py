@@ -1252,6 +1252,11 @@ def _requested_operations(device: dict, descriptor: dict) -> list[dict]:
     return [op for op in operations if not cmodel.convert_config_issue(device, op)]
 
 
+def _self_test_requested(device: dict) -> bool:
+    """Cihaz self-test istedi mi (tests/<mod>_test.c uretilir ve ajan `self_test` op'u acilir)."""
+    return "self_test" in (device.get("tests_requested") or [])
+
+
 def _supports_i2c_register_ops(descriptor: dict) -> bool:
     if descriptor.get("transport", {}).get("type") != "i2c":
         return False
@@ -1471,21 +1476,7 @@ _CIT_MEASUREMENT_OP_WHITELIST: frozenset[str] = frozenset({
 #: data'sindan (big-endian 16 bit) ayristirir.
 _CIT_ARRAY_RETURNS_RE = re.compile(r"^([A-Za-z_]+)\[(\d+)\]$")
 _CIT_CHANNEL_PREFIX = {"voltages": "V", "currents": "I"}
-_CIT_KANAL_YOK = "0xFFFFFFFFU"
 _CIT_KANAL_ELEMAN_BOY = 2
-
-
-def _cit_channel_rows(olcumler: list[dict]) -> str | None:
-    """Olcum -> kanal indeksi tablosu satirlari (hex); dizi op'u yoksa None.
-
-    Kanal 0 ve skaler olcumler dispatch eder; kanal k>0 bir onceki olcumun
-    (ayni cihaz/op, ardisik uretim garantisi) yanitini yeniden kullanir.
-    """
-    if not any(m.get("channel") is not None for m in olcumler):
-        return None
-    return "\n".join(
-        f"    {_CIT_KANAL_YOK}," if m.get("channel") is None else f"    0x{int(m['channel']):02X}U,"
-        for m in olcumler)
 
 
 def _testbench_log_header() -> str:
@@ -1910,6 +1901,23 @@ def _testbench_manifest_devices(spec: dict, get_descriptor: Callable[[str], dict
                 # Seri Hat: operasyonun bus seviyesindeki transfer plani.
                 "wire": _op_wire_plan(device, descriptor, op),
             })
+        if _self_test_requested(device):
+            operations.append({
+                "name": "self_test",
+                "label": "Self-test (init + okumalar)",
+                "description": "tests/<mod>_test.c: device_init + butun okuma fonksiyonlari; ilk hatada durur.",
+                "risk": "safe",
+                "implemented": True,
+                "fixed_read_length": 0,
+                "requires_address": False,
+                "requires_length": False,
+                "requires_data": False,
+                "requires_register": False,
+                "requires_value": False,
+                "result_returns": "",
+                "result_unit": "",
+                "wire": [],
+            })
         if _supports_i2c_register_ops(descriptor):
             operations.extend([
                 {
@@ -2059,9 +2067,9 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         " * @brief CIT (Card-In-Test) olcum toplama: SBoardCit paketlenmis kopya,\n"
         " *        kullanici isimli OKUMA-BASARILI bitleri + ham/islenmis deger.\n"
         " *\n"
-        " * Kart yalniz OLCER; limit/OK-NOK karari HOST tarafinda (CIT ekrani) canli\n"
-        " * yapilir — limitler koda GOMULMEZ, ekrandan degistirilir. Bayrak biti =\n"
-        " * okuma basarisi (dispatch uiOk==1), limit gecti/kaldi DEGIL.\n"
+        " * Olcumler cit/ katmani (sistemCitRead -> <mod>CitRead -> surucu) ile okunur;\n"
+        " * limit/OK-NOK karari HOST tarafinda (CIT ekrani) canli yapilir. Bayrak biti =\n"
+        " * surucu okumasi basarili, limit gecti/kaldi DEGIL.\n"
         " *\n"
         " * Olcum sirasi manifest cit.olcumler ile birebir (uretim tek kaynaktan).\n"
         " * El ile duzenlemeyin; spec'ten yeniden uretilir. Yalniz unsigned int/int.\n"
@@ -2100,8 +2108,8 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
         "} SBoardCit;\n\n"
         "_Static_assert(sizeof(SBoardCit) % 4U == 0U, \"SBoardCit 4B hizali olmalidir\");\n\n"
         "/**\n"
-        " * @brief CIT olcumlerini kostur; her olcum icin dispatch'i cagirir, ham +\n"
-        " *        islenmis degeri ve okuma-basarili bitini doldurur. LIMIT DEGERLENDIRMEZ\n"
+        " * @brief CIT olcumlerini kostur: cit/ sistemCitRead() cagrilir, her olcumun degeri\n"
+        " *        ve okuma-basarili biti manifest sirasiyla doldurulur. LIMIT DEGERLENDIRMEZ\n"
         " *        (o host tarafinda). uiSayac +1.\n"
         " */\n"
         "void boardCitRun(SBoardCit* spCit);\n\n"
@@ -2114,572 +2122,115 @@ def _cit_header(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     )
 
 
-def _cit_dispatch_block(channels: bool, olcum_var: str, slot_var: str, device_table: str,
-                        op_table: str, kanal_table: str, copy_fn: str) -> str:
-    """CitRun dongu govdesinin dispatch + ham/islenmis deger ayristirma kismi.
-
-    ``channels`` False ise bugunku (skaler) metin BIREBIR uretilir. True ise
-    dizi donuslu op'lar icin kanal 0 dispatch eder, k>0 onceki yaniti kullanir ve
-    kanal degeri data[2k..2k+1] (big-endian 16 bit) olarak ayristirilir;
-    ``uiOkundu`` okuma basarisini (uiOk + yeterli data) tasir.
-    """
-    copy_indent = " " * (8 + len(copy_fn) + 1)
-    dispatch = (
-        "        spec2codeTestbenchRequestClear(&sIstek);\n"
-        f"        sIstek.uiId = {slot_var};\n"
-        f"        {copy_fn}(sIstek.cArrDevice, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        f"{copy_indent}{device_table}[{olcum_var}]);\n"
-        f"        {copy_fn}(sIstek.cArrOperation, SPEC2CODE_TESTBENCH_TEXT_MAX,\n"
-        f"{copy_indent}{op_table}[{olcum_var}]);\n"
-        "        spec2codeTestbenchResponseClear(&sYanit);\n"
-        "        (void)spec2codeTestbenchDispatch(&sIstek, &sYanit);\n"
-    )
-    if not channels:
-        return (
-            dispatch +
-            "        /* Ham deger: yanit data'nin ilk 4B'i (>=4 ise LE) yoksa uiValue. */\n"
-            "        if (sYanit.uiDataLength >= 4U)\n"
-            "        {\n"
-            "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
-            "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
-            "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
-            "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
-            "        }\n"
-            "        else\n"
-            "        {\n"
-            "            uiHam = sYanit.uiValue;\n"
-            "        }\n"
-            "        iDeger = (int)sYanit.uiValue;\n"
-        )
-    inner = "\n".join(("    " + l) if l else l for l in dispatch.split("\n"))
-    return (
-        f"        uiKanal = {kanal_table}[{olcum_var}];\n"
-        "        /* Dizi donuslu op: yalniz kanal 0 (ve skaler olcumler) dispatch eder;\n"
-        "         * sonraki kanallar ayni yaniti kullanir (tek okuma, N slot). */\n"
-        "        if ((uiKanal == SPEC2CODE_CIT_KANAL_YOK) || (uiKanal == 0U))\n"
-        "        {\n"
-        f"{inner}"
-        "        }\n"
-        "        uiOkundu = sYanit.uiOk;\n"
-        "        if (uiKanal != SPEC2CODE_CIT_KANAL_YOK)\n"
-        "        {\n"
-        "            /* Kanal degeri: data[2k..2k+1] big-endian, unsigned short (surucu\n"
-        "             * dizi paketi; mV tam sayi, ondalik yok). */\n"
-        "            uiOfset = uiKanal * SPEC2CODE_CIT_KANAL_BOY;\n"
-        "            if (sYanit.uiDataLength >= (uiOfset + SPEC2CODE_CIT_KANAL_BOY))\n"
-        "            {\n"
-        "                usKanalDeger = (unsigned short)(((unsigned short)sYanit.ucArrData[uiOfset] << 8U)\n"
-        "                                                | (unsigned short)sYanit.ucArrData[uiOfset + 1U]);\n"
-        "            }\n"
-        "            else\n"
-        "            {\n"
-        "                usKanalDeger = 0U;\n"
-        "                uiOkundu = 0U;\n"
-        "            }\n"
-        "            uiHam = (unsigned int)usKanalDeger;\n"
-        "            iDeger = (int)usKanalDeger;\n"
-        "        }\n"
-        "        else if (sYanit.uiDataLength >= 4U)\n"
-        "        {\n"
-        "            /* Ham deger: yanit data'nin ilk 4B'i (LE). */\n"
-        "            uiHam = ((unsigned int)sYanit.ucArrData[0])\n"
-        "                  | ((unsigned int)sYanit.ucArrData[1] << 8U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[2] << 16U)\n"
-        "                  | ((unsigned int)sYanit.ucArrData[3] << 24U);\n"
-        "            iDeger = (int)sYanit.uiValue;\n"
-        "        }\n"
-        "        else\n"
-        "        {\n"
-        "            uiHam = sYanit.uiValue;\n"
-        "            iDeger = (int)sYanit.uiValue;\n"
-        "        }\n"
-    )
-
-
 def _cit_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
-    """Üretilen `spec2code_cit.c`: dispatch köprüsü + boardCitRun (saf sensör).
+    """Üretilen `spec2code_cit.c`: boardCitRun cit/ katmanını koşar, SBoardCit'e kopyalar.
 
-    Kart LIMIT GÖMMEZ: her ölçümü okuyup ham + işlenmiş değeri ve okuma-başarılı
-    bitini doldurur. Limit/OK-NOK/önem/enabled kararı host (CIT ekranı) tarafında
-    canlı yapılır — kullanıcı limitleri kod üretmeden ekrandan değiştirir.
+    Ölçümler `cit/sistem_cit.c` `sistemCitRead()` ile okunur (entegre CIT'leri sürücü
+    fonksiyonlarını çağırır); bu dosya yalnız sonucu manifest sırasındaki `SBoardCit`
+    slotlarına taşır. Denetleyici handle'ları ajanın ilklendirdiği denetleyicilerden
+    (`spec2codeTestbench*HandleGet`) alınır. Limit/OK-NOK kararı host'ta canlı yapılır;
+    bayrak biti = sürücü okuması başarılı.
     """
+    project_name = spec["project"]["name"]
+    has_sim = any(d.get("simulate") for d in spec.get("devices", []))
     olcumler = _cit_measurements(spec, get_descriptor)
-    kanal_rows = _cit_channel_rows(olcumler)
+    plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor), olcumler)
+    plan_by_device = {str(plan.device.get("id")): plan for plan in plans}
 
-    # Cihaz id + op adi string tablolari (dispatch koprusu; MesajIsle ile ayni
-    # alanlar: cArrDevice = cihaz id string, cArrOperation = op adi string).
-    device_rows = "\n".join(
-        f'    "{_c_string_escape(m["device"])}",' for m in olcumler) or '    ""'
-    op_rows = "\n".join(
-        f'    "{_c_string_escape(m["op"])}",' for m in olcumler) or '    ""'
-    kanal_table = (
-        "/* Olcum -> kanal indeksi (dizi donuslu op; skaler olcum icin KANAL_YOK).\n"
-        " * Kanal 0 dispatch eder, k>0 bir onceki yaniti (ayni cihaz/op) yeniden kullanir. */\n"
-        f"#define SPEC2CODE_CIT_KANAL_YOK {_CIT_KANAL_YOK}\n"
-        f"#define SPEC2CODE_CIT_KANAL_BOY {_CIT_KANAL_ELEMAN_BOY}U\n"
-        "static const unsigned int S_uiArrCitKanal[BOARD_CIT_OLCUM_SAYISI] =\n"
-        "{\n"
-        f"{kanal_rows}\n"
-        "};\n\n"
-    ) if kanal_rows is not None else ""
+    bus_lines: list[str] = []
+    for controller in cit_layer.bus_controllers(plans):
+        htype, _hvar = cmodel._handle_for(controller)
+        getter = _testbench_getter(htype)
+        if getter is None:
+            raise cmodel.CodegenError(
+                f"{controller.get('id')}: CIT icin desteklenmeyen denetleyici handle tipi ({htype})")
+        bus_lines.append(
+            f'    S_sCitBus.{cit_layer.controller_field(controller)} = {getter}("{controller.get("id")}");')
 
-    # Her olcum icin uye adiyla atama (switch): bit alani uyeleri adreslenemez,
-    # bit-index aritmetigi YOK — uye adiyla dogrudan atama.
-    bit_case_lines = "\n".join(
-        f"        case {m['index']}U: spCit->sBayraklar.ui{m['cname']}Ok = uiOk; break;"
-        for m in olcumler)
+    olcum_lines: list[str] = []
+    for m in olcumler:
+        index = int(m["index"])
+        plan = plan_by_device.get(str(m["device"]))
+        measure = next((x for x in plan.measures if x.name == m["op"]), None) if plan else None
+        if measure is None:
+            olcum_lines.extend([
+                f"    /* olcum {index}: {m['name']} - {m['device']}/{m['op']}: cit/ katmaninda karsiligi yok */",
+                f"    spCit->arrOlcum[{index}U].uiDurum = SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR;",
+            ])
+            continue
+        device_field = cit_layer.device_field(plan.device)
+        if measure.is_array:
+            channel = int(m.get("channel", 0))
+            value = f"S_sSistemCit.{device_field}.{measure.field}.{measure.array_field}[{channel}U]"
+            origin = f"{m['device']} {m['op']}[{channel}]"
+        else:
+            value = f"S_sSistemCit.{device_field}.{measure.field}"
+            origin = f"{m['device']} {m['op']}"
+        okundu = f"S_sSistemCit.{device_field}.sBayraklar.{measure.op_ok}"
+        olcum_lines.extend([
+            f"    /* olcum {index}: {m['name']} <- {origin} */",
+            f"    spec2codeCitOlcumYaz(spCit, {index}U, (int){value}, {okundu});",
+            f"    spCit->sBayraklar.ui{m['cname']}Ok = {okundu};",
+        ])
 
     return (
         "/**\n"
         " * @file spec2code_cit.c\n"
-        " * @brief CIT olcum toplama gerceklemesi (saf sensor). Cihaz/op string\n"
-        " *        tablolari otomatik uretildi (manifest cit.olcumler sirasiyla).\n"
-        " *        LIMIT GOMULMEZ: kart her olcumu okur, host limitle degerlendirir.\n"
+        " * @brief CIT olcum toplama: cit/ katmani (sistemCitRead) kosulur, sonuc manifest\n"
+        " *        sirasiyla SBoardCit'e kopyalanir. LIMIT GOMULMEZ: host canli degerlendirir.\n"
         " */\n"
         '#include "spec2code_cit.h"\n'
         '#include "spec2code_mesaj.h"\n'
-        '#include "spec2code_testbench_protocol.h"\n'
+        f'#include "{project_name}_testbench_ops.h"\n'
+        '#include "sistem_cit.h"\n'
+        '#include "xstatus.h"\n'
         "#include <string.h>\n\n"
-        "/* Olcum -> cihaz id string (dispatch koprusu icin). */\n"
-        "static const char* const S_cpArrCitCihaz[BOARD_CIT_OLCUM_SAYISI] =\n"
-        "{\n"
-        f"{device_rows}\n"
-        "};\n\n"
-        "/* Olcum -> op adi string (dispatch koprusu icin). */\n"
-        "static const char* const S_cpArrCitOp[BOARD_CIT_OLCUM_SAYISI] =\n"
-        "{\n"
-        f"{op_rows}\n"
-        "};\n\n"
-        f"{kanal_table}"
+        "/* cit/ katmani durumu: denetleyici handle'lari + sistem CIT sonucu (yigin degil). */\n"
+        "static SSistemCitBus S_sCitBus;\n"
+        "static SSistemCit S_sSistemCit;\n"
         "/* Son kosu kopyasi (CIT_READ + boardCitSon dondurur). */\n"
         "static SBoardCit S_sCitSonKopya;\n"
         "static unsigned int S_uiCitKosuSayac = 0U;\n\n"
-        "static void spec2codeCitMetinKopya(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
+        "static void spec2codeCitOlcumYaz(SBoardCit* spCit, unsigned int uiOlcum, int iDeger, unsigned int uiOkundu)\n"
         "{\n"
-        "    unsigned int uiIndex;\n\n"
-        "    if ((cpDst == (char*)0) || (uiDstBoy == 0U))\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    for (uiIndex = 0U; uiIndex < (uiDstBoy - 1U); uiIndex++)\n"
-        "    {\n"
-        "        if ((cpSrc == (const char*)0) || (cpSrc[uiIndex] == '\\0'))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        cpDst[uiIndex] = cpSrc[uiIndex];\n"
-        "    }\n"
-        "    cpDst[uiIndex] = '\\0';\n"
-        "}\n\n"
-        "static void spec2codeCitBayrakYaz(SBoardCit* spCit, unsigned int uiOlcum, unsigned int uiOk)\n"
-        "{\n"
-        "    switch (uiOlcum)\n"
-        "    {\n"
-        f"{bit_case_lines}\n"
-        "        default: break;\n"
-        "    }\n"
+        "    spCit->arrOlcum[uiOlcum].iDeger = iDeger;\n"
+        "    spCit->arrOlcum[uiOlcum].uiHam = (unsigned int)iDeger;\n"
+        "    /* Bayrak biti = OKUMA BASARISI (limit DEGERLENDIRMESI YOK - o host'ta). */\n"
+        "    spCit->arrOlcum[uiOlcum].uiDurum = (uiOkundu == 1U) ? SPEC2CODE_MESAJ_DURUM_OK : SPEC2CODE_MESAJ_DURUM_BUS_HATASI;\n"
         "}\n\n"
         "void boardCitRun(SBoardCit* spCit)\n"
         "{\n"
-        "    SSpec2codeTestbenchRequest sIstek;\n"
-        "    SSpec2codeTestbenchResponse sYanit;\n"
-        "    unsigned int uiOlcum;\n"
-        "    unsigned int uiHam;\n"
-        "    int iDeger;\n"
-        "    unsigned int uiOk;\n"
-        + ("    unsigned int uiKanal;\n"
-           "    unsigned int uiOfset;\n"
-           "    unsigned int uiOkundu;\n"
-           "    unsigned short usKanalDeger;\n" if kanal_rows is not None else "") +
-        "\n"
+        "    unsigned int uiOlcum;\n\n"
         "    if (spCit == (SBoardCit*)0)\n"
         "    {\n"
         "        return;\n"
         "    }\n"
-        "    /* Kopyayi sifirla; her alan ustune yazilir. */\n"
         "    memset(spCit, 0, sizeof(SBoardCit));\n"
         "    S_uiCitKosuSayac++;\n"
         "    spCit->uiSayac = S_uiCitKosuSayac;\n"
-        "    spCit->uiZaman = 0U;  /* ms tick kaynagi uretilen kodda yok (v1). */\n"
-        "    /* Kart LIMIT/ENABLED GOMMEZ: her olcumu okur; host (CIT ekrani) hangi\n"
-        "     * olcumu gosterecegine ve limit gecti/kaldi'ya CANLI karar verir. */\n"
-        + ("    spec2codeTestbenchResponseClear(&sYanit);\n" if kanal_rows is not None else "") +
-        "    for (uiOlcum = 0U; uiOlcum < BOARD_CIT_OLCUM_SAYISI; uiOlcum++)\n"
+        "    spCit->uiZaman = 0U; /* ms tick kaynagi uretilen kodda yok */\n"
+        "    if (spec2codeTestbenchBoardInit() != XST_SUCCESS)\n"
         "    {\n"
-        + _cit_dispatch_block(kanal_rows is not None, "uiOlcum", "uiOlcum",
-                              "S_cpArrCitCihaz", "S_cpArrCitOp", "S_uiArrCitKanal",
-                              "spec2codeCitMetinKopya") +
-        "        spCit->arrOlcum[uiOlcum].iDeger = iDeger;\n"
-        "        spCit->arrOlcum[uiOlcum].uiHam = uiHam;\n"
-        "        /* Bayrak biti = OKUMA BASARISI (limit DEGERLENDIRMESI YOK — o host'ta).\n"
-        "         * uiOk==1 -> uiDurum OK, bit 1; aksi -> BUS_HATASI, bit 0. */\n"
-        + ("        if (uiOkundu == 1U)\n" if kanal_rows is not None else
-           "        if (sYanit.uiOk == 1U)\n") +
-        "        {\n"
-        "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
-        "            uiOk = 1U;\n"
-        "        }\n"
-        "        else\n"
+        "        /* Denetleyiciler ayaga kalkmadi: hicbir olcum okunamadi. */\n"
+        "        for (uiOlcum = 0U; uiOlcum < BOARD_CIT_OLCUM_SAYISI; uiOlcum++)\n"
         "        {\n"
         "            spCit->arrOlcum[uiOlcum].uiDurum = SPEC2CODE_MESAJ_DURUM_BUS_HATASI;\n"
-        "            uiOk = 0U;\n"
         "        }\n"
-        "        spec2codeCitBayrakYaz(spCit, uiOlcum, uiOk);\n"
+        "        memcpy(&S_sCitSonKopya, spCit, sizeof(SBoardCit));\n"
+        "        return;\n"
         "    }\n"
-        "    /* Son kopyayi guncelle (CIT_READ icin). */\n"
+        + ("    spec2codeSimHazirla(); /* sanal cihazlar (tests/sim): ilk CIT dispatch'ten once gelebilir */\n" if has_sim else "")
+        + "    /* Denetleyici handle'lari: ajanin ilklendirdigi denetleyiciler. */\n"
+        + "\n".join(bus_lines) + "\n"
+        "    /* cit/ katmani: entegre CIT'leri surucu fonksiyonlariyla okur (limit NULL -> spec varsayilani). */\n"
+        "    (void)sistemCitRead(&S_sCitBus, (const SSistemCitLimit*)0, &S_sSistemCit);\n"
+        + "\n".join(olcum_lines) + "\n"
         "    memcpy(&S_sCitSonKopya, spCit, sizeof(SBoardCit));\n"
         "}\n\n"
         "const SBoardCit* boardCitSon(void)\n"
         "{\n"
         "    return &S_sCitSonKopya;\n"
         "}\n"
-    )
-
-
-# --- kart modulleri (yalniz spec `boards` tanimliyken uretilir) --------------------------
-
-def _board_cit_measurements(
-    spec: dict,
-    get_descriptor: Callable[[str], dict],
-    resolve: Optional[Callable[[str], str]] = None,
-) -> dict[str, list[dict]]:
-    """Kart kimligi -> o karta ait CIT olcumleri (SISTEM indeksleriyle birlikte).
-
-    Bit sirasi DEGISMEZ: her olcum sistem geneli ``_cit_measurements`` listesindeki
-    kendi ``index``ini tasir; bu indeks ayni zamanda ``SBoardCit.arrOlcum`` slotudur.
-    Kart modulu yalnizca kendi slotlarini doldurur, ``boardCitRun`` hic degismez.
-
-    ``resolve`` verilirse kart kimligi ayni cozumden gecer (tanimsiz kart -> ana
-    kart), boylece surucu klasoru ile CIT slot sahipligi ayrisamaz.
-    """
-    resolve = resolve or (lambda board_id: board_id)
-    device_boards = {
-        str(device.get("id", "")): boards.board_id_of(device)
-        for device in spec.get("devices", [])
-    }
-    by_board: dict[str, list[dict]] = {}
-    for olcum in _cit_measurements(spec, get_descriptor):
-        board_id = str(olcum.get("board_id")
-                       or device_boards.get(str(olcum.get("device", "")))
-                       or boards.MAIN_BOARD_ID)
-        by_board.setdefault(resolve(board_id), []).append(olcum)
-    return by_board
-
-
-def _board_unit_handles(spec: dict) -> dict[str, dict]:
-    """C modul adi -> kart modulunun kullanacagi denetleyici tutamagi bilgisi.
-
-    Tutamak sekli cmodel'in tek dogruluk kaynagindan gelir (``_handle_for`` /
-    ``_handle_var`` / ``BASE_ADDRESS_HANDLE_DRIVERS``): AXI IIC'de tutamak bir
-    struct degil TABAN ADRES'tir ve degerle gecirilir.
-    """
-    controllers = {c.get("id"): c for c in spec.get("controllers", [])}
-    modules = cmodel.device_module_map(spec)
-    handles: dict[str, dict] = {}
-
-    def _add(module: str, controller: dict) -> None:
-        htype, _ = cmodel._handle_for(controller)
-        is_base = htype in cmodel.BASE_ADDRESS_HANDLE_DRIVERS
-        var = cmodel._handle_var(module, htype)
-        instance = str(controller.get("instance", ""))
-        handles[module] = {
-            "is_base": is_base,
-            "decl": (f"unsigned long {var} = (unsigned long){instance}_BASEADDR;"
-                     if is_base else f"{htype} {var};"),
-            "arg": var if is_base else f"&{var}",
-        }
-
-    for mux in spec.get("muxes", []):
-        controller = controllers.get(mux.get("controller_id"))
-        if controller is not None:
-            _add(cmodel._module_of(str(mux.get("part", ""))), controller)
-    for device in spec.get("devices", []):
-        controller = controllers.get((device.get("attach") or {}).get("controller_id"))
-        module = modules.get(str(device.get("id", "")))
-        if controller is not None and module:
-            _add(module, controller)
-    return handles
-
-
-def _board_module_header(board: dict, module_headers: list[str], has_cit: bool) -> str:
-    """Kart basina toplu API: <ident>Init / <ident>CitRun / <ident>SelfTest."""
-    ident = boards.board_identifier(str(board["name"]))
-    guard = boards.board_dirname(str(board["name"])).upper() + "_H"
-    includes = "".join(f'#include "{name}"\n' for name in module_headers)
-    cit_decl = (
-        "/**\n"
-        " * @brief Yalniz bu kartin CIT olcumlerini sistem SBoardCit'ine doldurur.\n"
-        " * @param spCit Sistem geneli CIT kopyasi (bit sirasi degismez).\n"
-        " */\n"
-        f"void {ident}CitRun(SBoardCit* spCit);\n\n") if has_cit else ""
-    cit_include = '#include "spec2code_cit.h"\n' if has_cit else ""
-    return (
-        "/**\n"
-        f" * @file {boards.board_dirname(str(board['name']))}.h\n"
-        + _board_brief_lines(
-            f"'{board['name']}' kartinin toplu API'si (uretildi; elle duzenlemeyin).")
-        + " */\n"
-        f"#ifndef {guard}\n"
-        f"#define {guard}\n\n"
-        f"{cit_include}{includes}\n"
-        "/**\n"
-        " * @brief Bu karttaki tum cihazlari sirayla ilklendirir.\n"
-        " * @return Ilk hatanin XST_* kodu; hepsi basariliysa XST_SUCCESS.\n"
-        " */\n"
-        f"int {ident}Init(void);\n\n"
-        f"{cit_decl}"
-        "/**\n"
-        " * @brief Bu karttaki self-test'i olan cihazlari kosar.\n"
-        " * @return Ilk hatanin XST_* kodu; hepsi basariliysa XST_SUCCESS.\n"
-        " */\n"
-        f"int {ident}SelfTest(void);\n\n"
-        f"#endif /* {guard} */\n"
-    )
-
-
-def _board_sequence_function(name: str, brief: str, calls: list[tuple[str, str, str]]) -> str:
-    """<ident>Init / <ident>SelfTest govdesi: ILK hatayi saklar, DONGUYE DEVAM eder.
-
-    Kismi ilklendirme bilinclidir: bir cihaz dusunce kartin geri kalani yine de
-    ayaga kalksin (saha: tek NACK'li sensor butun karti kor etmesin).
-    """
-    doxy = (
-        "/**\n"
-        f" * @brief {brief}\n"
-        " * @return Ilk hatanin XST_* kodu; hepsi basariliysa XST_SUCCESS.\n"
-        " */\n"
-    )
-    if not calls:
-        return (
-            f"{doxy}"
-            f"int {name}(void)\n"
-            "{\n"
-            "    /* Bu kartta bu adimi kosacak cihaz yok. */\n"
-            "    return XST_SUCCESS;\n"
-            "}\n"
-        )
-    lines = [f"{doxy}int {name}(void)\n", "{\n"]
-    for decl, _call, _part in calls:
-        lines.append(f"    {decl}\n")
-    lines.append("    int iFirst;\n    int iStatus;\n\n")
-    lines.append("    iFirst = XST_SUCCESS;\n")
-    for _decl, call, part in calls:
-        lines.append(f"    /* {part} */\n")
-        lines.append(f"    iStatus = {call};\n")
-        lines.append("    if ((iStatus != XST_SUCCESS) && (iFirst == XST_SUCCESS))\n")
-        lines.append("    {\n        iFirst = iStatus;\n    }\n")
-    lines.append("    return iFirst;\n}\n")
-    return "".join(lines)
-
-
-#: Kart modulunun DOSYA ICI (static) CIT adlari kart adindan BAGIMSIZDIR: kart
-#: adi serbest metin oldugu icin adi tanimlayicilara katmak satir uzunlugu
-#: kuralini (max_line_length 100) kart adina gore bozardi. Kart kimligi dosya
-#: adinda ve DISA ACIK fonksiyonlarda tasinir; bunlar tek ceviri biriminde kalir.
-_BOARD_CIT_COUNT_DEFINE = "KART_CIT_OLCUM_SAYISI"
-_BOARD_CIT_COPY_FUNC = "kartCitMetinKopya"
-_BOARD_CIT_FLAG_FUNC = "kartCitBayrakYaz"
-
-
-def _board_brief_lines(text: str) -> str:
-    """Doxygen `@brief` satiri; 100 sutunu asarsa hizali devam satirina kirilir."""
-    head = " * @brief "
-    if len(head) + len(text) <= 100:
-        return f"{head}{text}\n"
-    cont = " *        "
-    lines: list[str] = []
-    prefix = head
-    remaining = text
-    while remaining:
-        room = 100 - len(prefix)
-        if len(remaining) <= room:
-            lines.append(prefix + remaining)
-            break
-        cut = remaining.rfind(" ", 0, room + 1)
-        if cut <= 0:
-            cut = room
-        lines.append(prefix + remaining[:cut])
-        remaining = remaining[cut:].lstrip()
-        prefix = cont
-    return "\n".join(lines) + "\n"
-
-
-def _board_cit_function(board: dict, olcumler: list[dict]) -> str:
-    """<ident>CitRun + yardimcilari: SISTEM SBoardCit'inin YALNIZ kendi slotlari.
-
-    ``boardCitRun`` ile ayni dispatch koprusunu kullanir (ayni ham/islenmis deger
-    ve okuma-basarili biti anlami); fark, dongunun butun olcumleri degil bu kartin
-    olcum indekslerini gezmesidir. Sayac/son-kopya sistem kosusuna aittir, burada
-    DOKUNULMAZ.
-    """
-    ident = boards.board_identifier(str(board["name"]))
-    count_define = _BOARD_CIT_COUNT_DEFINE
-    copy_fn = _BOARD_CIT_COPY_FUNC
-    flag_fn = _BOARD_CIT_FLAG_FUNC
-    slot_rows = "\n".join(f"    {m['index']}U," for m in olcumler)
-    device_rows = "\n".join(f'    "{_c_string_escape(m["device"])}",' for m in olcumler)
-    op_rows = "\n".join(f'    "{_c_string_escape(m["op"])}",' for m in olcumler)
-    bit_case_lines = "\n".join(
-        f"        case {m['index']}U: spCit->sBayraklar.ui{m['cname']}Ok = uiOk; break;"
-        for m in olcumler)
-    kanal_rows = _cit_channel_rows(olcumler)
-    kanal_table = (
-        "/* Kart olcumu -> kanal indeksi (dizi donuslu op; skaler icin KANAL_YOK). */\n"
-        "#ifndef SPEC2CODE_CIT_KANAL_YOK\n"
-        f"#define SPEC2CODE_CIT_KANAL_YOK {_CIT_KANAL_YOK}\n"
-        f"#define SPEC2CODE_CIT_KANAL_BOY {_CIT_KANAL_ELEMAN_BOY}U\n"
-        "#endif\n"
-        f"static const unsigned int S_uiArrKartCitKanal[{count_define}] =\n"
-        "{\n"
-        f"{kanal_rows}\n"
-        "};\n\n"
-    ) if kanal_rows is not None else ""
-    return (
-        f"/* Bu kartin CIT olcum sayisi (sistem BOARD_CIT_OLCUM_SAYISI'nin alt kumesi). */\n"
-        f"#define {count_define} {len(olcumler)}U\n\n"
-        "/* Kart olcumu -> SISTEM SBoardCit slotu (bit sirasi burada TURETILMEZ). */\n"
-        f"static const unsigned int S_uiArrKartCitSlot[{count_define}] =\n"
-        "{\n"
-        f"{slot_rows}\n"
-        "};\n\n"
-        "/* Olcum -> cihaz id string (dispatch koprusu icin). */\n"
-        f"static const char* const S_cpArrKartCitCihaz[{count_define}] =\n"
-        "{\n"
-        f"{device_rows}\n"
-        "};\n\n"
-        "/* Olcum -> op adi string (dispatch koprusu icin). */\n"
-        f"static const char* const S_cpArrKartCitOp[{count_define}] =\n"
-        "{\n"
-        f"{op_rows}\n"
-        "};\n\n"
-        f"{kanal_table}"
-        f"static void {copy_fn}(char* cpDst, unsigned int uiDstBoy, const char* cpSrc)\n"
-        "{\n"
-        "    unsigned int uiIndex;\n\n"
-        "    if ((cpDst == (char*)0) || (uiDstBoy == 0U))\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    for (uiIndex = 0U; uiIndex < (uiDstBoy - 1U); uiIndex++)\n"
-        "    {\n"
-        "        if ((cpSrc == (const char*)0) || (cpSrc[uiIndex] == '\\0'))\n"
-        "        {\n"
-        "            break;\n"
-        "        }\n"
-        "        cpDst[uiIndex] = cpSrc[uiIndex];\n"
-        "    }\n"
-        "    cpDst[uiIndex] = '\\0';\n"
-        "}\n\n"
-        f"static void {flag_fn}(SBoardCit* spCit, unsigned int uiSlot, unsigned int uiOk)\n"
-        "{\n"
-        "    switch (uiSlot)\n"
-        "    {\n"
-        f"{bit_case_lines}\n"
-        "        default: break;\n"
-        "    }\n"
-        "}\n\n"
-        "/**\n"
-        " * @brief Yalniz bu kartin CIT olcumlerini sistem SBoardCit'ine doldurur.\n"
-        " * @param spCit Sistem geneli CIT kopyasi (bit sirasi degismez).\n"
-        " */\n"
-        f"void {ident}CitRun(SBoardCit* spCit)\n"
-        "{\n"
-        "    SSpec2codeTestbenchRequest sIstek;\n"
-        "    SSpec2codeTestbenchResponse sYanit;\n"
-        "    unsigned int uiIndex;\n"
-        "    unsigned int uiSlot;\n"
-        "    unsigned int uiHam;\n"
-        "    int iDeger;\n"
-        "    unsigned int uiOk;\n"
-        + ("    unsigned int uiKanal;\n"
-           "    unsigned int uiOfset;\n"
-           "    unsigned int uiOkundu;\n"
-           "    unsigned short usKanalDeger;\n" if kanal_rows is not None else "") +
-        "\n"
-        "    if (spCit == (SBoardCit*)0)\n"
-        "    {\n"
-        "        return;\n"
-        "    }\n"
-        "    /* Sifirlama/sayac SISTEM boardCitRun'a aittir: burada yalniz bu kartin\n"
-        "     * slotlari ustune yazilir, diger kartlarin degerleri korunur. */\n"
-        + ("    spec2codeTestbenchResponseClear(&sYanit);\n" if kanal_rows is not None else "") +
-        f"    for (uiIndex = 0U; uiIndex < {count_define}; uiIndex++)\n"
-        "    {\n"
-        "        uiSlot = S_uiArrKartCitSlot[uiIndex];\n"
-        + _cit_dispatch_block(kanal_rows is not None, "uiIndex", "uiSlot",
-                              "S_cpArrKartCitCihaz", "S_cpArrKartCitOp", "S_uiArrKartCitKanal",
-                              copy_fn) +
-        "        spCit->arrOlcum[uiSlot].iDeger = iDeger;\n"
-        "        spCit->arrOlcum[uiSlot].uiHam = uiHam;\n"
-        "        /* Bayrak biti = OKUMA BASARISI (limit degerlendirmesi host'ta). */\n"
-        + ("        if (uiOkundu == 1U)\n" if kanal_rows is not None else
-           "        if (sYanit.uiOk == 1U)\n") +
-        "        {\n"
-        "            spCit->arrOlcum[uiSlot].uiDurum = SPEC2CODE_MESAJ_DURUM_OK;\n"
-        "            uiOk = 1U;\n"
-        "        }\n"
-        "        else\n"
-        "        {\n"
-        "            spCit->arrOlcum[uiSlot].uiDurum = SPEC2CODE_MESAJ_DURUM_BUS_HATASI;\n"
-        "            uiOk = 0U;\n"
-        "        }\n"
-        f"        {flag_fn}(spCit, uiSlot, uiOk);\n"
-        "    }\n"
-        "}\n"
-    )
-
-
-def _board_module_source(board: dict, board_units: list, spec: dict,
-                         cit_olcumler: list[dict]) -> str:
-    """Kart modulu gerceklemesi: Init / CitRun (varsa) / SelfTest."""
-    ident = boards.board_identifier(str(board["name"]))
-    stem = boards.board_dirname(str(board["name"]))
-    handles = _board_unit_handles(spec)
-
-    init_calls: list[tuple[str, str, str]] = []
-    self_calls: list[tuple[str, str, str]] = []
-    test_headers: list[str] = []
-    needs_xparameters = False
-    for unit in board_units:
-        info = handles.get(unit.module)
-        if info is None:
-            continue
-        needs_xparameters = needs_xparameters or bool(info["is_base"])
-        init_name = cmodel._func_name(unit.module, "device_init")
-        if init_name in unit.public_names:
-            init_calls.append((info["decl"], f"{init_name}({info['arg']})", unit.part))
-        if unit.test is not None:
-            self_name = cmodel._func_name(unit.module, "self_test")
-            self_calls.append((info["decl"], f"{self_name}({info['arg']})", unit.part))
-            test_headers.append(f"{unit.module}_test.h")
-
-    includes = [f'#include "{stem}.h"\n']
-    # Self-test prototipleri uretilen test basliklarindan gelir (tek dogruluk
-    # kaynagi); Vitis app include yolu tests/ klasorunu de tasir.
-    includes.extend(f'#include "{name}"\n' for name in test_headers)
-    if cit_olcumler:
-        includes.append('#include "spec2code_mesaj.h"\n')
-        includes.append('#include "spec2code_testbench_protocol.h"\n')
-    if needs_xparameters:
-        includes.append('#include "xparameters.h"\n')
-    includes.append('#include "xstatus.h"\n')
-
-    cit_block = (f"\n{_board_cit_function(board, cit_olcumler)}" if cit_olcumler else "")
-    return (
-        "/**\n"
-        f" * @file {stem}.c\n"
-        + _board_brief_lines(
-            f"'{board['name']}' kartinin toplu API gerceklemesi "
-            "(uretildi; elle duzenlemeyin).")
-        + " */\n"
-        + "".join(includes)
-        + "\n"
-        + _board_sequence_function(
-            f"{ident}Init", "Bu karttaki tum cihazlari sirayla ilklendirir.", init_calls)
-        + cit_block
-        + "\n"
-        + _board_sequence_function(
-            f"{ident}SelfTest", "Bu karttaki self-test'i olan cihazlari kosar.", self_calls)
     )
 
 
@@ -2899,7 +2450,7 @@ def _testbench_used_handle_types(spec: dict) -> set[str]:
     return {entry["htype"] for entry in _testbench_board_controller_entries(spec)}
 
 
-def _testbench_ops_header(project_name: str, handle_types: set[str]) -> str:
+def _testbench_ops_header(project_name: str, handle_types: set[str], has_sim: bool = False) -> str:
     guard = _header_guard(f"{project_name}_testbench_ops_h")
     controller_includes = "".join(
         f'#include "{header}"\n'
@@ -2930,6 +2481,8 @@ def _testbench_ops_header(project_name: str, handle_types: set[str]) -> str:
         "    const char* cpRisk;\n"
         "} SSpec2codeTestbenchOperation;\n\n"
         + getter_prototypes
+        + "int spec2codeTestbenchBoardInit(void);\n"
+        + ("void spec2codeSimHazirla(void); /* sanal cihazlari (tests/sim) kaydeder; tekrar cagrisi no-op */\n" if has_sim else "")
         + "unsigned int spec2codeTestbenchOperationCount(void);\n"
         "const SSpec2codeTestbenchOperation* spec2codeTestbenchOperationGet(unsigned int uiIndex);\n"
         "int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n"
@@ -2994,6 +2547,14 @@ def _testbench_op_table(entries: list[dict]) -> list[dict]:
                 "operation": op_name,
                 "label": _testbench_label(device.get("part", ""), op_name),
                 "risk": _testbench_risk(op_name),
+            })
+        if _self_test_requested(device):
+            rows.append({
+                "device": device.get("id", ""),
+                "part": device.get("part", ""),
+                "operation": "self_test",
+                "label": "Self-test (init + okumalar)",
+                "risk": "safe",
             })
         if _supports_i2c_register_ops(descriptor):
             rows.append({
@@ -4118,6 +3679,19 @@ def _testbench_device_branch(entry: dict) -> list[str]:
             "            return iStatus;",
             "        }",
         ])
+    if _self_test_requested(device):
+        # tests/<mod>_test.c self-test'i ajandan kosulur (Test Bench "self_test" op'u).
+        lines.extend([
+            "        if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"self_test\") == 1)",
+            "        {",
+            f"            dbg_printf(DEBUG_LEVEL_INFO, \"op basla: {device.get('id', '')} self_test\");",
+            f"            iStatus = {module}SelfTest({hvar});",
+            "            spResponse->iStatus = iStatus;",
+            "            spResponse->uiOk = (iStatus == XST_SUCCESS) ? 1U : 0U;",
+            "            spec2codeTestbenchMessageSet(spResponse, (iStatus == XST_SUCCESS) ? \"self_test ok\" : \"self_test failed\");",
+            "            return iStatus;",
+            "        }",
+        ])
     lines.extend([
         "        spResponse->iStatus = XST_FAILURE;",
         "        spec2codeTestbenchMessageSet(spResponse, \"operation not found for device\");",
@@ -4161,7 +3735,7 @@ def _testbench_sim_setup_lines(spec: dict, sim_entries: list[dict], sim_plans: d
     L.extend([
         "static unsigned int S_uiSimHazir = 0U;",
         "",
-        "static void spec2codeSimHazirla(void)",
+        "void spec2codeSimHazirla(void)",
         "{",
         "    if (S_uiSimHazir == 1U)",
         "    {",
@@ -4425,6 +3999,11 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         if include not in emitted_includes:
             includes.append(include)
             emitted_includes.add(include)
+        if _self_test_requested(entry["device"]):
+            include = f'#include "{entry["module"]}_test.h"'
+            if include not in emitted_includes:
+                includes.append(include)
+                emitted_includes.add(include)
     sim_entries = [entry for entry in entries if entry.get("simulate")]
     sim_plans: dict[str, object] = {}
     if sim_entries:
@@ -7002,7 +6581,8 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
         _apply_default_identifier_style(_testbench_log_header()),
         _apply_default_identifier_style(_testbench_log_source(_telnet_log_enabled(spec))),
-        _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec))),
+        _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec),
+                                                              has_sim=any(d.get("simulate") for d in spec.get("devices", [])))),
         _apply_default_identifier_style(_testbench_ops_source(spec, get_descriptor)),
         _testbench_manifest(spec, get_descriptor),
     ]
@@ -7238,28 +6818,6 @@ def generate(
                 include_doxygen=include_doxygen)
             test = _apply_default_identifier_style(test)
             written.append(str(hio.write_output(tests_dir / f"{unit.module}_test.c", test)))
-
-    if use_boards:
-        cit_by_board = _board_cit_measurements(spec, get_descriptor, _effective_board_id)
-        for board in board_list:
-            bid = str(board["id"])
-            board_units = [u for u in units if _effective_board_id(u.board_id) == bid]
-            if not board_units:
-                continue
-            emit({"event": "codegen.board", "board": bid, "name": str(board["name"]),
-                  "modules": len(board_units)})
-            stem = boards.board_dirname(str(board["name"]))
-            # Kart modulu (Init/CitRun/SelfTest) test bench basliklarini (spec2code_cit.h,
-            # <mod>_test.h) include eder: drivers/ tasinabilir kalsin diye tests/ altina yazilir.
-            bdir = tests_dir
-            cit_olcumler = cit_by_board.get(bid, [])
-            header = _board_module_header(board, [f"{u.module}.h" for u in board_units],
-                                          has_cit=bool(cit_olcumler))
-            written.append(str(hio.write_output(bdir / f"{stem}.h",
-                                                _apply_default_identifier_style(header))))
-            source = _board_module_source(board, board_units, spec, cit_olcumler)
-            written.append(str(hio.write_output(bdir / f"{stem}.c",
-                                                _apply_default_identifier_style(source))))
 
     # CIT entegre katmani (cit/): HAL + entegre CIT + sistem toplayici. Mevcut
     # drivers/ ve tests/ ciktilarina DOKUNMAZ, yalniz eklenir (tasarim:

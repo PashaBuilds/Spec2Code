@@ -3,6 +3,34 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.178 - 2026-09-06
+
+- **"CIT kostur" artik cit/ katmanini kosar:** `tests/spec2code_cit.c` `boardCitRun()` dispatch
+  koprusu (cihaz/op string tablolari, kanal ayristirma) yerine `spec2codeTestbenchBoardInit()` +
+  ajan handle getter'lariyla `SSistemCitBus`'i doldurup `cit/sistem_cit.c` `sistemCitRead()`
+  cagirir; her manifest olcumu `S<Mod>Cit` alanindan (`sVoltage.usArrVoltage[k]`, `iTemperature`,
+  `ucPll1LockDetect` ...) `SBoardCit` slotuna kopyalanir, bayrak biti = `ui<Op>Okundu`. Ekrandaki
+  CIT sonucu boylece projeye tasinan `cit/` + `drivers/` kodunun kendisinden gelir. `SBoardCit`
+  yerlesimi ve host tarafi degismedi. Ops basligina `spec2codeTestbenchBoardInit()` (ve sanal cihaz
+  varsa `spec2codeSimHazirla()`) prototipi; CIT kosusu ilk dispatch'ten once gelirse sanal cihazlar
+  yine kayitli olur (SAHA: ilk CIT_RUN'da sanal LTC2991/LTC2945/DS1682 NACK vermisti).
+- **Self-test ajandan kosulur:** `tests_requested: ["self_test"]` olan cihaz icin manifest/op
+  tablosuna `self_test` op'u (mesaj katalogu `0x53430303 SELF_TEST`), dispatch dali
+  `<mod>SelfTest(handle)` cagirir; self-test loglari `xil_printf` yerine
+  `dbg_printf(DEBUG_LEVEL_INFO, ...)`. `tests/<mod>_test.*` yalniz self-test istenen cihazda
+  uretilir.
+- **Olu kod temizligi (kullanici istegi: kullanilmayan dosya/fonksiyon kalmasin):** kart
+  modulleri `tests/<kart>.c/.h` (`<kart>Init/CitRun/SelfTest`, hic cagrilmiyordu) ve ureticileri;
+  `<mod>TestRun()` / `<mod>TestTask()` sarmalayicilari; `spec2codeCitMetinKopya`,
+  `S_cpArrCitCihaz/S_cpArrCitOp/S_uiArrCitKanal`; ajan main'i olan projede
+  `spec2code_selftest_main.c/.h` (cagrilmayan `spec2codeRunSelfTests`) artik sahnelenmez;
+  `<mod>_test.h` "public test API" ayrac yorumu. `cit_layer.controller_field/device_field/
+  bus_controllers` disa acildi.
+- Testler: `test_cit_codegen` host round-trip artik mesaj + spec2code_cit + cit/ + drivers +
+  tests/sim + xilinx stub'lariyla gercek zinciri kosar (CIT_RUN/READ, NACK'te yalniz o cihazin
+  bitleri duser); kart modulu/TestTask/selftest-main beklentileri kaldirildi. Tasarim
+  incelemesi dosya plani ve kilavuz (kart ciktisi, CIT akisi, self-test) guncellendi.
+
 ## v0.1.177 - 2026-09-06
 
 - **Vitis kaynak sahneleme (SAHA):** Generate is'inin urettigi dosya diskte yoksa (cikti klasoru ayni

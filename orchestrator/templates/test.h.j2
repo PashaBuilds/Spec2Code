@@ -10,7 +10,6 @@
 
 {% for inc in test_includes %}#include "{{ inc }}"
 {% endfor %}
-/* --- public test API --- */
 {% for func in test_funcs %}
 {% if include_doxygen %}{{ m.doxygen(func) }}{% endif %}{{ func.signature }};
 {% endfor %}

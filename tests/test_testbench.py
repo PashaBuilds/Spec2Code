@@ -2583,12 +2583,18 @@ class TestbenchTests(unittest.TestCase):
                          "spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
                 shutil.copy2(tests_dir / name, work / name)
             # Olcumlu spec'te mesaj.c cit.h'ye baglanir (CIT_RUN/CIT_READ dallari);
-            # izolasyon testi cit dosyalarini da tasir + linkler (varsa).
+            # spec2code_cit.c cit/ katmani + surucu + ajan getter'larini ister, bu
+            # izolasyon testi onun yerine boardCitRun/boardCitSon stub'u linkler.
             extra_sources = []
-            if (tests_dir / "spec2code_cit.c").exists():
-                for name in ("spec2code_cit.c", "spec2code_cit.h"):
-                    shutil.copy2(tests_dir / name, work / name)
-                extra_sources.append(str(work / "spec2code_cit.c"))
+            cit_stub = ""
+            if (tests_dir / "spec2code_cit.h").exists():
+                shutil.copy2(tests_dir / "spec2code_cit.h", work / "spec2code_cit.h")
+                cit_stub = (
+                    '#include "spec2code_cit.h"\n'
+                    'static SBoardCit S_sCitStub;\n'
+                    'void boardCitRun(SBoardCit* spCit) { *spCit = S_sCitStub; }\n'
+                    'const SBoardCit* boardCitSon(void) { return &S_sCitStub; }\n'
+                )
             # Gercek Vitis xil_types.h NULL'i saglar; host derlemesinde
             # <stddef.h> ile ayni garantiyi veriyoruz (aksi halde katı gcc'de
             # protocol.c'nin NULL kullanimi derlenmez).
@@ -2611,6 +2617,7 @@ class TestbenchTests(unittest.TestCase):
                 '#include "spec2code_mesaj.h"\n'
                 '#include "spec2code_testbench_protocol.h"\n'
                 '#include "xstatus.h"\n'
+                + cit_stub +
                 '/* Dispatch stub: sabit deger/status; message katmanini izole test eder. */\n'
                 'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
                 '                               SSpec2codeTestbenchResponse* spResponse)\n'

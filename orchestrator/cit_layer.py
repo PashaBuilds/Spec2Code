@@ -491,15 +491,18 @@ def chip_source(plan: _ChipPlan) -> str:
 
 # --- sistem toplayici -------------------------------------------------------------------
 
-def _controller_field(controller: dict) -> str:
+def controller_field(controller: dict) -> str:
+    """SSistemCitBus alan adi (denetleyici id -> sPlI2c0)."""
     return "s" + _pascal(str(controller.get("id", "bus")))
 
 
-def _device_field(device: dict) -> str:
+def device_field(device: dict) -> str:
+    """SSistemCit / SSistemCitLimit alan adi (cihaz id -> sU2Ltc2991)."""
     return "s" + _pascal(str(device.get("id", "dev")))
 
 
-def _bus_controllers(plans: list[_ChipPlan]) -> list[dict]:
+def bus_controllers(plans: list[_ChipPlan]) -> list[dict]:
+    """SSistemCitBus'taki denetleyiciler (ilk gorulme sirasiyla, tekil)."""
     seen: list[dict] = []
     ids = set()
     for plan in plans:
@@ -515,7 +518,7 @@ def _bus_field_type(htype: str) -> str:
 
 
 def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str:
-    controllers = _bus_controllers(plans)
+    controllers = bus_controllers(plans)
     e = _E(0)
     e.ln("/**")
     e.ln(" * @file sistem_cit.h")
@@ -552,7 +555,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.ln("{")
     for c in controllers:
         htype, _ = cmodel._handle_for(c)
-        e.ln(f"    {_bus_field_type(htype)} {_controller_field(c)}; /* {c.get('id')} ({c.get('instance', '')}) */")
+        e.ln(f"    {_bus_field_type(htype)} {controller_field(c)}; /* {c.get('id')} ({c.get('instance', '')}) */")
     e.ln("} SSistemCitBus;")
     e.blank()
     e.ln("/**")
@@ -561,7 +564,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.ln("typedef struct")
     e.ln("{")
     for plan in plans:
-        e.ln(f"    S{plan.pascal}CitLimit {_device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
+        e.ln(f"    S{plan.pascal}CitLimit {device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
     e.ln("} SSistemCitLimit;")
     e.blank()
     e.ln("#define SISTEM_CIT_LIMIT_VARSAYILAN \\")
@@ -580,7 +583,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
     e.ln("    unsigned int uiHataSayac; /* bu kosuda toplam dusen surucu cagrisi    */")
     e.ln("    unsigned int uiNokSayac;  /* bu kosuda toplam limit disi etkin olcum  */")
     for plan in plans:
-        e.ln(f"    S{plan.pascal}Cit {_device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
+        e.ln(f"    S{plan.pascal}Cit {device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
     e.ln("} SSistemCit;")
     e.blank()
     e.ln("void sistemCitBusVarsayilan(SSistemCitBus* spBus);")
@@ -592,7 +595,7 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]]) -> str
 
 
 def sistem_source(plans: list[_ChipPlan]) -> str:
-    controllers = _bus_controllers(plans)
+    controllers = bus_controllers(plans)
     e = _E(0)
     e.ln("/**")
     e.ln(" * @file sistem_cit.c")
@@ -606,7 +609,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     for c in controllers:
         htype, _ = cmodel._handle_for(c)
         if htype not in cmodel.BASE_ADDRESS_HANDLE_DRIVERS:
-            e.ln(f"static {htype} S_{_controller_field(c)}Instance; /* {c.get('id')} */")
+            e.ln(f"static {htype} S_{controller_field(c)}Instance; /* {c.get('id')} */")
     e.blank()
     e.ln("void sistemCitBusVarsayilan(SSistemCitBus* spBus)")
     e.ln("{")
@@ -616,7 +619,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("    }")
     for c in controllers:
         htype, _ = cmodel._handle_for(c)
-        fld = _controller_field(c)
+        fld = controller_field(c)
         if htype in cmodel.BASE_ADDRESS_HANDLE_DRIVERS:
             e.ln(f"    spBus->{fld} = (unsigned long){c.get('instance', 'XPAR_UNKNOWN')}_BASEADDR;")
         else:
@@ -633,7 +636,7 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln(f"        return {STATUS_FAIL};")
     e.ln("    }")
     for plan in plans:
-        e.ln(f"    iStatus = {plan.module}CitInit(spBus->{_controller_field(plan.controller)});")
+        e.ln(f"    iStatus = {plan.module}CitInit(spBus->{controller_field(plan.controller)});")
         e.ln(f"    if ((iStatus != {STATUS_OK}) && (iIlkHata == {STATUS_OK}))")
         e.ln("    {")
         e.ln("        iIlkHata = iStatus;")
@@ -657,8 +660,8 @@ def sistem_source(plans: list[_ChipPlan]) -> str:
     e.ln("    spCit->uiHataSayac = 0U;")
     e.ln("    spCit->uiNokSayac = 0U;")
     for plan in plans:
-        dev = _device_field(plan.device)
-        e.ln(f"    (void){plan.module}CitRead(spBus->{_controller_field(plan.controller)}, &spLimit->{dev}, &spCit->{dev});")
+        dev = device_field(plan.device)
+        e.ln(f"    (void){plan.module}CitRead(spBus->{controller_field(plan.controller)}, &spLimit->{dev}, &spCit->{dev});")
         e.ln(f"    spCit->uiHataSayac += spCit->{dev}.uiHataSayac;")
         e.ln(f"    spCit->uiNokSayac += spCit->{dev}.uiNokSayac;")
     e.ln("    spCit->uiSayac = uiSayac;")

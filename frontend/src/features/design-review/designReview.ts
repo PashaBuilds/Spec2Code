@@ -65,7 +65,7 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       bus: controller?.instance ?? device.attach.controller_id,
       endpoint,
     });
-    pushUnitFiles(files, device.part, moduleCounts);
+    pushUnitFiles(files, device.part, moduleCounts, (device.tests_requested ?? []).includes("self_test"));
     initWrites.push(...deviceInitWrites(device));
     if (citEligible(device, controller?.type)) {
       const module = moduleNameFor(device.part, moduleCounts, false);
@@ -143,14 +143,19 @@ function citEligible(device: Device, controllerType: string | undefined): boolea
   return !/^(MT25Q|N25Q|W25Q|AT25|24LC|24AA|24FC|AT24)/i.test(device.part.trim());
 }
 
-function pushUnitFiles(files: ReviewFilePlan[], part: string, counts?: Map<string, number>) {
+function pushUnitFiles(files: ReviewFilePlan[], part: string, counts?: Map<string, number>, withSelfTest = false) {
   const module = moduleNameFor(part, counts, true);
   files.push(
     { path: `drivers/${module}.h`, kind: "driver" },
     { path: `drivers/${module}.c`, kind: "driver" },
-    { path: `tests/${module}_test.h`, kind: "test" },
-    { path: `tests/${module}_test.c`, kind: "test" },
   );
+  // tests/<mod>_test.* yalniz tests_requested self_test iceren cihaz icin uretilir (v0.1.178).
+  if (withSelfTest) {
+    files.push(
+      { path: `tests/${module}_test.h`, kind: "test" },
+      { path: `tests/${module}_test.c`, kind: "test" },
+    );
+  }
 }
 
 function dedupeFiles(files: ReviewFilePlan[]): ReviewFilePlan[] {

@@ -240,46 +240,29 @@ baglantisini belgeleyen konnektor yok".
 
 ### Uretilen ciktida ne degisir?
 
-Kart tanimliyken surucu dosyalari kart klasorlerine ayrilir ve her kart icin bir
-modul uretilir:
+Kart tanimliyken surucu dosyalari kart klasorlerine ayrilir:
 
 ```text
 drivers/ana_kart/ltc2991.c    (+ .h)
 drivers/ana_kart/tca9548a.c   (+ .h)
 drivers/rf_kart/tmp101.c      (+ .h)
 drivers/rf_kart/sht21.c       (+ .h)
-tests/ana_kart.c              (+ .h)   -> anaKartInit / anaKartCitRun / anaKartSelfTest
-tests/rf_kart.c               (+ .h)   -> rfKartInit / rfKartCitRun / rfKartSelfTest
-tests/...                              (ajan/mesaj/CIT katmani SISTEM genelidir)
+cit/, tests/                           (degismez: CIT katmani ve ajan SISTEM genelidir)
 ```
 
-Kart modulleri (`tests/<kart>.c`) test bench basliklarini (`spec2code_cit.h`, `<mod>_test.h`)
-kullandigi icin `tests/` altindadir; `drivers/` ve `cit/` boylece test bench'e bagimsiz,
-projene oldugu gibi tasinabilir bare-metal kod olarak kalir.
-
-Klasor ve fonksiyon adi kart ADINDAN turetilir:
+Klasor adi kart ADINDAN turetilir:
 
 - Turkce harfler ASCII karsiligina katlanir (`i I s S g G u U o O c C`).
-- Alfanumerik olmayan her karakter ayrac sayilir.
-- Klasor adi `snake_case`, C tanimlayici `camelCase` olur:
-  `"RF Kart"` -> klasor `rf_kart`, tanimlayici `rfKart`.
-- Iki kart ayni C tanimlayiciya duserse uretim sessizce devam etmez, acik hata
-  ile durur.
-
-Kart basina uretilen API (`<kart>` yukaridaki camelCase tanimlayicidir):
-
-- `int <kart>Init(void)` - o kartin butun cihazlarini sirayla ilklendirir. Bir
-  cihaz hata verse de digerlerine devam eder ve ILK hatanin kodunu dondurur;
-  kismi ilklendirme sahada degerlidir.
-- `void <kart>CitRun(SBoardCit* spCit)` - yalniz o kartin olcumlerini sistem
-  geneli `SBoardCit` icindeki kendi slotlarina yazar. Yalnizca o kartta CIT
-  olcumu varsa uretilir.
-- `int <kart>SelfTest(void)` - o kartin self-test destekleyen cihazlarini kosar.
+- Alfanumerik olmayan her karakter ayrac sayilir; klasor adi `snake_case` olur
+  (`"RF Kart"` -> `rf_kart`).
+- Iki kart ayni ada duserse uretim sessizce devam etmez, acik hata ile durur.
 
 Cihaz surucu dosyalarinin ICERIGI ve fonksiyon adlari degismez; sembol onekleme
-yoktur, yalniz klasor degisir. Sistem geneli `boardCitRun()` ve `SBoardCit` bit
-sirasi da DEGISMEZ - `boardCit*` adlarindaki "board" SISTEM anlamindadir,
-fiziksel kart degil. Kart bilgisi manifest uzerinden tasinir.
+yoktur, yalniz klasor degisir. Kart basina ayri bir C modulu URETILMEZ (v0.1.178:
+hic cagrilmayan `<kart>Init/CitRun/SelfTest` kaldirildi); kart bilgisi manifest
+uzerinden tasinir, CIT ve Test Bench ekranlari kutulari kart basliklari altinda
+gruplar. Sistem geneli `boardCitRun()` ve `SBoardCit` bit sirasi kart sayisindan
+bagimsizdir - `boardCit*` adlarindaki "board" SISTEM anlamindadir, fiziksel kart degil.
 
 `drivers/<kart>/` klasorleri Vitis workspace uretiminde application include
 yoluna otomatik eklenir; bu yuzden nitelenmemis `#include "tmp101.h"` calismaya
@@ -390,7 +373,7 @@ Uretilen kod uc katmandir; bagimlilik tek yonlu (yukaridan asagiya):
 
 | Katman | Klasor | Kime gider | Icerik |
 |---|---|---|---|
-| Test bench | `tests/` (+ `tests/sim/`) | yalniz Spec2Code | ajan, S2C-MSG, self-test'ler, `spec2code_cit.*` (host raporu), sanal cihazlar |
+| Test bench | `tests/` (+ `tests/sim/`) | yalniz Spec2Code | ajan, S2C-MSG, `<mod>_test.*` self-test'ler (Test Bench `self_test` op'u), `spec2code_cit.*` (CIT kosusu: `cit/` katmanini cagirir, host raporu), sanal cihazlar |
 | CIT ust katmani | `cit/` | senin firmware'ine | surucu struct'larini ANLAMLANDIRIR: kapali aralik limiti (min <= deger <= max, min = max gecerli), etkin, OK/NOK |
 | Surucu | `drivers/` | senin firmware'ine | Xilinx API'sini DOGRUDAN cagirir, ham veriyi kendi struct'larinda verir |
 
@@ -443,6 +426,21 @@ sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);      /* S_sCit.sU2Ltc2991.sBayraklar
 
 Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
 tabanli SPI flash, I2C EEPROM.
+
+**"CIT kostur" akisi (CIT ekrani / Test Bench):** host `CIT_RUN` gonderir; ajan
+`tests/spec2code_cit.c` `boardCitRun()` -> `spec2codeTestbenchBoardInit()` (denetleyiciler)
+-> `SSistemCitBus` ajanin handle getter'larindan doldurulur -> `cit/sistem_cit.c`
+`sistemCitRead()` -> `cit/<mod>_cit.c` `<mod>CitRead()` -> `drivers/<mod>.c` okuma
+fonksiyonlari. Sonuc manifest sirasiyla `SBoardCit`'e kopyalanir (deger + okuma-basarili
+biti); limit/OK-NOK karari host'ta canli yapilir. Ekranda gordugun CIT sonucu, projene
+tasiyacagin `cit/` ve `drivers/` kodunun KENDISINDEN gelir. Anlik okumalar ("sicaklik oku"
+gibi tek op'lar) ise ajan dispatch'inden dogrudan surucu fonksiyonunu cagirir.
+
+**Self-test (`tests/<mod>_test.c`):** yalniz `tests_requested: ["self_test"]` olan cihazlar
+icin uretilir; `<mod>SelfTest(handle)` = DeviceInit + butun okuma fonksiyonlari (ilk hatada
+durur), loglar `dbg_printf(DEBUG_LEVEL_INFO, ...)` ile. Test Bench'te cihazin `self_test`
+op'u olarak kosulur; ayri bir harness/FreeRTOS gorevi ya da `spec2code_selftest_main.c`
+runner'i ajanli projede uretilmez (yalniz ajansiz projede `main()` runner'i sahnelenir).
 
 ### Seviyeli debug print: `dbg_printf`
 

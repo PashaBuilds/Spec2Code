@@ -1,9 +1,10 @@
-"""Task 7: CIT codegen — SBoardCit + boardCitRun + CIT_RUN/CIT_READ.
+"""CIT codegen — SBoardCit + boardCitRun (cit/ katmani uzerinden) + CIT_RUN/CIT_READ.
 
 Uretilen spec2code_cit.h/.c dosyalarinin (a) header sekli/bit isimleri/
-_Static_assert'leri, (b) sabit limit tablosu degerleri config'ten birebir, ve
-(c) host derleme round-trip'i (dispatch stub'u ile boardCitRun + CIT_RUN/CIT_READ
-cerceveleri MesajIsle'den gecirilir) dogrulanir.
+_Static_assert'leri, (b) boardCitRun'in cit/ katmanini (sistemCitRead) kosup manifest
+sirasiyla SBoardCit'e kopyalamasi, ve (c) host derleme round-trip'i (drivers + cit +
+tests/sim sanal cihazlar + xilinx stub'lari; CIT_RUN/CIT_READ cerceveleri MesajIsle'den
+gecirilir) dogrulanir.
 
 Bit alani bayt yerlesimi: ilk olcum bit 0 (LSB-first, little-endian unsigned int
 container — GCC/ARM EABI). Python tarafinda `flags_word & (1 << i)` ile okunur.
@@ -22,101 +23,77 @@ from backend import s2cmsg
 from orchestrator import codegen
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_sample_spec(project_name: str) -> dict:
-    spec = json.loads((ROOT / "specs/samples/radar_io_board.spec.json").read_text(encoding="utf-8"))
-    spec["project"] = {**spec["project"], "name": project_name}
-    return spec
+STUBS = ROOT / "tests" / "xilinx_stubs"
 
 
 def _find_cc() -> str | None:
     return shutil.which("gcc") or shutil.which("cc")
 
 
-def _cit_spec(project_name: str) -> dict:
-    """LTC2991 (I2C, mux arkasinda) + AD7414 (I2C, dogrudan) iceren CIT test speci.
+def _cit_spec(project_name: str, *, simulate: bool = False) -> dict:
+    """MicroBlaze/AXI: LTC2991 (mux ch3) + TMP101 (mux ch1) + LMK04832 (AXI SPI).
 
     Olcum sirasi (manifest cit.olcumler ile birebir; voltage_read dizi donuslu
     (voltages[8]) oldugundan KANAL BASINA olcum acilir):
-      0..7: u12_ltc2991 voltage_read V1..V8 -> V1 = VCC_3V3_RF (limit 3135..3465, critical)
-      8:    u12_ltc2991 temperature_read    -> varsayilan isim, limitsiz
-      9:    u13_ad7414  temperature_read    -> varsayilan isim, limit 2000..3000
+      0..7: u2_ltc2991 voltage_read V1..V8 -> V1 = VCC_3V3 (limit 3135..3465)
+      8:    u2_ltc2991 temperature_read
+      9:    u3_tmp101  temperature_read
+      10:   u4_lmk04832 pll1_lock_detect
+      11:   u4_lmk04832 pll2_lock_detect
     """
-    spec = load_sample_spec(project_name)
-    spec["devices"] = [
-        {
-            "id": "u12_ltc2991",
-            "part": "LTC2991",
-            "descriptor_ref": "descriptors/ltc2991.yaml",
-            "attach": {
-                "controller_id": "ps_i2c_0",
-                "i2c_address": "0x48",
-                "via_mux": {"mux_id": "u7_tca9548a", "channel": 3},
-                "reset_gpio": None,
-                "irq_line": None,
-            },
-            "config": {
-                "pairs": {
-                    "v1_v2": {"mode": "single_ended_voltage", "shunt_milliohm": None},
-                    "v3_v4": {"mode": "single_ended_voltage", "shunt_milliohm": None},
-                    "v5_v6": {"mode": "single_ended_voltage", "shunt_milliohm": None},
-                    "v7_v8": {"mode": "single_ended_voltage", "shunt_milliohm": None},
-                },
-                "internal_temperature": True,
-                "vcc_read": False,
-                "cit": {
-                    "measurements": [
-                        {
-                            "op": "voltage_read",
-                            "channel": 0,
-                            "name": "VCC_3V3_RF",
-                            "min": 3135,
-                            "max": 3465,
-                            "severity": "critical",
-                        },
-                    ],
-                },
-            },
-            "operations_requested": ["device_init", "voltage_read", "temperature_read"],
-            "tests_requested": ["self_test"],
-        },
-        {
-            "id": "u13_ad7414",
-            "part": "AD7414",
-            "descriptor_ref": "descriptors/ad7414.yaml",
-            "attach": {
-                "controller_id": "ps_i2c_0",
-                "i2c_address": "0x49",
-                "via_mux": None,
-                "reset_gpio": None,
-                "irq_line": None,
-            },
-            "config": {
-                "cit": {
-                    "measurements": [
-                        {
-                            "op": "temperature_read",
-                            "name": "AD_TEMP",
-                            "min": 2000,
-                            "max": 3000,
-                            "severity": "warning",
-                        },
-                    ],
-                },
-            },
-            "operations_requested": ["device_init", "temperature_read", "config_read"],
-            "tests_requested": ["self_test"],
-        },
-    ]
-    return spec
+    base = json.loads((ROOT / "specs/samples/radar_io_board.spec.json").read_text(encoding="utf-8"))
+    return {
+        "schema_version": base.get("schema_version", "1.0"),
+        "project": {"name": project_name, "platform": "microblaze_7series", "target_core": "microblaze_0",
+                    "runtime": "bare_metal", "output_mode": "dropin", "testbench_transport": "uart"},
+        "coding_standard_ref": "std/default.ruleset.json",
+        "llm": {"enabled": False},
+        "controllers": [
+            {"id": "pl_i2c_0", "type": "i2c", "instance": "XPAR_AXI_IIC_0", "base_address": "0x40800000",
+             "device_id": 0, "driver": "XIic", "source": "xparameters", "zone": "pl"},
+            {"id": "pl_spi_0", "type": "spi", "instance": "XPAR_AXI_QUAD_SPI_0",
+             "base_address": "0x44A00000", "device_id": 0, "driver": "XSpi", "source": "xparameters",
+             "zone": "pl"},
+            {"id": "pl_uart_0", "type": "uart", "instance": "XPAR_AXI_UARTLITE_0",
+             "base_address": "0x40600000", "device_id": 0, "driver": "XUartLite",
+             "source": "xparameters", "zone": "pl"},
+        ],
+        "muxes": [{"id": "u1_tca9548a", "part": "TCA9548A", "controller_id": "pl_i2c_0",
+                   "i2c_address": "0x70", "channels": 8}],
+        "devices": [
+            {"id": "u2_ltc2991", "part": "LTC2991", "descriptor_ref": "descriptors/ltc2991.yaml",
+             "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x48",
+                        "via_mux": {"mux_id": "u1_tca9548a", "channel": 3}},
+             "config": {"pairs": {k: {"mode": "single_ended_voltage", "shunt_milliohm": None}
+                                  for k in ("v1_v2", "v3_v4", "v5_v6", "v7_v8")},
+                        "internal_temperature": True, "vcc_read": False,
+                        "cit": {"measurements": [
+                            {"op": "voltage_read", "channel": 0, "name": "VCC_3V3", "min": 3135, "max": 3465,
+                             "severity": "critical"}]}},
+             "operations_requested": ["device_init", "voltage_read", "temperature_read"],
+             "tests_requested": ["self_test"], "simulate": simulate},
+            {"id": "u3_tmp101", "part": "TMP101", "descriptor_ref": "descriptors/tmp101.yaml",
+             "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x4A",
+                        "via_mux": {"mux_id": "u1_tca9548a", "channel": 1}},
+             "config": {"cit": {"measurements": [
+                 {"op": "temperature_read", "name": "TMP_TEMP", "min": 2000, "max": 3000, "severity": "warning"}]}},
+             "operations_requested": ["device_init", "temperature_read", "config_read"],
+             "tests_requested": ["self_test"], "simulate": simulate},
+            {"id": "u4_lmk04832", "part": "LMK04832", "descriptor_ref": "descriptors/lmk04832.yaml",
+             "attach": {"controller_id": "pl_spi_0", "spi_chip_select": 0},
+             "config": {"ticspro_registers": ["0x000010", "0x016302", "0x018300", "0x017300"]},
+             "operations_requested": ["device_init", "pll1_lock_detect", "pll2_lock_detect"],
+             "tests_requested": ["self_test"], "simulate": simulate},
+        ],
+        "generation_options": {"qc_max_rounds": 1, "include_doxygen": False, "line_ending": "crlf"},
+    }
 
 
 def _measureless_spec(project_name: str) -> dict:
     """CIT olcumu uretmeyen spec: yalniz device_init (whitelist disi) istenir."""
     spec = _cit_spec(project_name)
     for device in spec["devices"]:
-        device["config"].pop("cit", None)
+        device.get("config", {}).pop("cit", None)
         device["operations_requested"] = ["device_init"]
     return spec
 
@@ -133,15 +110,14 @@ class CitHeaderTest(unittest.TestCase):
             tests_dir = self._generate(spec, tmp)
             header = (tests_dir / "spec2code_cit.h").read_text(encoding="utf-8")
 
-        # Kullanici isimli bit (VCC_3V3_RF -> Vcc3v3Rf).
-        self.assertIn("unsigned int uiVcc3v3RfOk : 1;", header)
-        # AD_TEMP -> AdTemp.
-        self.assertIn("unsigned int uiAdTempOk : 1;", header)
-        # Olcum sayisi 10 (8 voltaj kanali + 2 sicaklik); kanal isimleri V2..V8.
-        self.assertIn("#define BOARD_CIT_OLCUM_SAYISI 10U", header)
+        # Kullanici isimli bit (VCC_3V3 -> Vcc3v3; TMP_TEMP -> TmpTemp).
+        self.assertIn("unsigned int uiVcc3v3Ok : 1;", header)
+        self.assertIn("unsigned int uiTmpTempOk : 1;", header)
+        # Olcum sayisi 12 (8 voltaj kanali + 2 sicaklik + 2 PLL); kanal isimleri V2..V8.
+        self.assertIn("#define BOARD_CIT_OLCUM_SAYISI 12U", header)
         self.assertIn("unsigned int uiLtc2991V20Ok : 1;", header)
         self.assertIn("unsigned int uiLtc2991V80Ok : 1;", header)
-        # Bayrak word sayisi ((10+31)/32)*4 == 4 bayt.
+        # Bayrak word sayisi ((12+31)/32)*4 == 4 bayt.
         self.assertIn("_Static_assert(sizeof(SBoardCitBayraklar) == 4U", header)
         self.assertIn("_Static_assert(sizeof(SBoardCit) % 4U == 0U", header)
         # Prototipler.
@@ -151,31 +127,32 @@ class CitHeaderTest(unittest.TestCase):
         self.assertNotIn("uint32_t", header)
         self.assertNotIn("uint8_t", header)
 
-    def test_no_limit_embedded_in_firmware(self) -> None:
-        # KOK KARAR: kart LIMIT GOMMEZ — limit/OK-NOK/onem/enabled karari host'ta
-        # (CIT ekrani) canli yapilir. Uretilen .c'de limit tablosu ve config'ten
-        # gelen limit sayilari BULUNMAMALI; kart yalniz okur (bayrak = okuma basarisi).
-        spec = _cit_spec("unit_cit_limits")
+    def test_cit_run_uses_cit_layer_not_dispatch(self) -> None:
+        # KOK KARAR: boardCitRun cit/ katmanini (sistemCitRead -> <mod>CitRead -> surucu)
+        # kosar; dispatch koprusu / cihaz-op string tablolari YOK. Limit/OK-NOK karari
+        # host'ta (CIT ekrani) canli yapilir; koda limit sayisi gomulmez.
+        spec = _cit_spec("unit_cit_layer_use")
         with tempfile.TemporaryDirectory() as tmp:
             tests_dir = self._generate(spec, tmp)
             source = (tests_dir / "spec2code_cit.c").read_text(encoding="utf-8")
 
-        # Limit tablosu ve alanlari uretilmemeli.
-        self.assertNotIn("S_sArrCitLimit", source)
-        self.assertNotIn("uiLimitVar", source)
-        self.assertNotIn("uiKritik", source)
-        self.assertNotIn("uiEtkin", source)
-        # Config'ten gelen limit sayilari koda gomulmemeli.
+        self.assertIn('#include "sistem_cit.h"', source)
+        self.assertIn("(void)sistemCitRead(&S_sCitBus, (const SSistemCitLimit*)0, &S_sSistemCit);", source)
+        # Denetleyici handle'lari ajanin getter'larindan (ilklendirilmis denetleyiciler).
+        self.assertIn('S_sCitBus.sPlI2c0 = spec2codeTestbenchIicHandleGet("pl_i2c_0");', source)
+        self.assertIn('S_sCitBus.sPlSpi0 = spec2codeTestbenchSpiHandleGet("pl_spi_0");', source)
+        self.assertIn("if (spec2codeTestbenchBoardInit() != XST_SUCCESS)", source)
+        self.assertNotIn("spec2codeSimHazirla", source)  # sanal cihaz yok -> cagri yok
+        # Dispatch koprusu ve string tablolari yok.
+        for stale in ("spec2codeTestbenchDispatch", "S_cpArrCitCihaz", "S_cpArrCitOp", "S_uiArrCitKanal",
+                      "spec2codeCitMetinKopya", "uiLimitVar", "uiEtkin"):
+            self.assertNotIn(stale, source)
         for limit in ("3135", "3465", "2000", "3000"):
             self.assertNotIn(limit, source)
-        # Bayrak biti = okuma basarisi; enabled-atlama (DESTEKLENMIYOR) yok — kart hepsini okur.
         self.assertIn("OKUMA BASARISI", source)
         self.assertNotIn("SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR", source)
-        # Dispatch koprusu (cihaz/op tablolari) yerinde.
-        self.assertIn("S_cpArrCitCihaz", source)
-        self.assertIn("S_cpArrCitOp", source)
 
-    def test_array_op_expands_to_channel_slots_with_single_dispatch(self) -> None:
+    def test_array_op_expands_to_channel_slots_from_driver_struct(self) -> None:
         spec = _cit_spec("unit_cit_channels")
         with tempfile.TemporaryDirectory() as tmp:
             tests_dir = self._generate(spec, tmp)
@@ -187,15 +164,19 @@ class CitHeaderTest(unittest.TestCase):
         self.assertEqual([m["channel"] for m in kanallar], list(range(8)))
         self.assertEqual([m["channel_label"] for m in kanallar], [f"V{i}" for i in range(1, 9)])
         self.assertTrue(all(m["channels"] == 8 for m in kanallar))
-        self.assertEqual(kanallar[0]["name"], "VCC_3V3_RF")
+        self.assertEqual(kanallar[0]["name"], "VCC_3V3")
         self.assertEqual(kanallar[1]["name"], "LTC2991_V2_0")
         # Skaler olcumlerde kanal anahtari YOK (eski manifest sekli korunur).
         self.assertNotIn("channel", olcumler[8])
-        # Kanal tablosu: 0xFF.. skaler, 0x00..0x07 kanallar; tek dispatch (kanal 0).
-        self.assertIn("S_uiArrCitKanal[BOARD_CIT_OLCUM_SAYISI]", source)
-        self.assertIn("    0x07U,\n    0xFFFFFFFFU,", source)
-        self.assertIn("if ((uiKanal == SPEC2CODE_CIT_KANAL_YOK) || (uiKanal == 0U))", source)
-        self.assertIn("uiOfset = uiKanal * SPEC2CODE_CIT_KANAL_BOY;", source)
+        # Her kanal surucu struct'inin kendi elemanindan; okundu biti op'un okuma biti.
+        self.assertIn("spec2codeCitOlcumYaz(spCit, 0U, (int)S_sSistemCit.sU2Ltc2991.sVoltage.usArrVoltage[0U], "
+                      "S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu);", source)
+        self.assertIn("spec2codeCitOlcumYaz(spCit, 7U, (int)S_sSistemCit.sU2Ltc2991.sVoltage.usArrVoltage[7U], "
+                      "S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu);", source)
+        self.assertIn("spCit->sBayraklar.uiVcc3v3Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu;", source)
+        self.assertIn("spec2codeCitOlcumYaz(spCit, 9U, (int)S_sSistemCit.sU3Tmp101.iTemperature, "
+                      "S_sSistemCit.sU3Tmp101.sBayraklar.uiTemperatureReadOkundu);", source)
+        self.assertIn("(int)S_sSistemCit.sU4Lmk04832.ucPll1LockDetect", source)
 
     def test_channelless_override_applies_limits_to_all_channels(self) -> None:
         spec = _cit_spec("unit_cit_channel_generic")
@@ -227,12 +208,54 @@ class CitHeaderTest(unittest.TestCase):
             self.assertNotIn('#include "spec2code_cit.h"', mesaj)
             self.assertIn("SPEC2CODE_MESAJ_DURUM_DESTEKLENMIYOR", mesaj)
 
+    def test_self_test_is_reachable_from_agent_and_has_no_wrapper(self) -> None:
+        """tests/<mod>_test.c yalniz istenirse uretilir, ajan `self_test` op'uyla kosar;
+        TestRun/TestTask sarmalayicisi ve ayri self-test runner YOK (kullanilmayan kod)."""
+        spec = _cit_spec("unit_cit_selftest_op")
+        spec["devices"][1]["tests_requested"] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            tests_dir = self._generate(spec, tmp)
+            test_h = (tests_dir / "ltc2991_test.h").read_text(encoding="utf-8")
+            test_c = (tests_dir / "ltc2991_test.c").read_text(encoding="utf-8")
+            ops = (tests_dir / "unit_cit_selftest_op_testbench_ops.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+            self.assertFalse((tests_dir / "tmp101_test.c").exists())
+            self.assertFalse((tests_dir / "tmp101_test.h").exists())
+        self.assertIn("int ltc2991SelfTest(unsigned long ulIicBase);", test_h)
+        self.assertNotIn("TestRun", test_h)
+        self.assertNotIn("TestTask", test_h)
+        self.assertNotIn("xil_printf", test_c)
+        self.assertIn('dbg_printf(DEBUG_LEVEL_INFO, "LTC2991 status registers read OK");', test_c)
+        self.assertIn('#include "ltc2991_test.h"', ops)
+        self.assertNotIn('#include "tmp101_test.h"', ops)
+        self.assertIn("iStatus = ltc2991SelfTest(ulIicBase);", ops)
+        self.assertNotIn("tmp101SelfTest(", ops)
+        ops_by_device = {d["id"]: [op["name"] for op in d["operations"]] for d in manifest["devices"]}
+        self.assertIn("self_test", ops_by_device["u2_ltc2991"])
+        self.assertNotIn("self_test", ops_by_device["u3_tmp101"])
+        # CIT olcumu degil (birimsiz, whitelist disi).
+        self.assertFalse(any(m["op"] == "self_test" for m in manifest["cit"]["olcumler"]))
+
+
+_HOST_XPARAMETERS = """#ifndef XPARAMETERS_H
+#define XPARAMETERS_H
+#define XPAR_XIIC_NUM_INSTANCES 1
+#define XPAR_XSPI_NUM_INSTANCES 1
+#define XPAR_XIICPS_NUM_INSTANCES 0
+#define XPAR_XSPIPS_NUM_INSTANCES 0
+#define XPAR_AXI_IIC_0_BASEADDR 0x40800000UL
+#define XPAR_AXI_QUAD_SPI_0_DEVICE_ID 0U
+#endif
+"""
+
 
 @unittest.skipUnless(_find_cc(), "host C compiler required")
 class CitHostRoundTripTest(unittest.TestCase):
-    """Uretilen cit + mesaj katmanini gercek derleyiciyle uctan uca dogrular."""
+    """Uretilen mesaj + spec2code_cit + cit/ + drivers + tests/sim katmanini gercek
+    derleyiciyle uctan uca dogrular (Xilinx stub'lari + -include araya-girme)."""
 
-    def _build_and_run(self, spec: dict, main_c: str, extra_sources: list[str]) -> str:
+    def _build_and_run(self, spec: dict, main_c: str) -> str:
         compiler = _find_cc()
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / spec["project"]["name"]
@@ -240,62 +263,27 @@ class CitHostRoundTripTest(unittest.TestCase):
             tests_dir = out_dir / "tests"
             work = Path(tmp) / "host"
             work.mkdir()
-            for name in ("spec2code_mesaj.c", "spec2code_mesaj.h", "spec2code_cit.c",
-                         "spec2code_cit.h", "spec2code_testbench_protocol.c",
-                         "spec2code_testbench_protocol.h"):
-                shutil.copy2(tests_dir / name, work / name)
-            # xstatus.h stub: gercek Vitis xil_types.h NULL'i saglar; host
-            # derlemesinde <stddef.h> ile ayni garantiyi veriyoruz.
-            (work / "xstatus.h").write_text(
-                "#ifndef XSTATUS_H\n#define XSTATUS_H\n#include <stddef.h>\n"
-                "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
-                encoding="utf-8")
+            (work / "xparameters.h").write_text(_HOST_XPARAMETERS, encoding="utf-8")
             (work / "main.c").write_text(main_c, encoding="utf-8")
-            binary = work / "cit_roundtrip"
-            sources = [str(work / "main.c"), str(work / "spec2code_mesaj.c"),
-                       str(work / "spec2code_cit.c"),
-                       str(work / "spec2code_testbench_protocol.c")]
-            sources.extend(str(work / s) for s in extra_sources)
-            compile_run = subprocess.run(
-                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary)] + sources,
-                capture_output=True, text=True)
-            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
-            return subprocess.run([str(binary)], capture_output=True, text=True).stdout
-
-    # Dispatch stub: voltage_read -> 8 kanal BE 16-bit data (V1=3300, Vk=1000+k),
-    # olcum 8 (temperature_read, LTC2991) -> 5000, olcum 9 (temperature_read, AD7414)
-    # -> 9999. Kart LIMIT DEGERLENDIRMEZ: her okuma basarili -> bayrak bitleri 1.
-    # Limit gecti/kaldi karari host'ta. Cihaza gore ayrilir cunku iki temperature_read var.
-    _STUB = (
-        'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
-        '                               SSpec2codeTestbenchResponse* spResponse)\n'
-        '{\n'
-        '    spec2codeTestbenchResponseClear(spResponse);\n'
-        '    spResponse->uiId = spRequest->uiId;\n'
-        '    spResponse->uiOk = 1U;\n'
-        '    spResponse->iStatus = 0;\n'
-        '    if (spec2codeTestbenchStringEqual(spRequest->cArrOperation, "voltage_read") == 1)\n'
-        '    {\n'
-        '        unsigned int uiK;\n'
-        '        for (uiK = 0U; uiK < 8U; uiK++)\n'
-        '        {\n'
-        '            unsigned int uiV = (uiK == 0U) ? 3300U : (1000U + uiK);\n'
-        '            (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiV >> 8U) & 0xFFU));\n'
-        '            (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)(uiV & 0xFFU));\n'
-        '        }\n'
-        '        spResponse->uiValue = 3300U;\n'
-        '    }\n'
-        '    else if (spec2codeTestbenchStringEqual(spRequest->cArrDevice, "u13_ad7414") == 1)\n'
-        '    {\n'
-        '        spResponse->uiValue = 9999U;\n'
-        '    }\n'
-        '    else\n'
-        '    {\n'
-        '        spResponse->uiValue = 5000U;\n'
-        '    }\n'
-        '    return XST_SUCCESS;\n'
-        '}\n'
-    )
+            binary = work / ("cit_roundtrip.exe" if os.name == "nt" else "cit_roundtrip")
+            sources = [str(work / "main.c"),
+                       str(tests_dir / "spec2code_mesaj.c"),
+                       str(tests_dir / "spec2code_cit.c"),
+                       str(tests_dir / "spec2code_testbench_protocol.c"),
+                       str(STUBS / "xilinx_stubs.c"),
+                       *[str(p) for p in (out_dir / "drivers").glob("*.c")],
+                       *[str(p) for p in (out_dir / "cit").glob("*.c")],
+                       *[str(p) for p in (tests_dir / "sim").glob("*.c")]]
+            cmd = [compiler, "-std=c99", "-Wall", "-Wextra",
+                   "-include", "spec2code_sim_xilinx.h",
+                   "-I", str(work), "-I", str(STUBS), "-I", str(out_dir / "drivers"),
+                   "-I", str(out_dir / "cit"), "-I", str(tests_dir), "-I", str(tests_dir / "sim"),
+                   "-o", str(binary), *sources]
+            build = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            return run.stdout
 
     def _decode_cit_response(self, hex_line: str, olcum_sayisi: int) -> dict:
         frame = bytes.fromhex(hex_line)
@@ -316,14 +304,45 @@ class CitHostRoundTripTest(unittest.TestCase):
         return {"istek_sayac": istek_sayac, "durum": durum, "uiSayac": uiSayac,
                 "uiZaman": uiZaman, "flags": flags, "olcumler": olcumler}
 
-    def _main_for(self, run_extra: str) -> str:
+    @staticmethod
+    def _frame_c(name: str, sayac: int) -> str:
+        return ", ".join(f"0x{b:02X}U" for b in s2cmsg.pack_named_request(name, sayac))
+
+    def _main_for(self, project: str, run_extra: str) -> str:
         return (
             '#include <stdio.h>\n'
             '#include "spec2code_mesaj.h"\n'
             '#include "spec2code_cit.h"\n'
             '#include "spec2code_testbench_protocol.h"\n'
+            f'#include "{project}_testbench_ops.h"\n'
+            '#include "sistem_cit.h"\n'
+            '#include "spec2code_sim.h"\n'
+            '#include "ltc2991_sim.h"\n'
+            '#include "tmp101_sim.h"\n'
+            '#include "lmk04832_sim.h"\n'
             '#include "xstatus.h"\n'
-            + self._STUB +
+            '#include "xparameters.h"\n'
+            '/* Ajan stub\'lari: denetleyiciler hazir, handle getter\'lari sabit; op dispatch\'i\n'
+            ' * CIT yolunda KULLANILMAZ (boardCitRun cit/ katmanini kosar). */\n'
+            'static XSpi S_sSpi;\n'
+            'static SLtc2991Sim S_sLtc;\n'
+            'static STmp101Sim S_sTmp;\n'
+            'static SLmk04832Sim S_sLmk;\n'
+            'static SSpec2codeI2cSimSwitch S_sSwitch;\n'
+            'int spec2codeTestbenchBoardInit(void) { return XST_SUCCESS; }\n'
+            'void spec2codeSimHazirla(void) { /* sanal cihazlar main() icinde elle kuruldu */ }\n'
+            'unsigned long spec2codeTestbenchIicHandleGet(const char* cpControllerId)\n'
+            '{ (void)cpControllerId; return (unsigned long)XPAR_AXI_IIC_0_BASEADDR; }\n'
+            'XSpi* spec2codeTestbenchSpiHandleGet(const char* cpControllerId)\n'
+            '{ (void)cpControllerId; return &S_sSpi; }\n'
+            'int spec2codeTestbenchDispatch(const SSpec2codeTestbenchRequest* spRequest,\n'
+            '                               SSpec2codeTestbenchResponse* spResponse)\n'
+            '{\n'
+            '    spec2codeTestbenchResponseClear(spResponse);\n'
+            '    spResponse->uiId = spRequest->uiId;\n'
+            '    spResponse->iStatus = XST_FAILURE;\n'
+            '    return XST_FAILURE;\n'
+            '}\n'
             'static void emitFrame(const unsigned char* ucpFrame, unsigned int uiLen)\n'
             '{\n'
             '    unsigned int uiIndex;\n'
@@ -333,7 +352,7 @@ class CitHostRoundTripTest(unittest.TestCase):
             'static void feedFrame(const unsigned char* ucpFrame, unsigned int uiLen)\n'
             '{\n'
             '    SMesajParser sParser;\n'
-            '    unsigned char ucArrCikti[4200];\n'
+            '    static unsigned char ucArrCikti[4200];\n'
             '    unsigned int uiPos = 0U;\n'
             '    spec2codeMesajParserSifirla(&sParser);\n'
             '    while (uiPos < uiLen)\n'
@@ -351,60 +370,80 @@ class CitHostRoundTripTest(unittest.TestCase):
             '}\n'
             'int main(void)\n'
             '{\n'
+            '    SSistemCitBus sBus;\n'
+            '    /* Sanal cihazlar (tests/sim): mux arkasinda LTC2991 + TMP101, SPI LMK04832. */\n'
+            '    ltc2991SimKur(&S_sLtc, LTC2991_I2C_ADDR);\n'
+            '    (void)spec2codeSimI2cEkle(&S_sLtc.sCihaz);\n'
+            '    tmp101SimKur(&S_sTmp, TMP101_I2C_ADDR);\n'
+            '    (void)spec2codeSimI2cEkle(&S_sTmp.sCihaz);\n'
+            '    lmk04832SimKur(&S_sLmk, (unsigned char)LMK04832_SPI_SELECT);\n'
+            '    (void)spec2codeSimSpiEkle(&S_sLmk.sCihaz);\n'
+            '    spec2codeSimSwitchKur(&S_sSwitch, 0x70U);\n'
+            '    (void)spec2codeSimI2cEkle(&S_sSwitch.sCihaz);\n'
+            '    ltc2991SimKanalAyarla(&S_sLtc, 0U, 3300);\n'
+            '    ltc2991SimKanalAyarla(&S_sLtc, 7U, 1200);\n'
+            '    /* Ajanin "init all" adimi yerine: entegre ilklendirmeleri (surucu DeviceInit). */\n'
+            '    sBus.sPlI2c0 = spec2codeTestbenchIicHandleGet("pl_i2c_0");\n'
+            '    sBus.sPlSpi0 = spec2codeTestbenchSpiHandleGet("pl_spi_0");\n'
+            '    (void)sistemCitInit(&sBus);\n'
             + run_extra +
             '    return 0;\n'
             '}\n'
         )
 
-    def test_cit_run_and_read_round_trip(self) -> None:
-        spec = _cit_spec("unit_cit_rt")
-        # CIT_RUN cercevesi (op'suz, cihazsiz global): pack_named_request.
-        run_frame = s2cmsg.pack_named_request("CIT_RUN", 101)
-        read_frame = s2cmsg.pack_named_request("CIT_READ", 202)
-        run_bytes = ", ".join(f"0x{b:02X}U" for b in run_frame)
-        read_bytes = ", ".join(f"0x{b:02X}U" for b in read_frame)
+    def test_cit_run_and_read_round_trip_over_cit_layer(self) -> None:
+        spec = _cit_spec("unit_cit_rt", simulate=True)
         run_extra = (
-            f'    static const unsigned char ucArrRun[] = {{ {run_bytes} }};\n'
-            f'    static const unsigned char ucArrRead[] = {{ {read_bytes} }};\n'
+            f'    static const unsigned char ucArrRun[] = {{ {self._frame_c("CIT_RUN", 101)} }};\n'
+            f'    static const unsigned char ucArrRead[] = {{ {self._frame_c("CIT_READ", 202)} }};\n'
+            f'    static const unsigned char ucArrRun2[] = {{ {self._frame_c("CIT_RUN", 303)} }};\n'
             '    feedFrame(ucArrRun, (unsigned int)sizeof(ucArrRun));\n'
             '    feedFrame(ucArrRead, (unsigned int)sizeof(ucArrRead));\n'
+            '    /* LTC hattan dusmus gibi (NACK): yalniz LTC olcumleri okunamaz. */\n'
+            '    ltc2991SimHataAyarla(&S_sLtc, SPEC2CODE_SIM_HATA_NACK);\n'
+            '    feedFrame(ucArrRun2, (unsigned int)sizeof(ucArrRun2));\n'
         )
-        output = self._build_and_run(spec, self._main_for(run_extra), [])
-        lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
-        self.assertEqual(len(lines), 2, output)
+        output = self._build_and_run(spec, self._main_for("unit_cit_rt", run_extra))
+        # dbg_printf (ERROR esigi) stub'da satir basabilir; yalniz hex cerceve satirlari.
+        lines = [l.strip() for l in output.strip().splitlines() if re.fullmatch(r"[0-9A-F]+", l.strip())]
+        self.assertEqual(len(lines), 3, output)
 
-        run = self._decode_cit_response(lines[0], 10)
+        run = self._decode_cit_response(lines[0], 12)
         self.assertEqual(run["istek_sayac"], 101)
-        self.assertEqual(run["durum"], 0)  # OK genel kosu
+        self.assertEqual(run["durum"], 0)
         self.assertEqual(run["uiSayac"], 1)
         # Kart limit degerlendirmez: her okuma basarili -> butun bayrak bitleri 1.
-        self.assertTrue(run["olcumler"][0]["read_ok"])
-        self.assertEqual(run["olcumler"][0]["iDeger"], 3300)
-        self.assertEqual(run["olcumler"][0]["uiHam"], 3300)
-        self.assertEqual(run["olcumler"][0]["uiDurum"], 0)
-        # Kanallar V2..V8 tek dispatch'ten ayristirilir (BE 16 bit).
-        for k in range(1, 8):
-            self.assertTrue(run["olcumler"][k]["read_ok"])
-            self.assertEqual(run["olcumler"][k]["iDeger"], 1000 + k)
-        self.assertTrue(run["olcumler"][8]["read_ok"])
-        self.assertEqual(run["olcumler"][8]["iDeger"], 5000)
-        # Olcum 9: 9999 (host'ta limit disi olabilir) ama KART icin okuma basarili -> bit 1.
-        self.assertTrue(run["olcumler"][9]["read_ok"])
-        self.assertEqual(run["olcumler"][9]["iDeger"], 9999)
-        self.assertEqual(run["olcumler"][9]["uiDurum"], 0)
+        self.assertTrue(all(m["read_ok"] for m in run["olcumler"]), run["olcumler"])
+        self.assertTrue(all(m["uiDurum"] == 0 for m in run["olcumler"]))
+        # Surucu struct'indan kanal degerleri (sim 3300 -> LSB donusumu 3299, 1200 -> 1199).
+        self.assertEqual(run["olcumler"][0]["iDeger"], 3299)
+        self.assertEqual(run["olcumler"][0]["uiHam"], 3299)
+        self.assertEqual(run["olcumler"][7]["iDeger"], 1199)
+        self.assertEqual(run["olcumler"][8]["iDeger"], 2500)   # LTC2991 ic sicaklik (sim: 25.00 C)
+        self.assertEqual(run["olcumler"][10]["iDeger"], 1)     # LMK PLL1 kilitli
+        self.assertEqual(run["olcumler"][11]["iDeger"], 1)     # LMK PLL2 kilitli
 
         # CIT_READ: yeniden kosmadan ayni kopya (uiSayac degismez).
-        read = self._decode_cit_response(lines[1], 10)
+        read = self._decode_cit_response(lines[1], 12)
         self.assertEqual(read["istek_sayac"], 202)
         self.assertEqual(read["uiSayac"], 1)
-        self.assertEqual(read["olcumler"][0]["iDeger"], 3300)
-        self.assertEqual(read["olcumler"][7]["iDeger"], 1007)
-        self.assertEqual(read["olcumler"][9]["iDeger"], 9999)
+        self.assertEqual(read["olcumler"][0]["iDeger"], 3299)
+        self.assertEqual(read["olcumler"][7]["iDeger"], 1199)
+
+        # NACK: LTC olcumleri (0..8) okunamadi -> bit 0, uiDurum BUS_HATASI; digerleri temiz.
+        run2 = self._decode_cit_response(lines[2], 12)
+        self.assertEqual(run2["uiSayac"], 2)
+        for k in range(0, 9):
+            self.assertFalse(run2["olcumler"][k]["read_ok"], k)
+            self.assertEqual(run2["olcumler"][k]["uiDurum"], 5, k)
+        for k in range(9, 12):
+            self.assertTrue(run2["olcumler"][k]["read_ok"], k)
+            self.assertEqual(run2["olcumler"][k]["uiDurum"], 0, k)
 
     def test_disabled_measurement_still_read_by_board(self) -> None:
         # enabled artik HOST tarafinda (CIT ekrani gizler); kart config'teki
-        # enabled=false'a bakmadan HER olcumu okur (limit/enabled koda gomulmez).
-        spec = _cit_spec("unit_cit_disabled_rt")
+        # enabled=false'a bakmadan HER olcumu okur (bayrak = okuma basarisi).
+        spec = _cit_spec("unit_cit_disabled_rt", simulate=True)
         spec["devices"][0]["config"]["cit"] = {
             "measurements": [
                 {"op": "voltage_read", "channel": 0, "name": "VCC_3V3_RF", "min": 3135,
@@ -412,20 +451,18 @@ class CitHostRoundTripTest(unittest.TestCase):
                 {"op": "temperature_read", "name": "LTC_TEMP", "enabled": False},
             ],
         }
-        run_frame = s2cmsg.pack_named_request("CIT_RUN", 55)
-        run_bytes = ", ".join(f"0x{b:02X}U" for b in run_frame)
         run_extra = (
-            f'    static const unsigned char ucArrRun[] = {{ {run_bytes} }};\n'
+            f'    static const unsigned char ucArrRun[] = {{ {self._frame_c("CIT_RUN", 55)} }};\n'
             '    feedFrame(ucArrRun, (unsigned int)sizeof(ucArrRun));\n'
         )
-        output = self._build_and_run(spec, self._main_for(run_extra), [])
-        lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
+        output = self._build_and_run(spec, self._main_for("unit_cit_disabled_rt", run_extra))
+        lines = [l.strip() for l in output.strip().splitlines() if re.fullmatch(r"[0-9A-F]+", l.strip())]
         self.assertEqual(len(lines), 1, output)
-        run = self._decode_cit_response(lines[0], 10)
-        # Olcum 8 (LTC_TEMP) config'te disabled ama kart yine de OKUDU (DESTEKLENMIYOR degil).
+        run = self._decode_cit_response(lines[0], 12)
+        # Olcum 8 (LTC_TEMP) config'te disabled ama kart yine de OKUDU.
         self.assertEqual(run["olcumler"][8]["uiDurum"], 0)
         self.assertTrue(run["olcumler"][8]["read_ok"])
-        # Digerleri de okundu.
+        self.assertEqual(run["olcumler"][8]["iDeger"], 2500)
         self.assertTrue(run["olcumler"][0]["read_ok"])
         self.assertTrue(run["olcumler"][9]["read_ok"])
 
@@ -445,12 +482,6 @@ class CitHostRoundTripTest(unittest.TestCase):
             for name in ("spec2code_mesaj.c", "spec2code_mesaj.h",
                          "spec2code_testbench_protocol.c", "spec2code_testbench_protocol.h"):
                 shutil.copy2(tests_dir / name, work / name)
-            # xstatus.h stub: gercek Vitis xil_types.h NULL'i saglar; host
-            # derlemesinde <stddef.h> ile ayni garantiyi veriyoruz.
-            (work / "xstatus.h").write_text(
-                "#ifndef XSTATUS_H\n#define XSTATUS_H\n#include <stddef.h>\n"
-                "#define XST_SUCCESS 0\n#define XST_FAILURE 1\n#endif\n",
-                encoding="utf-8")
             (work / "main.c").write_text(
                 '#include <stdio.h>\n'
                 '#include "spec2code_mesaj.h"\n'
@@ -461,14 +492,14 @@ class CitHostRoundTripTest(unittest.TestCase):
                 '{\n'
                 '    spec2codeTestbenchResponseClear(spResponse);\n'
                 '    spResponse->uiId = spRequest->uiId;\n'
-                '    spResponse->uiOk = 1U;\n'
-                '    return XST_SUCCESS;\n'
+                '    spResponse->iStatus = XST_FAILURE;\n'
+                '    return XST_FAILURE;\n'
                 '}\n'
                 f'static const unsigned char S_ucArrRun[] = {{ {run_bytes} }};\n'
                 'int main(void)\n'
                 '{\n'
                 '    SMesajParser sParser;\n'
-                '    unsigned char ucArrCikti[4200];\n'
+                '    unsigned char ucArrCikti[256];\n'
                 '    unsigned int uiPos = 0U;\n'
                 '    spec2codeMesajParserSifirla(&sParser);\n'
                 '    while (uiPos < (unsigned int)sizeof(S_ucArrRun))\n'
@@ -478,32 +509,29 @@ class CitHostRoundTripTest(unittest.TestCase):
                 '        uiPos += uiTuketilen;\n'
                 '        if (iTam == 1)\n'
                 '        {\n'
-                '            unsigned int uiCiktiBoy = spec2codeMesajIsle(&sParser.sBaslik,\n'
-                '                sParser.ucArrGovde, ucArrCikti, (unsigned int)sizeof(ucArrCikti));\n'
-                '            unsigned int uiIndex;\n'
-                '            for (uiIndex = 0U; uiIndex < uiCiktiBoy; uiIndex++) { printf("%02X", ucArrCikti[uiIndex]); }\n'
+                '            unsigned int uiBoy = spec2codeMesajIsle(&sParser.sBaslik, sParser.ucArrGovde,\n'
+                '                ucArrCikti, (unsigned int)sizeof(ucArrCikti));\n'
+                '            unsigned int uiI;\n'
+                '            for (uiI = 0U; uiI < uiBoy; uiI++) { printf("%02X", ucArrCikti[uiI]); }\n'
                 '            printf("\\n");\n'
                 '        }\n'
                 '    }\n'
                 '    return 0;\n'
                 '}\n',
                 encoding="utf-8")
-            binary = work / "cit_none"
-            compile_run = subprocess.run(
-                [compiler, "-Wall", "-Wextra", "-I", str(work), "-o", str(binary),
-                 str(work / "main.c"), str(work / "spec2code_mesaj.c"),
-                 str(work / "spec2code_testbench_protocol.c")],
+            binary = work / ("cit_none.exe" if os.name == "nt" else "cit_none")
+            sources = [str(work / "main.c"), str(work / "spec2code_mesaj.c"),
+                       str(work / "spec2code_testbench_protocol.c")]
+            build = subprocess.run(
+                [compiler, "-Wall", "-Wextra", "-I", str(work), "-I", str(STUBS), "-o", str(binary)] + sources,
                 capture_output=True, text=True)
-            self.assertEqual(compile_run.returncode, 0, compile_run.stderr)
+            self.assertEqual(build.returncode, 0, build.stderr)
             output = subprocess.run([str(binary)], capture_output=True, text=True).stdout
-
-        lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
-        self.assertEqual(len(lines), 1, output)
-        # Yanit govdesi standart cerceve; durum DESTEKLENMIYOR (7).
-        frame = bytes.fromhex(lines[0])
-        body = frame[12:]
-        _istek, durum = struct.unpack_from("<II", body, 0)
-        self.assertEqual(durum, 7)
+        line = output.strip().splitlines()[0]
+        frame = bytes.fromhex(line)
+        istek_sayac, durum = struct.unpack_from("<II", frame, 12)
+        self.assertEqual(istek_sayac, 77)
+        self.assertEqual(durum, 7)  # DESTEKLENMIYOR
 
 
 if __name__ == "__main__":

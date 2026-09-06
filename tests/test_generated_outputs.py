@@ -54,7 +54,9 @@ class GeneratedOutputTests(unittest.TestCase):
 
             ltc_test_header = (out_dir / "tests" / "ltc2991_test.h").read_text(encoding="utf-8")
             self.assertIn("int ltc2991SelfTest(XIicPs* spIic);", ltc_test_header)
-            self.assertIn("void ltc2991TestTask(void* vpParameters);", ltc_test_header)
+            # Sarmalayici (TestRun/TestTask) yok: self-test ajanin `self_test` op'uyla kosar.
+            self.assertNotIn("TestTask", ltc_test_header)
+            self.assertNotIn("TestRun", ltc_test_header)
 
     def test_backend_result_does_not_include_retired_boardless_files(self) -> None:
         project_name = "unit_generated_backend_result"

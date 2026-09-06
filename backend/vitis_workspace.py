@@ -952,14 +952,16 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
         "tests/spec2code_testbench_uart_main.c",
         "tests/spec2code_testbench_coresight_main.c",
     }
-    emit_selftest_main = not (agent_mains & set(staged))
-    for name, content in {
-        "spec2code_selftest_main.h": vitis_selftest_header(),
-        "spec2code_selftest_main.c": vitis_selftest_source(job.spec, emit_main=emit_selftest_main),
-    }.items():
-        target = source_root / name
-        target.write_text(hio.normalize_crlf(content), encoding="utf-8", newline="")
-        staged.append(name)
+    # Ajan varken self-test'ler Test Bench `self_test` op'uyla kosulur; ayri runner
+    # olu kod olurdu (kullanilmayan kod sahnelenmez). Ajansiz projede main() runner'dir.
+    if not (agent_mains & set(staged)):
+        for name, content in {
+            "spec2code_selftest_main.h": vitis_selftest_header(),
+            "spec2code_selftest_main.c": vitis_selftest_source(job.spec, emit_main=True),
+        }.items():
+            target = source_root / name
+            target.write_text(hio.normalize_crlf(content), encoding="utf-8", newline="")
+            staged.append(name)
 
     return sorted(staged)
 

@@ -2381,102 +2381,102 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
         st.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
     if has_status_regs:
         st.ln(f"iStatus = {status_regs_func}({hvar}, &sStatusRegs);").check_status()
-        st.ln('xil_printf("' + part + ' status registers read OK\\r\\n");')
+        st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' status registers read OK");')
     for name in read_ops:
         if is_array_read(name):
             ctype, var, fld = array_struct(name)
             st.ln(f"iStatus = {name}({hvar}, &{var});").check_status()
-            st.ln('xil_printf("' + part + f' {fld}[0] = %u\\r\\n", (unsigned int){var}.{fld}[0]);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + f' {fld}[0] = %u", (unsigned int){var}.{fld}[0]);')
         elif name.endswith("ConfigRead"):
             st.ln(f"iStatus = {name}({hvar}, &ucConfig);").check_status()
-            st.ln('xil_printf("' + part + ' config = %02X\\r\\n", ucConfig);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' config = %02X", ucConfig);')
         elif name.endswith("StatusRead"):
             if has_ushort_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &usStatusWord);").check_status()
-                st.ln('xil_printf("' + part + ' status word = %04X\\r\\n", (unsigned int)usStatusWord);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' status word = %04X", (unsigned int)usStatusWord);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &ucStatus);").check_status()
-                st.ln('xil_printf("' + part + ' status = %02X\\r\\n", ucStatus);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' status = %02X", ucStatus);')
         elif name.endswith("VoltageRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iVoltage);").check_status()
-                st.ln('xil_printf("' + part + ' voltage = %d\\r\\n", iVoltage);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' voltage = %d", iVoltage);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usVoltage);").check_status()
-                st.ln('xil_printf("' + part + ' voltage raw = %u\\r\\n", (unsigned int)usVoltage);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' voltage raw = %u", (unsigned int)usVoltage);')
         elif name.endswith("CurrentRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iCurrent);").check_status()
-                st.ln('xil_printf("' + part + ' current = %d\\r\\n", iCurrent);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' current = %d", iCurrent);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usCurrent);").check_status()
-                st.ln('xil_printf("' + part + ' current raw = %u\\r\\n", (unsigned int)usCurrent);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' current raw = %u", (unsigned int)usCurrent);')
         elif name.endswith("TemperatureRead"):
             if has_uint_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &uiTemperature);").check_status()
-                st.ln('xil_printf("' + part + ' temperature raw = %lu\\r\\n", (unsigned long)uiTemperature);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' temperature raw = %lu", (unsigned long)uiTemperature);')
             elif has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iTemperature);").check_status()
-                st.ln('xil_printf("' + part + ' temperature = %d santi-C (0.01 C)\\r\\n", iTemperature);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' temperature = %d santi-C (0.01 C)", iTemperature);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usTemperature);").check_status()
-                st.ln('xil_printf("' + part + ' Tint raw = %u\\r\\n", (unsigned int)usTemperature);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' Tint raw = %u", (unsigned int)usTemperature);')
         elif name.endswith("HumidityRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iHumidity);").check_status()
-                st.ln('xil_printf("' + part + ' humidity = %d santi-RH\\r\\n", iHumidity);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' humidity = %d santi-RH", iHumidity);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &uiHumidity);").check_status()
-                st.ln('xil_printf("' + part + ' humidity raw = %lu\\r\\n", (unsigned long)uiHumidity);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' humidity raw = %lu", (unsigned long)uiHumidity);')
         elif name.endswith("UserRegisterRead"):
             st.ln(f"iStatus = {name}({hvar}, &ucUser);").check_status()
-            st.ln('xil_printf("' + part + ' user register = %02X\\r\\n", ucUser);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' user register = %02X", ucUser);')
         elif name.endswith("PowerRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iPower);").check_status()
-                st.ln('xil_printf("' + part + ' power = %d mW\\r\\n", iPower);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' power = %d mW", iPower);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &uiPower);").check_status()
-                st.ln('xil_printf("' + part + ' power raw = %lu\\r\\n", (unsigned long)uiPower);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' power raw = %lu", (unsigned long)uiPower);')
         elif name.endswith("SenseRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iSense);").check_status()
-                st.ln('xil_printf("' + part + ' sense = %d uV\\r\\n", iSense);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' sense = %d uV", iSense);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usSense);").check_status()
-                st.ln('xil_printf("' + part + ' sense raw = %u\\r\\n", (unsigned int)usSense);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' sense raw = %u", (unsigned int)usSense);')
         elif name.endswith("AdinRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iAdin);").check_status()
-                st.ln('xil_printf("' + part + ' ADIN = %d uV\\r\\n", iAdin);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' ADIN = %d uV", iAdin);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usAdin);").check_status()
-                st.ln('xil_printf("' + part + ' ADIN raw = %u\\r\\n", (unsigned int)usAdin);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' ADIN raw = %u", (unsigned int)usAdin);')
         elif name.endswith("ElapsedRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiElapsed);").check_status()
-            st.ln('xil_printf("' + part + ' elapsed = %lu s\\r\\n", (unsigned long)uiElapsed);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' elapsed = %lu s", (unsigned long)uiElapsed);')
         elif name.endswith("AlarmRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiAlarm);").check_status()
-            st.ln('xil_printf("' + part + ' alarm ticks = %lu\\r\\n", (unsigned long)uiAlarm);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' alarm ticks = %lu", (unsigned long)uiAlarm);')
         elif name.endswith("EventRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiEvent);").check_status()
-            st.ln('xil_printf("' + part + ' events = %lu\\r\\n", (unsigned long)uiEvent);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' events = %lu", (unsigned long)uiEvent);')
         elif name.endswith("IdRead"):
             if has_ushort_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &usId);").check_status()
-                st.ln('xil_printf("' + part + ' id = %04X\\r\\n", (unsigned int)usId);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' id = %04X", (unsigned int)usId);')
             elif has_uchar_id_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &ucId);").check_status()
-                st.ln('xil_printf("' + part + ' id = %02X\\r\\n", ucId);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' id = %02X", ucId);')
             else:
                 st.ln(f"iStatus = {name}({hvar}, ucArrId);").check_status()
-                st.ln('xil_printf("' + part + ' JEDEC id = %02X %02X %02X\\r\\n", ucArrId[0], ucArrId[1], ucArrId[2]);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' JEDEC id = %02X %02X %02X", ucArrId[0], ucArrId[1], ucArrId[2]);')
         elif unit.transport == "gpio" and name.endswith("LineRead"):
             st.ln(f"iStatus = {name}({hvar}, &uiLines);").check_status()
-            st.ln('xil_printf("' + part + ' lines = 0x%X\\r\\n", uiLines);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' lines = 0x%X", uiLines);')
         elif name.endswith("DataRead"):
             st.ln(f"iStatus = {name}({hvar}, 0x0U, ucArrBuffer, 16U);").check_status()
-            st.ln('xil_printf("' + part + ' data[0] = %02X\\r\\n", ucArrBuffer[0]);')
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' data[0] = %02X", ucArrBuffer[0]);')
     st.ln("return XST_SUCCESS;")
     self_test = CFunc(
         name=_func_name(module, "self_test"), ret="int", params=[_handle_param(htype, hvar)], body=st.out(),
@@ -2484,65 +2484,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
         doxy_params=[(hvar, "Uninitialized controller handle; this routine initializes it.")],
         doxy_return="XST_SUCCESS if all checks pass, else an XST_* error code.")
 
-    # AXI IIC'de "handle" TABAN ADRES'tir: yerel degisken struct degil, adres
-    # sabiti olarak xparameters.h'ten alinir ve DEGERLE gecirilir.
-    is_base = htype in BASE_ADDRESS_HANDLE_DRIVERS
-    instance = controller.get("instance", "")
-
-    def handle_decl(name: str) -> str:
-        if is_base:
-            return f"unsigned long {name} = (unsigned long){instance}_BASEADDR;"
-        return f"{htype} {name};"
-
-    def handle_arg(name: str) -> str:
-        return name if is_base else f"&{name}"
-
-    wr = Emit()
-    if runtime == "freertos":
-        handle_name = _handle_var(module, htype)
-        wr.ln(handle_decl(handle_name)).ln("int iStatus;").blank()
-        wr.ln("(void) vpParameters;")
-        wr.open("for (;;)")
-        wr.ln(f"iStatus = {_func_name(module, 'self_test')}({handle_arg(handle_name)});")
-        wr.open("if (iStatus != XST_SUCCESS)")
-        wr.ln('xil_printf("' + part + ' self-test FAILED: %d\\r\\n", iStatus);')
-        wr.close()
-        wr.open("else")
-        wr.ln('xil_printf("' + part + ' self-test PASSED\\r\\n");')
-        wr.close()
-        wr.ln("vTaskDelay(pdMS_TO_TICKS(1000));")
-        wr.close()
-        wrapper = CFunc(
-            name=_func_name(module, "test_task"), ret="void", params=["void* vpParameters"], body=wr.out(),
-            brief=f"FreeRTOS task: repeatedly run the {part} self-test.",
-            doxy_params=[("vpParameters", "Unused FreeRTOS task parameter.")], doxy_return="")
-        includes = ["FreeRTOS.h", "task.h", "xil_printf.h", "xil_types.h", "xstatus.h", f"{module}.h"]
-        if is_base:
-            includes.insert(-1, "xparameters.h")
-    else:
-        handle_name = _handle_var(module, htype)
-        wr.ln(handle_decl(handle_name)).ln("int iStatus;").ln("unsigned int uiIter;").ln("volatile unsigned int uiDelay;").blank()
-        wr.open("for (uiIter = 0U; uiIter < 3U; uiIter++)")
-        wr.ln(f"iStatus = {_func_name(module, 'self_test')}({handle_arg(handle_name)});")
-        wr.open("if (iStatus != XST_SUCCESS)")
-        wr.ln('xil_printf("' + part + ' self-test FAILED: %d\\r\\n", iStatus);')
-        wr.close()
-        wr.open("else")
-        wr.ln('xil_printf("' + part + ' self-test PASSED\\r\\n");')
-        wr.close()
-        wr.ln("/* busy-wait between iterations */")
-        wr.open("for (uiDelay = 0U; uiDelay < 1000000U; uiDelay++)").close()
-        wr.close()
-        wr.ln("return iStatus;")
-        wrapper = CFunc(
-            name=_func_name(module, "test_run"), ret="int", params=[], body=wr.out(),
-            brief=f"Bare-metal harness: run the {part} self-test a few times with busy-wait.",
-            doxy_params=[], doxy_return="XST_SUCCESS if the last run passed, else an XST_* error code.")
-        includes = ["xil_printf.h", "xil_types.h", "xstatus.h", f"{module}.h"]
-        if is_base:
-            includes.insert(-1, "xparameters.h")
-
-    return CTest(runtime=runtime, module=module, includes=includes, funcs=[self_test, wrapper])
+    # Self-test ajandan (Test Bench `self_test` op'u) kosulur; ayri harness/gorev sarmalayicisi
+    # YOK (kullanilmayan kod uretilmez). Log: dbg_printf INFO (varsayilan esikte sessiz).
+    includes = ["dbg_printf.h", "xstatus.h", f"{module}.h"]
+    return CTest(runtime=runtime, module=module, includes=includes, funcs=[self_test])
 
 
 # --- entry point ------------------------------------------------------------------------
@@ -2601,7 +2546,9 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                 f"(supported: i2c, spi, gpio). Extend cmodel.py to add it.")
 
         unit.board_id = boards.board_id_of(device)
-        unit.test = _test_unit(unit, device, controller, runtime)
+        # tests/<mod>_test.* yalniz istenirse (tests_requested self_test); ajan `self_test` op'u da ayni kosula bagli.
+        if "self_test" in (device.get("tests_requested") or []):
+            unit.test = _test_unit(unit, device, controller, runtime)
         units.append(unit)
 
     return units

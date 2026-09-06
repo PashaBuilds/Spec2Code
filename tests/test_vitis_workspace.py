@@ -902,10 +902,16 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertTrue(Path(result["stdout_log"]).read_text(encoding="utf-8").startswith("fake xsct ran"))
                 self.assertTrue(result["successful"])
                 self.assertEqual(result["xsct_exit_code"], 0)
-                self.assertIn("spec2code_selftest_main.h", result["staged_files"])
-                self.assertIn("spec2code_selftest_main.c", result["staged_files"])
-                selftest_source = (Path(result["source_path"]) / "spec2code_selftest_main.c").read_text(encoding="utf-8")
-                if "tests/spec2code_testbench_lwip_main.c" not in result["staged_files"]:
+                agent_mains = {"tests/spec2code_testbench_lwip_main.c", "tests/spec2code_testbench_uart_main.c",
+                               "tests/spec2code_testbench_coresight_main.c"}
+                if agent_mains & set(result["staged_files"]):
+                    # Ajan varken self-test'ler `self_test` op'uyla kosar; ayri runner sahnelenmez.
+                    self.assertNotIn("spec2code_selftest_main.h", result["staged_files"])
+                    self.assertNotIn("spec2code_selftest_main.c", result["staged_files"])
+                else:
+                    self.assertIn("spec2code_selftest_main.h", result["staged_files"])
+                    self.assertIn("spec2code_selftest_main.c", result["staged_files"])
+                    selftest_source = (Path(result["source_path"]) / "spec2code_selftest_main.c").read_text(encoding="utf-8")
                     self.assertIn("int main(void)", selftest_source)
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 self.assertTrue((workspace / "unit_application" / "Debug" / "unit_application.elf").is_file())
