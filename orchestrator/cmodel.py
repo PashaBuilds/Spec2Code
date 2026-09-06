@@ -719,6 +719,30 @@ def _status_read_func(module: str, part: str, regs: list[StatusRegPlan], handle_
         doxy_return="XST_SUCCESS on success, else an XST_* error code.")
 
 
+def _convert_func(module: str, op_name: str, convert: dict, noun: str) -> tuple[CFunc, str]:
+    """Ham kodu muhendislik birimine ceviren STATIK yardimci: ``<mod><Noun>Convert(uiRaw)``.
+
+    Op govdesi yalniz okuma yapar; donusum (mask, isaret genisletme, olcek, ofset, kirpma)
+    tek bir fonksiyonda toplanir (kullanici istegi 2026-09-06: LTC2991 voltaj donusumu ayri
+    static fonksiyonda). Donus tipi convert.unsigned'a gore unsigned int / int.
+    """
+    is_unsigned = bool(convert.get("unsigned", False))
+    ret = "unsigned int" if is_unsigned else "int"
+    cvar = "uiCode" if is_unsigned else "iCode"
+    e = Emit()
+    e.ln(f"{ret} {cvar};")
+    if convert.get("format") == "pmbus_l11":
+        e.ln("int iExp;")
+        e.ln("long long llValue;")
+    e.blank()
+    _emit_convert_lines(e, convert, "uiRaw")
+    e.ln(f"return {cvar};")
+    name = _func_name(module, f"{noun}_convert")
+    unit = str(convert.get("unit", "") or "")
+    return CFunc(name, ret, ["unsigned int uiRaw"], e.out(), static=True,
+                 brief=f"{op_name}: raw code -> {unit or 'engineering unit'}"), name
+
+
 def _emit_convert_lines(e: "Emit", convert: dict, raw_expr: str) -> None:
     """Fixed-point engineering-unit conversion into the local `iCode`.
 
@@ -1240,12 +1264,13 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             e.ln("unsigned char ucMsb;").ln("unsigned char ucLsb;")
         if scalar_read_bytes:
             e.ln("unsigned char ucArrBytes[4];")
-        if convert:
-            e.ln("unsigned int uiCode;" if convert.get("unsigned") else "int iCode;")
-            if convert.get("format") == "pmbus_l11":
-                e.ln("int iExp;")
-                e.ln("long long llValue;")
         e.blank()
+        convert_call = ""
+        if convert:
+            noun = array_info["noun"].lower() if array_info else (
+                op_name[:-5] if op_name.endswith("_read") else op_name)
+            convert_fn, convert_call = _convert_func(module, op_name, convert, noun)
+            funcs.append(convert_fn)
 
         if is_init:
             api.emit_init(e, instance, sclk_def)
@@ -1316,11 +1341,8 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                     e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, (unsigned char)({base} + (ucIndex * 2U)), &ucMsb);").check_status()
                     e.ln(f"iStatus = {_func_name(module, 'register_read')}({hvar}, (unsigned char)({base} + (ucIndex * 2U) + 1U), &ucLsb);").check_status()
                     if convert:
-                        _emit_convert_lines(
-                            e, convert,
-                            "((unsigned short)ucMsb << 8) | (unsigned short)ucLsb")
-                        cvar = "uiCode" if convert.get("unsigned") else "iCode"
-                        e.ln(f"{array_target}[ucIndex] = (unsigned short){cvar};")
+                        e.ln(f"{array_target}[ucIndex] = (unsigned short){convert_call}("
+                             "((unsigned int)ucMsb << 8U) | (unsigned int)ucLsb);")
                     else:
                         e.ln(f"{array_target}[ucIndex] = (unsigned short)(((unsigned short)ucMsb << 8) | (unsigned short)ucLsb);")
                     e.close()
@@ -1328,9 +1350,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
         if scalar_combine and out_param:
             expr = _scalar_assign_expr(read_seen, out_c_type, byte_order, scalar_pieces)
             if convert:
-                _emit_convert_lines(e, convert, expr)
-                cvar = "uiCode" if convert.get("unsigned") else "iCode"
-                e.ln(f"*{out_param} = ({out_c_type}){cvar};")
+                e.ln(f"*{out_param} = ({out_c_type}){convert_call}((unsigned int)({expr}));")
             else:
                 e.ln(f"*{out_param} = ({out_c_type})({expr});")
         e.ln("return XST_SUCCESS;")

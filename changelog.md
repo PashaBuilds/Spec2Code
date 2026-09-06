@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.175 - 2026-09-06
+
+- **Donusum yardimcilari (kullanici istegi):** `convert` tanimli her op icin surucude STATIK
+  `<mod><Olcum>Convert(unsigned int uiRaw)` uretilir (mask, isaret genisletme, olcek, ofset,
+  kirpma tek yerde); op govdesi yalniz okur ve yardimciyi cagirir. LTC2991: `ltc2991VoltageConvert`
+  (kanal dongusu), `ltc2991TemperatureConvert`, `ltc2991VccConvert`.
+- **LTC2991 VCC olcumu:** Nexys ornek spec'inde `vcc_read` op'u + `config.vcc_read: true`
+  (`ltc2991VccRead`, CIT `LTC2991_VCC_READ_1`, sanal cihazda `ltc2991SimVccAyarla`).
+
 ## v0.1.174 - 2026-09-06
 
 - **Doxygen bloklari varsayilan KAPALI (kullanici istegi):** fonksiyon/struct ustu `/** @brief ...

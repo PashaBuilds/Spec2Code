@@ -126,7 +126,11 @@ class DriverStructApiTests(unittest.TestCase):
         self.assertIn("} SLtc2991Voltage;", header)
         self.assertIn("int ltc2991VoltageRead(unsigned long ulIicBase, SLtc2991Voltage* spVoltage);", header)
         source = _read(self.out_dir, "drivers/ltc2991.c")
-        self.assertIn("spVoltage->usArrVoltage[ucIndex] = (unsigned short)iCode;", source)
+        # Donusum ayri STATIK yardimcida: op govdesi yalniz okur, helper mask/isaret/olcek/kirpma yapar.
+        self.assertIn("static int ltc2991VoltageConvert(unsigned int uiRaw)", source)
+        self.assertIn("spVoltage->usArrVoltage[ucIndex] = (unsigned short)ltc2991VoltageConvert(((unsigned int)ucMsb << 8U) | (unsigned int)ucLsb);", source)
+        self.assertIn("static int ltc2991TemperatureConvert(unsigned int uiRaw)", source)
+        self.assertIn("*ipTemperature = (int)ltc2991TemperatureConvert(", source)
         # skaler op degismez
         self.assertIn("int ltc2991TemperatureRead(unsigned long ulIicBase, int* ipTemperature);", header)
 
