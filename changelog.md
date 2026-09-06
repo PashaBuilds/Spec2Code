@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.183 - 2026-09-06
+
+- **Cihaz kimligi kurali `<kart>_<parca>[_<n>]` (kullanici istegi):** `u1_adt7420` yerine
+  `sakk_adt7420`; ayni kartta ayni parcadan birden fazla cihaz `sakk_ltc2991_1`, `sakk_ltc2991_2`
+  (ekleme sirasi). Kart tanimsiz projede onek `kart`. Arayuz store'u her degisiklikte ve yeniden
+  yuklemede kimlikleri kurala ceker (mux referanslari tasinir); `I2C_CIHAZ_<KIMLIK>` enum'u ve
+  CIT varsayilan olcum adlari (`SAKK_LTC2991_1_V1`, `SAKK_LTC2991_1_TEMPERATURE_READ`) kimlikten
+  turer. Python paritesi `boards.normalize_device_ids` (test kilitli).
+
 ## v0.1.182 - 2026-09-06
 
 - **I2C cihaz tablosu (kullanici kurali: "structure array en alt katmana kadar gitsin"):** yeni

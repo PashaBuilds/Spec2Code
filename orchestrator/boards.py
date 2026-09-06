@@ -88,3 +88,52 @@ def main_board_id(spec: dict) -> str:
         if str(board.get("role")) == "main":
             return str(board["id"])
     return MAIN_BOARD_ID
+
+
+def part_slug(part: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(part).lower()) or "cihaz"
+
+
+def normalize_device_ids(spec: dict) -> dict:
+    """Cihaz/mux kimliklerini `<kart>_<parca>[_<n>]` kuralina ceker (frontend
+    lib/boards.ts::normalizeDeviceIds ile AYNI kural); yeni spec kopyasi dondurur.
+
+    Kart oneki kart adinin snake_case'i (kart tanimsizsa "kart"); ayni kartta ayni parcadan
+    birden fazla cihaz varsa ekleme sirasiyla _1, _2 ... (tek ise sonek yok).
+    """
+    board_list = normalized_boards(spec)
+    declared = bool(spec.get("boards"))
+    by_id = {str(b["id"]): b for b in board_list}
+    main_id = main_board_id(spec)
+
+    def prefix_of(item: dict) -> str:
+        if not declared:
+            return "kart"
+        bid = str(item.get("board_id") or main_id)
+        board = by_id.get(bid) or by_id.get(main_id) or board_list[0]
+        return board_dirname(str(board["name"]))
+
+    def assign(items: list[dict]) -> dict[str, str]:
+        counts: dict[str, int] = {}
+        for item in items:
+            key = f"{prefix_of(item)}_{part_slug(item.get('part', ''))}"
+            counts[key] = counts.get(key, 0) + 1
+        seen: dict[str, int] = {}
+        mapping: dict[str, str] = {}
+        for item in items:
+            key = f"{prefix_of(item)}_{part_slug(item.get('part', ''))}"
+            seen[key] = seen.get(key, 0) + 1
+            mapping[str(item.get("id"))] = f"{key}_{seen[key]}" if counts[key] > 1 else key
+        return mapping
+
+    devices = [dict(d) for d in spec.get("devices", [])]
+    muxes = [dict(m) for m in spec.get("muxes", [])]
+    dev_map, mux_map = assign(devices), assign(muxes)
+    for d in devices:
+        d["id"] = dev_map.get(str(d.get("id")), d.get("id"))
+        via = (d.get("attach") or {}).get("via_mux")
+        if isinstance(via, dict) and via.get("mux_id") in mux_map:
+            d["attach"] = {**d["attach"], "via_mux": {**via, "mux_id": mux_map[via["mux_id"]]}}
+    for m in muxes:
+        m["id"] = mux_map.get(str(m.get("id")), m.get("id"))
+    return {**spec, "devices": devices, "muxes": muxes}

@@ -144,3 +144,27 @@ class WiringValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeviceIdRuleTests(unittest.TestCase):
+    """Cihaz kimligi kurali <kart>_<parca>[_<n>] (frontend normalizeDeviceIds ile ayni)."""
+
+    def test_same_part_on_one_board_gets_ordinal_suffix(self) -> None:
+        spec = {
+            "boards": [{"id": "main", "name": "SAKK", "role": "main"}],
+            "muxes": [{"id": "u9_tca9548a", "part": "TCA9548A", "board_id": "main"}],
+            "devices": [
+                {"id": "u1_adt7420", "part": "ADT7420", "board_id": "main", "attach": {}},
+                {"id": "u2_ltc2991", "part": "LTC2991", "board_id": "main",
+                 "attach": {"via_mux": {"mux_id": "u9_tca9548a", "channel": 3}}},
+                {"id": "u7_ltc2991", "part": "LTC2991", "board_id": "main", "attach": {}},
+            ],
+        }
+        out = boards.normalize_device_ids(spec)
+        self.assertEqual([d["id"] for d in out["devices"]], ["sakk_adt7420", "sakk_ltc2991_1", "sakk_ltc2991_2"])
+        self.assertEqual(out["muxes"][0]["id"], "sakk_tca9548a")
+        self.assertEqual(out["devices"][1]["attach"]["via_mux"]["mux_id"], "sakk_tca9548a")
+
+    def test_boardless_project_uses_kart_prefix(self) -> None:
+        spec = {"devices": [{"id": "u1_tmp101", "part": "TMP101", "attach": {}}], "muxes": []}
+        self.assertEqual(boards.normalize_device_ids(spec)["devices"][0]["id"], "kart_tmp101")

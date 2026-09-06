@@ -1830,7 +1830,8 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
             for channel in channels:
                 if channel is None:
                     user = generic
-                    default_name = f"{part}_{op_name}_{device_index}".upper()
+                    # Varsayilan ad cihaz KIMLIGINDEN (<kart>_<parca>[_<n>]_<op>): SAKK_LTC2991_1_TEMPERATURE_READ
+                    default_name = f"{device_id}_{op_name}".upper()
                 else:
                     # Kanalsiz override limit/onem/enabled'i BUTUN kanallara uygular
                     # (isim haric: cname benzersiz kalmali); kanal eslesmesi ustune yazar.
@@ -1838,7 +1839,7 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
                     user = {k: v for k, v in generic.items() if k != "name"}
                     if exact:
                         user.update(exact)
-                    default_name = f"{part}_{channel_prefix}{channel + 1}_{device_index}".upper()
+                    default_name = f"{device_id}_{channel_prefix}{channel + 1}".upper()
                 name = str(user.get("name") or default_name)
                 # _pascal_identifier yalnizca her parcanin ILK harfini buyutur; CIT
                 # isimleri genelde BUYUK_HARFLI (VCC_3V3_RF / varsayilan <PART>_<OP>_<i>)

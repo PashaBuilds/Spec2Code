@@ -106,3 +106,68 @@ export function groupByBoardId<T>(
   }
   return groups;
 }
+
+/** Cihaz/mux kimligi kurali (kullanici istegi 2026-09-06): `<kart>_<parca>[_<n>]`.
+ *  Kart oneki kart ADININ slug'i (kart tanimsizsa "kart"); ayni kartta ayni parcadan birden
+ *  fazla cihaz varsa ekleme sirasiyla `_1, _2, ...` (tek ise sonek yok): sakk_ltc2991_1.
+ *  Uretilen enum (`I2C_CIHAZ_SAKK_LTC2991_1`), CIT varsayilan adlari ve ekranlar bu kimligi
+ *  kullanir. `orchestrator/boards.py::normalize_device_ids` ile AYNI kural. */
+export function partSlug(part: string): string {
+  return part.toLowerCase().replace(/[^a-z0-9]/g, "") || "cihaz";
+}
+
+interface IdItem {
+  id: string;
+  part: string;
+  board_id?: string;
+}
+
+function assignIds<T extends IdItem>(items: T[], boards: Board[]): Map<string, string> {
+  const prefixOf = (item: T): string => {
+    if (!boards.length) return "kart";
+    const bid = effectiveBoardId(item, boards);
+    const board = boards.find((b) => b.id === bid);
+    return board ? boardSlug(board.name, board.id) : bid;
+  };
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = `${prefixOf(item)}_${partSlug(item.part)}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const mapping = new Map<string, string>();
+  for (const item of items) {
+    const key = `${prefixOf(item)}_${partSlug(item.part)}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    mapping.set(item.id, (counts.get(key) ?? 1) > 1 ? `${key}_${n}` : key);
+  }
+  return mapping;
+}
+
+export interface NormalizedIds<D, M> {
+  devices: D[];
+  muxes: M[];
+  deviceMap: Map<string, string>;
+  muxMap: Map<string, string>;
+}
+
+/** Kimlikleri kurala gore yeniden adlandirir; degisiklik yoksa null. Mux referanslari
+ *  (attach.via_mux.mux_id) da yeni kimlige tasinir. */
+export function normalizeDeviceIds<
+  D extends IdItem & { attach: { via_mux?: { mux_id: string; channel: number } | null } },
+  M extends IdItem,
+>(devices: D[], muxes: M[], boards: Board[]): NormalizedIds<D, M> | null {
+  const deviceMap = assignIds(devices, boards);
+  const muxMap = assignIds(muxes, boards);
+  const changed =
+    [...deviceMap].some(([from, to]) => from !== to) || [...muxMap].some(([from, to]) => from !== to);
+  if (!changed) return null;
+  const newDevices = devices.map((d) => {
+    const via = d.attach.via_mux;
+    const attach = via ? { ...d.attach, via_mux: { ...via, mux_id: muxMap.get(via.mux_id) ?? via.mux_id } } : d.attach;
+    return { ...d, id: deviceMap.get(d.id) ?? d.id, attach };
+  });
+  const newMuxes = muxes.map((m) => ({ ...m, id: muxMap.get(m.id) ?? m.id }));
+  return { devices: newDevices, muxes: newMuxes, deviceMap, muxMap };
+}

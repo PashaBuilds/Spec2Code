@@ -19,7 +19,7 @@ import type {
   Runtime,
   Zone,
 } from "@/lib/types";
-import { MAIN_BOARD_ID, boardNodeId, boardSlug, mainBoardId, uniqueId } from "@/lib/boards";
+import { MAIN_BOARD_ID, boardNodeId, boardSlug, mainBoardId, normalizeDeviceIds, uniqueId } from "@/lib/boards";
 
 export type Step = "setup" | "schematic" | "generate";
 
@@ -473,6 +473,17 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     counter: s.counter,
   }),
 }));
+
+// Cihaz/mux kimlikleri her degisiklikten (ve yeniden yuklemeden) sonra kurala cekilir:
+// <kart>_<parca>[_<n>] - bkz. lib/boards.ts normalizeDeviceIds. Degisiklik yoksa dokunmaz.
+useStore.subscribe((s) => {
+  const normalized = normalizeDeviceIds(s.devices, s.muxes, s.boards);
+  if (!normalized) return;
+  const selectedId = s.selectedId
+    ? normalized.deviceMap.get(s.selectedId) ?? normalized.muxMap.get(s.selectedId) ?? s.selectedId
+    : s.selectedId;
+  useStore.setState({ devices: normalized.devices, muxes: normalized.muxes, selectedId });
+});
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {
   zynq_7000: "Zynq-7000",

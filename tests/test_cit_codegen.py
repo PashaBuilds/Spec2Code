@@ -115,8 +115,8 @@ class CitHeaderTest(unittest.TestCase):
         self.assertIn("unsigned int uiTmpTempOk : 1;", header)
         # Olcum sayisi 12 (8 voltaj kanali + 2 sicaklik + 2 PLL); kanal isimleri V2..V8.
         self.assertIn("#define BOARD_CIT_OLCUM_SAYISI 12U", header)
-        self.assertIn("unsigned int uiLtc2991V20Ok : 1;", header)
-        self.assertIn("unsigned int uiLtc2991V80Ok : 1;", header)
+        self.assertIn("unsigned int uiU2Ltc2991V2Ok : 1;", header)
+        self.assertIn("unsigned int uiU2Ltc2991V8Ok : 1;", header)
         # Bayrak word sayisi ((12+31)/32)*4 == 4 bayt.
         self.assertIn("_Static_assert(sizeof(SBoardCitBayraklar) == 4U", header)
         self.assertIn("_Static_assert(sizeof(SBoardCit) % 4U == 0U", header)
@@ -169,7 +169,7 @@ class CitHeaderTest(unittest.TestCase):
         self.assertEqual([m["channel_label"] for m in kanallar], [f"V{i}" for i in range(1, 9)])
         self.assertTrue(all(m["channels"] == 8 for m in kanallar))
         self.assertEqual(kanallar[0]["name"], "VCC_3V3")
-        self.assertEqual(kanallar[1]["name"], "LTC2991_V2_0")
+        self.assertEqual(kanallar[1]["name"], "U2_LTC2991_V2")  # varsayilan ad cihaz kimliginden
         # Skaler olcumlerde kanal anahtari YOK (eski manifest sekli korunur).
         self.assertNotIn("channel", olcumler[8])
         # Her kanal surucu struct'inin kendi elemanindan; okundu biti op'un okuma biti.
@@ -179,7 +179,7 @@ class CitHeaderTest(unittest.TestCase):
                       "S_sSistemCit.sU2Ltc2991.sBayraklar.uiVoltageReadOkundu);", source)
         # Bayrak biti = kartin karari (cit/ ok biti), okuma durumu uiDurum'da.
         self.assertIn("spCit->sBayraklar.uiVcc3v3Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiV1Ok;", source)
-        self.assertIn("spCit->sBayraklar.uiLtc2991V20Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiV2Ok;", source)
+        self.assertIn("spCit->sBayraklar.uiU2Ltc2991V2Ok = S_sSistemCit.sU2Ltc2991.sBayraklar.uiV2Ok;", source)
         self.assertIn("spec2codeCitOlcumYaz(spCit, 9U, (int)S_sSistemCit.sU3Tmp101.iTemperature, "
                       "S_sSistemCit.sU3Tmp101.sBayraklar.uiTemperatureReadOkundu);", source)
         self.assertIn("(int)S_sSistemCit.sU4Lmk04832.ucPll1LockDetect", source)
@@ -196,7 +196,7 @@ class CitHeaderTest(unittest.TestCase):
                 (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
         kanallar = [m for m in manifest["cit"]["olcumler"] if m["op"] == "voltage_read"]
         # Kanalsiz override: isim HARIC her sey butun kanallara (cname benzersiz kalir).
-        self.assertEqual([m["name"] for m in kanallar][:2], ["LTC2991_V1_0", "LTC2991_V2_0"])
+        self.assertEqual([m["name"] for m in kanallar][:2], ["U2_LTC2991_V1", "U2_LTC2991_V2"])
         self.assertTrue(all(m["min"] == 100 and m["severity"] == "critical" for m in kanallar
                             if m["channel"] != 2))
         # Kanal eslesmesi ustune yazar (min genelden kalir, max/isim kanaldan).

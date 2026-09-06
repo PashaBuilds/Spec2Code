@@ -2783,9 +2783,9 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(named["part"], "LTC2991")
         self.assertEqual(named["device_index"], 0)
 
-        # Unnamed op (LTC2991 temperature_read) -> varsayilan isim <PART>_<OP>_<indeks>.
+        # Unnamed op (LTC2991 temperature_read) -> varsayilan isim <CIHAZ_ID>_<OP>.
         unnamed = next(m for m in olcumler if m["op"] == "temperature_read" and m["device"] == "u12_ltc2991")
-        self.assertEqual(unnamed["name"], "LTC2991_TEMPERATURE_READ_0")
+        self.assertEqual(unnamed["name"], "U12_LTC2991_TEMPERATURE_READ")
         self.assertEqual(unnamed["severity"], "warning")
         self.assertIsNone(unnamed["min"])
         self.assertIsNone(unnamed["max"])
@@ -2793,7 +2793,7 @@ class TestbenchTests(unittest.TestCase):
 
         # AD7414 temperature_read (device_index 1) de listede, kendi ismiyle.
         ad_temp = next(m for m in olcumler if m["op"] == "temperature_read" and m["device"] == "u13_ad7414")
-        self.assertEqual(ad_temp["name"], "AD7414_TEMPERATURE_READ_1")
+        self.assertEqual(ad_temp["name"], "U13_AD7414_TEMPERATURE_READ")
         self.assertEqual(ad_temp["device_index"], 1)
         self.assertEqual(ad_temp["unit"], "0.01 C")
 
