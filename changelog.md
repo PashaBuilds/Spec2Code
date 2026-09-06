@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.176 - 2026-09-06
+
+- **Tasinabilirlik (kullanici istegi):** `drivers/` ve `cit/` hicbir test bench basligina/sembolune
+  bagli degil (yalniz kendi basliklari + `dbg_printf.h` + Xilinx BSP + libc); yeni test bunu
+  kilitler (kart tanimli projelerde de). Kart modulleri (`<kart>.c/.h`: Init/CitRun/SelfTest)
+  `spec2code_cit.h` ve `<mod>_test.h` kullandigi icin `drivers/<kart>/` yerine `tests/` altina
+  yazilir; surucu dosyalari `drivers/<kart>/` altinda kalir.
+
 ## v0.1.175 - 2026-09-06
 
 - **Donusum yardimcilari (kullanici istegi):** `convert` tanimli her op icin surucude STATIK

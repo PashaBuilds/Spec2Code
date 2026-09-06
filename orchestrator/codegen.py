@@ -7249,7 +7249,9 @@ def generate(
             emit({"event": "codegen.board", "board": bid, "name": str(board["name"]),
                   "modules": len(board_units)})
             stem = boards.board_dirname(str(board["name"]))
-            bdir = drivers_dir / stem
+            # Kart modulu (Init/CitRun/SelfTest) test bench basliklarini (spec2code_cit.h,
+            # <mod>_test.h) include eder: drivers/ tasinabilir kalsin diye tests/ altina yazilir.
+            bdir = tests_dir
             cit_olcumler = cit_by_board.get(bid, [])
             header = _board_module_header(board, [f"{u.module}.h" for u in board_units],
                                           has_cit=bool(cit_olcumler))

@@ -1,5 +1,6 @@
 """Kart katmani codegen: kart tanimli DEGILKEN cikti bugunku ile ayni kalmali."""
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -69,8 +70,8 @@ class BoardlessOutputIsUnchangedTests(unittest.TestCase):
             self.assertTrue((flat / "drivers" / "tmp101.c").is_file())
             self.assertTrue((grouped / "drivers" / "rf_kart" / "tmp101.c").is_file())
             self.assertTrue((grouped / "drivers" / "ana_kart" / "ltc2991.c").is_file())
-            self.assertTrue((grouped / "drivers" / "rf_kart" / "rf_kart.c").is_file())
-            self.assertTrue((grouped / "drivers" / "ana_kart" / "ana_kart.c").is_file())
+            self.assertTrue((grouped / "tests" / "rf_kart.c").is_file())
+            self.assertTrue((grouped / "tests" / "ana_kart.c").is_file())
 
 
 class BoardModuleTests(unittest.TestCase):
@@ -87,7 +88,7 @@ class BoardModuleTests(unittest.TestCase):
     def test_board_module_exposes_init_cit_selftest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = self._generate_boarded(Path(tmp))
-            header = (out / "drivers" / "rf_kart" / "rf_kart.h").read_text(encoding="utf-8")
+            header = (out / "tests" / "rf_kart.h").read_text(encoding="utf-8")
             self.assertIn("int rfKartInit(void);", header)
             self.assertIn("void rfKartCitRun(SBoardCit* spCit);", header)
             self.assertIn("int rfKartSelfTest(void);", header)
@@ -96,7 +97,7 @@ class BoardModuleTests(unittest.TestCase):
     def test_board_init_calls_only_its_own_devices(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = self._generate_boarded(Path(tmp))
-            source = (out / "drivers" / "rf_kart" / "rf_kart.c").read_text(encoding="utf-8")
+            source = (out / "tests" / "rf_kart.c").read_text(encoding="utf-8")
             self.assertIn("tmp101", source)          # RF kartin cihazi
             self.assertNotIn("ltc2991", source)      # ana kartin cihazi sizmamali
 
@@ -162,8 +163,8 @@ class BoardCitSlotTests(unittest.TestCase):
             codegen.generate(spec, out)
             manifest = json.loads(
                 (out / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
-            rf_source = (out / "drivers" / "rf_kart" / "rf_kart.c").read_text(encoding="utf-8")
-            ana_source = (out / "drivers" / "ana_kart" / "ana_kart.c").read_text(encoding="utf-8")
+            rf_source = (out / "tests" / "rf_kart.c").read_text(encoding="utf-8")
+            ana_source = (out / "tests" / "ana_kart.c").read_text(encoding="utf-8")
             system_cit = (out / "tests" / "spec2code_cit.c").read_text(encoding="utf-8")
 
         olcumler = manifest["cit"]["olcumler"]
@@ -192,8 +193,8 @@ class BoardCitSlotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "p"
             codegen.generate(spec, out)
-            rf_header = (out / "drivers" / "rf_kart" / "rf_kart.h").read_text(encoding="utf-8")
-            ana_header = (out / "drivers" / "ana_kart" / "ana_kart.h").read_text(encoding="utf-8")
+            rf_header = (out / "tests" / "rf_kart.h").read_text(encoding="utf-8")
+            ana_header = (out / "tests" / "ana_kart.h").read_text(encoding="utf-8")
         self.assertNotIn("CitRun", rf_header)
         self.assertNotIn("spec2code_cit.h", rf_header)
         self.assertIn("void anaKartCitRun(SBoardCit* spCit);", ana_header)
@@ -212,7 +213,7 @@ class BoardNameRobustnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "p"
             codegen.generate(spec, out)
-            board_dir = out / "drivers" / "yuksek_frekans_genisletme_karti"
+            board_dir = out / "tests"
             source = (board_dir / "yuksek_frekans_genisletme_karti.c").read_text(
                 encoding="utf-8")
             header = (board_dir / "yuksek_frekans_genisletme_karti.h").read_text(
@@ -237,7 +238,7 @@ class BoardNameRobustnessTests(unittest.TestCase):
             out = Path(tmp) / "p"
             codegen.generate(spec, out)
             self.assertTrue((out / "drivers" / "ana_kart" / "tmp101.c").is_file())
-            ana_source = (out / "drivers" / "ana_kart" / "ana_kart.c").read_text(
+            ana_source = (out / "tests" / "ana_kart.c").read_text(
                 encoding="utf-8")
         self.assertIn("tmp101DeviceInit", ana_source)
 
@@ -269,9 +270,32 @@ class BoardQcCoverageTests(unittest.TestCase):
             dirs = [p.name for p in runners.driver_include_dirs(out / "drivers")]
             # QC dongusunun denetleyecegi .c dosyalari (rglob, duz glob DEGIL).
             c_files = sorted(p.name for p in (out / "drivers").rglob("*.c"))
+            test_files = sorted(p.name for p in (out / "tests").glob("*.c"))
         self.assertEqual(dirs, ["drivers", "ana_kart", "rf_kart"])
-        self.assertIn("ana_kart.c", c_files)
+        self.assertIn("ana_kart.c", test_files)  # kart modulu test bench artefakti: tests/
+        self.assertNotIn("ana_kart.c", c_files)
         self.assertIn("tmp101.c", c_files)
+
+    def test_drivers_and_cit_never_include_test_bench_headers(self) -> None:
+        """Tasinabilirlik: drivers/ ve cit/ yalniz kendi basliklari + Xilinx BSP + libc; test
+        bench (spec2code_*, <mod>_test.h, tests/) basliklari OLMAZ - kart tanimliyken de."""
+        spec = _base_spec("tasinabilirlik_demo")
+        spec["boards"] = [{"id": "main", "name": "Ana Kart", "role": "main"},
+                          {"id": "rf", "name": "RF Kart", "role": "peripheral"}]
+        spec["devices"] = [{**spec["devices"][0], "board_id": "main"},
+                           {**spec["devices"][1], "board_id": "rf"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "p"
+            codegen.generate(spec, out)
+            offenders: list[str] = []
+            for path in [*(out / "drivers").rglob("*.[ch]"), *(out / "cit").rglob("*.[ch]")]:
+                text = path.read_text(encoding="utf-8")
+                for inc in re.findall(r'#include\s+"([^"]+)"', text):
+                    if inc.startswith("spec2code") or inc.endswith("_test.h") or "/" in inc:
+                        offenders.append(f"{path.name}: {inc}")
+                if re.search(r"\bspec2code(?!\.)\w*\s*\(", text):
+                    offenders.append(f"{path.name}: spec2code* cagrisi")
+        self.assertEqual(offenders, [])
 
     def test_driver_include_dirs_unchanged_without_boards(self) -> None:
         from orchestrator.qc import runners
@@ -291,9 +315,9 @@ class BoardStagingTests(unittest.TestCase):
             staged_header_dirs([
                 "drivers/dbg_printf.h",
                 "drivers/dbg_printf.c",
-                "drivers/ana_kart/ana_kart.h", "drivers/ana_kart/ltc2991.c",
-                "drivers/rf_kart/rf_kart.h", "drivers/rf_kart/tmp101.h",
-                "tests/tmp101_test.h", "spec2code_selftest_main.h",
+                "drivers/ana_kart/ltc2991.h", "drivers/ana_kart/ltc2991.c",
+                "drivers/rf_kart/tmp101.c", "drivers/rf_kart/tmp101.h",
+                "tests/ana_kart.h", "tests/rf_kart.h", "tests/tmp101_test.h", "spec2code_selftest_main.h",
             ]),
             ["drivers", "drivers/ana_kart", "drivers/rf_kart", "tests"],
         )
@@ -319,9 +343,9 @@ class BoardStagingTests(unittest.TestCase):
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-        self.assertIn("drivers/rf_kart/rf_kart.h", staged)
+        self.assertIn("tests/rf_kart.h", staged)
         self.assertIn("drivers/rf_kart/tmp101.c", staged)
-        self.assertIn("drivers/ana_kart/ana_kart.c", staged)
+        self.assertIn("tests/ana_kart.c", staged)
         # Ilgisiz kart baslikleri de dahil her klasor app include yoluna girer;
         # nitelenmemis #include "tmp101.h" bu sayede calismaya devam eder.
         self.assertEqual(

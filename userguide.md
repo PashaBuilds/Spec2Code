@@ -246,12 +246,16 @@ modul uretilir:
 ```text
 drivers/ana_kart/ltc2991.c    (+ .h)
 drivers/ana_kart/tca9548a.c   (+ .h)
-drivers/ana_kart/ana_kart.c   (+ .h)   -> anaKartInit / anaKartCitRun / anaKartSelfTest
 drivers/rf_kart/tmp101.c      (+ .h)
 drivers/rf_kart/sht21.c       (+ .h)
-drivers/rf_kart/rf_kart.c     (+ .h)   -> rfKartInit / rfKartCitRun / rfKartSelfTest
-tests/...                              (degismez: ajan/mesaj/CIT katmani SISTEM genelidir)
+tests/ana_kart.c              (+ .h)   -> anaKartInit / anaKartCitRun / anaKartSelfTest
+tests/rf_kart.c               (+ .h)   -> rfKartInit / rfKartCitRun / rfKartSelfTest
+tests/...                              (ajan/mesaj/CIT katmani SISTEM genelidir)
 ```
+
+Kart modulleri (`tests/<kart>.c`) test bench basliklarini (`spec2code_cit.h`, `<mod>_test.h`)
+kullandigi icin `tests/` altindadir; `drivers/` ve `cit/` boylece test bench'e bagimsiz,
+projene oldugu gibi tasinabilir bare-metal kod olarak kalir.
 
 Klasor ve fonksiyon adi kart ADINDAN turetilir:
 
