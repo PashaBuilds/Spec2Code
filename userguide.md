@@ -631,6 +631,13 @@ clang-format (10 oncesi) config'i reddediyor. v0.1.186'dan itibaren uygulama con
 yerel aracla dogrular ve eski surum icin uyumlu config'e duser; hala goruyorsan LLVM'i
 guncelle ya da `SPEC2CODE_CLANG_FORMAT_PATH` ile yeni bir clang-format goster.
 
+**"Spec/XSA uyumsuz" (`S2C-VITIS-PREFLIGHT-011/012`)** - workspace olusturma XSCT'yi hic
+baslatmadan durdu. 011: spec platformu (orn. Zynq UltraScale+) ile XSA'nin islemcisi
+(orn. MicroBlaze) farkli - Setup'ta dogru XSA'yi yukleyip spec'i ondan turet. 012:
+MicroBlaze + FreeRTOS icin tasarimda AXI Interrupt Controller ve AXI Timer yok
+(BSP DRC: "CPU has no connection to Interrupt controller") - runtime'i bare_metal yap ya
+da Vivado tasarimina axi_intc + axi_timer ekleyip XSA'yi yeniden uret.
+
 **Spec'teki denetleyici XSA'da yok** (`fatal error: xspips.h: No such file`) - spec
 xparameters.h'ten cikarilmis ama XSA'da o PS cevre birimi (orn. PS SPI) kapali. Setup'ta
 XSA'yi yeniden yukleyip denetleyici listesini XSA'dan al ya da o denetleyiciye bagli

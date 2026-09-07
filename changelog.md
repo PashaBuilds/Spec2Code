@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.190 - 2026-09-07
+
+- **Spec/XSA on kontrolu (SAHA):** ZynqMP + FreeRTOS spec'ine (my_io_board) Nexys A7 MicroBlaze
+  XSA'si verilince XSCT BSP DRC'si `CPU has no connection to Interrupt controller` ile dustu ve
+  Doctor bunu yaniltici `workspace_stale` olarak gosterdi. Artik XSCT baslamadan once
+  `spec_xsa_preflight`: spec platformu ile XSA islemci ailesi farkliysa
+  `S2C-VITIS-PREFLIGHT-011` (`platform_mismatch`), MicroBlaze + FreeRTOS'ta XSA'da `axi_intc` /
+  `axi_timer` yoksa `S2C-VITIS-PREFLIGHT-012` (`freertos_mb_no_intc`); is acik Turkce mesajla
+  durur (uzun XSCT kosusu ve bayat workspace kalintisi olusmaz). DRC metni de kendi kategorisiyle
+  eslesir. Regresyon: `tests/test_vitis_preflight.py`.
+
 ## v0.1.189 - 2026-09-07
 
 - **MDM transportu canli dogrulandi (Nexys A7, MicroBlaze Debug Module UART, JTAG):** simdiye

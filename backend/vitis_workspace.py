@@ -81,6 +81,8 @@ _VITIS_ERROR_CODES = {
     "memory_overflow": "S2C-VITIS-MEMORY-012",
     "missing_elf": "S2C-VITIS-ELF-009",
     "xsct_hang": "S2C-VITIS-HANG-010",
+    "platform_mismatch": "S2C-VITIS-PREFLIGHT-011",
+    "freertos_mb_no_intc": "S2C-VITIS-PREFLIGHT-012",
     "workspace_stale": "S2C-VITIS-WORKSPACE-011",
     "unclassified": "S2C-VITIS-UNCLASSIFIED-099",
 }
@@ -671,6 +673,67 @@ def embedded_driver_base_names(xsa_path: Path) -> set[str]:
     except (OSError, zipfile.BadZipFile):
         return set()
     return names
+
+
+_HWH_MODTYPE_RE = re.compile(r'MODTYPE="([A-Za-z0-9_]+)"')
+
+
+def xsa_module_types(xsa_path: Path) -> set[str]:
+    """XSA icindeki tum .hwh MODTYPE'lari (axi_intc, axi_timer, microblaze, zynq_ultra_ps_e ...)."""
+    types: set[str] = set()
+    for _name, payload in _hwh_documents_from_xsa(xsa_path):
+        types.update(_HWH_MODTYPE_RE.findall(payload.decode("utf-8", errors="replace")))
+    return types
+
+
+def spec_xsa_preflight(spec: dict, xsa_path: Path, os_name: str) -> list[dict]:
+    """XSCT'den ONCE yakalanabilen spec/XSA uyumsuzluklari (SAHA 2026-09-07).
+
+    Kullanici ZynqMP + FreeRTOS spec'ine Nexys A7 MicroBlaze XSA'sini verdi; XSCT
+    BSP DRC'si `CPU has no connection to Interrupt controller` ile dustu ve Doctor
+    bunu yaniltici `workspace_stale` olarak raporladi. Iki kontrol:
+      1. spec platformu ile XSA islemci ailesi ayni olmali,
+      2. MicroBlaze + FreeRTOS icin tasarimda AXI INTC + AXI Timer sart
+         (freertos10_xilinx mb_drc_checks).
+    Donus: Doctor issue sozlukleri (error). Bos liste = uyumlu.
+    """
+    from backend.parsers.xsa import XsaParseError, parse_xsa
+
+    issues: list[dict] = []
+    project = spec.get("project", {}) if isinstance(spec, dict) else {}
+    spec_platform = str(project.get("platform", "")).strip()
+    try:
+        detected = parse_xsa(xsa_path)
+        xsa_platform = str(detected.platform or "")
+    except XsaParseError:
+        return issues
+
+    def _issue(category: str, message: str) -> dict:
+        return {
+            "file": str(xsa_path), "line": 0, "column": 0,
+            "rule": "spec2code-vitis-preflight", "severity": "error",
+            "category": category, "message": message, "source": "Spec2Code",
+        }
+
+    if spec_platform and xsa_platform and spec_platform != xsa_platform:
+        issues.append(_issue(
+            "platform_mismatch",
+            f"Spec platformu '{spec_platform}', XSA islemcisi ise '{xsa_platform}' ailesinden "
+            f"({xsa_path.name}). Uretilen kod ve BSP bu XSA ile eslesmez. Setup'ta bu XSA'yi "
+            "yeniden yukleyip spec'i ondan turet ya da dogru XSA'yi sec.",
+        ))
+    modules = xsa_module_types(xsa_path)
+    if xsa_platform == "microblaze_7series" and os_name == "freertos10_xilinx":
+        missing = [name for name in ("axi_intc", "axi_timer") if name not in modules]
+        if missing:
+            issues.append(_issue(
+                "freertos_mb_no_intc",
+                "MicroBlaze uzerinde FreeRTOS icin tasarimda AXI Interrupt Controller ve AXI Timer "
+                f"gerekir (BSP DRC: 'CPU has no connection to Interrupt controller'); XSA'da eksik: "
+                f"{', '.join(missing)}. Ya spec runtime'ini bare_metal yap ya da Vivado tasarimina "
+                "axi_intc + axi_timer ekleyip XSA'yi yeniden uret.",
+            ))
+    return issues
 
 
 def discover_custom_pl_ips(xsa_path: Path) -> list[CustomPlIpCandidate]:
@@ -2814,6 +2877,18 @@ class VitisWorkspaceJobManager:
         log_dir.mkdir(parents=True, exist_ok=True)
         staged_xsa_path = hw_root / input_xsa_path.name
         shutil.copy2(input_xsa_path, staged_xsa_path)
+
+        preflight_issues = spec_xsa_preflight(job.generate_job.spec, staged_xsa_path, os_name)
+        if preflight_issues:
+            job.emit({
+                "event": "vitis.compile_errors",
+                "stage": "stage_sources",
+                "progress": 30,
+                "message": f"Spec/XSA on kontrolu {len(preflight_issues)} sorun buldu; XSCT baslatilmadi.",
+                "issues": preflight_issues,
+                "error_codes": _issue_error_codes(preflight_issues),
+            })
+            raise RuntimeError("Spec/XSA uyumsuz: " + " | ".join(i["message"] for i in preflight_issues))
 
         custom_ip_driver_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
         custom_pl_ips = discover_custom_pl_ips(staged_xsa_path) if custom_ip_driver_policy == "auto_none" else []
