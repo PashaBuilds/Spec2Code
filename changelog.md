@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.189 - 2026-09-07
+
+- **MDM transportu canli dogrulandi (Nexys A7, MicroBlaze Debug Module UART, JTAG):** simdiye
+  kadar yalniz ELF derlemesi ve xsdb kaynak incelemesiyle teyitliydi. Nexys referans tasarimi
+  `scripts/make_nexys_a7_design.tcl -tclargs mdm` ile MDM UART acik (`Debug & UART`) yeniden
+  uretildi (XSA'da `XPAR_MDM_1` subtype `mdm`), spec `testbench_transport: "mdm"` ile ajan
+  derlendi (QC gecti, Vitis ELF), JTAG'dan yuklendi. Host `xsdb jtagterminal` koprusu
+  MicroBlaze hedefiyle ~7 sn'de baglandi; `spec2code_version`, ADT7420 init/id/sicaklik,
+  S25FL128S JEDEC id, I2C tarama (0x48/0x49/0x4B/0x67/0x6B), 7 cihaz init ve CIT 36/36 OK
+  MDM uzerinden kostu. "Board'da calistir" MicroBlaze dali (bitstream + ELF) de ayni akista
+  calisti ve ardindan MDM koprusu yeniden baglandi.
+- Kilavuz: MDM icin tasarim gereksinimi (`Debug & UART`) ve Nexys `_mdm` varyanti.
+
 ## v0.1.188 - 2026-09-07
 
 - **MT25QL128 destegi (Micron MT25QL128ABA, 128 Mbit 3 V serial NOR):** `descriptors/mt25ql128.yaml`

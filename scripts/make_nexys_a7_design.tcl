@@ -5,14 +5,19 @@
 # C_USE_STARTUP=1) - pin kisitlari Digilent Nexys-A7-100T-Master.xdc'den.
 # Cikti: microblaze_nexys_a7.xsa (bit'siz), microblaze_nexys_a7_bit.xsa (bit'li), .bit, .mmi.
 #
-# Kullanim: vivado -mode batch -source scripts/make_nexys_a7_design.tcl
+# Kullanim: vivado -mode batch -source scripts/make_nexys_a7_design.tcl [-tclargs mdm]
+#   `mdm` verilirse MDM UART acilir (`debug_module {Debug & UART}`): Test Bench MDM
+#   transportu (JTAG uzerinden, USB-UART kablosu gerekmez) icin. Ciktilar `_mdm` sonekli.
+set mdm_uart [expr {[llength $argv] > 0 && [lindex $argv 0] eq "mdm"}]
+set suffix   [expr {$mdm_uart ? "_mdm" : ""}]
 set root_dir   D:/Projects/claude/Spec2Code
-set proj_dir   $root_dir/test/0_temp_dbg/vivado_nexys_a7
+set proj_dir   $root_dir/test/0_temp_dbg/vivado_nexys_a7$suffix
 set out_dir    $root_dir/test/0_dosyalar
-set xsa_out    $out_dir/microblaze_nexys_a7.xsa
-set xsa_bit    $out_dir/microblaze_nexys_a7_bit.xsa
-set bit_out    $out_dir/microblaze_nexys_a7.bit
-set mmi_out    $out_dir/microblaze_nexys_a7.mmi
+set xsa_out    $out_dir/microblaze_nexys_a7$suffix.xsa
+set xsa_bit    $out_dir/microblaze_nexys_a7${suffix}_bit.xsa
+set bit_out    $out_dir/microblaze_nexys_a7$suffix.bit
+set mmi_out    $out_dir/microblaze_nexys_a7$suffix.mmi
+set debug_mod  [expr {$mdm_uart ? "Debug & UART" : "Debug Only"}]
 set xdc_path   $proj_dir/nexys_a7.xdc
 file delete -force $proj_dir
 file mkdir $proj_dir
@@ -23,7 +28,7 @@ puts "STEP: block design"
 create_bd_design "design_1"
 create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze microblaze_0
 apply_bd_automation -rule xilinx.com:bd_rule:microblaze -config { \
-    local_mem {128KB} ecc {None} cache {None} debug_module {Debug Only} \
+    local_mem {128KB} ecc {None} cache {None} debug_module $debug_mod \
     axi_periph {Enabled} axi_intc {0} clk {New External Port (100 MHz)} } \
     [get_bd_cells microblaze_0]
 

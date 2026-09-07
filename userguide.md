@@ -176,7 +176,9 @@ cikan her arayuz gercek pinlere baglanmali; Spec2Code pin uydurmaz).
 - Referans tasarim: `scripts/make_nexys_a7_design.tcl` (Digilent Nexys A7-100T: MB
   256K LMB, AXI UARTLite 115200, AXI IIC, AXI Quad SPI STARTUPE2 uzerinden
   konfigurasyon flash'i). Bu kartta UART ajani, kart ustu ADT7420, S25FL128S flash,
-  karisik-mod CIT ve QSPI'dan acilis uctan uca dogrulanmistir.
+  karisik-mod CIT ve QSPI'dan acilis uctan uca dogrulanmistir. `-tclargs mdm` ile
+  ayni tasarim MDM UART acik uretilir; MDM transportu (JTAG, USB-UART kablosuz) bu
+  tasarimla canli dogrulanmistir: baglanti ~7 sn, I2C/SPI op'lari, I2C tarama, CIT.
 
 ---
 
@@ -414,6 +416,11 @@ Akis, Bring-up, CIT ve Registers ayni oturumu kullanir.
 | Seri | UART ajani (PS UART / AXI UARTLite) | COM portu, baud (or. 115200) |
 | CoreSight | ZynqMP DCC, JTAG (xsdb jtagterminal) | Vitis yolu, cekirdek |
 | MDM | MicroBlaze Debug Module UART, JTAG | Vitis yolu |
+
+MDM icin tasarimda MicroBlaze debug modulunun UART'i acik olmali (Vivado blok
+otomasyonunda `debug_module {Debug & UART}`; XSA'da `XPAR_MDM_n` `XUartLite`
+subtype `mdm` olarak gorunur). Spec'te `testbench_transport: "mdm"` secilince ajan bu
+UART'a baglanir, host xsdb `jtagterminal` koprusunu MicroBlaze hedefiyle acar.
 
 SmartLynq / uzak `hw_server` icin `connect -url` alani vardir. Ilk JTAG baglantisi
 xsdb acilisi yuzunden 10-30 sn surebilir. Ayni COM portunu tutan eski oturum sunucu
