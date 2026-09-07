@@ -3,6 +3,24 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.188 - 2026-09-07
+
+- **MT25QL128 destegi (Micron MT25QL128ABA, 128 Mbit 3 V serial NOR):** `descriptors/mt25ql128.yaml`
+  - 3 baytlik adresleme, JEDEC 0x20 0xBA 0x18; op'lar: device_init (CLEAR FLAG STATUS 0x50),
+  id_read, status_read (0x05), **flag_status_read** (RFSR 0x70, bit 7 P/E ready), data_read (0x03),
+  page_program (0x02), sector_erase (64 KB 0xD8), **subsector_erase** (4 KB 0x20). Katalog, kilavuz,
+  bring-up kategorisi, sematik/bus dalga formu listeleri ve Cihaz Bilgisi (knowledge) girdisi eklendi.
+  Mesaj katalogunda kalici id'ler: `FLAG_STATUS_READ 0x5343041F`, `SUBSECTOR_ERASE 0x53430420`.
+- **AXI Quad SPI (XSpi) uzerinden dogrulama (MicroBlaze sahasi):** Nexys A7 spec'iyle uretilen
+  surucu `XSpi` polled akisiyla derlendi (Vitis ELF), JTAG'dan kosuldu ve test bench'ten
+  id_read / status_read / flag_status_read / sector_erase / page_program / data_read AXI SPI
+  uzerinden calisti (erase -> FF, program -> ayni verinin geri okunmasi). Kart flash'i fiziksel
+  S25FL128S oldugundan JEDEC id 0x01 0x20 0x18 dondu ve 0x70/0x20 komutlari o parcada yok
+  sayildi - komut yolu ve XSpi transferleri birebir ayni. Regresyon:
+  `tests/test_axi_bus_codegen.py::Mt25ql128AxiSpiTests`.
+- Self-test logu: `...FlagStatusRead` ciktisi "flag status" etiketiyle basilir (status ile
+  karismasin).
+
 ## v0.1.187 - 2026-09-07
 
 - **CIT kanal karolari (V1..V8 / I1..I8) kutudan tasiyordu (SAHA, 3x LTC2991):** grid hucresi

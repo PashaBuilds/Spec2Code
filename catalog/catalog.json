@@ -45,6 +45,19 @@
       ]
     },
     {
+      "part": "MT25QL128",
+      "transport": "spi",
+      "status": "builtin",
+      "descriptor": "descriptors/mt25ql128.yaml",
+      "summary": "MT25QL128ABA 128 Mbit 3 V SPI NOR flash, 3-byte addressing, flag status (0x70) izleme",
+      "match_tokens": [
+        "MT25QL128",
+        "mt25ql128_",
+        "READ_FLAG_STATUS",
+        "0x70"
+      ]
+    },
+    {
       "part": "MT25QU02G",
       "transport": "spi",
       "status": "builtin",

@@ -17,7 +17,7 @@ interface ByteFrame {
 }
 
 const I2C_PARTS = new Set(["LTC2991", "TCA9548A", "AD7414", "TMP101", "SHT21", "24LC32A", "DS1682", "LTC2945"]);
-const SPI_PARTS = new Set(["MT25Q128", "MT25QU02G", "ADAR1000", "LMK04832", "LMX2820", "LMX1204", "LMX1205"]);
+const SPI_PARTS = new Set(["MT25Q128", "MT25QL128", "MT25QU02G", "S25FL128S", "ADAR1000", "LMK04832", "LMX2820", "LMX1204", "LMX1205"]);
 
 function protocolForPart(part: string): Protocol | null {
   const normalized = part.toUpperCase();

@@ -36,6 +36,8 @@ _PART_CATEGORY = {
     "LMK04832": "clock",
     "LMX2820": "clock",
     "MT25Q128": "memory",
+    "MT25QL128": "memory",
+    "S25FL128S": "memory",
     "MT25QU02G": "memory",
     "24LC32A": "memory",
     "DS1682": "memory",

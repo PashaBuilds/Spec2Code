@@ -588,7 +588,7 @@ bagimlilik onbellegi gerekir (`glm52_handoff.md`).
 
 TCA9548A (I2C switch), LTC2991, LTC2945, ADT7420, AD7414, TMP101, SHT21, DS1682,
 24LC32A (I2C EEPROM), LMK04832, LMX2820, LMX1204, LMX1205, ADAR1000, LTM4681,
-MT25Q128, MT25QU02G, S25FL128S (SPI/QSPI NOR flash), GPIO hat cihazlari.
+MT25Q128, MT25QL128, MT25QU02G, S25FL128S (SPI/QSPI NOR flash), GPIO hat cihazlari.
 Guncel liste Katalog ekranindadir; katalogda olmayan cihaz icin deterministik
 uretim yoktur (yeni entegre destegi descriptor eklenerek surume girer).
 

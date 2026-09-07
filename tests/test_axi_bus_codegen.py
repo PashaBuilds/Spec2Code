@@ -100,6 +100,18 @@ def _mt25q128(controller_id: str) -> dict:
     }
 
 
+def _mt25ql128(controller_id: str) -> dict:
+    return {
+        "id": "u22_mt25ql128", "part": "MT25QL128",
+        "descriptor_ref": "descriptors/mt25ql128.yaml",
+        "attach": {"controller_id": controller_id, "spi_chip_select": 0,
+                   "address_width": 24, "reset_gpio": None},
+        "operations_requested": ["device_init", "id_read", "status_read", "flag_status_read",
+                                 "data_read", "page_program", "sector_erase", "subsector_erase"],
+        "tests_requested": ["self_test"],
+    }
+
+
 def _generate(spec: dict) -> dict[str, str]:
     """Generate into a temp dir and return {relative posix path: text}."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -290,6 +302,50 @@ class AxiSpiCodegenTests(unittest.TestCase):
         self.assertIn("XSpi_SetSlaveSelect(spSpi, (1U << MT25Q128_SPI_SELECT));", source)
         self.assertIn("XSpi_Transfer(spSpi,", source)
         self.assertNotIn("XSpiPs_PolledTransfer", source)
+
+
+class Mt25ql128AxiSpiTests(unittest.TestCase):
+    """MT25QL128 (Micron 128 Mbit 3 V NOR) AXI Quad SPI / XSpi uzerinden (MicroBlaze sahasi)."""
+
+    def test_full_command_set_over_axi_spi(self) -> None:
+        spec = _microblaze_spec("unit_mt25ql128_axi")
+        spec["devices"] = [_mt25ql128("pl_spi_0")]
+
+        files = _generate(spec)
+        source = files["drivers/mt25ql128.c"]
+        header = files["drivers/mt25ql128.h"]
+
+        self.assertIn('#include "xspi.h"', header)
+        self.assertNotIn("XSpiPs_", source)
+        for signature in ("int mt25ql128DeviceInit(XSpi* spSpi)",
+                          "int mt25ql128IdRead(XSpi* spSpi, unsigned char* ucpId)",
+                          "int mt25ql128StatusRead(XSpi* spSpi, unsigned char* ucpStatus)",
+                          "int mt25ql128FlagStatusRead(XSpi* spSpi, unsigned char* ucpFlag)",
+                          "int mt25ql128DataRead(XSpi* spSpi, unsigned int uiAddress, unsigned char* ucpBuffer, unsigned int uiLength)",
+                          "int mt25ql128PageProgram(XSpi* spSpi, unsigned int uiAddress, const unsigned char* ucpData, unsigned int uiLength)",
+                          "int mt25ql128SectorErase(XSpi* spSpi, unsigned int uiAddress)",
+                          "int mt25ql128SubsectorErase(XSpi* spSpi, unsigned int uiAddress)"):
+            self.assertIn(signature, header)
+        # Micron komut seti: 3 baytlik adres, RFSR/CLFSR, 4 KB SSE.
+        for macro in ("MT25QL128_CMD_READ_ID 0x9FU", "MT25QL128_CMD_READ_FLAG_STATUS 0x70U",
+                      "MT25QL128_CMD_CLEAR_FLAG_STATUS 0x50U", "MT25QL128_CMD_SUBSECTOR_ERASE 0x20U",
+                      "MT25QL128_CMD_SECTOR_ERASE 0xD8U", "MT25QL128_CMD_PAGE_PROGRAM 0x02U"):
+            self.assertIn(macro, header)
+        self.assertNotIn("ENTER_4BYTE", header)
+        # device_init: XSpi polled akisi + eski hata bayraklarini temizle.
+        init = source[source.index("int mt25ql128DeviceInit"):source.index("int mt25ql128IdRead")]
+        self.assertIn("XSpi_SetOptions(spSpi, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION)", init)
+        self.assertIn("mt25ql128CommandSend(spSpi, MT25QL128_CMD_CLEAR_FLAG_STATUS)", init)
+        self.assertIn("XSpi_SetSlaveSelect(spSpi, (1U << MT25QL128_SPI_SELECT));", source)
+        # self-test: JEDEC id + status + FLAG status ayri etiketle basilir.
+        test = files["tests/mt25ql128_test.c"]
+        self.assertIn('"MT25QL128 JEDEC id = %02X %02X %02X"', test)
+        self.assertIn('"MT25QL128 status = %02X"', test)
+        self.assertIn('"MT25QL128 flag status = %02X"', test)
+        # Test bench: yeni op'lar mesaj katalogundan KALICI id ile gelir.
+        ops = files["tests/unit_mt25ql128_axi_testbench_ops.c"]
+        for op in ("flag_status_read", "subsector_erase", "sector_erase", "page_program", "data_read"):
+            self.assertIn(f'"{op}"', ops)
 
 
 class UnsupportedBusDriverGateTests(unittest.TestCase):

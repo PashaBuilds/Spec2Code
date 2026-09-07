@@ -1,0 +1,69 @@
+descriptor_version: "1.0"
+part: "MT25QL128"
+manufacturer: "Micron"
+summary: "MT25QL128ABA 128 Mbit (16 MB) 3 V serial NOR flash, 3-byte (24-bit) addressing; JEDEC-standard single-SPI command set (AXI Quad SPI / XSpi ve PS SPI/QSPI ile kullanilir)."
+transport:
+  type: spi
+  address_width: 24          # 3-byte addressing; 4-byte mode (0xB7) bu yogunlukta gerekmez
+  byte_order: big
+access_primitives:
+  read_command:  { pattern: opcode_then_read }
+  write_command: { pattern: opcode_then_write }
+# Micron MT25QL128ABA datasheet, "Command Set" tablosu - single (extended) SPI
+# alt kumesi. JEDEC ID: 0x20 (Micron) 0xBA (3 V, MT25QL) 0x18 (128 Mbit).
+# 1.8 V kardes parca MT25QU128 icin device type baytu 0xBB'dir.
+# Program/erase tamamlanmasi Micron'da FLAG STATUS (0x70) bit 7 (P/E controller
+# ready) ile izlenir; STATUS (0x05) bit 0 WIP de kullanilabilir.
+commands:
+  - { name: READ_ID,            opcode: 0x9F, address_bytes: 0, description: "RDID (0x20 0xBA 0x18 ...)" }
+  - { name: READ_STATUS,        opcode: 0x05, address_bytes: 0, description: "RDSR (bit 0 WIP, bit 1 WEL)" }
+  - { name: READ_FLAG_STATUS,   opcode: 0x70, address_bytes: 0, description: "RFSR (bit 7 P/E ready, bit 5 erase err, bit 4 program err)" }
+  - { name: CLEAR_FLAG_STATUS,  opcode: 0x50, address_bytes: 0, description: "CLFSR (hata bitlerini temizle)" }
+  - { name: WRITE_ENABLE,       opcode: 0x06, address_bytes: 0, description: "WREN" }
+  - { name: WRITE_DISABLE,      opcode: 0x04, address_bytes: 0, description: "WRDI" }
+  - { name: READ_DATA,          opcode: 0x03, address_bytes: 3, description: "READ (<= 54 MHz, dummy yok)" }
+  - { name: FAST_READ,          opcode: 0x0B, address_bytes: 3, description: "FAST_READ (8 dummy cycle; uretilen op'larda kullanilmaz)" }
+  - { name: PAGE_PROGRAM,       opcode: 0x02, address_bytes: 3, description: "PP (256 B sayfa)" }
+  - { name: SECTOR_ERASE,       opcode: 0xD8, address_bytes: 3, description: "SE (64 KB sektor)" }
+  - { name: SUBSECTOR_ERASE_32K, opcode: 0x52, address_bytes: 3, description: "32 KB subsector erase" }
+  - { name: SUBSECTOR_ERASE,    opcode: 0x20, address_bytes: 3, description: "SSE (4 KB subsector)" }
+  - { name: RESET_ENABLE,       opcode: 0x66, address_bytes: 0, description: "RSTEN (software reset adim 1)" }
+  - { name: RESET_MEMORY,       opcode: 0x99, address_bytes: 0, description: "RST (software reset adim 2)" }
+operations:
+  - name: device_init
+    description: "3-byte (24-bit) addressing - adres modu degistirmek gerekmez; olasi eski hata bayraklari temizlenir."
+    steps:
+      - { op: send_command, cmd: CLEAR_FLAG_STATUS, note: "Onceki program/erase hata bayraklarini sifirla" }
+  - name: id_read
+    description: "3 baytlik JEDEC kimligini oku (RDID): 0x20 0xBA 0x18."
+    steps:
+      - { op: read_command_address, cmd: READ_ID, length: 3 }
+  - name: status_read
+    description: "Status register (bit 0 WIP = yazma suruyor, bit 1 WEL = write enable)."
+    steps:
+      - { op: read_command_address, cmd: READ_STATUS, length: 1 }
+  - name: flag_status_read
+    description: "Flag status register (bit 7 = P/E controller hazir, bit 5 = erase hatasi, bit 4 = program hatasi)."
+    steps:
+      - { op: read_command_address, cmd: READ_FLAG_STATUS, length: 1 }
+  - name: data_read
+    description: "24-bit adresten length bayt oku."
+    steps:
+      - { op: read_command_address, cmd: READ_DATA }
+  - name: page_program
+    description: "24-bit adrese length bayt programla (256 B sayfa sinirini asma); sonraki komuttan once flag_status_read bit 7 = 1 bekle."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: PAGE_PROGRAM }
+  - name: sector_erase
+    description: "24-bit adresi iceren 64 KB sektoru sil (tipik 150 ms; flag_status_read bit 7 = 1 bekle)."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: SECTOR_ERASE, length: 0 }
+  - name: subsector_erase
+    description: "24-bit adresi iceren 4 KB subsector'u sil (tipik 50 ms; flag_status_read bit 7 = 1 bekle)."
+    steps:
+      - { op: send_command, cmd: WRITE_ENABLE }
+      - { op: write_command_address, cmd: SUBSECTOR_ERASE, length: 0 }
+test_hints:
+  self_test: { description: "JEDEC ID oku; uretici 0x20 (Micron), tip 0xBA (3 V) ve yogunluk 0x18 (128 Mbit) dogrula." }

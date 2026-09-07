@@ -2581,8 +2581,11 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
                 st.ln(f"iStatus = {name}({hvar}, &usStatusWord);").check_status()
                 st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' status word = %04X", (unsigned int)usStatusWord);')
             else:
+                # Ayni `...StatusRead` sonekini tasiyan farkli register'lar (MT25QL128
+                # STATUS 0x05 ve FLAG STATUS 0x70) logda ayrilsin: etiket op adindan.
+                label = "flag status" if name.endswith("FlagStatusRead") else "status"
                 st.ln(f"iStatus = {name}({hvar}, &ucStatus);").check_status()
-                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' status = %02X", ucStatus);')
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + " " + label + ' = %02X", ucStatus);')
         elif name.endswith("VoltageRead"):
             if has_int_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &iVoltage);").check_status()

@@ -990,7 +990,7 @@ const mt25qCommandRows: FlashCommandRow[] = [
   { name: "CRC_CHECK", opcode: "0x9B / 0x27", access: "RO", addressBytes: "0", dummyCycles: "0", dataBytes: "10 veya 18", purpose: "Cyclic redundancy check operation." },
 ];
 
-function mt25qRegisters(part: "MT25Q128" | "MT25QU02G"): KnowledgeRegister[] {
+function mt25qRegisters(part: "MT25Q128" | "MT25QL128" | "MT25QU02G"): KnowledgeRegister[] {
   const large = part === "MT25QU02G";
   return mt25qCommandRows.map((row) => {
     const effectiveAddressBytes = row.addressBytes === "3/4" ? (large ? "4" : "3") : row.addressBytes;
@@ -2352,6 +2352,82 @@ const PACKS: Record<string, DeviceKnowledgePack> = {
     ],
     codegenNotes: [
       "Spec2Code şu anda read, program, sector erase ve ID read için güvenli 3-byte command seti üretir.",
+    ],
+    pinMap: {
+      packageName: "8-pin SPI NOR sinyal haritası",
+      view: "Fonksiyonel görünüm",
+      verification: "Micron MT25Q 128Mb datasheet signal descriptions ve 8-pin package bilgisiyle kontrol edildi.",
+      note: "Pin numaraları 8-pin SPI NOR package için geçerlidir; farklı orderable/package kodunda datasheet package tablosu esas alınmalıdır.",
+      pins: [
+        { number: "1", name: "S#", role: "Chip select", tone: "control", side: "left" },
+        { number: "2", name: "DQ1", role: "SO / IO1", tone: "memory", side: "left" },
+        { number: "3", name: "W#/DQ2", role: "Write protect / IO2", tone: "memory", side: "left" },
+        { number: "4", name: "VSS", role: "Toprak", tone: "ground", side: "left" },
+        { number: "8", name: "VCC", role: "Besleme", tone: "power", side: "right" },
+        { number: "7", name: "DQ3/HOLD#", role: "Hold / IO3", tone: "memory", side: "right" },
+        { number: "6", name: "C", role: "SPI clock", tone: "bus", side: "right" },
+        { number: "5", name: "DQ0", role: "SI / IO0", tone: "memory", side: "right" },
+      ],
+      groups: [
+        { label: "Single SPI", pins: ["S#", "C", "DQ0", "DQ1"], tone: "bus", description: "Mevcut driver güvenli single-SPI command setini kullanır." },
+        { label: "Quad-ready", pins: ["DQ0", "DQ1", "W#/DQ2", "DQ3/HOLD#"], tone: "memory", description: "Quad mode için controller, pin mux ve flash config ayrıca doğrulanmalıdır." },
+      ],
+    },
+  },
+
+  MT25QL128: {
+    part: "MT25QL128",
+    reviewedAt: "2026-09-07",
+    scope: "Güvenli single-SPI NOR flash read, program, erase ve JEDEC ID akışları.",
+    sources: [
+      {
+        label: "Micron MT25Q serial NOR product page",
+        url: "https://www.micron.com/products/storage/nor-flash/serial-nor",
+      },
+      {
+        label: "Micron MT25Q family datasheet copy",
+        url: "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8880/557_mt25q-qlkt-l-512-abb-0.pdf",
+      },
+    ],
+    overview:
+      "Micron MT25QL128ABA: 128 Mbit (16 MB), 3 V serial NOR flash; JEDEC ID 0x20 0xBA 0x18 (1.8 V kardeşi MT25QU128 için 0xBB). Spec2Code profili 3-byte addressing ve single-SPI komut setini kullanır; MicroBlaze tasarımlarında AXI Quad SPI (XSpi) üzerinden, ZynqMP'de PS SPI/QSPI üzerinden aynı sürücü üretilir.",
+    keyFacts: [
+      "3-byte address width, tüm 128 Mbit adres aralığı için yeterlidir.",
+      "Read/program/erase operasyonlarında write-enable ve busy polling sırası korunmalıdır.",
+      "Parça ailesi daha hızlı dual/quad read mode'ları destekleyebilir; mevcut generated driver bilinçli olarak güvenli base command setinde kalır.",
+      "Page program boyutu tipik olarak 256 byte'tır; page boundary aşan yazmalar application logic tarafından bölünmelidir.",
+    ],
+    configuration: [
+      "Parçayı SPI/QSPI controller instance'a bağlamak için chip-select kullan.",
+      "Bu descriptor için address width 24 bit kalmalıdır.",
+      "Flash reset pini işlemciye bağlıysa board reset GPIO ekle; bağlı değilse gereksizdir.",
+    ],
+    registers: mt25qRegisters("MT25QL128"),
+    recipes: [
+      {
+        title: "JEDEC ID okuma",
+        goal: "Wiring ve chip-select doğrulamak.",
+        steps: ["Chip-select assert et.", "0x9F gönder.", "Üç ID byte oku; all-0x00/all-0xFF değerlerini reddet."],
+      },
+      {
+        title: "Page program",
+        goal: "Byte verilerini bir page içine programlamak.",
+        steps: [
+          "WRITE_ENABLE gönder.",
+          "24-bit address ile PAGE_PROGRAM gönder.",
+          "Page boundary izin verdiğinden fazlasını yazma.",
+          "WIP temizlenene kadar READ_STATUS poll et.",
+        ],
+      },
+    ],
+    gotchas: [
+      "Bitleri 0'dan tekrar 1'e çevirmek gerekiyorsa program öncesinde erase yapılmalıdır.",
+      "Program ve erase süreleri normal SPI read'e göre uzundur; WIP her zaman poll edilmelidir.",
+      "Board pinleri, controller mode ve volatile/nonvolatile config bitleri bilinçli ayarlanmadan quad read/program kullanılmamalıdır.",
+    ],
+    codegenNotes: [
+      "Spec2Code read, program, 64 KB sector erase, 4 KB subsector erase, ID read, status ve FLAG STATUS (0x70) read üretir; device_init eski hata bayraklarını CLEAR FLAG STATUS (0x50) ile temizler.",
+      "Program/erase tamamlanması Micron'da FLAG STATUS bit 7 (P/E controller ready) ile izlenir; self-test JEDEC ID 0x20 0xBA 0x18 bekler.",
     ],
     pinMap: {
       packageName: "8-pin SPI NOR sinyal haritası",
@@ -3832,7 +3908,7 @@ export function getRegisterTransfers(part: string, reg: KnowledgeRegister): Know
     }
   }
 
-  if (normalizedPart === "MT25Q128" || normalizedPart === "MT25QU02G") {
+  if (normalizedPart === "MT25Q128" || normalizedPart === "MT25QL128" || normalizedPart === "MT25QU02G") {
     const isLargeFlash = normalizedPart === "MT25QU02G";
     const handle = isLargeFlash ? "spQspi" : "spSpi";
     const addrBytes = isLargeFlash ? 4 : 3;
