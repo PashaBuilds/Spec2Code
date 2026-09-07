@@ -576,7 +576,9 @@ export default function CitPanel() {
     const tone = badgeTone(measurement, eff);
     const shown = formatValue(measurement.value, measurement.unit);
     const selected = editingKey === key;
-    const customName = eff.name !== measurement.name || !/_V\d+_\d+$|_I\d+_\d+$/.test(eff.name);
+    // Varsayilan kanal adi `<KIMLIK>_V<k>` / `<KIMLIK>_I<k>` (eski bicim `_V<k>_<n>` de tanınır);
+    // varsayilansa karoda tekrar yazilmaz (kart basligi zaten kimligi gosterir).
+    const customName = eff.name !== measurement.name || !/_[VI]\d+(?:_\d+)?$/.test(eff.name);
     return (
       <button
         type="button"
@@ -586,7 +588,8 @@ export default function CitPanel() {
           eff.pending ? "henüz koşulmadı" : `ham ${hex(measurement.raw)}`
         }`}
         className={cn(
-          "flex flex-col items-start rounded-md border px-2 py-1.5 text-left transition-colors",
+          // min-w-0: grid hucresi icerigi (uzun ad) kadar genislemesin, 4. sutun kutudan tasmasin.
+          "flex min-w-0 flex-col items-start overflow-hidden rounded-md border px-2 py-1.5 text-left transition-colors",
           TONE_TILE[tone],
           selected && "ring-1 ring-accent",
           !eff.enabled && "opacity-45",
@@ -669,7 +672,7 @@ export default function CitPanel() {
               </span>
               <span className="shrink-0 text-[10px] text-faint" title="karoya tıkla: isim/limit düzenle">{list.length} kanal</span>
             </div>
-            <div className="grid grid-cols-4 gap-1.5">{list.map(renderChannelTile)}</div>
+            <div className="grid grid-cols-4 gap-1.5 [&>*]:min-w-0">{list.map(renderChannelTile)}</div>
             {editingChannelRow && editingChannelRow.m.op === op ? (
               <div className="mt-1">
                 <div className="mt-1 flex items-center justify-between text-[10px] text-faint">

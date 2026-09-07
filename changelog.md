@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.187 - 2026-09-07
+
+- **CIT kanal karolari (V1..V8 / I1..I8) kutudan tasiyordu (SAHA, 3x LTC2991):** grid hucresi
+  uzun varsayilan ad (`KART_LTC2991_1_V4`) kadar genisleyip 4. sutunu kartin disina itiyordu.
+  Karo `min-w-0` + `overflow-hidden`; varsayilan `<KIMLIK>_V<k>` / `_I<k>` adlari karoda tekrar
+  yazilmaz (kart basligi kimligi zaten gosterir; ozel ad verilirse yine gorunur).
+
 ## v0.1.186 - 2026-09-07
 
 - **ZynqMP (FreeRTOS + PS Ethernet + QSPI PSU) uretiminde QC KALDI (SAHA, custom PL IP'li
