@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.196 - 2026-09-08
+
+- **Shell komut gecmisi:** yukari/asagi ok tuslari (`ESC [ A` / `ESC [ B`) son 8 komutta gezer
+  (halka; ayni komut arka arkaya tek kayit; sonda bos satir), yuklenen satir duzenlenip Enter ile
+  kosulur. `SHELL_HISTORY_MAX`. Host gcc round-trip'e ok tusu senaryosu eklendi.
+- **Shell canli dogrulama (Nexys A7, USB-UART COM12, bizzat surulerek):** Enter/istem, `help`,
+  `sdl` (okuma, `info`, gecersiz `9`, `0`), bilinmeyen komut, `i2c_search` (gercek ADT7420 0x4B
+  ACK), `cit` (tam rapor + `cit: <sonuc> (kosu #n)`), ok tuslariyla gecmis ve duzenleme.
+- Kilavuz: `cit` raporunun `sdl` seviyesinden bagimsiz basildigi aciklandi (komut ciktisi;
+  rapor sirasinda esik gecici INFO, o yuzden `sdl 0`'da da hata izleri gorunur).
+
 ## v0.1.195 - 2026-09-07
 
 - **Konsol kabugu katmani `shell/` (SAHA istegi):** kullanicinin kendi main'inde derlenen,

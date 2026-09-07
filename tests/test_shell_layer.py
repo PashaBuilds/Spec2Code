@@ -103,6 +103,11 @@ class ShellLayerGenerationTests(unittest.TestCase):
             self.assertIn(f'strcmp(cpArgument, "{level}") == 0', source)
         # satir okuma bloklamaz: while (shellUartByteRead(...))
         self.assertIn("while (shellUartByteRead(&ucByte) == TRUE)", source)
+        # gecmis: ESC [ A / ESC [ B, halka, ayni komut tek kayit
+        self.assertIn("static char S_cArrHistory[SHELL_HISTORY_MAX][SHELL_LINE_MAX];", source)
+        self.assertIn("shellHistoryAdd(S_cArrLine);", source)
+        self.assertIn("if (ucByte == (unsigned char)'A')", source)
+        self.assertIn("if (ucByte == (unsigned char)'B')", source)
 
     def test_uart_access_follows_platform(self) -> None:
         uart = _read(self.out_dir, "shell/shell_uart.c")
@@ -167,7 +172,8 @@ extern unsigned int g_uiStubUartInLen;
 static SSistemCitBus S_sBus;
 static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
-static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\rsdl\ri2c_search\rcit\r";
+/* Son: yukari-yukari + Enter -> "sdl 9" yeniden kosar (xyz'den bir onceki); asagi-asagi -> bos satir. */
+static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\rcit\r";
 int main(void)
 {
     unsigned int uiTur;
@@ -221,7 +227,7 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("komut kabugu hazir (help)", out)
         self.assertIn("komutlar:", out)                       # help
         self.assertIn("log seviyesi: info (4)", out)          # sdl info
-        self.assertIn("sdl: gecersiz seviye '9'", out)        # sdl 9
+        self.assertEqual(out.count("sdl: gecersiz seviye '9'"), 2)  # sdl 9 + gecmisten (yukari x2) tekrar
         self.assertIn("bilinmeyen komut: xyz (help)", out)    # xyz
         self.assertIn("pl_i2c_0: tarama 0x08..0x77", out)     # i2c_search
         self.assertIn("0x70  (I2C switch, atlandi)", out)

@@ -434,6 +434,11 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `sdl <seviye>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi |
 
+Yukari/asagi ok tuslari son 8 komutta gezer (yukari: onceki, asagi: sonraki, sonda bos
+satir); gelen satir duzenlenip Enter ile yeniden kosulabilir. `cit` komutunun raporu
+`sdl` seviyesinden bagimsiz her zaman basilir (komutun kendi ciktisidir); `sdl` yalniz
+surucu/CIT kodunun kendi `dbg_printf` satirlarini (or. `TRACEERR` hata izleri, `sdl 0`'da
+bile rapor icindeki hatalar gorunur cunku rapor sirasinda esik gecici INFO'dur) suzer.
 `shell_uart.c` platforma gore uretilir (XUartLite / XUartPs / XUartPsv, `STDIN_BASEADDRESS`).
 Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken kabuk
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
