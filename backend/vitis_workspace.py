@@ -24,8 +24,9 @@ from typing import Optional
 from backend.jobs import Job
 from backend.vitis_errors import map_vitis_errors
 from hostplat import io as hio
+from hostplat.paths import data_root
 
-_ROOT = Path(__file__).resolve().parent.parent
+_ROOT = data_root()
 _OUTPUTS = _ROOT / "outputs"
 _VERSION_RE = re.compile(r"(20\d{2}\.\d+(?:\.\d+)?)")
 # Case-sensitive on purpose: Xilinx fatal lines are uppercase `ERROR: [...]`,
@@ -513,7 +514,10 @@ def _xsct_hang_issue(outcome: XsctRunOutcome, script_path: Path) -> dict:
             "üzerinde durduysa Task Manager'da `which.exe` (parent: eclipse.exe) var mı kontrol et. "
             "Varsa antivirüs/console host müdahalesini incele; makinede takılıyorsa Vitis "
             "`gnuwin/bin/which.exe` dosyasını yedekleyip konsol açmayan bir stub ile değiştirmek "
-            "bilinen bir workaround'dur."
+            "bilinen workaround'dur: Spec2Code paketindeki `scripts/windows/vitis_which_stub/"
+            "apply.ps1` (yönetici PowerShell, Vitis kapalıyken) bunu yapar, `restore.ps1` geri alır. "
+            "Bu donma Spec2Code sürümünden bağımsızdır (makine/antivirüs kaynaklı); yarım kalan "
+            "application projesinde yalnız lscript/README kalır, kaynaklar import edilemez."
         ),
         "file": str(script_path),
         "line": None,

@@ -19,8 +19,11 @@ from typing import Optional
 from orchestrator import codegen
 from orchestrator.qc import loop as qc_loop
 from backend.rulesets import DEFAULT_RULESET_REF, resolve_ruleset_ref
+from hostplat.paths import data_root
 
-_ROOT = Path(__file__).resolve().parent.parent
+# Yazilabilir kok: kaynaktan repo koku, paketli uygulamada exe'nin yani
+# (PyInstaller _MEIPASS gecici klasoru DEGIL - bkz. hostplat.paths).
+_ROOT = data_root()
 _OUTPUTS = _ROOT / "outputs"
 _SPECS = _ROOT / "specs"
 _IMPORTED = _ROOT / "catalog" / "imported.json"

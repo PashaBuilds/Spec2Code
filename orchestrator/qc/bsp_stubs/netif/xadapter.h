@@ -12,5 +12,6 @@ struct netif* xemac_add(struct netif* spNetif,
                         unsigned char* ucpMacAddress,
                         unsigned int uiBaseAddress);
 void xemacif_input(struct netif* spNetif);
+void xemacif_input_thread(struct netif* spNetif);
 
 #endif /* NETIF_XADAPTER_H */

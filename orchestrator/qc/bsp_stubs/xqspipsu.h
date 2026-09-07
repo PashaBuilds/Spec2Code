@@ -8,6 +8,10 @@
 #define XQSPIPSU_SELECT_MODE_SPI 0U
 #define XQSPIPSU_MSG_FLAG_TX 0x01U
 #define XQSPIPSU_MSG_FLAG_RX 0x02U
+#define XQSPIPSU_MSG_FLAG_STRIPE 0x04U
+#define XQSPIPSU_CONNECTION_MODE_SINGLE 0U
+#define XQSPIPSU_CONNECTION_MODE_STACKED 1U
+#define XQSPIPSU_CONNECTION_MODE_PARALLEL 2U
 #define XQSPIPSU_SELECT_FLASH_CS_LOWER 0U
 #define XQSPIPSU_SELECT_FLASH_BUS_LOWER 0U
 
@@ -15,6 +19,8 @@ typedef struct
 {
     uint16_t DeviceId;
     uint32_t BaseAddress;
+    uint8_t ConnectionMode;
+    uint8_t BusWidth;
 } XQspiPsu_Config;
 
 typedef struct

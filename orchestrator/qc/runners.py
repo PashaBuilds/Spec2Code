@@ -64,13 +64,27 @@ def driver_include_dirs(drivers_dir: Path) -> list[Path]:
 
 # --- clang-format -----------------------------------------------------------------------
 
-def clang_format_config(ruleset: dict) -> str:
+def clang_format_config(ruleset: dict, *, legacy: bool = False) -> str:
+    """`.clang-format` icerigi.
+
+    SAHA (2026-09-07, sirket makinesi): eski bir clang-format (<10) config'i
+    `YAML:14:32: error: invalid boolean` ile reddetti -> HER dosya
+    `qc.format_failed` -> 63 error, QC KALDI. `AllowShortBlocksOnASingleLine`
+    10 oncesinde boolean'dir; `false` her surumde gecerlidir (>=10 bunu `Never`
+    olarak okur), o yuzden enum degil boolean yazilir. `UseCRLF`/`DeriveLineEnding`
+    de 10'da geldi ve eski surum bilinmeyen anahtari HATA sayar: ``legacy=True``
+    bu iki anahtari birakir (CRLF'i zaten `hostplat.io.write_output` basar).
+    """
     fmt = ruleset.get("formatting", {})
     brace = {"allman": "Allman", "attach": "Attach", "k&r": "Linux"}.get(
         fmt.get("brace_style", "allman"), "Allman")
     indent = 4 if fmt.get("indent", "spaces_4") == "spaces_4" else 4
     column = fmt.get("max_line_length", 100)
     use_crlf = "true" if fmt.get("line_ending") == "crlf" else "false"
+    line_ending_keys = "" if legacy else (
+        f"UseCRLF: {use_crlf}\n"
+        "DeriveLineEnding: false\n"
+    )
     return (
         "---\n"
         "Language: Cpp\n"
@@ -79,15 +93,34 @@ def clang_format_config(ruleset: dict) -> str:
         f"IndentWidth: {indent}\n"
         "UseTab: Never\n"
         f"ColumnLimit: {column}\n"
-        f"UseCRLF: {use_crlf}\n"
-        "DeriveLineEnding: false\n"
+        f"{line_ending_keys}"
         "PointerAlignment: Left\n"
         "AllowShortFunctionsOnASingleLine: None\n"
         "AllowShortIfStatementsOnASingleLine: false\n"
         "AllowShortLoopsOnASingleLine: false\n"
-        "AllowShortBlocksOnASingleLine: Never\n"
+        "AllowShortBlocksOnASingleLine: false\n"
         "SortIncludes: false\n"
     )
+
+
+def write_clang_format_config(out_dir: Path, ruleset: dict) -> Optional[str]:
+    """`.clang-format`'i yazar ve YEREL clang-format'in onu okuyabildigini dogrular.
+
+    Arac config'i reddederse (eski surum, bilinmeyen anahtar) legacy config'e
+    duser ve yeniden dogrular. Donus: None (tamam / arac yok) ya da aracin
+    verdigi hata metni (legacy bile okunamadi - format adimi bunu raporlar).
+    """
+    out_dir = Path(out_dir)
+    tool = tools.resolve("clang-format", required=False)
+    for legacy in (False, True):
+        hio.write_output(out_dir / ".clang-format", clang_format_config(ruleset, legacy=legacy))
+        if tool is None:
+            return None
+        probe = proc.run([tool, "-style=file", "--dump-config"], cwd=out_dir, timeout=60)
+        if probe.ok and "error" not in probe.stderr.lower():
+            return None
+        last_error = probe.stderr.strip() or "clang-format config reddedildi"
+    return last_error
 
 
 def format_file(path: Path, config_dir: Path) -> tuple[bool, bool, Optional[str]]:
@@ -128,6 +161,62 @@ def format_file(path: Path, config_dir: Path) -> tuple[bool, bool, Optional[str]
     return True, (before != after), None
 
 
+# --- proje ozel xparameters eki ------------------------------------------------------------
+
+_XPAR_TOKEN_RE = re.compile(r"\bXPAR_[A-Z0-9_]+?_(?:DEVICE_ID|BASEADDR|HIGHADDR)\b")
+PROJECT_XPARAMETERS_STUB = "spec2code_qc_xparameters.h"
+
+
+def collect_xpar_tokens(files: list[Path]) -> list[str]:
+    """Uretilen kodda gecen `XPAR_*_{DEVICE_ID,BASEADDR,HIGHADDR}` adlari (sirali, tekil)."""
+    tokens: set[str] = set()
+    for path in files:
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        tokens.update(_XPAR_TOKEN_RE.findall(text))
+    return sorted(tokens)
+
+
+def project_xparameters_stub(files: list[Path]) -> str:
+    """Generic stub'in tanimadigi XPAR adlari icin tip-denetimi degerleri.
+
+    SAHA (2026-09-07): XSA'dan cikarilan spec'te denetleyici ornekleri `XPAR_PSU_I2C_0`,
+    `XPAR_PSU_QSPI_0`, `XPAR_PSU_ETHERNET_3` gibi cevre-birimi adlaridir; generic stub
+    yalniz kanonik `XPAR_XIICPS_0` ailesini tasiyordu -> clang-tidy "undeclared
+    identifier" ERROR -> XSA yuklenen HER projede QC KALDI. Degerlerin anlami yoktur
+    (yalniz cozumleme); gercek BSP xparameters.h'i Vitis'te kullanilir.
+    """
+    generic = (BSP_STUBS / "xparameters.h").read_text(encoding="utf-8")
+    lines = ["/* Spec2Code QC: proje ozel XPAR ekleri (otomatik, tip denetimi icin). */",
+             "#ifndef SPEC2CODE_QC_XPARAMETERS_H", "#define SPEC2CODE_QC_XPARAMETERS_H"]
+    device_ids = 0
+    base_addrs = 0
+    for token in collect_xpar_tokens(files):
+        if re.search(rf"#define {re.escape(token)}\b", generic):
+            continue
+        if token.endswith("_DEVICE_ID"):
+            value = str(device_ids)
+            device_ids += 1
+        elif token.endswith("_BASEADDR"):
+            value = f"0x{0x40000000 + base_addrs * 0x10000:08X}U"
+            base_addrs += 1
+        else:
+            value = f"0x{0x4000FFFF + base_addrs * 0x10000:08X}U"
+        lines.append(f"#ifndef {token}")
+        lines.append(f"#define {token} {value}")
+        lines.append("#endif")
+    lines.append("#endif /* SPEC2CODE_QC_XPARAMETERS_H */")
+    return "\n".join(lines) + "\n"
+
+
+def write_project_xparameters_stub(include_dir: Path, files: list[Path]) -> Path:
+    target = Path(include_dir) / PROJECT_XPARAMETERS_STUB
+    hio.write_output(target, project_xparameters_stub(files))
+    return target
+
+
 # --- clang-tidy -------------------------------------------------------------------------
 
 # `(?:[A-Za-z]:)?` is load-bearing on Windows: clang-tidy/cppcheck echo the
@@ -157,7 +246,10 @@ def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
            "--checks=clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters,"
            "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,"
            "readability-braces-around-statements",
-           "--", "-std=c11", *includes]
+           # Windows'ta VS-LLVM clang-tidy MSVC CRT basliklarini gorur; CRT'nin
+           # `strncpy` -> `strncpy_s` "deprecated" uyarisi HOST gurultusudur
+           # (hedef newlib'de yoktur), kapatilir.
+           "--", "-std=c11", "-D_CRT_SECURE_NO_WARNINGS", *includes]
     result = proc.run(cmd, timeout=120)
     violations: list[Violation] = []
     target = str(Path(path).resolve())

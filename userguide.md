@@ -67,6 +67,12 @@ Kaynak koddan calistiriyorsan `python run_spec2code.py` ayni parametreleri alir.
 Eski bir surum hala 8077'yi dinliyorsa uygulama bunu fark edip uyarir; eski sureci
 kapatip tekrar baslat. Ust cubuktaki surum etiketi her zaman calisan surumu gosterir.
 
+Uygulama yazdigi her seyi (uretilen kod `outputs\`, kaydedilen spec'ler `specs\`,
+yuklenen XSA'lar `uploads\`, import edilen katalog, `user_descriptors\`)
+`Spec2Code.exe`'nin YANINDAKI klasorlere koyar; `SPEC2CODE_DATA_DIR` ortam
+degiskeniyle baska bir kok secilebilir. (Eski surumler bunlari Windows'un gecici
+`_MEIxxxx` klasorune yaziyordu; uygulama kapaninca siliniyordu.)
+
 ---
 
 ## 3. Yardimci araclar
@@ -601,6 +607,27 @@ context disi cevap; `/api/health` ile arac yollari.
 `logs\xsct_stderr.log`, compile error listesi; "Generate ciktisi diskte eksik"
 uyarisinda once Generate'i yeniden calistir (ayni proje adiyla baska bir uretim
 klasoru ezmis olabilir).
+
+**Workspace "takiliyor", application projesinde yalniz lscript/README var
+(`S2C-VITIS-HANG-010`, `which sdscc`)** - Spec2Code surumunden bagimsiz bir makine
+sorunudur: Vitis 2023.2 `app create` sirasinda `which sdscc` cocuk sureci bazi
+Windows makinelerinde (antivirus/EDR, konsol host) donar, XSCT sonsuza dek bekler;
+Spec2Code watchdog'u sureci keser ve Doctor bu kodu basar. Kalici cozum: Vitis
+kapaliyken yonetici PowerShell'de
+`scripts\windows\vitis_which_stub\apply.ps1 -VitisRoot C:\Xilinx\Vitis\2023.2`
+(orijinal `which.exe` `.s2cbackup` olarak yedeklenir, konsol acmayan stub yerine
+konur; `restore.ps1` geri alir; klasor release'in `spec2code-vX.Y.Z-source.zip` kaynak
+paketindedir). Onceki yarim workspace'i silip yeniden olustur.
+
+**Her dosyada `qc.format_failed` / "invalid boolean" (`.clang-format`)** - eski bir
+clang-format (10 oncesi) config'i reddediyor. v0.1.186'dan itibaren uygulama config'i
+yerel aracla dogrular ve eski surum icin uyumlu config'e duser; hala goruyorsan LLVM'i
+guncelle ya da `SPEC2CODE_CLANG_FORMAT_PATH` ile yeni bir clang-format goster.
+
+**Spec'teki denetleyici XSA'da yok** (`fatal error: xspips.h: No such file`) - spec
+xparameters.h'ten cikarilmis ama XSA'da o PS cevre birimi (orn. PS SPI) kapali. Setup'ta
+XSA'yi yeniden yukleyip denetleyici listesini XSA'dan al ya da o denetleyiciye bagli
+cihazi kaldir.
 
 **Karta baglanamiyor** - TCP: ajan (lwIP) kosuyor mu, host/port/firewall. Seri: COM
 portu ve baud. CoreSight/MDM: Vitis yolu ve JTAG kablosu; ilk baglanti 10-30 sn.

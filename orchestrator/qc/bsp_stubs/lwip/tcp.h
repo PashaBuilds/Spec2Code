@@ -7,6 +7,7 @@
 #include "lwip/pbuf.h"
 
 #define TCP_WRITE_FLAG_COPY 0x01U
+#define tcp_sndbuf(spPcb) ((unsigned short)1024U)
 
 struct tcp_pcb
 {

@@ -4,9 +4,10 @@
  * Build (MSVC, from a vcvars64 prompt):
  *   cl /nologo /O1 /GS- vitis_which_stub.c /link /SUBSYSTEM:WINDOWS /ENTRY:shimEntry /NODEFAULTLIB kernel32.lib /OUT:which.exe
  *
- * Usage: back up <Vitis>/gnuwin/bin/which.exe and drop this build in its place
- * on hosts where `app create` hangs with a stuck `which sdscc` child
- * (S2C-VITIS-HANG-010). See kimi_vitis_debug_guide.md section 7.
+ * Usage: `apply.ps1` (bu klasor) <Vitis>/gnuwin/bin/which.exe dosyasini yedekler ve
+ * hazir derlenmis `which.exe` stub'unu yerine koyar; `restore.ps1` geri alir.
+ * Hedef: `app create`'in takili `which sdscc` cocugunda dondugu makineler
+ * (S2C-VITIS-HANG-010).
  *
  * Vitis 2023.2 SDSCorePlugin.start() runs `which sdscc` via Java Runtime.exec
  * and blocks on readLine() until the child exits. On some Windows hosts a

@@ -3,6 +3,46 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.186 - 2026-09-07
+
+- **ZynqMP (FreeRTOS + PS Ethernet + QSPI PSU) uretiminde QC KALDI (SAHA, custom PL IP'li
+  tasarim):** kok neden uretilen kod degil QC'nin stub BSP basliklariydi - FreeRTOS SOCKET
+  lwIP ajaninin `lwipopts.h`, `lwip/sys.h` (SYS_ARCH_* kilitleri), `lwip/sockets.h`,
+  `lwip/tcpip.h`, `lwip/timeouts.h`, `task.h` (vTaskDelete/vTaskStartScheduler),
+  `xemacif_input_thread`, dual-parallel stripe (`Config.ConnectionMode`,
+  `XQSPIPSU_MSG_FLAG_STRIPE`) ve GEM1-3 `XPAR_XEMACPS_n_*` stub'da yoktu; clang-tidy "file not
+  found / undeclared" ERROR uretip kapiyi dusuruyordu. Stub'lar tamamlandi; regresyon
+  `tests/test_qc_stub_coverage.py` uretilen ZynqMP ciktisini gercek clang-tidy ile cozer.
+  Ayni akista `mt25qu02g` + custom IP XSA ile Vitis ELF uctan uca dogrulandi.
+- **XSA'dan cikarilan spec'lerde QC KALDI (SAHA, asil custom-IP senaryosu):** XSA yuklenince
+  denetleyici ornekleri cevre-birimi adlidir (`XPAR_PSU_I2C_0`, `XPAR_PSU_QSPI_0`,
+  `XPAR_PSU_ETHERNET_3`, PS7_*/AXI_* ...); QC stub'u yalniz kanonik `XPAR_XIICPS_0` ailesini
+  tasiyordu -> her suruculde "undeclared identifier" ERROR. QC artik uretilen koddaki
+  `XPAR_*_{DEVICE_ID,BASEADDR,HIGHADDR}` adlarini toplayip gecici include klasorune proje ozel
+  `spec2code_qc_xparameters.h` yazar (generic stub `__has_include` ile ceker); teslimat
+  klasoru kirlenmez, her adlandirma semasi kapsanir.
+- **Test bench ops: `ucValue`/`ucArrWide` ilklendirildi** (clang-analyzer "garbage value"
+  uyarilari; okuma hata verirse `uiValue` tanimsiz kalabiliyordu).
+- **clang-tidy MSVC CRT gurultusu:** Windows'ta VS-LLVM'in `strncpy` -> `strncpy_s` deprecation
+  uyarisi (hedef newlib'de yok) `-D_CRT_SECURE_NO_WARNINGS` ile kapatildi.
+- **Eski clang-format ile `.clang-format` reddi (SAHA, sirket makinesi, v0.1.154+):**
+  `AllowShortBlocksOnASingleLine: Never` 10 oncesi surumde "invalid boolean" -> her dosyada
+  `qc.format_failed` -> 63 error. Config artik boolean yazilir, yerel aracla
+  (`--dump-config`) dogrulanir; reddedilirse `UseCRLF`/`DeriveLineEnding` olmayan legacy
+  config'e duser (CRLF zaten `write_output` ile basilir). `qc.format_config_rejected` olayi.
+- **Paketli uygulamada veri koku (SAHA):** outputs/, specs/, uploads/, catalog/imported.json ve
+  user_descriptors/ PyInstaller'in gecici `_MEIxxxx` klasorune yaziliyordu (uygulama kapaninca
+  siliniyor; ekrandaki `C:\Users\..\Temp\1\_MEI178802\outputs` yollari). Yeni
+  `hostplat.paths.data_root()`: paketli uygulamada exe'nin yani, `SPEC2CODE_DATA_DIR` ile
+  secilebilir; kaynaktan calisirken repo koku (degisiklik yok).
+- **`which sdscc` donmasi (S2C-VITIS-HANG-010) icin hazir paket:** `scripts/windows/
+  vitis_which_stub/` altinda derlenmis GUI-subsystem `which.exe`, `apply.ps1` (yedekler +
+  uygular), `restore.ps1` ve kaynak. Doctor onerisi ve kilavuz bu betige yonlendirir; belirti
+  (platform var, application'da yalniz lscript/README) aciklandi. Bu donma Spec2Code
+  surumunden bagimsizdir.
+- Kilavuz: veri koku, hang stub'u, eski clang-format, spec'teki denetleyicinin XSA'da olmamasi
+  (`xspips.h: No such file`) sorun giderme maddeleri.
+
 ## v0.1.185 - 2026-09-07
 
 - **CIT limitleri ekran biriminde (SAHA):** sicaklik ekranda °C gosterilirken limit santi-derece

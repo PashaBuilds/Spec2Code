@@ -19,6 +19,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
+from hostplat.paths import data_root
 from orchestrator import boards, cit_layer, cit_sim, cmodel, sim_xilinx, tics
 from orchestrator.device_profiles import registry as device_profiles
 
@@ -3510,12 +3511,12 @@ def _testbench_device_branch(entry: dict) -> list[str]:
                 seen_types.add(info["ctype"])
                 lines.append(f"        {info['ctype']} s{info['noun']};")
     if needs_uc_value:
-        lines.append("        unsigned char ucValue;")
+        lines.append("        unsigned char ucValue = 0U;")
     if needs_uc_reg:
         lines.append("        unsigned char ucReg;")
     if has_wide_regs:
         # Genis (16-bit) register R/W: tek pointer + iki bayt tek islemde.
-        lines.append("        unsigned char ucArrWide[2];")
+        lines.append("        unsigned char ucArrWide[2] = {0U, 0U};")
         lines.append("        unsigned char ucWidthBytes;")
     if spi_register_ops:
         lines.append("        unsigned int uiReg;")
@@ -6756,9 +6757,7 @@ def user_descriptors_dir() -> Path:
     env = os.environ.get("SPEC2CODE_USER_DESCRIPTORS", "").strip()
     if env:
         return Path(env)
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "user_descriptors"
-    return _ROOT / "user_descriptors"
+    return data_root() / "user_descriptors"
 
 
 def resolve_descriptor_path(ref_or_part: str, root: Path = _ROOT) -> Path:

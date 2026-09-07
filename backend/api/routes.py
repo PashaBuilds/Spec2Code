@@ -25,6 +25,7 @@ from backend.jobs import manager
 from backend.parsers.xparameters import parse_xparameters
 from backend import register_map as regmap
 from backend.parsers.xsa import XsaParseError, parse_xsa, safe_xsa_filename
+from hostplat.paths import data_root
 from backend.rulesets import DEFAULT_RULESET, RULESET_SCHEMA
 from backend.telnet_log import TelnetLogError, telnet_log_sessions
 from backend.testbench import (
@@ -58,10 +59,13 @@ from orchestrator.descriptor_example import EXAMPLE_FILE_NAME, EXAMPLE_USER_DESC
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
+# Yazilabilir veri koku (outputs/, uploads/, catalog/imported.json): paketli
+# uygulamada exe'nin yani, kaynaktan repo koku (bkz. hostplat.paths).
+_DATA_ROOT = data_root()
 _PLATFORMS = _ROOT / "platforms"
 _DESCRIPTORS = _ROOT / "descriptors"
 _CATALOG = _ROOT / "catalog" / "catalog.json"
-_IMPORTED = _ROOT / "catalog" / "imported.json"
+_IMPORTED = _DATA_ROOT / "catalog" / "imported.json"
 _SPEC_SCHEMA = json.loads((_ROOT / "schemas" / "project.spec.schema.json").read_text(encoding="utf-8"))
 
 router = APIRouter(prefix="/api")
@@ -274,11 +278,11 @@ def _resolve_job_file(job, file_path: str) -> tuple[Path, str]:
     if requested not in allowed:
         raise HTTPException(404, "generated file not found")
 
-    path = (_ROOT / requested).resolve()
+    path = (_DATA_ROOT / requested).resolve()
     try:
-        path.relative_to(_ROOT.resolve())
+        path.relative_to(_DATA_ROOT.resolve())
     except ValueError as exc:
-        raise HTTPException(400, "generated file path escaped repository root") from exc
+        raise HTTPException(400, "generated file path escaped data root") from exc
 
     if not path.is_file():
         raise HTTPException(404, "generated file not found")
@@ -520,7 +524,7 @@ def xsa_parse(req: XsaParseRequest) -> dict:
 
 @router.post("/xsa/upload")
 async def xsa_upload(file: UploadFile) -> dict:
-    uploads_dir = _ROOT / "uploads" / "xsa"
+    uploads_dir = _DATA_ROOT / "uploads" / "xsa"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     target = uploads_dir / safe_xsa_filename(file.filename or "design.xsa")
     content = await file.read()
@@ -797,7 +801,7 @@ def job_result(job_id: str) -> dict:
     if job.result:
         out_dir = job.result.get("out_dir", "")
         for rel in job.result["files"]:
-            p = _ROOT / rel
+            p = _DATA_ROOT / rel
             files.append({
                 "path": rel,
                 "relative_path": _archive_name(rel, out_dir),
@@ -1024,7 +1028,7 @@ def vivado_parts(req: VivadoPartsRequest) -> dict:
     try:
         return list_vivado_parts(
             req.vivado_path,
-            _ROOT / "uploads" / "vivado_parts",
+            _DATA_ROOT / "uploads" / "vivado_parts",
             refresh=req.refresh,
             cached_only=req.cached_only,
         )
@@ -1636,6 +1640,7 @@ def drivers_scan(req: ScanRequest) -> dict:
 def drivers_confirm(req: ConfirmRequest) -> dict:
     imported = json.loads(_IMPORTED.read_text(encoding="utf-8")) if _IMPORTED.is_file() else {}
     imported[req.part] = {"stem": req.stem, "role": req.role, "files": req.files}
+    _IMPORTED.parent.mkdir(parents=True, exist_ok=True)
     _IMPORTED.write_text(json.dumps(imported, indent=2), encoding="utf-8")
     return {"ok": True, "imported": imported[req.part]}
 

@@ -15,6 +15,8 @@ with no fixer the loop is fully deterministic.
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -55,11 +57,37 @@ def run_qc(
     # cozemez ve sahte tani (unknown type 'SBoardCit') uretir.
     # cit/ ust katmani da kapidan gecer (surucu basliklarini nitelenmemis include eder).
     cit_dir = out_dir / "cit"
+    # Proje ozel XPAR eki gecici bir include klasorune yazilir (teslimat klasoru
+    # kirlenmez); generic stub xparameters.h onu __has_include ile ceker.
+    qc_include_dir = Path(tempfile.mkdtemp(prefix="spec2code_qc_"))
     include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir,
-                    *runners.driver_include_dirs(cit_dir)]
+                    *runners.driver_include_dirs(cit_dir), qc_include_dir]
+    try:
+        return _run_qc_rounds(out_dir, ruleset, drivers_dir, tests_dir, cit_dir, include_dirs,
+                              qc_include_dir, max_rounds=max_rounds, emit=emit, fixer=fixer)
+    finally:
+        shutil.rmtree(qc_include_dir, ignore_errors=True)
 
-    # Write the clang-format config derived from the ruleset, so `-style=file` finds it.
-    hio.write_output(out_dir / ".clang-format", runners.clang_format_config(ruleset))
+
+def _run_qc_rounds(
+    out_dir: Path,
+    ruleset: dict,
+    drivers_dir: Path,
+    tests_dir: Path,
+    cit_dir: Path,
+    include_dirs: list[Path],
+    qc_include_dir: Path,
+    *,
+    max_rounds: int,
+    emit: Emit,
+    fixer: Optional[Fixer],
+) -> dict:
+
+    # Write the clang-format config derived from the ruleset, so `-style=file` finds it
+    # (yerel aracla dogrulanir; eski surumde legacy config'e duser).
+    config_error = runners.write_clang_format_config(out_dir, ruleset)
+    if config_error:
+        emit({"event": "qc.format_config_rejected", "reason": config_error})
 
     c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"), *cit_dir.rglob("*.c")])
     fmt_files = sorted([
@@ -70,6 +98,7 @@ def run_qc(
         *cit_dir.rglob("*.c"),
         *cit_dir.rglob("*.h"),
     ])
+    runners.write_project_xparameters_stub(qc_include_dir, fmt_files)
 
     tool_status = {"clang-format": None, "clang-tidy": None, "cppcheck": None, "libclang": None}
     rounds: list[dict] = []
