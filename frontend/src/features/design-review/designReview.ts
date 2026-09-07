@@ -85,6 +85,13 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       { path: "cit/cit_ortak.c", kind: "cit" },
       { path: "cit/sistem_cit.h", kind: "cit" },
       { path: "cit/sistem_cit.c", kind: "cit" },
+      // Konsol kabugu (shell/): kullanicinin kendi main'i icin cit / i2c_search / sdl komutlari.
+      { path: "shell/shell_uart.h", kind: "cit" },
+      { path: "shell/shell_uart.c", kind: "cit" },
+      { path: "shell/shell.h", kind: "cit" },
+      { path: "shell/shell.c", kind: "cit" },
+      { path: "shell/main_example.h", kind: "cit" },
+      { path: "shell/main_example.c", kind: "cit" },
     );
   }
   // Sanal cihaz altyapisi (tests/sim): Xilinx veri-yolu araya-girme + cihaz kaydi.

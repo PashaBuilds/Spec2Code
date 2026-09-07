@@ -20,7 +20,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
 from hostplat.paths import data_root
-from orchestrator import boards, cit_layer, cit_sim, cmodel, sim_xilinx, tics
+from orchestrator import boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -6972,6 +6972,14 @@ def generate(
     if cit_written:
         emit({"event": "codegen.cit_layer", "files": len(cit_written)})
         written.extend(cit_written)
+    # Konsol kabugu (shell/): kullanicinin kendi main'i icin cit/ ustune komut katmani
+    # (cit / i2c_search / sdl). Ajanla ilgisi yok; Vitis sahnelemesi kopyalamaz.
+    shell_plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor),
+                                        _cit_measurements(spec, get_descriptor))
+    shell_written, shell_readme = shell_layer.write_shell_layer(spec, out_dir, shell_plans)
+    if shell_written:
+        emit({"event": "codegen.shell_layer", "files": len(shell_written)})
+        written.extend(shell_written)
     # Sanal cihazlar (tests/sim/): register-dosyasi simulatorleri + Xilinx araya-girme.
     if any(device.get("simulate") for device in spec.get("devices", [])):
         plans = cit_layer.build_plans(spec, get_descriptor, _testbench_manifest_devices(spec, get_descriptor),
@@ -6988,7 +6996,7 @@ def generate(
         emit({"event": "codegen.sim", "files": len(sim_files)})
         written.extend(sim_files)
 
-    readme = readme_t.render(spec=spec, units=units) + cit_readme
+    readme = readme_t.render(spec=spec, units=units) + cit_readme + shell_readme
     written.append(str(hio.write_output(out_dir / "README.md", readme)))
 
     written.extend(write_testbench_harness(spec, out_dir, root=root))

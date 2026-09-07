@@ -3,6 +3,26 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.195 - 2026-09-07
+
+- **Konsol kabugu katmani `shell/` (SAHA istegi):** kullanicinin kendi main'inde derlenen,
+  tasinabilir (urun adsiz) komut kabugu. `shellInit(bus, limit, cit)` + ana dongude bloklamayan
+  `shellCheck()`; komutlar `cit` (sistemCitRead + cerceveli/renkli rapor, INFO esigi gecici),
+  `i2c_search` (her I2C denetleyicisinde 0x08..0x77 yazma probu, switch adresleri atlanir),
+  `sdl <seviye>` (set debug level: error|warning|msg|info|trace|0..5), `help`.
+  `shell_uart.c` platforma gore (XUartLite / XUartPs / XUartPsv, BSP `STDIN_BASEADDRESS`);
+  `main_example.c` kopyala-yapistir ornek (init ana dongu oncesi). QC kapisindan gecer, README
+  bolumu ve Design Review cikti planina girdi; Vitis ajan sahnelemesine ALINMAZ (main cakismasi).
+  Regresyon: `tests/test_shell_layer.py` (uretim + gercek gcc round-trip: stub UART'tan
+  `help/sdl/i2c_search/cit` satirlari). Nexys A7'de USB-UART uzerinden canli dogrulandi.
+- **QC kor noktasi kapatildi:** clang-tidy bir BASLIK icindeki `'xiic.h' file not found`
+  hatasini "baska dosya" diye eliyordu; TU orada olur ve dosya hic denetlenmemis olurdu
+  (MicroBlaze ciktilari aylarca bu yuzden "temiz" gorundu). Artik `file not found` hangi
+  dosyada olursa olsun ihlaldir. Eksik stub'lar eklendi: `xiic.h`, `xiic_l.h`, `xspi.h`,
+  `xuartlite.h/_l.h`, `xuartps.h/_hw.h`, `xuartpsv.h/_hw.h`, `xgpio.h`, `STDIN/STDOUT_BASEADDRESS`;
+  QC include yoluna `tests/sim` (sanal cihaz basliklari) eklendi; `run_qc` goreli cikti
+  yolunu mutlaklastirir (clang-format "no such file" hatasi).
+
 ## v0.1.194 - 2026-09-07
 
 - **CIT raporu yeniden tasarlandi (SAHA istegi):** her entegre kendi kutusunda (ust cizgi,

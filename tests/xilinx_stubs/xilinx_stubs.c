@@ -30,3 +30,13 @@ int XSpi_Start(XSpi* i) { (void)i; return XST_SUCCESS; }
 void XSpi_IntrGlobalDisable(XSpi* i) { (void)i; }
 int XSpi_SetSlaveSelect(XSpi* i, u32 m) { i->SlaveSelectReg = m; return XST_SUCCESS; }
 int XSpi_Transfer(XSpi* i, u8* t, u8* r, unsigned int n) { (void)i; (void)t; (void)r; (void)n; g_uiStubGercekSpi++; return XST_FAILURE; }
+
+/* --- Konsol UART (xuartlite_l.h): test girdisi tampondan, cikti stdout'a ------------- */
+#include "xuartlite_l.h"
+#include <stdio.h>
+const unsigned char* g_ucpStubUartIn = (const unsigned char*)0; /* test tarafinca atanir */
+unsigned int g_uiStubUartInLen = 0U;
+unsigned int g_uiStubUartInPos = 0U;
+u32 XUartLite_IsReceiveEmpty(UINTPTR BaseAddress) { (void)BaseAddress; return (g_uiStubUartInPos < g_uiStubUartInLen) ? 0U : 1U; }
+u8 XUartLite_RecvByte(UINTPTR BaseAddress) { (void)BaseAddress; return (g_uiStubUartInPos < g_uiStubUartInLen) ? g_ucpStubUartIn[g_uiStubUartInPos++] : 0U; }
+void XUartLite_SendByte(UINTPTR BaseAddress, u8 Data) { (void)BaseAddress; (void)putchar((int)Data); }

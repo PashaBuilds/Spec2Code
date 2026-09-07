@@ -47,7 +47,8 @@ def run_qc(
     fixer: Optional[Fixer] = None,
 ) -> dict:
     emit = emit or (lambda _e: None)
-    out_dir = Path(out_dir)
+    # Mutlak yol: format_file araci cwd=out_dir ile kosar; goreli hedef yolu orada cozulmezdi.
+    out_dir = Path(out_dir).resolve()
     drivers_dir = out_dir / "drivers"
     tests_dir = out_dir / "tests"
     # Kart tanimliyken suruculer drivers/<kart>/ altindadir; DUZ glob onlari
@@ -57,13 +58,16 @@ def run_qc(
     # cozemez ve sahte tani (unknown type 'SBoardCit') uretir.
     # cit/ ust katmani da kapidan gecer (surucu basliklarini nitelenmemis include eder).
     cit_dir = out_dir / "cit"
+    shell_dir = out_dir / "shell"
     # Proje ozel XPAR eki gecici bir include klasorune yazilir (teslimat klasoru
     # kirlenmez); generic stub xparameters.h onu __has_include ile ceker.
     qc_include_dir = Path(tempfile.mkdtemp(prefix="spec2code_qc_"))
-    include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir,
-                    *runners.driver_include_dirs(cit_dir), qc_include_dir]
+    # tests/sim: sanal cihaz basliklari (Vitis app include yoluna da eklenir); yoksa
+    # testbench_ops.c'nin `<mod>_sim.h` include'u cozulmez.
+    include_dirs = [*runners.driver_include_dirs(drivers_dir), tests_dir, tests_dir / "sim",
+                    *runners.driver_include_dirs(cit_dir), shell_dir, qc_include_dir]
     try:
-        return _run_qc_rounds(out_dir, ruleset, drivers_dir, tests_dir, cit_dir, include_dirs,
+        return _run_qc_rounds(out_dir, ruleset, drivers_dir, tests_dir, [cit_dir, shell_dir], include_dirs,
                               qc_include_dir, max_rounds=max_rounds, emit=emit, fixer=fixer)
     finally:
         shutil.rmtree(qc_include_dir, ignore_errors=True)
@@ -74,7 +78,7 @@ def _run_qc_rounds(
     ruleset: dict,
     drivers_dir: Path,
     tests_dir: Path,
-    cit_dir: Path,
+    layer_dirs: list[Path],
     include_dirs: list[Path],
     qc_include_dir: Path,
     *,
@@ -89,14 +93,15 @@ def _run_qc_rounds(
     if config_error:
         emit({"event": "qc.format_config_rejected", "reason": config_error})
 
-    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"), *cit_dir.rglob("*.c")])
+    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"),
+                      *[f for d in layer_dirs for f in d.rglob("*.c")]])
     fmt_files = sorted([
         *drivers_dir.rglob("*.c"),
         *drivers_dir.rglob("*.h"),
         *tests_dir.glob("*.c"),
         *tests_dir.glob("*.h"),
-        *cit_dir.rglob("*.c"),
-        *cit_dir.rglob("*.h"),
+        *[f for d in layer_dirs for f in d.rglob("*.c")],
+        *[f for d in layer_dirs for f in d.rglob("*.h")],
     ])
     runners.write_project_xparameters_stub(qc_include_dir, fmt_files)
 

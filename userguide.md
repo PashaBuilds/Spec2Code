@@ -401,13 +401,42 @@ carpimi, DS1682 gecen zaman sayaci, LMK04832 kilit bitleri) ve hata enjeksiyonu
 
 ## 9. Kodu kendi projene tasima
 
-1. `drivers/` (kart klasorleri dahil) ve `cit/` klasorlerini kaynak agacina ekle;
-   include yoluna bu klasorleri koy. Baska hicbir Spec2Code dosyasi gerekmez.
+1. `drivers/` (kart klasorleri dahil), `cit/` ve istersen `shell/` klasorlerini kaynak
+   agacina ekle; include yoluna bu klasorleri koy. Baska hicbir Spec2Code dosyasi gerekmez.
 2. Denetleyici orneklerini olustur, `i2cCihazlarInit(...)` ile tabloyu bagla (ya da
    cit/ kullaniyorsan `sistemCitBusVarsayilan()` bunu senin yerine yapar).
-3. Her entegre icin `<mod>DeviceInit(i2cCihaz(...))` / SPI icin `<mod>DeviceInit(&sSpi)`.
+3. Her entegre icin `<mod>DeviceInit(i2cCihaz(...))` / SPI icin `<mod>DeviceInit(&sSpi)`
+   (cit/ ile: tek cagri `sistemCitInit(&sBus)`).
 4. Okumalar icin surucu fonksiyonlarini ya da `sistemCitRead()`'i cagir.
 5. `dbg_printf.c`'yi derlemeye ekle; gurultu icin `dbgLevelSet(DEBUG_LEVEL_ERROR)`.
+
+### 9.1 Konsol kabugu (`shell/`)
+
+Kendi main'inden konsol UART'i uzerinden komutla CIT kosturmak icin `shell/` katmani
+uretilir (cit/ olan her projede). `shell/main_example.c` kopyala-yapistir ornektir:
+
+```c
+sistemCitBusVarsayilan(&S_sBus);
+sistemCitInit(&S_sBus);                      /* ana dongu oncesi, bir kez */
+shellInit(&S_sBus, &S_sLimit, &S_sCit);
+for (;;)
+{
+    shellCheck();                            /* bloklamaz: bayt varsa isler */
+}
+```
+
+XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
+
+| Komut | Ne yapar |
+|---|---|
+| `cit` | `sistemCitRead()`; cerceveli/renkli raporu basar (INFO esigi gecici acilir) |
+| `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK'leri listeler, I2C switch adreslerini atlar |
+| `sdl <seviye>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
+| `help` | komut listesi |
+
+`shell_uart.c` platforma gore uretilir (XUartLite / XUartPs / XUartPsv, `STDIN_BASEADDRESS`).
+Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken kabuk
+ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
 
 Test bench ajanini kendi projende kullanma; o yalniz Spec2Code ekranlari icindir.
 

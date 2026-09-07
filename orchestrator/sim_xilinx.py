@@ -157,7 +157,10 @@ def sim_source() -> str:
 static SSpec2codeI2cSimCihaz* S_spI2cZincir = NULL;
 static SSpec2codeSpiSimCihaz* S_spSpiZincir = NULL;
 static unsigned int S_uiCihazSayisi = 0U;
+#if (defined(XPAR_XSPI_NUM_INSTANCES) && (XPAR_XSPI_NUM_INSTANCES > 0)) || \
+    (defined(XPAR_XSPIPS_NUM_INSTANCES) && (XPAR_XSPIPS_NUM_INSTANCES > 0))
 static unsigned char S_ucSpiSonSelect = 0xFFU; /* son SetSlaveSelect (AXI one-hot -> indeks) */
+#endif
 
 int spec2codeSimI2cEkle(SSpec2codeI2cSimCihaz* spCihaz)
 {{

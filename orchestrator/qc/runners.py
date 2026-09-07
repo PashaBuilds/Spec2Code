@@ -257,8 +257,12 @@ def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
         m = _TIDY_RE.match(line.strip())
         if not m:
             continue
-        if str(Path(m.group("file")).resolve()) != target:
-            continue  # only our file, not stub-header noise
+        if str(Path(m.group("file")).resolve()) != target and "file not found" not in m.group("msg"):
+            # only our file, not stub-header noise. ISTISNA: bir include'un bulunamamasi
+            # (or. surucu basliginin icindeki `xiic.h`) baska dosyada raporlanir ama TU'yu
+            # oldurur; sessiz gecilirse dosya hic denetlenmemis olur (SAHA 2026-09-07:
+            # MicroBlaze ciktilari aylarca bu yuzden "temiz" gorundu).
+            continue
         violations.append(Violation(
             file=str(path), line=int(m.group("line")), column=int(m.group("col")),
             rule=m.group("rule") or "clang-tidy", severity=m.group("sev"),
