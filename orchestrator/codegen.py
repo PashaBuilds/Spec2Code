@@ -1509,7 +1509,40 @@ _CIT_CHANNEL_PREFIX = {"voltages": "V", "currents": "I"}
 _CIT_KANAL_ELEMAN_BOY = 2
 
 
-def _testbench_log_header() -> str:
+def _testbench_log_echo_macro(spec: dict) -> str:
+    """`SPEC2CODE_LOG_ECHO_STDOUT`: log satiri transport hattina ek olarak BSP stdout'una da basilsin mi.
+
+    SAHA (2026-09-07, Nexys A7 MDM): loglar yalniz taşiyici hattina (MDM/DCC/TCP) cerceveli
+    gidiyordu; kullanici USB-UART konsolunda (XShell) CIT raporunu goremedi. Kural: konsol
+    UART'i (STDOUT_BASEADDRESS) taşiyici cihazdan FARKLIYSA satir stdout'a da yansir; UART
+    ajaninda taşiyici zaten stdout ise iki kez basilmaz (cerceve + duz metin ayni hatta olmaz).
+    """
+    agent = _testbench_transport_agent(spec)
+    if agent == "uart":
+        uart = _testbench_agent_uart_controller(spec) or {}
+        instance = uart.get("instance") or "XPAR_XUARTPS_0"
+        return (
+            "/* UART ajani: taşiyici stdout ile ayni cihazsa yansitma yok. */\n"
+            f"#if defined(STDOUT_BASEADDRESS) && defined({instance}_BASEADDR) && (STDOUT_BASEADDRESS != {instance}_BASEADDR)\n"
+            "#define SPEC2CODE_LOG_ECHO_STDOUT 1\n"
+            "#else\n"
+            "#define SPEC2CODE_LOG_ECHO_STDOUT 0\n"
+            "#endif\n"
+        )
+    if agent in ("mdm", "coresight", "lwip"):
+        return (
+            f"/* {agent} ajani: taşiyici konsol UART'i degildir; satir BSP stdout'una da basilir. */\n"
+            "#if defined(STDOUT_BASEADDRESS)\n"
+            "#define SPEC2CODE_LOG_ECHO_STDOUT 1\n"
+            "#else\n"
+            "#define SPEC2CODE_LOG_ECHO_STDOUT 0\n"
+            "#endif\n"
+        )
+    return "#define SPEC2CODE_LOG_ECHO_STDOUT 0\n"
+
+
+def _testbench_log_header(spec: dict | None = None) -> str:
+    echo_macro = _testbench_log_echo_macro(spec) if spec is not None else "#define SPEC2CODE_LOG_ECHO_STDOUT 0\n"
     return (
         "/**\n"
         " * @file spec2code_testbench_log.h\n"
@@ -1519,10 +1552,13 @@ def _testbench_log_header() -> str:
         " * ERROR; log_level komutuyla calisma zamaninda degisir). Bu dosya yalniz test bench\n"
         " * ajaninda derlenir: dbg sink'i olarak kaydolur, satiri komut id'siyle etiketler ve\n"
         " * transport hat fonksiyonuna (UART/DCC cerceve) ya da xil_printf'e verir.\n"
+        " * SPEC2CODE_LOG_ECHO_STDOUT=1 ise satir ayrica BSP stdout'una (konsol UART) basilir.\n"
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_LOG_H\n"
         "#define SPEC2CODE_TESTBENCH_LOG_H\n\n"
-        '#include "dbg_printf.h"\n\n'
+        '#include "dbg_printf.h"\n'
+        '#include "xparameters.h"\n\n'
+        + echo_macro + "\n"
         "typedef void (*FSpec2codeLogSink)(const char* cpLine);\n\n"
         "/* Transport hat fonksiyonunu kaydeder ve dbg_printf sink'ini bu cerceveye baglar. */\n"
         "void spec2codeLogSinkSet(FSpec2codeLogSink fpSink);\n"
@@ -1598,6 +1634,10 @@ def _testbench_log_source(telnet: bool = False) -> str:
         + "    if (S_fpLogSink != NULL)\n"
         "    {\n"
         "        S_fpLogSink(S_cArrLine);\n"
+        "#if SPEC2CODE_LOG_ECHO_STDOUT\n"
+        "        /* Konsol UART'i taşiyicidan farkli: satir orada da gorulsun (XShell/PuTTY). */\n"
+        "        xil_printf(\"%s\", S_cArrLine);\n"
+        "#endif\n"
         "    }\n"
         "    else\n"
         "    {\n"
@@ -6677,7 +6717,7 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         _apply_default_identifier_style(_testbench_protocol_source()),
         _apply_default_identifier_style(_mesaj_header(spec, get_descriptor)),
         _apply_default_identifier_style(_mesaj_source(spec, get_descriptor)),
-        _apply_default_identifier_style(_testbench_log_header()),
+        _apply_default_identifier_style(_testbench_log_header(spec)),
         _apply_default_identifier_style(_testbench_log_source(_telnet_log_enabled(spec))),
         _apply_default_identifier_style(_testbench_ops_header(spec["project"]["name"], _testbench_used_handle_types(spec),
                                                               has_sim=any(d.get("simulate") for d in spec.get("devices", [])),

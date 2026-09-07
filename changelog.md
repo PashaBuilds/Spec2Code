@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.193 - 2026-09-07
+
+- **Kart loglari konsol UART'ina da yansir (SAHA, Nexys A7 MDM):** MDM/CoreSight/TCP ajanlarinda
+  `S2C-LOG` satirlari yalniz taşiyici hattina cerceveli gidiyordu; kullanici XShell'de (USB-UART)
+  CIT raporunu goremedi. Uretilen `spec2code_testbench_log.h` artik `SPEC2CODE_LOG_ECHO_STDOUT`
+  makrosunu tasir: taşiyici BSP `STDOUT_BASEADDRESS` cihazindan farkliysa satir ek olarak
+  `xil_printf` ile stdout'a basilir (UART ajaninda derleme zamaninda karsilastirilir, ayni
+  cihazsa cift basim yok). Nexys A7'de MDM ajaniyla dogrulandi.
+
 ## v0.1.192 - 2026-09-07
 
 - **Workspace kilidi on kontrolu (SAHA):** Vitis IDE ayni workspace'te acikken "kaynaklari

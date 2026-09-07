@@ -2158,6 +2158,9 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("spec2codeLogSinkSet(spec2codeTestbenchCoresightSendLine);", cs_source)
         self.assertIn("spec2codeMesajTraceCerceveKur(uiMesajId, 0U, cpLine,", cs_source)
         self.assertIn("uiMesajId = SPEC2CODE_MESAJ_TRACE_EVENT;", cs_source)
+        # CoreSight: taşiyici konsol UART'i degil -> satir stdout'a da yansir (SAHA: XShell'de CIT raporu).
+        self.assertIn("#define SPEC2CODE_LOG_ECHO_STDOUT 1", log_header)
+        self.assertIn("#if SPEC2CODE_LOG_ECHO_STDOUT", log_source)
         self.assertIn("uiMesajId = SPEC2CODE_MESAJ_BUS_TRACE_EVENT;", cs_source)
         self.assertIn('dbg_printf(DEBUG_LEVEL_INFO, "board init tamam', cs_source)
         self.assertEqual(manifest["log"]["op"], "log_level")
@@ -2165,6 +2168,43 @@ class TestbenchTests(unittest.TestCase):
         self.assertEqual(manifest["log"]["levels"]["trace"], 5)
         self.assertEqual(manifest["log"]["levels"]["always"], 0)
         self.assertEqual(manifest["log"]["line_prefix"], "S2C-LOG|")
+
+    def test_log_lines_echo_to_console_uart_only_when_transport_is_not_stdout(self) -> None:
+        # MDM ajani: taşiyici MDM UART, konsol axi_uartlite -> yansit.
+        spec = load_sample_spec("unit_log_echo_mdm")
+        spec["project"]["platform"] = "microblaze_7series"
+        spec["project"]["target_core"] = "microblaze_0"
+        spec["project"]["testbench_transport"] = "mdm"
+        spec["controllers"] = [
+            {"id": "pl_i2c_0", "type": "i2c", "instance": "XPAR_AXI_IIC_0", "base_address": "0x40800000",
+             "device_id": 0, "driver": "XIic", "source": "xparameters", "zone": "pl"},
+            {"id": "pl_spi_0", "type": "spi", "instance": "XPAR_AXI_QUAD_SPI_0", "base_address": "0x44A00000",
+             "device_id": 0, "driver": "XSpi", "source": "xparameters", "zone": "pl"},
+            {"id": "pl_uart_0", "type": "uart", "instance": "XPAR_AXI_UARTLITE_0", "base_address": "0x40600000",
+             "device_id": 0, "driver": "XUartLite", "source": "xparameters", "zone": "pl"},
+            {"id": "pl_uart_1", "type": "uart", "instance": "XPAR_MDM_1", "base_address": "0x41400000",
+             "device_id": 1, "driver": "XUartLite", "source": "xparameters", "zone": "pl", "subtype": "mdm"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [d for d in spec["devices"] if d.get("part") == "MT25QU02G"]
+        spec["devices"][0]["attach"] = {"controller_id": "pl_spi_0", "spi_chip_select": 0}
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            mdm_header = (out_dir / "tests" / "spec2code_testbench_log.h").read_text(encoding="utf-8")
+        self.assertIn("#define SPEC2CODE_LOG_ECHO_STDOUT 1", mdm_header)
+
+        # UART ajani: yansitma yalniz STDOUT_BASEADDRESS taşiyici UART'tan farkliysa (derleme zamani).
+        spec["project"]["testbench_transport"] = "uart"
+        spec["project"]["name"] = "unit_log_echo_uart"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            uart_header = (out_dir / "tests" / "spec2code_testbench_log.h").read_text(encoding="utf-8")
+        self.assertIn("(STDOUT_BASEADDRESS != XPAR_AXI_UARTLITE_0_BASEADDR)", uart_header)
+        # MDM'de kosul yalniz STDOUT tanimi; UART'ta taşiyici adresiyle karsilastirma.
+        self.assertIn("#if defined(STDOUT_BASEADDRESS)\n#define SPEC2CODE_LOG_ECHO_STDOUT 1", mdm_header.replace("\r", ""))
+        self.assertNotIn("#if defined(STDOUT_BASEADDRESS)\n#define SPEC2CODE_LOG_ECHO_STDOUT 1", uart_header.replace("\r", ""))
 
     def test_serial_send_matches_response_by_command_id(self) -> None:
         # Paylasimli kanalda (konsol UART'i, ikinci jtagterminal istemcisi)

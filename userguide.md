@@ -425,6 +425,11 @@ Akis, Bring-up, CIT ve Registers ayni oturumu kullanir.
 | CoreSight | ZynqMP DCC, JTAG (xsdb jtagterminal) | Vitis yolu, cekirdek |
 | MDM | MicroBlaze Debug Module UART, JTAG | Vitis yolu |
 
+Kart loglari (`dbg_printf`, CIT raporu dahil) her zaman taşiyici hattindan Akis ekranina
+gider. Taşiyici konsol UART'i DEGILSE (MDM, CoreSight, TCP) ayni satirlar BSP `stdout`
+cihazina, yani USB-UART konsoluna (XShell/PuTTY, 115200) da basilir; UART ajaninda ise
+hat zaten konsol oldugundan tekrar basilmaz. Raporu gormek icin kart esigini `info` yap.
+
 MDM icin tasarimda MicroBlaze debug modulunun UART'i acik olmali (Vivado blok
 otomasyonunda `debug_module {Debug & UART}`; XSA'da `XPAR_MDM_n` `XUartLite`
 subtype `mdm` olarak gorunur). Spec'te `testbench_transport: "mdm"` secilince ajan bu
