@@ -83,6 +83,7 @@ _VITIS_ERROR_CODES = {
     "xsct_hang": "S2C-VITIS-HANG-010",
     "platform_mismatch": "S2C-VITIS-PREFLIGHT-011",
     "freertos_mb_no_intc": "S2C-VITIS-PREFLIGHT-012",
+    "workspace_locked": "S2C-VITIS-PREFLIGHT-013",
     "workspace_stale": "S2C-VITIS-WORKSPACE-011",
     "unclassified": "S2C-VITIS-UNCLASSIFIED-099",
 }
@@ -684,6 +685,60 @@ def xsa_module_types(xsa_path: Path) -> set[str]:
     for _name, payload in _hwh_documents_from_xsa(xsa_path):
         types.update(_HWH_MODTYPE_RE.findall(payload.decode("utf-8", errors="replace")))
     return types
+
+
+def workspace_locked_by_ide(workspace_path: Path) -> Optional[Path]:
+    """Eclipse/Vitis IDE workspace'i acik tutuyorsa kilit dosyasinin yolu, degilse None.
+
+    SAHA (2026-09-07): kullanici Vitis IDE'yi ayni workspace'te acikken "kaynaklari
+    guncelle" kostu; XSCT `app build` yalnizca `Invalid Workspace` dedi (Eclipse bir
+    workspace'i tek ornekte acar: `.metadata/.lock` uzerinde OS dosya kilidi tutar).
+    Kilit denemesi (LK_NBLCK / F_TLOCK) basarisizsa IDE aciktir; dosya yoksa ya da
+    kilitsizse serbesttir. Bu XSCT'den ONCE bakilir, is acik mesajla durur.
+    """
+    lock_path = Path(workspace_path) / ".metadata" / ".lock"
+    if not lock_path.is_file():
+        return None
+    try:
+        fd = os.open(str(lock_path), os.O_RDWR)
+    except OSError:
+        return lock_path
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                return lock_path
+        else:
+            import fcntl
+
+            try:
+                fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.lockf(fd, fcntl.LOCK_UN)
+            except OSError:
+                return lock_path
+    finally:
+        os.close(fd)
+    return None
+
+
+def workspace_lock_issue(workspace_path: Path) -> Optional[dict]:
+    lock_path = workspace_locked_by_ide(workspace_path)
+    if lock_path is None:
+        return None
+    return {
+        "file": str(lock_path), "line": 0, "column": 0,
+        "rule": "spec2code-vitis-preflight", "severity": "error",
+        "category": "workspace_locked", "source": "Spec2Code",
+        "message": (
+            f"Workspace baska bir Vitis/Eclipse ornegi tarafindan acik tutuluyor ({lock_path}). "
+            "XSCT bu durumda 'Invalid Workspace' verir. Vitis IDE'de bu workspace'i kapat "
+            "(File > Switch Workspace ya da IDE'yi kapat) ya da Spec2Code'a farkli bir workspace dizini ver."
+        ),
+    }
 
 
 def spec_xsa_preflight(spec: dict, xsa_path: Path, os_name: str) -> list[dict]:
@@ -2643,6 +2698,14 @@ class VitisWorkspaceJobManager:
 
         workspace_path = _clean_user_path(config.workspace_path)
         app_dir = workspace_path / app_name
+        lock_issue = workspace_lock_issue(workspace_path)
+        if lock_issue is not None:
+            job.emit({
+                "event": "vitis.compile_errors", "stage": "stage_sources", "progress": 30,
+                "message": "Workspace kilitli; XSCT baslatilmadi.",
+                "issues": [lock_issue], "error_codes": _issue_error_codes([lock_issue]),
+            })
+            raise RuntimeError(lock_issue["message"])
         if not workspace_path.is_dir() or not app_dir.is_dir():
             raise FileNotFoundError(
                 f"Kaynak güncellemesi mevcut bir workspace gerektirir: '{app_dir}' bulunamadı. "
@@ -2861,6 +2924,14 @@ class VitisWorkspaceJobManager:
 
         workspace_path = _clean_user_path(config.workspace_path)
         workspace_path.mkdir(parents=True, exist_ok=True)
+        lock_issue = workspace_lock_issue(workspace_path)
+        if lock_issue is not None:
+            job.emit({
+                "event": "vitis.compile_errors", "stage": "stage_sources", "progress": 30,
+                "message": "Workspace kilitli; XSCT baslatilmadi.",
+                "issues": [lock_issue], "error_codes": _issue_error_codes([lock_issue]),
+            })
+            raise RuntimeError(lock_issue["message"])
         temp_path = _clean_user_path(config.temp_path)
         temp_path.mkdir(parents=True, exist_ok=True)
         staging_root = temp_path / job.id

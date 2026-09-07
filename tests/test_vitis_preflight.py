@@ -8,11 +8,13 @@ kendi kategorisiyle eslesir.
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
 from backend.vitis_errors import map_vitis_errors
-from backend.vitis_workspace import spec_xsa_preflight, xsa_module_types
+from backend.vitis_workspace import spec_xsa_preflight, workspace_lock_issue, workspace_locked_by_ide, xsa_module_types
 
 ROOT = Path(__file__).resolve().parent.parent
 MB_XSA = ROOT / "test" / "0_dosyalar" / "microblaze_nexys_a7.xsa"
@@ -50,6 +52,52 @@ class SpecXsaPreflightTests(unittest.TestCase):
 
     def test_missing_xsa_is_not_a_preflight_failure(self) -> None:
         self.assertEqual(spec_xsa_preflight(_spec("zynq_ultrascale", "freertos"), Path("yok.xsa"), "freertos10_xilinx"), [])
+
+
+class WorkspaceLockTests(unittest.TestCase):
+    """Vitis IDE workspace'i acikken XSCT 'Invalid Workspace' verir; kilit XSCT'den once gorulmeli."""
+
+    def test_no_metadata_means_free(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(workspace_locked_by_ide(Path(tmp)))
+            self.assertIsNone(workspace_lock_issue(Path(tmp)))
+
+    def test_unlocked_lock_file_means_free(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / ".metadata" / ".lock"
+            lock.parent.mkdir()
+            lock.write_bytes(b"")
+            self.assertIsNone(workspace_locked_by_ide(Path(tmp)))
+
+    def test_os_locked_lock_file_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / ".metadata" / ".lock"
+            lock.parent.mkdir()
+            lock.write_bytes(b"\0")
+            fd = os.open(str(lock), os.O_RDWR)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertEqual(workspace_locked_by_ide(Path(tmp)), lock)
+                issue = workspace_lock_issue(Path(tmp))
+                self.assertEqual(issue["category"], "workspace_locked")
+                self.assertIn("Invalid Workspace", issue["message"])
+            finally:
+                if os.name == "nt":
+                    import msvcrt
+                    try:
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+                os.close(fd)
+
+    def test_invalid_workspace_log_line_maps_to_lock_category(self) -> None:
+        issues = map_vitis_errors("Invalid Workspace\n    while executing\n")
+        self.assertEqual(issues[0]["category"], "workspace_locked")
 
 
 class FreertosDrcErrorMappingTests(unittest.TestCase):

@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.192 - 2026-09-07
+
+- **Workspace kilidi on kontrolu (SAHA):** Vitis IDE ayni workspace'te acikken "kaynaklari
+  guncelle" kosuldu; XSCT `app build` yalnizca `Invalid Workspace` dedi ve is anlasilmaz sekilde
+  dustu. Eclipse `.metadata/.lock` uzerinde OS kilidi tutar; Spec2Code artik create/update
+  akisinda XSCT'den once kilidi dener (`workspace_locked_by_ide`), kilitliyse
+  `S2C-VITIS-PREFLIGHT-013` ile acik mesaj verir (IDE'yi kapat / farkli workspace). Loga dusen
+  `Invalid Workspace` satiri da ayni kategoriyle eslesir. Regresyon `tests/test_vitis_preflight.py`.
+
 ## v0.1.191 - 2026-09-07
 
 - **Setup XSA yukleme davranisi aciklandi (SAHA):** dosya seciciyle secilen XSA'nin yolu

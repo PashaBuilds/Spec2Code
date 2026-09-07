@@ -639,6 +639,11 @@ clang-format (10 oncesi) config'i reddediyor. v0.1.186'dan itibaren uygulama con
 yerel aracla dogrular ve eski surum icin uyumlu config'e duser; hala goruyorsan LLVM'i
 guncelle ya da `SPEC2CODE_CLANG_FORMAT_PATH` ile yeni bir clang-format goster.
 
+**"Workspace kilitli" / `Invalid Workspace` (`S2C-VITIS-PREFLIGHT-013`)** - Vitis IDE ayni
+workspace'i acik tutuyor (Eclipse bir workspace'i tek ornekte acar, `.metadata\.lock`).
+IDE'de File > Switch Workspace ile baska bir workspace'e gec ya da IDE'yi kapat; ya da
+Spec2Code'a farkli bir workspace dizini ver. Spec2Code bunu XSCT'yi baslatmadan yakalar.
+
 **"Spec/XSA uyumsuz" (`S2C-VITIS-PREFLIGHT-011/012`)** - workspace olusturma XSCT'yi hic
 baslatmadan durdu. 011: spec platformu (orn. Zynq UltraScale+) ile XSA'nin islemcisi
 (orn. MicroBlaze) farkli - Setup'ta dogru XSA'yi yukleyip spec'i ondan turet. 012:

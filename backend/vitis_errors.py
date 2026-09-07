@@ -47,6 +47,11 @@ _PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Windows GCC literal `*.c` girdisini derlemeye calismis. Bu genelde source'suz custom PL IP BSP driver makefile'inda gorulur. Guncel Spec2Code ile `Auto: custom IP - none` secili sekilde temiz/yeni workspace'e yeniden uret.",
     ),
     (
+        re.compile(r"^Invalid Workspace\b", re.I),
+        "workspace_locked",
+        "XSCT workspace'i acamadi: buyuk olasilikla Vitis IDE ayni workspace'i acik tutuyor (.metadata/.lock). IDE'de workspace'i kapat ya da farkli bir workspace dizini ver, sonra tekrar dene.",
+    ),
+    (
         re.compile(r"CPU has no connection to Interrupt controller", re.I),
         "freertos_mb_no_intc",
         "FreeRTOS BSP DRC'si: MicroBlaze tasariminda AXI Interrupt Controller (ve AXI Timer) yok. Spec runtime'ini bare_metal yap ya da Vivado tasarimina axi_intc + axi_timer ekleyip XSA'yi yeniden uret.",
