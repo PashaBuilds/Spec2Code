@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.194 - 2026-09-07
+
+- **CIT raporu yeniden tasarlandi (SAHA istegi):** her entegre kendi kutusunda (ust cizgi,
+  `ad ... OK/NOK` baslik, ayirici, olcum satirlari, alt cizgi); kosu basligi ve SONUC cift
+  cizgili. Hizalama duzeltildi: eski olcum satiri 65 sutundu, cerceve 72 - artik her satir
+  tam 72 sutun (`ad 18 | deger 10 | birim 7 | limit 24 | sonuc 4`), limit metni
+  `[min .. max]` / `limitsiz` / `(kapali)`. Satirlar limit kararina gore ANSI renkli: OK
+  yesil, NOK kirmizi, HATA sari, kapali gri (CIT ekranindaki tonlarla ayni). Terminaller
+  (XShell/PuTTY) dogrudan renkli basar; Akis ekrani `S2C-LOG` satirindaki SGR kodunu cozup
+  ayni tonu uygular (`ansiTone`), kodlar metinden temizlenir.
+
 ## v0.1.193 - 2026-09-07
 
 - **Kart loglari konsol UART'ina da yansir (SAHA, Nexys A7 MDM):** MDM/CoreSight/TCP ajanlarinda

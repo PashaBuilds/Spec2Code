@@ -489,9 +489,11 @@ bitini ve okuma durumunu gosterir. Yani ekranda gordugun sonuc, projene tasidigi
 Akis: `CIT_RUN` -> ajan `boardCitRun()` -> `spec2codeTestbenchBoardInit()` -> I2C cihaz
 tablosu baglanir -> `sistemCitRead()` -> `<mod>CitRead()` -> surucu okumalari -> sonuc
 manifest sirasiyla `SBoardCit`'e (deger, okuma durumu, OK biti) -> host.
-`sistemCitRead()` her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli bir rapor basar
-(cihaz basina durum, her olcumun degeri/birimi/limiti/OK-NOK); log esigini `info` yapinca
-Akis ekraninda gorunur.
+`sistemCitRead()` her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli bir rapor basar:
+72 sutunluk kutular, her entegre kendi kutusunda (baslik satirinda entegre sonucu), her
+olcum satirinda ad / deger / birim / limit / OK-NOK, sonda genel SONUC. Satirlar ANSI
+renklidir (OK yesil, NOK kirmizi, HATA sari, kapali olcum gri): XShell/PuTTY dogrudan
+renkli gosterir, Akis ekrani da ayni tonu uygular. Log esigini `info` yapinca gorunur.
 "Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
 
 Not: cit/ okumalari ilklendirilmis entegre ister; once Test Bench'ten "butun

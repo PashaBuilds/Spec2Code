@@ -7,6 +7,36 @@ export function stripAnsi(line: string): string {
   return line.replace(ANSI_RE, "");
 }
 
+/** Satirin ANSI SGR rengini CIT ekraninin tonuna cevirir (kart raporu: OK yesil,
+ * NOK kirmizi, HATA sari, kapali gri). Renk kodu yoksa null. */
+export function ansiTone(line: string): "ok" | "danger" | "warn" | "neutral" | null {
+  const match = /\[(3[0-7]|9[0-7])m/.exec(line);
+  if (!match) return null;
+  switch (match[1]) {
+    case "32":
+      return "ok";
+    case "31":
+      return "danger";
+    case "33":
+      return "warn";
+    default:
+      return "neutral";
+  }
+}
+
+export const ANSI_TONE_CLASS: Record<NonNullable<ReturnType<typeof ansiTone>>, string> = {
+  ok: "text-ok",
+  danger: "text-danger",
+  warn: "text-warn",
+  neutral: "text-faint",
+};
+
+/** Satir icin sinif: ANSI rengi varsa onun tonu, yoksa verilen varsayilan. */
+export function ansiToneClass(line: string, fallback: string): string {
+  const tone = ansiTone(line);
+  return tone ? ANSI_TONE_CLASS[tone] : fallback;
+}
+
 function formatClock(date: Date, withMs: boolean): string {
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");

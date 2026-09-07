@@ -3,7 +3,7 @@ import { Activity, ArrowDownToLine, Eraser, Pause, Play, Plug, SendHorizonal, Un
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
 import { api } from "@/lib/api";
-import { downloadTextLog, stripAnsi, timeLabel } from "@/lib/console";
+import { ansiToneClass, downloadTextLog, stripAnsi, timeLabel } from "@/lib/console";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import type { TelnetLogEntry, TestbenchSessionStatus, TrafficEntry } from "@/lib/types";
@@ -198,7 +198,9 @@ function TelnetLogCard() {
           entries.map((entry) => (
             <div key={entry.seq} className="grid grid-cols-[96px_minmax(0,1fr)] items-baseline gap-2">
               <span className="select-none text-faint">{timeLabel(entry.at)}</span>
-              <span className="block break-all text-text">{stripAnsi(entry.line)}</span>
+              <span className={cn("block whitespace-pre-wrap break-all", ansiToneClass(entry.line, "text-text"))}>
+                {stripAnsi(entry.line)}
+              </span>
             </div>
           ))
         )}
@@ -395,7 +397,12 @@ export default function TrafficPanel() {
                 {entry.dir === "tx" ? "→ TX" : "← RX"}
               </span>
               <span className="min-w-0">
-                <span className={cn("block break-all", entry.dir === "tx" ? "text-text" : rxOzetTone(entry.ozet))}>
+                <span
+                  className={cn(
+                    "block whitespace-pre-wrap break-all",
+                    entry.dir === "tx" ? "text-text" : ansiToneClass(entry.ozet, rxOzetTone(entry.ozet)),
+                  )}
+                >
                   {stripAnsi(entry.ozet)}
                 </span>
                 <span className="block break-all text-[10px] text-faint">{entry.hex}</span>
