@@ -147,6 +147,14 @@ gorunumler:
   `coresight` (ZynqMP DCC, JTAG), `mdm` (MicroBlaze Debug Module UART, JTAG).
   JTAG tasiyicilari hicbir zaman otomatik secilmez.
 
+### XSA yukleme: kopya mi, yol mu
+
+"`.xsa / .hdf sec (kopyalar)`" dugmesi tarayici dosya secicisini acar; tarayici dosyanin
+gercek yolunu vermedigi icin dosya sunucuya `uploads\xsa\<ad>` olarak KOPYALANIR ve
+Vitis adimi bu kopyayi kullanir (ekranda sari notla gosterilir). Orijinal dosyayi
+yerinde kullanmak istersen tam yolu (`D:\...\board.xsa`) alttaki alana yazip
+"Semayi kur" de: bu durumda kopya olusmaz, Vitis dogrudan o yolu okur.
+
 ### `xparameters.h`
 
 Dosyayi yukle ya da icerigini yapistir; denetleyiciler (I2C, SPI/QSPI, GPIO, UART,

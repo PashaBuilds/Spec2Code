@@ -24,6 +24,9 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
   // Vivado sayfasında üretilen son XSA: tek tuşla seçilebilir (esneklik —
   // kullanıcı isterse yolu elle de yapıştırabilir).
   const [lastVivadoXsa] = useState(() => localStorage.getItem("spec2code.lastVivadoXsa") ?? "");
+  // Dosya secici ile yuklenen XSA sunucuya KOPYALANIR (tarayici gercek yolu vermez);
+  // kullanici orijinal yolu gorunce sasirmasin diye acik not gosterilir.
+  const [copiedNote, setCopiedNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function applyResult(res: XsaParseResult) {
@@ -47,7 +50,12 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
     setBusy(true);
     setError(null);
     try {
-      applyResult(await api.uploadXsa(f));
+      const res = await api.uploadXsa(f);
+      applyResult(res);
+      setCopiedNote(
+        `"${f.name}" sunucuya kopyalandı (${res.xsa_path}); Vitis adımı bu kopyayı kullanır. ` +
+          "Tarayıcı dosya seçicisi gerçek yolu vermez; orijinal dosyayı kullanmak istersen tam yolu aşağıdaki alana yaz.",
+      );
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     } finally {
@@ -64,6 +72,7 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
     setError(null);
     try {
       applyResult(await api.parseXsaPath(target));
+      setCopiedNote(null);
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     } finally {
@@ -85,7 +94,7 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
         <div className="mb-3 flex items-center gap-2">
           <input ref={fileRef} type="file" accept=".xsa,.hdf" onChange={onDesignFile} className="hidden" />
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
-            <Upload className="h-4 w-4" /> .xsa / .hdf seç
+            <Upload className="h-4 w-4" /> .xsa / .hdf seç (kopyalar)
           </Button>
           {detected && <Badge tone="accent">{detected}</Badge>}
           {count !== null && <Badge tone="ok">{count} controllers</Badge>}
@@ -105,6 +114,11 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
             Şemayı kur
           </Button>
         </div>
+        {copiedNote ? (
+          <p className="mt-2 rounded border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px] leading-relaxed text-warn">
+            {copiedNote}
+          </p>
+        ) : null}
         <p className="mt-3 text-[11px] leading-relaxed text-faint">
           Dosya içindeki hardware handoff (.hwh) okunur: PS çevre birimleri, PL IP&apos;leri ve adres
           haritası şematiğe dökülür; tanınmayan custom IP&apos;ler ayrıca listelenir. Not: Vitis workspace

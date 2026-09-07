@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.191 - 2026-09-07
+
+- **Setup XSA yukleme davranisi aciklandi (SAHA):** dosya seciciyle secilen XSA'nin yolu
+  `uploads\xsa\...` olarak degisiyordu; tarayici gercek yolu vermedigi icin dosya sunucuya
+  kopyalanir ve Vitis o kopyayi kullanir. Dugme adi "(kopyalar)" oldu, yukleme sonrasi sari not
+  kopya yolunu ve orijinal dosyayi kullanmak icin "tam yol" alanini gosterir; yol ile kurulumda
+  not kalkar. Kilavuz "XSA yukleme: kopya mi, yol mu" bolumu.
+
 ## v0.1.190 - 2026-09-07
 
 - **Spec/XSA on kontrolu (SAHA):** ZynqMP + FreeRTOS spec'ine (my_io_board) Nexys A7 MicroBlaze
