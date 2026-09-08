@@ -358,10 +358,41 @@ unsigned int citLimitDegerlendir(const SCitLimit* spLimit, int iDeger)
 # --- entegre CIT: baslik ----------------------------------------------------------------
 
 def _limit_initializer(olcum: dict) -> str:
+    """Tek olcumun SCitLimit ilk degeri, ALAN ADLARIYLA (designated initializer).
+
+    SAHA istegi (2026-09-08): konumsal `{0, 0, 0U, 1U}` dizileri okunmuyordu; kullanici
+    main'de hangi kanalin hangi limit oldugunu gorup hizla degistirmek istiyor.
+    """
     mn, mx = olcum.get("min"), olcum.get("max")
     has = isinstance(mn, (int, float)) and isinstance(mx, (int, float))
     etkin = 1 if olcum.get("enabled", True) else 0
-    return f"{{{int(mn) if has else 0}, {int(mx) if has else 0}, {1 if has else 0}U, {etkin}U}}"
+    return (f"{{.iMin = {int(mn) if has else 0}, .iMax = {int(mx) if has else 0}, "
+            f".uiLimitVar = {1 if has else 0}U, .uiEtkin = {etkin}U}}")
+
+
+def _limit_note(olcum: dict, unit: str) -> str:
+    mn, mx = olcum.get("min"), olcum.get("max")
+    has = isinstance(mn, (int, float)) and isinstance(mx, (int, float))
+    if not olcum.get("enabled", True):
+        return "kapali"
+    if has:
+        return f"[{int(mn)} .. {int(mx)}]" + (f" {unit}" if unit else "")
+    return "limitsiz"
+
+
+def _limit_member_lines(plan: "_ChipPlan", olcum_for) -> list[str]:
+    """`.sV1 = {...}, /* ad: not */` satirlari (makro icin, satir sonu eki cagiranda)."""
+    lines: list[str] = []
+    for m in plan.measures:
+        for ch in m.channels:
+            olcum = olcum_for(m, ch)
+            if "name" in olcum:
+                note = f"{olcum['name']}: {_limit_note(olcum, m.unit)}"
+            else:
+                # Modulde olup bu cihazda istenmeyen olcum: alan yapida var, kapali.
+                note = f"{str(plan.device.get('id', '')).upper()}_{ch.label.upper()}: bu cihazda olcum yok (kapali)"
+            lines.append(f".{ch.limit_field} = {_limit_initializer(olcum)}, /* {note} */")
+    return lines or [".uiYok = 0U,"]
 
 
 def _flag_entries(plan: _ChipPlan) -> list[tuple[str, str]]:
@@ -410,13 +441,11 @@ def chip_header(plan: _ChipPlan) -> str:
         e.ln("    unsigned int uiYok; /* olcum op'u yok; yalniz durum registerleri */")
     e.ln("}" + f" S{pas}CitLimit;")
     e.blank()
-    inits = [_limit_initializer(ch.olcum) for m in plan.measures for ch in m.channels] or ["0U"]
     e.ln(f"#define {mod}_CIT_LIMIT_VARSAYILAN \\")
-    for i, init in enumerate(inits):
-        tail = "," if i < len(inits) - 1 else ""
-        prefix = "    {" if i == 0 else "     "
-        suffix = "}" if i == len(inits) - 1 else " \\"
-        e.ln(f"{prefix}{init}{tail}{suffix}")
+    e.ln("    { \\")
+    for line in _limit_member_lines(plan, lambda m, ch: ch.olcum):
+        e.ln(f"        {line} \\")
+    e.ln("    }")
     e.blank()
     e.ln("/**")
     e.ln(" * @brief BIT BIT bayraklar: op okuma-basari bitleri, sonra olcum/kanal OK bitleri")
@@ -606,16 +635,18 @@ def sistem_header(plans: list[_ChipPlan], skipped: list[tuple[str, str]], spec: 
         e.ln(f"    S{plan.pascal}CitLimit {device_field(plan.device)}; /* {plan.device['id']} ({plan.part}) */")
     e.ln("} SSistemCitLimit;")
     e.blank()
+    e.ln("/* Alan adlariyla (designated) yazilir: hangi entegrenin hangi kanali hangi limit, acik.")
+    e.ln(" * Kendi main'inde kopyalayip degerleri degistir; SCitLimit = {iMin, iMax, uiLimitVar, uiEtkin}. */")
     e.ln("#define SISTEM_CIT_LIMIT_VARSAYILAN \\")
-    for i, plan in enumerate(plans):
+    e.ln("    { \\")
+    for plan in plans:
         # Cihaz basina varsayilan (ayni parcadan N cihazin limitleri farkli olabilir); modulde
         # olup bu cihazda olmayan olcum: limitsiz + etkin degil.
-        inits = [_limit_initializer(plan.own_olcum.get((m.name, ch.index), {"enabled": False}))
-                 for m in plan.measures for ch in m.channels] or ["0U"]
-        tail = "," if i < len(plans) - 1 else ""
-        prefix = "    {" if i == 0 else "     "
-        suffix = "}" if i == len(plans) - 1 else " \\"
-        e.ln(f"{prefix}{{{', '.join(inits)}}}{tail} /* {plan.device['id']} */{suffix}")
+        e.ln(f"        .{device_field(plan.device)} = {{ /* {plan.device['id']} ({plan.part}) */ \\")
+        for line in _limit_member_lines(plan, lambda m, ch: plan.own_olcum.get((m.name, ch.index), {"enabled": False})):
+            e.ln(f"            {line} \\")
+        e.ln("        }, \\")
+    e.ln("    }")
     e.blank()
     e.ln("/**")
     e.ln(" * @brief Butun entegrelerin CIT sonucu (alan adi = spec cihaz id'si).")

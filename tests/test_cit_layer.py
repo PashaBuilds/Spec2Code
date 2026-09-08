@@ -200,7 +200,7 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("SCitLimit sV1; /* VCC_3V3 (voltage_read, mV) */", header)
         self.assertIn("SCitLimit sTemperature;", header)
         # spec limiti varsayilana gomulur: {min, max, limitVar, etkin}
-        self.assertIn("{3135, 3465, 1U, 1U},", header)
+        self.assertIn(".sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U, .uiEtkin = 1U}, /* VCC_3V3: [3135 .. 3465] mV */", header)
         self.assertIn("unsigned int uiVoltageReadOkundu : 1;", header)
         self.assertIn("unsigned int uiV1Ok : 1; /* VCC_3V3: okundu VE limit icinde", header)
         self.assertIn("SLtc2991Status sDurum;", header)
@@ -230,6 +230,12 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("SLtc2991CitLimit sU2Ltc2991;", header)
         self.assertIn("SLtc2991Cit sU2Ltc2991;", header)
         self.assertIn("#define SISTEM_CIT_LIMIT_VARSAYILAN", header)
+        # Designated initializer: entegre alani + kanal alani + SCitLimit alan adlari (SAHA istegi).
+        self.assertIn(".sU2Ltc2991 = { /* u2_ltc2991 (LTC2991) */", header)
+        self.assertIn(".sV1 = {.iMin = ", header)
+        self.assertIn(".uiLimitVar = ", header)
+        self.assertIn(".uiEtkin = 1U}, /*", header)
+        self.assertNotIn("{{0, 0, 0U, 1U}", header)
         self.assertIn("int sistemCitRead(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit);", header)
         source = _read(self.out_dir, "cit/sistem_cit.c")
         self.assertIn("static XIic S_sPlI2c0Instance;", source)

@@ -3,6 +3,21 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.199 - 2026-09-08
+
+- **Shell main dosyalari `main.h/.c`** (eski `main_example.*`); acilista proje adi buyuk harf
+  **FIGlet Colossal** banner olarak basilir (`orchestrator/banner_font.py`: glifler gomulu,
+  calisma zamaninda pyfiglet gerekmez; bilinmeyen karakter bosluk).
+- **`for (;;)` -> `while (1)`** uretilen tum kodda (ajan main'leri, shell main).
+- **Limit makrolari alan adlariyla (SAHA istegi):** `SISTEM_CIT_LIMIT_VARSAYILAN` ve
+  `<MOD>_CIT_LIMIT_VARSAYILAN` artik designated initializer: `.sAnaKartLtc29911 = { .sV1 =
+  {.iMin = 3200, .iMax = 3400, .uiLimitVar = 1U, .uiEtkin = 1U}, /* ANA_KART_LTC2991_1_V1:
+  [3200 .. 3400] mV */ ... }` - hangi entegrenin hangi kanali hangi limit, main'de acikca gorunur.
+- **Vitis update: `shell/` de temizlenir** (eski `main_example.*` kalip ikinci main olusuyordu) ve
+  shell ELF'i derlemeden once silinir - derleme duserse bayat ELF "present" gorunmez.
+- Nexys spec'i: LTC2991'de `current_read` kaldirildi (yalniz voltaj/sicaklik/Vcc olculur;
+  ilgili I1..I8 satirlari ve limit alanlari uretilmez). Op secimi cihaz basina spec/UI'dan.
+
 ## v0.1.198 - 2026-09-08
 
 - **Iki app projesi her durumda (SAHA sorusu):** eski akista ajan build'i dustugunde (or. yazilim

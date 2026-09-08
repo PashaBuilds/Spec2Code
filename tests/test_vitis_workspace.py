@@ -945,13 +945,15 @@ class VitisWorkspaceTests(unittest.TestCase):
                 # Ikinci uygulama: drivers + cit + shell (main_example.c) ayri sahnelenir ve derlenir.
                 self.assertEqual(result["shell_app_name"], "unit_application_shell")
                 shell_src = temp_root / "vitis_unit" / "src_shell"
-                self.assertTrue((shell_src / "shell" / "main_example.c").is_file())
+                self.assertTrue((shell_src / "shell" / "main.c").is_file())
                 self.assertTrue((shell_src / "cit" / "sistem_cit.c").is_file())
                 self.assertFalse((shell_src / "tests").exists())
                 self.assertEqual(result["shell_elf_artifacts"]["application"], 1)
                 script = Path(result["script_path"]).read_text(encoding="utf-8")
                 self.assertIn("set shell_app_name {unit_application_shell}", script)
                 self.assertIn("importsources -name $shell_app_name -path $shell_source_path", script)
+                # Bayat shell ELF'i derlemeden once silinir (derleme duserse 'present' gorunmesin).
+                self.assertIn("catch {file delete [file join $workspace_path $shell_app_name Debug ${shell_app_name}.elf]}", script)
                 # Iki app projesi HER DURUMDA: shell create/import ajan build'inden ONCE,
                 # ajan build catch'te, shell build sonra, ajan hatasi en sonda yeniden yukseltilir.
                 self.assertLess(script.index("shell application: $shell_app_name"), script.index("set spec2code_agent_err {}"))

@@ -875,7 +875,7 @@ export function VitisWorkspacePanel({
                   ?? `${result.shell_app_name}: ELF üretilmedi — xsct_stdout.log'da "shell application build failed" satırına bak`}
               </div>
               <div className="text-[10px] text-faint">
-                Aynı platformda ikinci uygulama: drivers/ + cit/ + shell/main_example.c. Board&apos;da çalıştır her zaman ajanı yükler.
+                Aynı platformda ikinci uygulama: drivers/ + cit/ + shell/main.c. Board&apos;da çalıştır her zaman ajanı yükler.
               </div>
             </div>
           ) : null}

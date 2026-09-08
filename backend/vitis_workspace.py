@@ -1099,7 +1099,7 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
 
 
 #: Ikinci Vitis uygulamasi (`<app>_shell`): kullanicinin kendi projesine tasiyacagi
-#: kod (drivers + cit + shell/main_example.c) ayni platformda derlenir; ELF'i GUI
+#: kod (drivers + cit + shell/main.c) ayni platformda derlenir; ELF'i GUI
 #: kullanmaz, kullanici manuel alir. Ajan uygulamasi (drivers + cit + tests) degismez.
 _SHELL_STAGED_PREFIXES = ("drivers/", "cit/", "shell/")
 SHELL_APP_SUFFIX = "_shell"
@@ -1991,6 +1991,8 @@ def _render_shell_app_build_tcl() -> str:
     return (
         "# --- Ikinci uygulama (shell): derle - hata ajani etkilemez ---\n"
         "if {$shell_app_name ne \"\"} {\n"
+        "    # Bayat ELF tuzagi: derleme duserse eski ELF 'present' gorunmesin.\n"
+        "    catch {file delete [file join $workspace_path $shell_app_name Debug ${shell_app_name}.elf]}\n"
         "    if {[catch {\n"
         "        if {[catch {app build -name $shell_app_name} spec2code_shell_build_err]} {\n"
         f"            {_tcl_put('shell app build failed; cleaning and retrying once: $spec2code_shell_build_err')}"
@@ -2581,7 +2583,7 @@ def render_xsct_update_script(
 #: Staged kaynaklarin app src/ altinda yasadigi konumlar. Update modunda
 #: bunlar silinip yeniden import edilir - kaldirilan dosyalar (ör. transport
 #: degisince eski agent main'i) workspace'te bayat kalmasin.
-_STAGED_SRC_SUBDIRS = ("drivers", "tests", "cit", "reference_sources")
+_STAGED_SRC_SUBDIRS = ("drivers", "tests", "cit", "shell", "reference_sources")
 _STAGED_SRC_ROOT_FILES = ("spec2code_selftest_main.c", "spec2code_selftest_main.h")
 
 

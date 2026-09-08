@@ -90,8 +90,8 @@ export function buildDesignReview(spec: ProjectSpec): DesignReview {
       { path: "shell/shell_uart.c", kind: "cit" },
       { path: "shell/shell.h", kind: "cit" },
       { path: "shell/shell.c", kind: "cit" },
-      { path: "shell/main_example.h", kind: "cit" },
-      { path: "shell/main_example.c", kind: "cit" },
+      { path: "shell/main.h", kind: "cit" },
+      { path: "shell/main.c", kind: "cit" },
     );
   }
   // Sanal cihaz altyapisi (tests/sim): Xilinx veri-yolu araya-girme + cihaz kaydi.

@@ -365,6 +365,20 @@ S_sLimit.sSakkLtc29911.sV1.uiLimitVar = 1U;
 sistemCitRead(&S_sBus, &S_sLimit, &S_sCit);   /* S_sCit.sSakkLtc29911.sBayraklar.uiV1Ok ... */
 ```
 
+`SISTEM_CIT_LIMIT_VARSAYILAN` alan adlariyla (designated initializer) uretilir; kendi
+main'inde kopyalayip yalniz istedigin satiri degistirmen yeter:
+
+```c
+#define SISTEM_CIT_LIMIT_VARSAYILAN \
+    { \
+        .sSakkLtc29911 = { /* sakk_ltc2991_1 (LTC2991) */ \
+            .sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U, .uiEtkin = 1U}, /* SAKK_LTC2991_1_V1: [3135 .. 3465] mV */ \
+            .sV2 = {.iMin = 0, .iMax = 0, .uiLimitVar = 0U, .uiEtkin = 1U},       /* SAKK_LTC2991_1_V2: limitsiz */ \
+            .sTemperature = {.iMin = 1000, .iMax = 6000, .uiLimitVar = 1U, .uiEtkin = 1U}, /* 10.00..60.00 C */ \
+        }, \
+    }
+```
+
 Kapsam disi (CIT dosyasi uretilmez, README'de listelenir): GPIO hat cihazlari, komut
 tabanli SPI flash, I2C EEPROM.
 
@@ -413,13 +427,14 @@ carpimi, DS1682 gecen zaman sayaci, LMK04832 kilit bitleri) ve hata enjeksiyonu
 ### 9.1 Konsol kabugu (`shell/`)
 
 Kendi main'inden konsol UART'i uzerinden komutla CIT kosturmak icin `shell/` katmani
-uretilir (cit/ olan her projede). `shell/main_example.c` kopyala-yapistir ornektir:
+uretilir (cit/ olan her projede). `shell/main.c` kopyala-yapistir ana programdir (acilista proje adini
+buyuk harf FIGlet Colossal banner olarak basar):
 
 ```c
 sistemCitBusVarsayilan(&S_sBus);
 sistemCitInit(&S_sBus);                      /* ana dongu oncesi, bir kez */
 shellInit(&S_sBus, &S_sLimit, &S_sCit);
-for (;;)
+while (1)
 {
     shellCheck();                            /* bloklamaz: bayt varsa isler */
 }
@@ -444,7 +459,7 @@ Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
 
 Vitis workspace kurulumu bu kodu ayrica DERLER: ayni platformda ikinci bir uygulama
-(`<app>_shell`, kaynaklari `drivers/ + cit/ + shell/`, main'i `main_example.c`) olusur ve
+(`<app>_shell`, kaynaklari `drivers/ + cit/ + shell/`, main'i `main.c`) olusur ve
 ELF'i Vitis sayfasinda "Shell ELF" satirinda gorunur. GUI bu ELF'i kullanmaz;
 "Board'da calistir" her zaman ajani yukler. Shell ELF'ini XShell/PuTTY ile denemek icin
 `xsdb`/Vitis'ten elle yukle ya da kaynaklari kendi projene tasi.

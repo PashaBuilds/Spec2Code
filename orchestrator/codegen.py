@@ -5143,7 +5143,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "    int iReceived;",
         "",
         "    spec2codeMesajParserSifirla(&S_sMesajParser);",
-        "    for (;;)",
+        "    while (1)",
         "    {",
         "        iReceived = lwip_recv(iClientSocket, ucArrChunk, sizeof(ucArrChunk), 0);",
         "        if (iReceived <= 0)",
@@ -5219,7 +5219,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "    }",
         '    xil_printf("Spec2Code test bench TCP agent listening on port %d\\r\\n",',
         "               SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);",
-        "    for (;;)",
+        "    while (1)",
         "    {",
         "        uiRemoteSize = sizeof(sRemote);",
         "        iClientSocket = lwip_accept(iListenSocket, (struct sockaddr*)&sRemote, &uiRemoteSize);",
@@ -5884,7 +5884,7 @@ def _telnet_log_source() -> str:
         "    unsigned int uiHazir;",
         "    SYS_ARCH_DECL_PROTECT(lev);",
         "",
-        "    for (;;)",
+        "    while (1)",
         "    {",
         "        SYS_ARCH_PROTECT(lev);",
         "        uiHazir = (S_uiRingTail != S_uiRingHead) ? 1U : 0U;",
@@ -6084,7 +6084,7 @@ def _testbench_lwip_main_source(spec: dict) -> str:
             "                   SPEC2CODE_TESTBENCH_THREAD_STACKSIZE,\n"
             "                   DEFAULT_THREAD_PRIO);\n"
             "    vTaskStartScheduler();\n"
-            "    for (;;)\n"
+            "    while (1)\n"
             "    {\n"
             "    }\n"
             "    return 0;\n"
@@ -6110,7 +6110,7 @@ def _testbench_lwip_main_source(spec: dict) -> str:
         "    }\n"
         "    xil_printf(\"Spec2Code test bench TCP agent port %u dinliyor\\r\\n\",\n"
         "               SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT);\n"
-        "    for (;;)\n"
+        "    while (1)\n"
         "    {\n"
         "        spec2codeTestbenchLwipInputPoll();\n"
         "    }\n"
@@ -6314,7 +6314,7 @@ def _testbench_uart_source(spec: dict) -> str:
             "     * calisir, transportu bloketmeden telnet feed'i akar. */",
             "    (void)spec2codeTelnetNetBaslat();",
         ] if telnet else []),
-        "    for (;;)",
+        "    while (1)",
         "    {",
         *(["        spec2codeTelnetNetPoll();"] if telnet else []),
         f"        uiReceived = {uart_prefix}_Recv(&S_sTestbenchUart, ucArrChunk, sizeof(ucArrChunk));",
@@ -6548,7 +6548,7 @@ def _testbench_coresight_source(spec: dict) -> str:
             "    /* Telnet log sunucusu (port 23): PS Ethernet ile ayaga kalkar. */",
             "    (void)spec2codeTelnetNetBaslat();",
         ] if telnet else []),
-        "    for (;;)",
+        "    while (1)",
         "    {",
         *([
             "        /* Non-blocking: bayt yoksa telnet netif'ini poll et (bloke eden",
