@@ -199,6 +199,31 @@ def _i2c_bus_entries(spec: dict, plans: list) -> list[tuple[str, str, str]]:
     return out
 
 
+def _i2c_device_names(spec: dict, controller_id: str) -> list[tuple[int, str]]:
+    """Denetleyicideki I2C cihazlari (adres, "kimlik (parca[, switch 0x70 ch3])") - i2c_search etiketi."""
+    mux_by_id = {str(m.get("id")): m for m in spec.get("muxes", [])}
+    out: list[tuple[int, str]] = []
+    for device in spec.get("devices", []):
+        attach = device.get("attach") or {}
+        if str(attach.get("controller_id")) != controller_id or attach.get("i2c_address") is None:
+            continue
+        try:
+            address = int(str(attach.get("i2c_address")), 0)
+        except ValueError:
+            continue
+        label = f"{device.get('id')} ({device.get('part')}"
+        via = attach.get("via_mux") or {}
+        mux = mux_by_id.get(str(via.get("mux_id"))) if via else None
+        if mux is not None:
+            label += f", switch {mux.get('i2c_address')} ch{via.get('channel')}"
+        out.append((address, label + ")"))
+    return sorted(out)
+
+
+def _i2c_table_name(controller_id: str) -> str:
+    return "S_sArrI2cDevice" + "".join(p.capitalize() for p in controller_id.split("_"))
+
+
 def _mux_addresses(spec: dict) -> list[int]:
     addrs = []
     for mux in spec.get("muxes", []):
@@ -602,6 +627,17 @@ def user_commands_source(spec: dict, plans: list) -> str:
     if mux_addrs:
         e.ln("/* I2C switch adresleri: taramada atlanir (0x00 yazmak secili kanali kapatirdi). */")
         e.ln("static const unsigned int S_uiArrSwitchAddress[] = {" + ", ".join(f"0x{a:02X}U" for a in mux_addrs) + "};")
+    if i2c:
+        e.ln("/* Spec'teki I2C cihazlari (adres -> kimlik): i2c_search ACK satirini etiketler. */")
+        e.ln("typedef struct")
+        e.ln("{")
+        e.ln("    unsigned int uiAddress;")
+        e.ln("    const char* cpName;")
+        e.ln("} SShellUserI2cDevice;")
+        for cid, _, _ in i2c:
+            names = _i2c_device_names(spec, cid)
+            entries = ", ".join(f'{{0x{a:02X}U, "{n}"}}' for a, n in names) or '{0xFFU, ""}'
+            e.ln(f"static const SShellUserI2cDevice {_i2c_table_name(cid)}[] = {{{entries}}};")
     e.blank()
     e.ln("static void shellUserCit(unsigned int uiArgc, const char* cpArrArgv[])")
     e.ln("{")
@@ -626,6 +662,20 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln("}")
     e.blank()
     if i2c:
+        e.ln("static const char* shellUserI2cDeviceName(const SShellUserI2cDevice* spTable, unsigned int uiCount, unsigned int uiAddress)")
+        e.ln("{")
+        e.ln("    unsigned int uiIndex;")
+        e.blank()
+        e.ln("    for (uiIndex = 0U; uiIndex < uiCount; uiIndex++)")
+        e.ln("    {")
+        e.ln("        if (spTable[uiIndex].uiAddress == uiAddress)")
+        e.ln("        {")
+        e.ln("            return spTable[uiIndex].cpName;")
+        e.ln("        }")
+        e.ln("    }")
+        e.ln('    return "(not in spec)";')
+        e.ln("}")
+        e.blank()
         if mux_addrs:
             e.ln("static unsigned int shellUserI2cIsSwitchAddress(unsigned int uiAddress)")
             e.ln("{")
@@ -673,6 +723,7 @@ def user_commands_source(spec: dict, plans: list) -> str:
         e.ln("        return;")
         e.ln("    }")
         for cid, fld, htype in i2c:
+            table = _i2c_table_name(cid)
             e.ln(f'    xil_printf("{cid}: scanning 0x08..0x77\\r\\n");')
             e.ln("    uiFound = 0U;")
             e.ln("    for (uiAddress = 0x08U; uiAddress <= 0x77U; uiAddress++)")
@@ -685,7 +736,7 @@ def user_commands_source(spec: dict, plans: list) -> str:
                 e.ln("        }")
             e.ln(f"        if (shellUserI2cProbe{htype}(shellBus()->{fld}, uiAddress) == TRUE)")
             e.ln("        {")
-            e.ln('            xil_printf("  0x%02X  ACK\\r\\n", uiAddress);')
+            e.ln(f'            xil_printf("  0x%02X  ACK  %s\\r\\n", uiAddress, shellUserI2cDeviceName({table}, sizeof({table}) / sizeof({table}[0]), uiAddress));')
             e.ln("            uiFound++;")
             e.ln("        }")
             e.ln("    }")

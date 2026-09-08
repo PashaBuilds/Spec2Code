@@ -9,6 +9,13 @@ import DeviceParams from "@/features/device-params/DeviceParams";
 import BoardPanel from "@/features/schematic/BoardPanel";
 import { defaultDeviceConfig } from "@/features/device-config/DeviceConfigEditor";
 
+/** Karta eklenirken varsayilan olarak TIKSIZ gelen op'lar (cihaz parametrelerinden yine secilebilir).
+ *  LTC2991 `current_read` ham diferansiyel kod dondurur, CIT'e de girmez (codegen ayni kurali uygular);
+ *  `vcc_read` ve diger olcumler varsayilan tiklidir. */
+const DEFAULT_UNCHECKED_OPERATIONS_BY_PART: Record<string, string[]> = {
+  LTC2991: ["current_read"],
+};
+
 export default function SidePanel() {
   const selectedId = useStore((s) => s.selectedId);
   const controllers = useStore((s) => s.controllers);
@@ -49,7 +56,9 @@ export default function SidePanel() {
       descriptor_ref: dev.descriptor ?? null,
       config: defaultDeviceConfig(dev.part),
       attach,
-      operations_requested: full?.operations?.map((o) => o.name),
+      operations_requested: full?.operations
+        ?.map((o) => o.name)
+        .filter((name) => !(DEFAULT_UNCHECKED_OPERATIONS_BY_PART[dev.part] ?? []).includes(name)),
       tests_requested: ["self_test"],
     });
   }

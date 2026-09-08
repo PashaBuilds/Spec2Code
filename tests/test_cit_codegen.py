@@ -170,6 +170,15 @@ class CitHeaderTest(unittest.TestCase):
         self.assertTrue(all(m["channels"] == 8 for m in kanallar))
         self.assertEqual(kanallar[0]["name"], "VCC_3V3")
         self.assertEqual(kanallar[1]["name"], "U2_LTC2991_V2")  # varsayilan ad cihaz kimliginden
+        # LTC2991 current_read istense de CIT'e girmez (ham diferansiyel kod; SAHA istegi).
+        spec_akim = _cit_spec("unit_cit_no_current")
+        spec_akim["devices"][0]["operations_requested"] = ["device_init", "voltage_read", "current_read", "temperature_read"]
+        with tempfile.TemporaryDirectory() as tmp:
+            tests_dir = self._generate(spec_akim, tmp)
+            manifest_akim = json.loads(
+                (tests_dir / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("current_read", [op["name"] for op in manifest_akim["devices"][0]["operations"]])
+        self.assertFalse(any(m["op"] == "current_read" for m in manifest_akim["cit"]["olcumler"]))
         # Skaler olcumlerde kanal anahtari YOK (eski manifest sekli korunur).
         self.assertNotIn("channel", olcumler[8])
         # Her kanal surucu struct'inin kendi elemanindan; okundu biti op'un okuma biti.

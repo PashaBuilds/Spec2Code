@@ -446,7 +446,7 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | Komut | Ne yapar |
 |---|---|
 | `cit` | `sistemCitRead()`; cerceveli/renkli raporu basar (INFO esigi gecici acilir) |
-| `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK'leri listeler, I2C switch adreslerini atlar |
+| `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK veren her adresi spec'teki cihaz kimligiyle listeler (`0x4B  ACK  ana_kart_adt7420 (ADT7420)`, switch arkasindakiler `switch 0x70 ch3` notuyla; spec'te olmayan adres `(not in spec)`), I2C switch adreslerini atlar |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (yerlesik + kullanici tablosu) |
 | `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
@@ -566,6 +566,9 @@ Karti ilk kez dogrularken `docs/s2cmsg_parite_listesi.md` kontrol listesini kull
 CIT ekrani her entegreyi kendi kutusunda gosterir: baslik (parca, kimlik, adres/CS,
 switch, SANAL rozeti), dizi donuslu op'lar icin kanal karolari (V1..V8 / I1..I8),
 skaler olcumler icin satirlar. Ayni parcadan entegreler bir satirda yan yana durur.
+LTC2991 `current_read` (ham diferansiyel kod, sont uygulama tarafinda) CIT'e GIRMEZ:
+istense de akim karolari cikmaz; karta eklenirken varsayilan tiksiz gelir, `vcc_read`
+ve diger olcumler tiklidir.
 
 **Karar karttadir.** Bir karoya tiklayip limit (min/max, kapali aralik) ya da etkin
 durumunu degistirdiginde bagliysan bu degerler ANINDA karta yazilir (`CIT_LIMIT_SET`

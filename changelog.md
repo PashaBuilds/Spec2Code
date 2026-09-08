@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.202 - 2026-09-08
+
+- **`i2c_search` cihaz adi yazar:** ACK veren adres spec'teki kimlikle etiketlenir
+  (`0x4B  ACK  ana_kart_adt7420 (ADT7420)`, switch arkasi `switch 0x70 ch3`), spec'te
+  olmayan adres `(not in spec)`. Tablo `shell_user_commands.c`'de denetleyici basina uretilir.
+- **LTC2991 akim kanallari CIT'ten cikti:** `current_read` ham diferansiyel kod dondurdugu
+  icin CIT olcumu sayilmaz (`_CIT_MEASUREMENT_EXCLUDE_BY_PART`); ekranda akim karolari
+  gorunmez. Karta eklenirken LTC2991'de `current_read` varsayilan tiksiz, `vcc_read` tikli.
+- Host stub: `g_uiStubI2cAckAddress` ile secili adres ACK verir (i2c_search etiketi testte).
+
 ## v0.1.201 - 2026-09-08
 
 - **Tum shell komutlari tek dosyada (SAHA istegi):** `cit`, `i2c_search`, `sdl`, `help` de

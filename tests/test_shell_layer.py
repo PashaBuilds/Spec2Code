@@ -121,6 +121,9 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucProbe, 1U, XIIC_STOP)", user)
         self.assertIn("S_uiArrSwitchAddress[] = {0x70U};", user)
         self.assertIn("shellUserI2cProbeXIic(shellBus()->sPlI2c0, uiAddress)", user)
+        # ACK satiri spec'teki cihaz adiyla etiketlenir (adres -> kimlik tablosu, switch bilgisiyle).
+        self.assertIn('{0x4AU, "u3_tmp101 (TMP101, switch 0x70 ch1)"}', user)
+        self.assertIn('return "(not in spec)";', user)
         # sdl: adlar ve 0..5
         self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', user)
         self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", user)
@@ -214,6 +217,7 @@ _HOST_MAIN = r"""
 #include "shell_user_commands.h"
 extern const unsigned char* g_ucpStubUartIn;
 extern unsigned int g_uiStubUartInLen;
+extern unsigned int g_uiStubI2cAckAddress;
 static SSistemCitBus S_sBus;
 static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
@@ -227,6 +231,7 @@ int main(void)
     (void)sistemCitInit(&S_sBus);
     shellInit(&S_sBus, &S_sLimit, &S_sCit);
     (void)shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount());
+    g_uiStubI2cAckAddress = 0x4AU; /* i2c_search: yalniz TMP101 adresi ACK */
     g_ucpStubUartIn = (const unsigned char*)S_cArrScript;
     g_uiStubUartInLen = (unsigned int)strlen(S_cArrScript);
     for (uiTur = 0U; uiTur < 4U; uiTur++)
@@ -280,7 +285,9 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("unknown command: xyz (type help)", out)  # xyz
         self.assertIn("pl_i2c_0: scanning 0x08..0x77", out)   # i2c_search
         self.assertIn("0x70  (I2C switch, skipped)", out)
-        self.assertIn("pl_i2c_0: 0 device(s)", out)           # stub hatta ACK yok (sanal cihaz sim'de, probu gormez)
+        # Stub hatta yalniz 0x4A ACK verir (g_uiStubI2cAckAddress): spec'teki ad + switch bilgisiyle etiketlenir.
+        self.assertIn("0x4A  ACK  u3_tmp101 (TMP101, switch 0x70 ch1)", out)
+        self.assertIn("pl_i2c_0: 1 device(s)", out)
         # mod: string argv -> atoi; fazla bosluk tokenizer'da sorun degil; open desen, close 0, hatali y/argc.
         self.assertIn("XIL_OUT32 0x43C0000C <= 0x03030303", out)
         self.assertIn("mod: reg3 @0x43C0000C <= 0x03030303 (open)", out)

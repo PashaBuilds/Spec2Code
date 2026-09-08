@@ -1499,6 +1499,14 @@ _CIT_MEASUREMENT_OP_WHITELIST: frozenset[str] = frozenset({
     "multiplier_lock_detect",
 })
 
+#: Parcaya ozgu CIT DISI op'lar: whitelist'te olsa da bu parcada olcum sayilmaz.
+#: LTC2991 `current_read` ham diferansiyel kod dondurur (sont direnci uygulama
+#: tarafinda); birimli olcum degildir ve kullanici CIT'te akim kanali istemiyor
+#: (SAHA istegi 2026-09-08). Surucu op'u kalir, yalnizca CIT'e girmez.
+_CIT_MEASUREMENT_EXCLUDE_BY_PART: dict[str, frozenset[str]] = {
+    "LTC2991": frozenset({"current_read"}),
+}
+
 
 #: Dizi donuslu olcum op'lari ("voltages[8]" gibi): CIT'te her kanal AYRI olcum
 #: olur (kanal basina slot/bit). Kart op'u BIR kez dispatch eder, kanallari yanit
@@ -1845,6 +1853,8 @@ def _testbench_cit_section(spec: dict, manifest_devices: list[dict]) -> dict:
         for op in device_manifest.get("operations", []):
             op_name = str(op.get("name", ""))
             if op_name not in _CIT_MEASUREMENT_OP_WHITELIST:
+                continue
+            if op_name in _CIT_MEASUREMENT_EXCLUDE_BY_PART.get(str(part), frozenset()):
                 continue
             if not op.get("result_returns"):
                 continue
