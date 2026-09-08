@@ -396,6 +396,20 @@ def _limit_member_lines(plan: "_ChipPlan", olcum_for) -> list[str]:
     return lines or [".uiYok = 0U,"]
 
 
+def _report_label(plan: "_ChipPlan", m, ch) -> str:
+    """Kart raporundaki olcum adi: spec'te verilen ad (VCC_3V3) varsa o, yoksa kanal etiketi (V1).
+
+    Varsayilan ad `<KIMLIK>_<ETIKET>` (U2_LTC2991_V1) raporun 18 sutunluk ad alanina sigmaz ve
+    kutu basligi kimligi zaten gosterir; yalnizca kullanicinin verdigi ad basilir (SAHA istegi:
+    ekran ve rapor ayni adi gostersin)."""
+    name = str(ch.olcum.get("name") or "")
+    device_id = str(plan.device.get("id", "")).upper()
+    defaults = {f"{device_id}_{ch.label}".upper(), f"{device_id}_{m.name}".upper()}
+    if not name or name.upper() in defaults:
+        return ch.label
+    return name.replace('"', "'")
+
+
 def _flag_entries(plan: _ChipPlan) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     if plan.has_status:
@@ -819,7 +833,7 @@ def sistem_source(plans: list[_ChipPlan], spec: Optional[dict] = None) -> str:
             for ch in m.channels:
                 value = (f"(int)spCit->{dev}.{m.field}.{m.array_field}[{ch.index}U]" if m.is_array
                          else f"(int)spCit->{dev}.{m.field}")
-                e.ln(f'    sistemCitSatir("{ch.label}", {value}, "{m.unit}", &spLimit->{dev}.{ch.limit_field}, '
+                e.ln(f'    sistemCitSatir("{_report_label(plan, m, ch)}", {value}, "{m.unit}", &spLimit->{dev}.{ch.limit_field}, '
                      f"spCit->{dev}.sBayraklar.{ch.ok_bit});")
     e.ln("    spCit->uiSayac = uiSayac;")
     e.ln("    dbg_printf(DEBUG_LEVEL_INFO, SISTEM_CIT_CIFT_CIZGI);")

@@ -19,8 +19,8 @@ int XIic_CfgInitialize(XIic* i, XIic_Config* c, UINTPTR e) { i->BaseAddress = e;
 int XIic_DynInit(UINTPTR BaseAddress) { (void)BaseAddress; return XST_SUCCESS; }
 u32 XIic_WaitBusFree(UINTPTR BaseAddress) { (void)BaseAddress; return 0U; }
 unsigned int g_uiStubI2cAckAddress = 0xFFFFU; /* i2c_search probu: yalniz bu adres ACK (bayt sayisi 1) */
-unsigned XIic_DynSend(UINTPTR b, u16 a, u8* p, u8 n, u8 o) { (void)b; (void)p; (void)o; g_uiStubGercekI2c++; return ((n == 1U) && ((unsigned int)a == g_uiStubI2cAckAddress)) ? 1U : 0U; }
-unsigned XIic_DynRecv(UINTPTR b, u8 a, u8* p, u8 n) { (void)b; (void)a; (void)p; (void)n; g_uiStubGercekI2c++; return 0U; }
+unsigned XIic_DynSend(UINTPTR b, u16 a, u8* p, u8 n, u8 o) { (void)b; (void)p; (void)o; g_uiStubGercekI2c++; return ((unsigned int)a == g_uiStubI2cAckAddress) ? (unsigned)n : 0U; }
+unsigned XIic_DynRecv(UINTPTR b, u8 a, u8* p, u8 n) { u8 i; (void)b; g_uiStubGercekI2c++; if ((unsigned int)a != g_uiStubI2cAckAddress) { return 0U; } for (i = 0U; i < n; i++) { p[i] = (u8)(0xA0U + i); } return (unsigned)n; }
 unsigned XIic_Send(UINTPTR b, u8 a, u8* p, unsigned n, u8 o) { (void)b; (void)a; (void)p; (void)n; (void)o; g_uiStubGercekI2c++; return 0U; }
 unsigned XIic_Recv(UINTPTR b, u8 a, u8* p, unsigned n, u8 o) { (void)b; (void)a; (void)p; (void)n; (void)o; g_uiStubGercekI2c++; return 0U; }
 static XSpi_Config S_sSpiConfig = { 0U, 0x44A00000UL };

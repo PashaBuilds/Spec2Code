@@ -3,6 +3,23 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.203 - 2026-09-08
+
+- **Shell'e ham erisim komutlari:** `i2c_read <addr> <reg> [n]` (register isaretcisi +
+  n bayt; AXI IIC'de REPEATED_START, PS IIC'de Send/Recv polled), `i2c_write <addr>
+  <byte...>` (switch kanali dahil), `i2c_bus [id]` (yalniz birden fazla I2C denetleyicisi
+  olan projede), `mem <addr> [value]` (`Xil_In32`/`Xil_Out32`, yazinca geri okur, hiza
+  denetimi). Argumanlar `strtoul(..., 0)` ile hex/ondalik. Host gcc turunda ACK/NACK,
+  hatali arguman ve mem yazma/geri okuma dogrulandi.
+- **Register Map -> shell komutu:** uretim `<map>_shell.h/.c` de verir; tabloya
+  `{"ip_<map>", shellUser<Map>, ...}` satiri eklenince `ip_<map> rd|wr <REG>[.<FIELD>]
+  [deger] | dump | help` konsoldan calisir (mevcut `<map>Serve` protokolu, base adres
+  `<MAP>_BASE_ADDRESS`; `REGMAP_PRINTF` tanimsizsa `xil_printf`).
+- **Kart raporunda olcum adi:** `sistemCitRead` satirlari spec'te verilen adi basar
+  (`VCC_3V3`), ad verilmemis kanallar etiketle (`V2`) - ekran ve rapor ayni adi gosterir.
+- CIT ekraninda not: limit/isim degisiklikleri spec'e yazilir, `SISTEM_CIT_LIMIT_VARSAYILAN`
+  yeniden uretimde bunlarla gelir (zaten boyleydi; gorunur hale geldi).
+
 ## v0.1.202 - 2026-09-08
 
 - **`i2c_search` cihaz adi yazar:** ACK veren adres spec'teki kimlikle etiketlenir

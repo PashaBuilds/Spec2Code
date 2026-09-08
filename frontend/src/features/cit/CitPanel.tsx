@@ -735,6 +735,9 @@ export default function CitPanel() {
         <p className="mt-1.5 text-[11px] text-faint">
           Her entegre kendi kutusunda; limit / aç-kapa değişiklikleri <b className="text-muted">anında</b> uygulanır —
           kod üretmeye ya da karta yeniden yüklemeye gerek yok. Bağlantı üstteki ortak karttan (Test Bench) gelir.
+          {" "}Limit ve isim değişiklikleri <b className="text-muted">spec'e yazılır</b> (cihaz → config.cit): spec'i
+          indirdiğinde korunur, bir sonraki üretimde <span className="font-mono">SISTEM_CIT_LIMIT_VARSAYILAN</span> ve
+          kartın raporundaki ölçüm adları bu değerlerle gelir.
           {!result ? (connected ? ' Değerler için "CİT koştur".' : " Önce karta bağlan.") : ""}
         </p>
         {error ? (

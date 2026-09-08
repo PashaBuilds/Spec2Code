@@ -447,8 +447,12 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 |---|---|
 | `cit` | `sistemCitRead()`; cerceveli/renkli raporu basar (INFO esigi gecici acilir) |
 | `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK veren her adresi spec'teki cihaz kimligiyle listeler (`0x4B  ACK  ana_kart_adt7420 (ADT7420)`, switch arkasindakiler `switch 0x70 ch3` notuyla; spec'te olmayan adres `(not in spec)`), I2C switch adreslerini atlar |
+| `i2c_read <addr> <reg> [n]` | secili I2C denetleyicisinde register isaretcisini yazip n bayt (1..16) okur: `i2c_read 0x48 0x01 2` -> `0x48 reg 0x01: 0A 1B`; NACK'te `NACK / bus error` |
+| `i2c_write <addr> <byte...>` | ham bayt dizisi yazar, ilk bayt genelde register adresi: `i2c_write 0x48 0x06 0x10`; I2C switch kanali secmek icin `i2c_write 0x70 0x08` |
+| `i2c_bus [id]` | birden fazla I2C denetleyicisi olan projede uretilir: i2c_read/i2c_write'in kullandigi denetleyiciyi listeler/secer (`*` isaretli) |
+| `mem <addr> [value]` | 32-bit register oku / yaz (`Xil_In32` / `Xil_Out32`), yazinca geri okur: `mem 0x43C00000`, `mem 0x43C00004 0x12345678`; adres 4'e hizali olmali |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
-| `help` | komut listesi (yerlesik + kullanici tablosu) |
+| `help` | komut listesi (tablodan) |
 | `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
 
 **Dosya rolleri:** `shell.c` cekirdektir ve KOMUT ICERMEZ (satir okuma, ok tusu gecmisi,
@@ -586,7 +590,10 @@ tablosu baglanir -> `sistemCitRead()` -> `<mod>CitRead()` -> surucu okumalari ->
 manifest sirasiyla `SBoardCit`'e (deger, okuma durumu, OK biti) -> host.
 `sistemCitRead()` her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli bir rapor basar:
 72 sutunluk kutular, her entegre kendi kutusunda (baslik satirinda entegre sonucu), her
-olcum satirinda ad / deger / birim / limit / OK-NOK, sonda genel SONUC. Satirlar ANSI
+olcum satirinda ad / deger / birim / limit / OK-NOK, sonda genel SONUC. Olcum adi ekranda
+verdigin addir (`VCC_3V3`); ad verilmemis kanal etiketiyle (`V2`) basilir. Ekranda yaptigin
+limit/isim degisiklikleri spec'e (cihaz `config.cit.measurements`) yazilir; spec'i indirince
+korunur ve bir sonraki uretimde `SISTEM_CIT_LIMIT_VARSAYILAN` ile rapor adlari boyle gelir. Satirlar ANSI
 renklidir (OK yesil, NOK kirmizi, HATA sari): XShell/PuTTY dogrudan
 renkli gosterir, Akis ekrani da ayni tonu uygular. Log esigini `info` yapinca gorunur.
 "Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
@@ -608,7 +615,10 @@ cihazlari ilklendir" ya da Bring-up kos.
   uretildiyse onun satirlari da burada.
 - **Register Map**: sayisal ekipten gelen memory-mapped PL IP register haritasini
   duzenle; self-contained HTML editor, Excel ve `.h/.c` (struct/union, bit alanli)
-  uret. Register genisligi offset'lerden cikarilir.
+  uret. Register genisligi offset'lerden cikarilir. Uretim ayrica `<map>_shell.h/.c`
+  verir: shell tablosuna tek satir (`{"ip_<map>", shellUser<Map>, ...}`) ekleyince konsoldan
+  `ip_<map> rd CONTROL.ENABLE`, `ip_<map> wr STATUS 0x10`, `ip_<map> dump` calisir; base adres
+  haritadaki `<MAP>_BASE_ADDRESS`'ten gelir, elle adres yazilmaz.
 - **Arayuz/YATT**: S2C-MSG mesaj katalogu (ID, yon, govde sablonu, durum kodlari),
   manifest ile zenginlestirilmis; cok kartli projede Sistem Topolojisi; HTML/MD olarak
   paylasilabilir. Protokolun tek dogruluk kaynagi budur.

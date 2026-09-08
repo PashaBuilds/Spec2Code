@@ -117,7 +117,20 @@ class RegisterMapCodegenTests(unittest.TestCase):
 
     def test_generate_files_names(self) -> None:
         files = rm.generate_files(self._doc())
-        self.assertEqual(set(files), {"pl_mix_regs.h", "pl_mix.c"})
+        self.assertEqual(set(files), {"pl_mix_regs.h", "pl_mix.c", "pl_mix_shell.h", "pl_mix_shell.c"})
+
+    def test_shell_command_wraps_serve(self) -> None:
+        files = rm.generate_files(self._doc())
+        c = files["pl_mix_shell.c"]
+        h = files["pl_mix_shell.h"]
+        self.assertIn("void shellUserPlMix(unsigned int uiArgc, const char* cpArrArgv[]);", h)
+        self.assertIn('{"ip_pl_mix", shellUserPlMix, "rd|wr <REG>[.<FIELD>] [value] | dump | help"},', h)
+        self.assertIn("void shellUserPlMix(unsigned int uiArgc, const char* cpArrArgv[])", c)
+        # argv[1..] bosluklarla birlestirilip mevcut Serve protokolune verilir; base adres haritadan.
+        self.assertIn("pl_mixServe(cArrLine);", c)
+        self.assertIn('#include "pl_mix_regs.h"', c)
+        self.assertIn("#define REGMAP_PRINTF xil_printf", c)
+        self.assertIn("PL_MIX_BASE_ADDRESS", c)
 
     def test_serve_command_handler_read_write_dump(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
@@ -177,7 +190,7 @@ class RegisterMapTestIpTests(unittest.TestCase):
 
     def test_test_ip_document_generates_clean_c(self) -> None:
         files = rm.generate_files(rm.regmap_test_ip_document())
-        self.assertEqual(set(files), {"regmap_test_regs.h", "regmap_test.c"})
+        self.assertEqual(set(files), {"regmap_test_regs.h", "regmap_test.c", "regmap_test_shell.h", "regmap_test_shell.c"})
         h = files["regmap_test_regs.h"]
         self.assertIn("#define REGMAP_TEST_ID_RESET 0x53504543", h)
         self.assertIn("} __attribute__((packed)) SCONTROL;", h)  # bitfield register

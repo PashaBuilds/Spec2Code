@@ -634,12 +634,91 @@ def generate_source(rmap: dict) -> str:
     return "\n".join(lines)
 
 
+def generate_shell_command(rmap: dict) -> str:
+    """`<map>_shell.c`: Spec2Code shell'ine (shell/shell_user_commands.c tablosu) tek satirla
+    eklenen komut. `ip_<map> rd|wr <REG>[.<ALAN>] [deger] | dump | help` -> argumanlar
+    birlestirilip `<map>Serve` protokolune verilir; base adres `<MOD>_BASE_ADDRESS`'ten gelir,
+    elle SHELL_USER_MOD_BASEADDR yazmaya gerek kalmaz (SAHA istegi 2026-09-08)."""
+    map_name = rmap["name"]
+    MOD = re.sub(r"[^A-Z0-9]", "_", map_name.upper())
+    handler = f"shellUser{_pascal(map_name)}"
+    lines = [
+        "/* Spec2Code register map ureticisi tarafindan uretildi.",
+        f" * Shell komutu `ip_{map_name}`: {map_name}_regs.h haritasini konsoldan okur/yazar.",
+        " *",
+        " * Kullanim (shell/shell_user_commands.c):",
+        f' *   1. Bu dosyayi ve {map_name}.c / {map_name}_regs.h dosyalarini projeye ekle.',
+        f' *   2. shell_user_commands.c basina: #include "{map_name}_shell.h"',
+        f' *   3. S_sArrUserCommands[] tablosuna: {{"ip_{map_name}", {handler}, "rd|wr <REG>[.<FIELD>] [value] | dump | help"}},',
+        f" * Konsol: > ip_{map_name} rd CONTROL.ENABLE    > ip_{map_name} wr STATUS 0x10    > ip_{map_name} dump",
+        f" * Base adres: {MOD}_BASE_ADDRESS ({map_name}_regs.h). REGMAP_PRINTF tanimsizsa xil_printf kullanilir. */",
+        "#ifndef REGMAP_PRINTF",
+        '#include "xil_printf.h"',
+        "#define REGMAP_PRINTF xil_printf",
+        "#endif",
+        f'#include "{map_name}_shell.h"',
+        f'#include "{map_name}_regs.h"',
+        "#include <string.h>",
+        "",
+        f"void {handler}(unsigned int uiArgc, const char* cpArrArgv[])",
+        "{",
+        "    char cArrLine[96];",
+        "    unsigned int uiIndex;",
+        "    size_t uiLength = 0U;",
+        "",
+        "    if (uiArgc < 2U)",
+        "    {",
+        f'        REGMAP_PRINTF("usage: ip_{map_name} rd|wr <REG>[.<FIELD>] [value] | dump | help\\r\\n");',
+        "        return;",
+        "    }",
+        "    cArrLine[0] = '\\0';",
+        "    for (uiIndex = 1U; uiIndex < uiArgc; uiIndex++)",
+        "    {",
+        "        if ((uiLength + strlen(cpArrArgv[uiIndex]) + 2U) >= sizeof(cArrLine))",
+        "        {",
+        f'            REGMAP_PRINTF("ip_{map_name}: line too long\\r\\n");',
+        "            return;",
+        "        }",
+        "        if (uiIndex > 1U)",
+        "        {",
+        "            cArrLine[uiLength] = ' ';",
+        "            uiLength++;",
+        "        }",
+        "        (void)strcpy(&cArrLine[uiLength], cpArrArgv[uiIndex]);",
+        "        uiLength += strlen(cpArrArgv[uiIndex]);",
+        "    }",
+        f"    {map_name}Serve(cArrLine); /* rd/wr/dump/help: {map_name}.c icindeki tek satirlik sunucu */",
+        "}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def generate_shell_header(rmap: dict) -> str:
+    map_name = rmap["name"]
+    guard = _guard(map_name + "_shell")
+    handler = f"shellUser{_pascal(map_name)}"
+    return "\n".join([
+        f"#ifndef {guard}",
+        f"#define {guard}",
+        "",
+        f"/* Spec2Code shell komutu: `ip_{map_name} ...` (bkz. {map_name}_shell.c). Tabloya:",
+        f' *   {{"ip_{map_name}", {handler}, "rd|wr <REG>[.<FIELD>] [value] | dump | help"}}, */',
+        f"void {handler}(unsigned int uiArgc, const char* cpArrArgv[]);",
+        "",
+        f"#endif /* {guard} */",
+        "",
+    ])
+
+
 def generate_files(doc: dict) -> dict[str, str]:
-    """Doğrulanmış doküman → { '<map>_regs.h': ..., '<map>.c': ... }."""
+    """Doğrulanmış doküman → { '<map>_regs.h', '<map>.c', '<map>_shell.h', '<map>_shell.c' }."""
     out: dict[str, str] = {}
     for rmap in doc["maps"]:
         out[f"{rmap['name']}_regs.h"] = generate_header(rmap)
         out[f"{rmap['name']}.c"] = generate_source(rmap)
+        out[f"{rmap['name']}_shell.h"] = generate_shell_header(rmap)
+        out[f"{rmap['name']}_shell.c"] = generate_shell_command(rmap)
     return out
 
 

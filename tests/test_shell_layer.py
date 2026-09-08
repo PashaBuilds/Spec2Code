@@ -105,7 +105,9 @@ class ShellLayerGenerationTests(unittest.TestCase):
         user = _read(self.out_dir, "shell/shell_user_commands.c")
         self.assertIn("static const SShellCommand S_sArrUserCommands[] = {", user)
         for command, handler in (("cit", "shellUserCit"), ("i2c_search", "shellUserI2cSearch"),
-                                 ("sdl", "shellUserSdl"), ("help", "shellUserHelp"), ("mod", "shellUserMod")):
+                                 ("i2c_read", "shellUserI2cRead"), ("i2c_write", "shellUserI2cWrite"),
+                                 ("mem", "shellUserMem"), ("sdl", "shellUserSdl"), ("help", "shellUserHelp"),
+                                 ("mod", "shellUserMod")):
             self.assertIn(f'{{"{command}", {handler}, "', user)
         self.assertIn("iResult = sistemCitRead(shellBus(), shellLimit(), shellCit());", user)
         self.assertIn("spCommand = shellCommandGet(uiIndex);", user)
@@ -124,6 +126,11 @@ class ShellLayerGenerationTests(unittest.TestCase):
         # ACK satiri spec'teki cihaz adiyla etiketlenir (adres -> kimlik tablosu, switch bilgisiyle).
         self.assertIn('{0x4AU, "u3_tmp101 (TMP101, switch 0x70 ch1)"}', user)
         self.assertIn('return "(not in spec)";', user)
+        # Tek denetleyici: i2c_bus yok, dagitim dogrudan; okuma REPEATED_START + DynRecv.
+        self.assertNotIn('"i2c_bus"', user)
+        self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucRegister, 1U, XIIC_REPEATED_START)", user)
+        self.assertIn("XIic_DynRecv(spIic->BaseAddress, (unsigned char)uiAddress, ucpData, (unsigned char)uiCount)", user)
+        self.assertIn("Xil_In32((UINTPTR)ulAddress)", user)
         # sdl: adlar ve 0..5
         self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', user)
         self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", user)
@@ -187,6 +194,7 @@ class ShellLayerPlatformTests(unittest.TestCase):
             source = _read(out_dir, "shell/shell_user_commands.c")
             self.assertIn("XIicPs_MasterSendPolled(spIic, &ucProbe, 1, (unsigned short)uiAddress)", source)
             self.assertIn("XIicPs_BusIsBusy(spIic)", source)
+            self.assertIn("XIicPs_MasterRecvPolled(spIic, ucpData, (int)uiCount, (unsigned short)uiAddress)", source)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -223,7 +231,9 @@ static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
 /* Son: yukari-yukari + Enter -> "sdl 9" yeniden kosar (xyz'den bir onceki); asagi-asagi -> bos satir. */
 static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\r"
-                                   "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\rcit\r";
+                                   "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\r"
+                                   "i2c_read 0x4A 0x00 2\ri2c_read 0x4B 0\ri2c_read 0x4A zz\ri2c_write 0x4A 0x01 0x60\r"
+                                   "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\rcit\r";
 int main(void)
 {
     unsigned int uiTur;
@@ -295,7 +305,17 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("XIL_OUT32 0x43C0000C <= 0x00000000", out)
         self.assertIn("mod: y must be open or close (got 'half')", out)
         self.assertIn("usage: mod <0..7> <open|close>", out)
-        self.assertEqual(out.count("XIL_OUT32"), 2)
+        self.assertEqual(out.count("XIL_OUT32"), 3)  # mod open, mod close, mem yazma
+        # i2c_read/i2c_write: stub yalniz 0x4A'ya ACK verir; DynRecv A0, A1 doldurur.
+        self.assertIn("0x4A reg 0x00: A0 A1", out)
+        self.assertIn("i2c_read 0x4B: NACK / bus error", out)
+        self.assertIn("usage: i2c_read <addr> <reg> [n=1..16]", out)
+        self.assertIn("i2c_write 0x4A: 2 byte(s) OK", out)
+        self.assertIn("i2c_write 0x4B: NACK / bus error", out)
+        # mem: okuma (stub 0), yazma + geri okuma, hizasiz adres.
+        self.assertIn("0x43C00000 = 0x00000000", out)
+        self.assertIn("XIL_OUT32 0x43C00004 <= 0x12345678", out)
+        self.assertIn("mem: address must be 4-byte aligned", out)
         self.assertIn("| CIT kosusu #1", out)                 # cit raporu INFO'da basildi
         self.assertIn("cit: ", out)
         self.assertIn("SON sayac=1", out)                     # sistemCitRead bir kez kostu

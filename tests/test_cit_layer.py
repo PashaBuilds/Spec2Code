@@ -244,6 +244,10 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("iStatus = ltc2991CitRead(i2cCihaz(I2C_CIHAZ_U2_LTC2991), &spLimit->sU2Ltc2991, &spCit->sU2Ltc2991);", source)
         self.assertIn("i2cCihazlarInit(spBus->sPlI2c0);", source)
         self.assertNotIn("uiHataSayac", source)
+        # Rapor satiri: spec'te ad verilen kanal o adla (VCC_3V3), digerleri kanal etiketiyle (V2).
+        self.assertIn('sistemCitSatir("VCC_3V3", (int)spCit->sU2Ltc2991.', source)
+        self.assertIn('sistemCitSatir("V2", (int)spCit->sU2Ltc2991.', source)
+        self.assertNotIn('sistemCitSatir("U2_LTC2991_V2"', source)
 
     def test_readme_documents_the_layer(self) -> None:
         readme = _read(self.out_dir, "README.md")
