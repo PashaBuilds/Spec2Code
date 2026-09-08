@@ -445,7 +445,7 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 
 | Komut | Ne yapar |
 |---|---|
-| `cit` | `sistemCitRead()`; cerceveli/renkli raporu basar (INFO esigi gecici acilir) |
+| `cit` | `sistemCitRead()`; cerceveli/renkli rapor `dbg_printf` INFO satirlaridir: gormek icin once `sdl info`; `cit: OK/NOK/ERROR (run #n)` sonuc satiri her seviyede |
 | `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK veren her adresi spec'teki cihaz kimligiyle listeler (`0x4B  ACK  ana_kart_adt7420 (ADT7420)`, switch arkasindakiler `switch 0x70 ch3` notuyla; spec'te olmayan adres `(not in spec)`), I2C switch adreslerini atlar |
 | `i2c_read <addr> <reg> [n]` | secili I2C denetleyicisinde register isaretcisini yazip n bayt (1..16) okur: `i2c_read 0x48 0x01 2` -> `0x48 reg 0x01: 0A 1B`; NACK'te `NACK / bus error` |
 | `i2c_write <addr> <byte...>` | ham bayt dizisi yazar, ilk bayt genelde register adresi: `i2c_write 0x48 0x06 0x10`; I2C switch kanali secmek icin `i2c_write 0x70 0x08` |
@@ -489,10 +489,9 @@ orneginde `SHELL_USER_MOD_BASEADDR` (dosyanin basinda, `xparameters.h`'teki
 `XPAR_<IP>_BASEADDR`) 0 kaldigi surece yazim yapilmaz, uyari basilir.
 
 Yukari/asagi ok tuslari son 8 komutta gezer (yukari: onceki, asagi: sonraki, sonda bos
-satir); gelen satir duzenlenip Enter ile yeniden kosulabilir. `cit` komutunun raporu
-`sdl` seviyesinden bagimsiz her zaman basilir (komutun kendi ciktisidir); `sdl` yalniz
-surucu/CIT kodunun kendi `dbg_printf` satirlarini (or. `TRACEERR` hata izleri, `sdl 0`'da
-bile rapor icindeki hatalar gorunur cunku rapor sirasinda esik gecici INFO'dur) suzer.
+satir); gelen satir duzenlenip Enter ile yeniden kosulabilir. `cit` komutu log esigine
+dokunmaz: rapor `DEBUG_LEVEL_INFO` satirlaridir, `sdl info` (ya da `trace`) ile gorunur;
+`sdl error`'da yalniz hata izleri (`TRACEERR`) ve `cit: ...` sonuc satiri gelir.
 `shell_uart.c` platforma gore uretilir (XUartLite / XUartPs / XUartPsv, `STDIN_BASEADDRESS`).
 Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken shell
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.

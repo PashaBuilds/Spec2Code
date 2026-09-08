@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.204 - 2026-09-08
+
+- **`cit` komutu log esigini zorlamiyor** (kullanici istegi): rapor `dbg_printf` INFO
+  satirlari olarak kalir, gormek icin `sdl info`; komut `dbgLevelSet` cagirmaz, yalniz
+  `cit: OK|NOK|ERROR (run #n)` sonuc satirini her seviyede basar. Host turunda `sdl error`
+  sonrasi raporun sustugu, Nexys COM12'de `sdl 0` / `sdl info` davranisi dogrulandi.
+
 ## v0.1.203 - 2026-09-08
 
 - **Shell'e ham erisim komutlari:** `i2c_read <addr> <reg> [n]` (register isaretcisi +

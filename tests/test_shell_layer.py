@@ -116,9 +116,10 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("Xil_Out32(uiAddress, uiValue);", user)
         self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U", user)
         self.assertIn("const SShellCommand* shellUserCommandTable(void);", _read(self.out_dir, "shell/shell_user_commands.h"))
-        # cit: INFO esigi gecici acilir, sistemCitRead kosar, esik geri alinir.
-        self.assertIn("(void)dbgLevelSet(DEBUG_LEVEL_INFO);", user)
-        self.assertIn("(void)dbgLevelSet(uiOldLevel);", user)
+        # cit: esik ZORLANMAZ (kullanici sdl ile acar); yalniz sdl komutu dbgLevelSet cagirir.
+        self.assertNotIn("dbgLevelSet(DEBUG_LEVEL_INFO)", user)
+        self.assertNotIn("uiOldLevel", user)
+        self.assertEqual(user.count("dbgLevelSet("), 1)
         # i2c_search: AXI IIC dinamik prob, switch adresi atlanir.
         self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucProbe, 1U, XIIC_STOP)", user)
         self.assertIn("S_uiArrSwitchAddress[] = {0x70U};", user)
@@ -233,7 +234,7 @@ static SSistemCit S_sCit;
 static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\r"
                                    "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\r"
                                    "i2c_read 0x4A 0x00 2\ri2c_read 0x4B 0\ri2c_read 0x4A zz\ri2c_write 0x4A 0x01 0x60\r"
-                                   "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\rcit\r";
+                                   "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\rcit\rsdl error\rcit\r";
 int main(void)
 {
     unsigned int uiTur;
@@ -316,9 +317,11 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("0x43C00000 = 0x00000000", out)
         self.assertIn("XIL_OUT32 0x43C00004 <= 0x12345678", out)
         self.assertIn("mem: address must be 4-byte aligned", out)
-        self.assertIn("| CIT kosusu #1", out)                 # cit raporu INFO'da basildi
+        self.assertIn("| CIT kosusu #1", out)                 # cit raporu: seviye info (sdl info) -> basildi
+        self.assertNotIn("| CIT kosusu #2", out)              # sdl error sonrasi rapor SUSAR (esik zorlanmaz)
+        self.assertEqual(out.count("cit: "), 2)               # sonuc satiri her iki kosuda
         self.assertIn("cit: ", out)
-        self.assertIn("SON sayac=1", out)                     # sistemCitRead bir kez kostu
+        self.assertIn("SON sayac=2", out)                     # sistemCitRead iki kez kostu
         self.assertGreaterEqual(out.count("> "), 8)          # her satirdan sonra istem
 
 
