@@ -40,3 +40,10 @@ unsigned int g_uiStubUartInPos = 0U;
 u32 XUartLite_IsReceiveEmpty(UINTPTR BaseAddress) { (void)BaseAddress; return (g_uiStubUartInPos < g_uiStubUartInLen) ? 0U : 1U; }
 u8 XUartLite_RecvByte(UINTPTR BaseAddress) { (void)BaseAddress; return (g_uiStubUartInPos < g_uiStubUartInLen) ? g_ucpStubUartIn[g_uiStubUartInPos++] : 0U; }
 void XUartLite_SendByte(UINTPTR BaseAddress, u8 Data) { (void)BaseAddress; (void)putchar((int)Data); }
+
+/* --- xil_io.h: register erisimi (shell mod komutu testi) ------------------------------ */
+#include "xil_io.h"
+u32 g_uiStubLastOutAddr = 0U;
+u32 g_uiStubLastOutValue = 0U;
+void Xil_Out32(UINTPTR Addr, u32 Value) { g_uiStubLastOutAddr = (u32)Addr; g_uiStubLastOutValue = Value; printf("XIL_OUT32 0x%08X <= 0x%08X\n", (unsigned int)Addr, (unsigned int)Value); }
+u32 Xil_In32(UINTPTR Addr) { (void)Addr; return 0U; }

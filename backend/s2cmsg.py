@@ -106,21 +106,23 @@ def pack_named_request(name: str, counter: int, extra: bytes = b"", **kwargs) ->
     return pack_frame(int(entry["id"], 16), counter, body + bytes(extra))
 
 
-CIT_LIMIT_SIZE = 16  # iMin(i32) + iMax(i32) + uiLimitVar(u32) + uiEtkin(u32)
+CIT_LIMIT_SIZE = 12  # iMin(i32) + iMax(i32) + uiLimitVar(u32)
 
 
 def pack_cit_limits(limits: list[dict]) -> bytes:
     """CIT_LIMIT_SET ek govdesi: manifest cit.olcumler sirasiyla N x SCitLimit.
 
-    Her eleman {"min": int|None, "max": int|None, "enabled": bool}: min VE max verilmisse
+    Her eleman {"min": int|None, "max": int|None, "enabled": bool}: etkin VE min VE max verilmisse
     uiLimitVar=1 (kapali aralik, min == max gecerli), aksi halde limitsiz (okundu ise OK).
+    Tek alan: "etkin degil" == "limitsiz" (ayri uiEtkin yok).
     """
     body = b""
     for item in limits:
         mn, mx = item.get("min"), item.get("max")
-        has_limit = isinstance(mn, (int, float)) and isinstance(mx, (int, float))
-        body += struct.pack("<iiII", int(mn) if has_limit else 0, int(mx) if has_limit else 0,
-                            1 if has_limit else 0, 1 if item.get("enabled", True) else 0)
+        has_limit = (bool(item.get("enabled", True)) and isinstance(mn, (int, float))
+                     and isinstance(mx, (int, float)))
+        body += struct.pack("<iiI", int(mn) if has_limit else 0, int(mx) if has_limit else 0,
+                            1 if has_limit else 0)
     return body
 
 

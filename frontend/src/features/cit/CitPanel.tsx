@@ -530,7 +530,7 @@ export default function CitPanel() {
           )}
           onClick={() => toggleEnabled(measurement)}
           disabled={!device}
-          title={eff.enabled ? "devre dışı bırak" : "etkinleştir"}
+          title={eff.enabled ? "limiti kapat (karta limitsiz gider, yalnız okunur)" : "limiti uygula"}
         >
           <Power className="h-3 w-3" aria-hidden />
         </button>
@@ -704,7 +704,7 @@ export default function CitPanel() {
 
           <Badge tone={nokCount > 0 ? "danger" : "neutral"}>NOK {nokCount}</Badge>
           <Badge tone="ok">OK {okCount}</Badge>
-          {disabledCount > 0 ? <Badge tone="neutral">kapalı: {disabledCount}</Badge> : null}
+          {disabledCount > 0 ? <Badge tone="neutral">limitsiz: {disabledCount}</Badge> : null}
           {result?.desteklenmiyor ? <Badge tone="warn">DESTEKLENMIYOR</Badge> : null}
 
           <span className="text-[11px] text-faint">

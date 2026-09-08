@@ -1,16 +1,22 @@
 """Shell katmani (``outputs/<proje>/shell/``): konsol UART'indan komutla CIT / I2C tarama / log seviyesi.
 
 Kullanicinin KENDI main'inde derlenir (test bench ajaniyla ilgisi yoktur; ajan bu klasoru
-derlemez, Vitis sahnelemesi kopyalamaz). ``drivers/`` ve ``cit/`` gibi tasinabilirdir:
-icinde urun adi gecmez.
+derlemez, Vitis sahnelemesi ayri `<app>_shell` uygulamasina koyar). ``drivers/`` ve ``cit/``
+gibi tasinabilirdir: icinde urun adi gecmez.
 
 Uretilen agac:
-* ``shell/shell_uart.h/.c`` - BSP stdin/stdout cihazindan (``STDIN_BASEADDRESS``) bloklamadan
-                             tek bayt oku/yaz; platforma gore XUartLite / XUartPs / XUartPsv.
-* ``shell/shell.h/.c``      - ``shellInit(bus, limit, cit)``, ``shellCheck()`` (ana dongude,
-                             bloklamaz) ve komutlar: ``cit``, ``i2c_search``, ``sdl <seviye>``, ``help``.
-* ``shell/main.h/.c``       - kopyala-yapistir ana program: bus kur, ``sistemCitInit``,
-                             ``shellInit``, ``while (1) shellCheck();``; acilista Colossal banner.
+* ``shell/shell_uart.h/.c``          - BSP stdin/stdout cihazindan (``STDIN_BASEADDRESS``) bloklamadan
+                                      tek bayt oku/yaz; platforma gore XUartLite / XUartPs / XUartPsv.
+* ``shell/shell.h/.c``               - komut TABLOSU dagitimi: ``SShellCommand {ad, isleyici, yardim}``,
+                                      ``shellInit``, ``shellCommandsRegister``, ``shellCheck`` (bloklamaz),
+                                      yerlesik komutlar ``cit``, ``i2c_search``, ``sdl``, ``help``; yukari/asagi
+                                      ok gecmisi; argumanlar STRING dizisi (argv), sayi gerekiyorsa ``atoi``.
+* ``shell/shell_user_commands.h/.c`` - KULLANICI komutlari: tek tablo (``S_sArrUserCommands``) + isleyiciler;
+                                      ornek ``mod <x> <y>`` (custom IP register yazimi). Yeni komut = bir
+                                      fonksiyon + tabloya bir satir.
+* ``shell/main.h/.c``                - ana program: Colossal banner, bus kur, ``sistemCitInit``, ``shellInit``,
+                                      ``shellCommandsRegister(shellUserCommandTable(), ...)``,
+                                      ``while (1) shellCheck();``.
 
 Tasarim notlari:
 * Cikti ``xil_printf`` ile konsola gider; ``cit`` komutu ``dbg_printf`` esigini gecici olarak
@@ -18,12 +24,12 @@ Tasarim notlari:
 * ``i2c_search`` spec'teki her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu yapar
   (ajanin i2c_scan'iyle ayni yontem). I2C switch (TCA9548A) adresleri ATLANIR: aktif
   switch'e 0x00 yazmak secili kanali kapatirdi.
+* Konsol metinleri Ingilizce (SAHA istegi 2026-09-08: "kabuk" ifadesi istenmedi).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
 from hostplat import io as hio
 from orchestrator import banner_font, cit_layer, cmodel
@@ -57,6 +63,8 @@ def console_uart_driver(spec: dict) -> str:
     platform = str(spec.get("project", {}).get("platform", ""))
     return _UART_BY_PLATFORM.get(platform, "XUartPs")
 
+
+# --- shell_uart --------------------------------------------------------------------------
 
 def uart_header() -> str:
     return (
@@ -120,22 +128,30 @@ def uart_source(spec: dict) -> str:
     )
 
 
+# --- shell -------------------------------------------------------------------------------
+
 def shell_header() -> str:
     return (
         "/**\n"
         " * @file shell.h\n"
-        " * @brief Konsol komut kabugu: cit / i2c_search / sdl / help.\n"
+        " * @brief Konsol shell'i: komut tablosu dagitimi (cit / i2c_search / sdl / help + kullanici komutlari).\n"
         " *\n"
         " * Kullanim (kart yazilimi, bkz. main.c):\n"
         " *   sistemCitBusVarsayilan(&S_sBus); sistemCitInit(&S_sBus);   -- ana dongu oncesi\n"
         " *   shellInit(&S_sBus, &S_sLimit, &S_sCit);\n"
+        " *   shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount());\n"
         " *   while (1) { shellCheck(); }                                -- bloklamaz\n"
         " *\n"
-        " * Komutlar:\n"
+        " * Komut modeli: her komut `SShellCommand {cpName, fpHandler, cpHelp}` satiridir. Isleyici\n"
+        " * `void f(unsigned int uiArgc, const char* cpArrArgv[])` imzasindadir; cpArrArgv[0] komut adi,\n"
+        " * sonrakiler STRING argumanlar (sayi gerekiyorsa atoi/strtol ile cevrilir). Yerlesik tablo\n"
+        " * shell.c'de, kullanici tablosu shell_user_commands.c'de; ikisi de ayni dagitimdan gecer.\n"
+        " *\n"
+        " * Yerlesik komutlar:\n"
         " *   cit               tum entegreleri oku, cerceveli/renkli raporu bas (sistemCitRead)\n"
         " *   i2c_search        her I2C denetleyicisinde 0x08..0x77 adres tarama (ACK listesi)\n"
-        " *   sdl <seviye>      set debug level: error | warning | msg | info | trace (ya da 0..5)\n"
-        " *   help              komut listesi\n"
+        " *   sdl <level>       set debug level: error | warning | msg | info | trace (ya da 0..5)\n"
+        " *   help              komut listesi (yerlesik + kullanici)\n"
         " *\n"
         " * Yukari/asagi ok tuslari (ESC [ A / ESC [ B) komut gecmisinde gezer (son SHELL_HISTORY_MAX).\n"
         " * `cit` raporu sdl seviyesinden BAGIMSIZ basilir (komutun ciktisidir); sdl yalniz\n"
@@ -147,10 +163,22 @@ def shell_header() -> str:
         "#define SHELL_H\n\n"
         '#include "sistem_cit.h"\n\n'
         "#define SHELL_LINE_MAX 48U\n"
+        "#define SHELL_ARG_MAX 8U     /* komut adi dahil en fazla token */\n"
         "#define SHELL_HISTORY_MAX 8U /* yukari/asagi ok ile gezilen son komutlar */\n"
+        "#define SHELL_TABLE_MAX 4U   /* kayitli komut tablosu sayisi (yerlesik + kullanici ...) */\n"
         '#define SHELL_PROMPT "> "\n\n'
-        "/* Kabugu CIT yapilariyla baglar ve istemi basar. Yapilar cagiranda kalici olmali. */\n"
+        "/* Komut isleyicisi: uiArgc token sayisi (>= 1), cpArrArgv[0] komut adi, digerleri string arguman. */\n"
+        "typedef void (*FShellHandler)(unsigned int uiArgc, const char* cpArrArgv[]);\n\n"
+        "typedef struct\n"
+        "{\n"
+        '    const char* cpName;      /* konsolda yazilan ad (or. "mod") */\n'
+        "    FShellHandler fpHandler; /* isleyici */\n"
+        '    const char* cpHelp;      /* help satiri: "<args>  aciklama" */\n'
+        "} SShellCommand;\n\n"
+        "/* Shell'i CIT yapilariyla baglar, yerlesik tabloyu kaydeder, istemi basar. Yapilar kalici olmali. */\n"
         "void shellInit(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit);\n"
+        "/* Ek komut tablosu kaydeder (kullanici komutlari). Tablo kalici (static) olmali. TRUE = kaydedildi. */\n"
+        "unsigned int shellCommandsRegister(const SShellCommand* spTable, unsigned int uiCount);\n"
         "/* Ana dongude cagrilir: konsolda bayt varsa isler, satir tamamlaninca komutu kosar; bloklamaz. */\n"
         "void shellCheck(void);\n\n"
         "#endif /* SHELL_H */\n"
@@ -185,7 +213,9 @@ def shell_source(spec: dict, plans: list) -> str:
     e = cit_layer._E(0)
     e.ln("/**")
     e.ln(" * @file shell.c")
-    e.ln(" * @brief Konsol komut kabugu gerceklemesi. Generated by Spec2Code. Do not edit by hand.")
+    e.ln(" * @brief Konsol shell'i: satir okuma, gecmis, tokenize, tablo dagitimi, yerlesik komutlar.")
+    e.ln(" *")
+    e.ln(" * Generated by Spec2Code. Do not edit by hand.")
     e.ln(" */")
     e.ln('#include "shell.h"')
     e.ln('#include "shell_uart.h"')
@@ -212,6 +242,10 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln("static unsigned int S_uiHistoryHead = 0U;")
     e.ln("static unsigned int S_uiHistoryCursor = 0U;")
     e.ln("static unsigned int S_uiEscapeState = 0U; /* 0: yok, 1: ESC alindi, 2: ESC [ alindi */")
+    e.ln("/* Kayitli komut tablolari: [0] yerlesik, sonrakiler shellCommandsRegister ile. */")
+    e.ln("static const SShellCommand* S_spArrTable[SHELL_TABLE_MAX];")
+    e.ln("static unsigned int S_uiArrTableCount[SHELL_TABLE_MAX];")
+    e.ln("static unsigned int S_uiTableCount = 0U;")
     if mux_addrs:
         e.ln("/* I2C switch adresleri: taramada atlanir (0x00 yazmak secili kanali kapatirdi). */")
         e.ln("static const unsigned int S_uiArrSwitchAddress[] = {" + ", ".join(f"0x{a:02X}U" for a in mux_addrs) + "};")
@@ -221,24 +255,19 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln('    xil_printf("%s", SHELL_PROMPT);')
     e.ln("}")
     e.blank()
-    e.ln("static void shellHelpWrite(void)")
-    e.ln("{")
-    e.ln('    xil_printf("komutlar:\\r\\n");')
-    e.ln('    xil_printf("  cit             tum entegreleri oku, raporu bas\\r\\n");')
-    e.ln('    xil_printf("  i2c_search      I2C adres tarama (0x08..0x77)\\r\\n");')
-    e.ln('    xil_printf("  sdl <seviye>    log seviyesi: error|warning|msg|info|trace (0..5)\\r\\n");')
-    e.ln('    xil_printf("  help            bu liste\\r\\n");')
-    e.ln("}")
+    # --- yerlesik: cit
+    e.ln("/* --- yerlesik komutlar ---------------------------------------------------------------- */")
     e.blank()
-    # --- cit
-    e.ln("static void shellCommandCit(void)")
+    e.ln("static void shellCommandCit(unsigned int uiArgc, const char* cpArrArgv[])")
     e.ln("{")
     e.ln("    unsigned int uiOldLevel;")
     e.ln("    int iResult;")
     e.blank()
+    e.ln("    (void)uiArgc;")
+    e.ln("    (void)cpArrArgv;")
     e.ln("    if ((S_spBus == NULL) || (S_spCit == NULL))")
     e.ln("    {")
-    e.ln('        xil_printf("cit: shellInit cagrilmamis\\r\\n");')
+    e.ln('        xil_printf("cit: shell is not initialized\\r\\n");')
     e.ln("        return;")
     e.ln("    }")
     e.ln("    uiOldLevel = dbgLevelGet();")
@@ -248,10 +277,10 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln("    }")
     e.ln("    iResult = sistemCitRead(S_spBus, S_spLimit, S_spCit);")
     e.ln("    (void)dbgLevelSet(uiOldLevel);")
-    e.ln(f'    xil_printf("cit: %s (kosu #%u)\\r\\n", (iResult == {cit_layer.STATUS_OK}) ? "OK" : ((iResult == {cit_layer.STATUS_NOK}) ? "NOK" : "HATA"), S_spCit->uiSayac);')
+    e.ln(f'    xil_printf("cit: %s (run #%u)\\r\\n", (iResult == {cit_layer.STATUS_OK}) ? "OK" : ((iResult == {cit_layer.STATUS_NOK}) ? "NOK" : "ERROR"), S_spCit->uiSayac);')
     e.ln("}")
     e.blank()
-    # --- i2c_search
+    # --- yerlesik: i2c_search
     if i2c:
         if mux_addrs:
             e.ln("static unsigned int shellI2cIsSwitchAddress(unsigned int uiAddress)")
@@ -287,25 +316,27 @@ def shell_source(spec: dict, plans: list) -> str:
                 e.ln("    return (iStatus == XST_SUCCESS) ? TRUE : FALSE;")
             e.ln("}")
             e.blank()
-        e.ln("static void shellCommandI2cSearch(void)")
+        e.ln("static void shellCommandI2cSearch(unsigned int uiArgc, const char* cpArrArgv[])")
         e.ln("{")
         e.ln("    unsigned int uiAddress;")
         e.ln("    unsigned int uiFound;")
         e.blank()
+        e.ln("    (void)uiArgc;")
+        e.ln("    (void)cpArrArgv;")
         e.ln("    if (S_spBus == NULL)")
         e.ln("    {")
-        e.ln('        xil_printf("i2c_search: shellInit cagrilmamis\\r\\n");')
+        e.ln('        xil_printf("i2c_search: shell is not initialized\\r\\n");')
         e.ln("        return;")
         e.ln("    }")
         for cid, fld, htype in i2c:
-            e.ln(f'    xil_printf("{cid}: tarama 0x08..0x77\\r\\n");')
+            e.ln(f'    xil_printf("{cid}: scanning 0x08..0x77\\r\\n");')
             e.ln("    uiFound = 0U;")
             e.ln("    for (uiAddress = 0x08U; uiAddress <= 0x77U; uiAddress++)")
             e.ln("    {")
             if mux_addrs:
                 e.ln("        if (shellI2cIsSwitchAddress(uiAddress) == TRUE)")
                 e.ln("        {")
-                e.ln('            xil_printf("  0x%02X  (I2C switch, atlandi)\\r\\n", uiAddress);')
+                e.ln('            xil_printf("  0x%02X  (I2C switch, skipped)\\r\\n", uiAddress);')
                 e.ln("            continue;")
                 e.ln("        }")
             e.ln(f"        if (shellI2cProbe{htype}(S_spBus->{fld}, uiAddress) == TRUE)")
@@ -314,58 +345,80 @@ def shell_source(spec: dict, plans: list) -> str:
             e.ln("            uiFound++;")
             e.ln("        }")
             e.ln("    }")
-            e.ln(f'    xil_printf("{cid}: %u cihaz\\r\\n", uiFound);')
+            e.ln(f'    xil_printf("{cid}: %u device(s)\\r\\n", uiFound);')
         e.ln("}")
     else:
-        e.ln("static void shellCommandI2cSearch(void)")
+        e.ln("static void shellCommandI2cSearch(unsigned int uiArgc, const char* cpArrArgv[])")
         e.ln("{")
-        e.ln('    xil_printf("i2c_search: bu projede I2C denetleyicisi yok\\r\\n");')
+        e.ln("    (void)uiArgc;")
+        e.ln("    (void)cpArrArgv;")
+        e.ln('    xil_printf("i2c_search: no I2C controller in this project\\r\\n");')
         e.ln("}")
     e.blank()
-    # --- sdl
-    e.ln("static void shellCommandSdl(const char* cpArgument)")
+    # --- yerlesik: sdl
+    e.ln("static void shellCommandSdl(unsigned int uiArgc, const char* cpArrArgv[])")
     e.ln("{")
+    e.ln('    static const char* const S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};')
+    e.ln("    const char* cpArgument;")
     e.ln("    unsigned int uiLevel;")
+    e.ln("    unsigned int uiIndex;")
     e.blank()
-    e.ln("    if ((cpArgument == NULL) || (cpArgument[0] == '\\0'))")
+    e.ln("    if (uiArgc < 2U)")
     e.ln("    {")
-    e.ln('        xil_printf("log seviyesi: %s (%u)\\r\\n", dbgLevelName(dbgLevelGet()), dbgLevelGet());')
+    e.ln('        xil_printf("log level: %s (%u)\\r\\n", dbgLevelName(dbgLevelGet()), dbgLevelGet());')
     e.ln("        return;")
     e.ln("    }")
-    e.ln('    if (strcmp(cpArgument, "error") == 0)')
+    e.ln("    cpArgument = cpArrArgv[1];")
+    e.ln("    uiLevel = DEBUG_LEVEL_TRACE + 1U; /* gecersiz */")
+    e.ln("    for (uiIndex = 0U; uiIndex <= DEBUG_LEVEL_TRACE; uiIndex++)")
     e.ln("    {")
-    e.ln("        uiLevel = DEBUG_LEVEL_ERROR;")
+    e.ln("        if (strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0)")
+    e.ln("        {")
+    e.ln("            uiLevel = uiIndex;")
+    e.ln("        }")
     e.ln("    }")
-    e.ln('    else if (strcmp(cpArgument, "warning") == 0)')
-    e.ln("    {")
-    e.ln("        uiLevel = DEBUG_LEVEL_WARNING;")
-    e.ln("    }")
-    e.ln('    else if (strcmp(cpArgument, "msg") == 0)')
-    e.ln("    {")
-    e.ln("        uiLevel = DEBUG_LEVEL_MSG;")
-    e.ln("    }")
-    e.ln('    else if (strcmp(cpArgument, "info") == 0)')
-    e.ln("    {")
-    e.ln("        uiLevel = DEBUG_LEVEL_INFO;")
-    e.ln("    }")
-    e.ln('    else if (strcmp(cpArgument, "trace") == 0)')
-    e.ln("    {")
-    e.ln("        uiLevel = DEBUG_LEVEL_TRACE;")
-    e.ln("    }")
-    e.ln("    else if ((cpArgument[0] >= '0') && (cpArgument[0] <= '5') && (cpArgument[1] == '\\0'))")
+    e.ln("    if ((uiLevel > DEBUG_LEVEL_TRACE) && (cpArgument[0] >= '0') && (cpArgument[0] <= '5') && (cpArgument[1] == '\\0'))")
     e.ln("    {")
     e.ln("        uiLevel = (unsigned int)(cpArgument[0] - '0');")
     e.ln("    }")
-    e.ln("    else")
+    e.ln("    if (uiLevel > DEBUG_LEVEL_TRACE)")
     e.ln("    {")
-    e.ln('        xil_printf("sdl: gecersiz seviye \'%s\' (error|warning|msg|info|trace|0..5)\\r\\n", cpArgument);')
+    e.ln('        xil_printf("sdl: invalid level \'%s\' (error|warning|msg|info|trace|0..5)\\r\\n", cpArgument);')
     e.ln("        return;")
     e.ln("    }")
     e.ln("    (void)dbgLevelSet(uiLevel);")
-    e.ln('    xil_printf("log seviyesi: %s (%u)\\r\\n", dbgLevelName(dbgLevelGet()), dbgLevelGet());')
+    e.ln('    xil_printf("log level: %s (%u)\\r\\n", dbgLevelName(dbgLevelGet()), dbgLevelGet());')
     e.ln("}")
     e.blank()
+    # --- yerlesik: help
+    e.ln("static void shellCommandHelp(unsigned int uiArgc, const char* cpArrArgv[])")
+    e.ln("{")
+    e.ln("    unsigned int uiTable;")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln("    (void)uiArgc;")
+    e.ln("    (void)cpArrArgv;")
+    e.ln('    xil_printf("commands:\\r\\n");')
+    e.ln("    for (uiTable = 0U; uiTable < S_uiTableCount; uiTable++)")
+    e.ln("    {")
+    e.ln("        for (uiIndex = 0U; uiIndex < S_uiArrTableCount[uiTable]; uiIndex++)")
+    e.ln("        {")
+    e.ln('            xil_printf("  %-12s %s\\r\\n", S_spArrTable[uiTable][uiIndex].cpName, S_spArrTable[uiTable][uiIndex].cpHelp);')
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("}")
+    e.blank()
+    e.ln("/* Yerlesik komut tablosu. Yeni yerlesik komut = isleyici + bir satir. */")
+    e.ln("static const SShellCommand S_sArrBuiltinCommands[] = {")
+    e.ln('    {"cit", shellCommandCit, "read all devices, print the report"},')
+    e.ln('    {"i2c_search", shellCommandI2cSearch, "scan I2C addresses 0x08..0x77"},')
+    e.ln('    {"sdl", shellCommandSdl, "<level>  set debug level: error|warning|msg|info|trace (0..5)"},')
+    e.ln('    {"help", shellCommandHelp, "list commands"},')
+    e.ln("};")
+    e.blank()
     # --- gecmis
+    e.ln("/* --- komut gecmisi ---------------------------------------------------------------------- */")
+    e.blank()
     e.ln("static void shellHistoryAdd(const char* cpLine)")
     e.ln("{")
     e.ln("    unsigned int uiLast;")
@@ -450,49 +503,90 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln("    return TRUE;")
     e.ln("}")
     e.blank()
-    # --- dispatch
+    # --- tokenize + dagitim
+    e.ln("/* --- tokenize + tablo dagitimi ---------------------------------------------------------- */")
+    e.blank()
+    e.ln("/* Satiri bosluklardan token'lara boler (yerinde, '\\0' ile). Donus: token sayisi. */")
+    e.ln("static unsigned int shellTokenize(char* cpLine, const char* cpArrArgv[])")
+    e.ln("{")
+    e.ln("    unsigned int uiArgc = 0U;")
+    e.blank()
+    e.ln("    while ((*cpLine != '\\0') && (uiArgc < SHELL_ARG_MAX))")
+    e.ln("    {")
+    e.ln("        while (*cpLine == ' ')")
+    e.ln("        {")
+    e.ln("            cpLine++;")
+    e.ln("        }")
+    e.ln("        if (*cpLine == '\\0')")
+    e.ln("        {")
+    e.ln("            break;")
+    e.ln("        }")
+    e.ln("        cpArrArgv[uiArgc] = cpLine;")
+    e.ln("        uiArgc++;")
+    e.ln("        while ((*cpLine != '\\0') && (*cpLine != ' '))")
+    e.ln("        {")
+    e.ln("            cpLine++;")
+    e.ln("        }")
+    e.ln("        if (*cpLine == ' ')")
+    e.ln("        {")
+    e.ln("            *cpLine = '\\0';")
+    e.ln("            cpLine++;")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    return uiArgc;")
+    e.ln("}")
+    e.blank()
+    e.ln("static const SShellCommand* shellCommandFind(const char* cpName)")
+    e.ln("{")
+    e.ln("    unsigned int uiTable;")
+    e.ln("    unsigned int uiIndex;")
+    e.blank()
+    e.ln("    for (uiTable = 0U; uiTable < S_uiTableCount; uiTable++)")
+    e.ln("    {")
+    e.ln("        for (uiIndex = 0U; uiIndex < S_uiArrTableCount[uiTable]; uiIndex++)")
+    e.ln("        {")
+    e.ln("            if (strcmp(S_spArrTable[uiTable][uiIndex].cpName, cpName) == 0)")
+    e.ln("            {")
+    e.ln("                return &S_spArrTable[uiTable][uiIndex];")
+    e.ln("            }")
+    e.ln("        }")
+    e.ln("    }")
+    e.ln("    return NULL;")
+    e.ln("}")
+    e.blank()
     e.ln("static void shellLineExecute(char* cpLine)")
     e.ln("{")
-    e.ln("    char* cpArgument;")
+    e.ln("    const char* cpArrArgv[SHELL_ARG_MAX];")
+    e.ln("    const SShellCommand* spCommand;")
+    e.ln("    unsigned int uiArgc;")
     e.blank()
-    e.ln("    while (*cpLine == ' ')")
-    e.ln("    {")
-    e.ln("        cpLine++;")
-    e.ln("    }")
-    e.ln("    if (*cpLine == '\\0')")
+    e.ln("    uiArgc = shellTokenize(cpLine, cpArrArgv);")
+    e.ln("    if (uiArgc == 0U)")
     e.ln("    {")
     e.ln("        return;")
     e.ln("    }")
-    e.ln("    cpArgument = strchr(cpLine, ' ');")
-    e.ln("    if (cpArgument != NULL)")
+    e.ln("    spCommand = shellCommandFind(cpArrArgv[0]);")
+    e.ln("    if (spCommand == NULL)")
     e.ln("    {")
-    e.ln("        *cpArgument = '\\0';")
-    e.ln("        cpArgument++;")
-    e.ln("        while (*cpArgument == ' ')")
-    e.ln("        {")
-    e.ln("            cpArgument++;")
-    e.ln("        }")
+    e.ln('        xil_printf("unknown command: %s (type help)\\r\\n", cpArrArgv[0]);')
+    e.ln("        return;")
     e.ln("    }")
-    e.ln('    if (strcmp(cpLine, "cit") == 0)')
+    e.ln("    spCommand->fpHandler(uiArgc, cpArrArgv);")
+    e.ln("}")
+    e.blank()
+    # --- public API
+    e.ln("/* --- genel API -------------------------------------------------------------------------- */")
+    e.blank()
+    e.ln("unsigned int shellCommandsRegister(const SShellCommand* spTable, unsigned int uiCount)")
+    e.ln("{")
+    e.ln("    if ((spTable == NULL) || (uiCount == 0U) || (S_uiTableCount >= SHELL_TABLE_MAX))")
     e.ln("    {")
-    e.ln("        shellCommandCit();")
+    e.ln("        return FALSE;")
     e.ln("    }")
-    e.ln('    else if (strcmp(cpLine, "i2c_search") == 0)')
-    e.ln("    {")
-    e.ln("        shellCommandI2cSearch();")
-    e.ln("    }")
-    e.ln('    else if (strcmp(cpLine, "sdl") == 0)')
-    e.ln("    {")
-    e.ln("        shellCommandSdl(cpArgument);")
-    e.ln("    }")
-    e.ln('    else if (strcmp(cpLine, "help") == 0)')
-    e.ln("    {")
-    e.ln("        shellHelpWrite();")
-    e.ln("    }")
-    e.ln("    else")
-    e.ln("    {")
-    e.ln('        xil_printf("bilinmeyen komut: %s (help)\\r\\n", cpLine);')
-    e.ln("    }")
+    e.ln("    S_spArrTable[S_uiTableCount] = spTable;")
+    e.ln("    S_uiArrTableCount[S_uiTableCount] = uiCount;")
+    e.ln("    S_uiTableCount++;")
+    e.ln("    return TRUE;")
     e.ln("}")
     e.blank()
     e.ln("void shellInit(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit)")
@@ -506,7 +600,9 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln("    S_uiHistoryHead = 0U;")
     e.ln("    S_uiHistoryCursor = 0U;")
     e.ln("    S_uiEscapeState = 0U;")
-    e.ln('    xil_printf("\\r\\nkomut kabugu hazir (help)\\r\\n");')
+    e.ln("    S_uiTableCount = 0U;")
+    e.ln("    (void)shellCommandsRegister(S_sArrBuiltinCommands, sizeof(S_sArrBuiltinCommands) / sizeof(S_sArrBuiltinCommands[0]));")
+    e.ln('    xil_printf("\\r\\nshell is initialized (type help)\\r\\n");')
     e.ln("    shellPromptWrite();")
     e.ln("}")
     e.blank()
@@ -533,7 +629,7 @@ def shell_source(spec: dict, plans: list) -> str:
     e.ln("            S_cArrLine[S_uiLineLength] = '\\0';")
     e.ln("            shellHistoryAdd(S_cArrLine);")
     e.ln("            S_uiHistoryCursor = S_uiHistoryCount;")
-    e.ln("            shellLineExecute(S_cArrLine);")
+    e.ln("            shellLineExecute(S_cArrLine); /* satir yerinde token'lanir (gecmis kopyasi zaten alindi) */")
     e.ln("            S_uiLineLength = 0U;")
     e.ln("            shellPromptWrite();")
     e.ln("        }")
@@ -563,6 +659,114 @@ def shell_source(spec: dict, plans: list) -> str:
     return e.text() + "\n"
 
 
+# --- shell_user_commands -----------------------------------------------------------------
+
+def user_commands_header() -> str:
+    return (
+        "/**\n"
+        " * @file shell_user_commands.h\n"
+        " * @brief KULLANICI komutlari: kendi komutlarini buraya eklersin (bkz. shell_user_commands.c).\n"
+        " *\n"
+        " * Yeni komut eklemek icin:\n"
+        " *   1. shell_user_commands.c'de `static void shellUser<Ad>(unsigned int uiArgc, const char* cpArrArgv[])`\n"
+        " *      isleyicisini yaz (cpArrArgv[1..] STRING; sayi gerekiyorsa atoi/strtol).\n"
+        ' *   2. S_sArrUserCommands[] tablosuna `{"<konsol adi>", shellUser<Ad>, "<args>  aciklama"}` satiri ekle.\n'
+        " *   Baska hicbir yere dokunma: main.c tabloyu shellCommandsRegister ile bir kez kaydeder,\n"
+        " *   `help` yeni satiri kendiliginden listeler.\n"
+        " *\n"
+        " * Generated by Spec2Code (ornek icerik; kendi projende serbestce duzenle).\n"
+        " */\n"
+        "#ifndef SHELL_USER_COMMANDS_H\n"
+        "#define SHELL_USER_COMMANDS_H\n\n"
+        '#include "shell.h"\n\n'
+        "/* Kullanici komut tablosu ve eleman sayisi (main.c: shellCommandsRegister(...)). */\n"
+        "const SShellCommand* shellUserCommandTable(void);\n"
+        "unsigned int shellUserCommandCount(void);\n\n"
+        "#endif /* SHELL_USER_COMMANDS_H */\n"
+    )
+
+
+def user_commands_source() -> str:
+    return (
+        "/**\n"
+        " * @file shell_user_commands.c\n"
+        " * @brief Kullanici komutlari: ornek `mod <x> <y>` - custom IP register yazimi.\n"
+        " *\n"
+        " *   > mod 3 open     -> Xil_Out32(SHELL_USER_MOD_BASEADDR + 3*4, 0x03030303)\n"
+        " *   > mod 3 close    -> Xil_Out32(SHELL_USER_MOD_BASEADDR + 3*4, 0)\n"
+        ' *   x: 0..7 (register indeksi, 4 baytlik ofsetle), y: "open" | "close".\n'
+        " *\n"
+        " * Generated by Spec2Code (ornek icerik; kendi projende serbestce duzenle).\n"
+        " */\n"
+        '#include "shell_user_commands.h"\n'
+        '#include "xil_io.h"\n'
+        '#include "xil_printf.h"\n'
+        "#include <stdlib.h>\n"
+        "#include <string.h>\n\n"
+        "/* TODO: custom IP taban adresi (xparameters.h'teki XPAR_<IP>_BASEADDR). 0 iken yazim yapilmaz. */\n"
+        "#ifndef SHELL_USER_MOD_BASEADDR\n"
+        "#define SHELL_USER_MOD_BASEADDR 0x00000000U\n"
+        "#endif\n"
+        "#define SHELL_USER_MOD_REG_COUNT 8U\n\n"
+        '/* reg0..reg7\'ye "open" ile yazilacak desenler; "close" 0 yazar. */\n'
+        "static const unsigned int S_uiArrModValue[SHELL_USER_MOD_REG_COUNT] = {\n"
+        "    0x00000000U, 0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U,\n"
+        "};\n\n"
+        "static void shellUserMod(unsigned int uiArgc, const char* cpArrArgv[])\n"
+        "{\n"
+        "    int iIndex;\n"
+        "    unsigned int uiValue;\n"
+        "    unsigned int uiAddress;\n\n"
+        "    if (SHELL_USER_MOD_BASEADDR == 0U)\n"
+        "    {\n"
+        '        xil_printf("mod: SHELL_USER_MOD_BASEADDR is not set (edit shell_user_commands.c)\\r\\n");\n'
+        "        return;\n"
+        "    }\n"
+        "    if (uiArgc != 3U)\n"
+        "    {\n"
+        '        xil_printf("usage: mod <0..7> <open|close>\\r\\n");\n'
+        "        return;\n"
+        "    }\n"
+        "    iIndex = atoi(cpArrArgv[1]); /* string arguman -> sayi */\n"
+        "    if ((cpArrArgv[1][0] < '0') || (cpArrArgv[1][0] > '9') || (iIndex < 0) || (iIndex >= (int)SHELL_USER_MOD_REG_COUNT))\n"
+        "    {\n"
+        '        xil_printf("mod: x must be 0..7 (got \'%s\')\\r\\n", cpArrArgv[1]);\n'
+        "        return;\n"
+        "    }\n"
+        '    if (strcmp(cpArrArgv[2], "open") == 0)\n'
+        "    {\n"
+        "        uiValue = S_uiArrModValue[iIndex];\n"
+        "    }\n"
+        '    else if (strcmp(cpArrArgv[2], "close") == 0)\n'
+        "    {\n"
+        "        uiValue = 0U;\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        '        xil_printf("mod: y must be open or close (got \'%s\')\\r\\n", cpArrArgv[2]);\n'
+        "        return;\n"
+        "    }\n"
+        "    uiAddress = SHELL_USER_MOD_BASEADDR + ((unsigned int)iIndex * 4U);\n"
+        "    Xil_Out32(uiAddress, uiValue);\n"
+        '    xil_printf("mod: reg%d @0x%08X <= 0x%08X (%s)\\r\\n", iIndex, uiAddress, uiValue, cpArrArgv[2]);\n'
+        "}\n\n"
+        "/* Kullanici komut tablosu: yeni komut = isleyici + bir satir. */\n"
+        "static const SShellCommand S_sArrUserCommands[] = {\n"
+        '    {"mod", shellUserMod, "<0..7> <open|close>  write custom IP register x (open: pattern, close: 0)"},\n'
+        "};\n\n"
+        "const SShellCommand* shellUserCommandTable(void)\n"
+        "{\n"
+        "    return S_sArrUserCommands;\n"
+        "}\n\n"
+        "unsigned int shellUserCommandCount(void)\n"
+        "{\n"
+        "    return (unsigned int)(sizeof(S_sArrUserCommands) / sizeof(S_sArrUserCommands[0]));\n"
+        "}\n"
+    )
+
+
+# --- main ----------------------------------------------------------------------------------
+
 def _c_string(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -581,7 +785,7 @@ def main_source(spec: dict) -> str:
     return (
         "/**\n"
         " * @file main.c\n"
-        f" * @brief {name}: ana program - CIT + konsol kabugu. Kendi projene kopyala ve uyarla.\n"
+        f" * @brief {name}: ana program - CIT + konsol shell'i. Kendi projene kopyala ve uyarla.\n"
         " *\n"
         " * Derleme: drivers/ (kart alt klasorleri dahil), cit/ ve shell/ include yolunda; dbg_printf.c\n"
         " * dahil tum .c dosyalari projede. Test bench ajani (tests/) BU projeye alinmaz.\n"
@@ -592,6 +796,7 @@ def main_source(spec: dict) -> str:
         '#include "dbg_printf.h"\n'
         '#include "sistem_cit.h"\n'
         '#include "shell.h"\n'
+        '#include "shell_user_commands.h"\n'
         '#include "xil_printf.h"\n\n'
         "static SSistemCitBus S_sBus;\n"
         "static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;\n"
@@ -615,6 +820,7 @@ def main_source(spec: dict) -> str:
         '        dbg_printf(DEBUG_LEVEL_ERROR, "sistemCitInit: %d", iStatus);\n'
         "    }\n"
         "    shellInit(&S_sBus, &S_sLimit, &S_sCit);\n"
+        "    (void)shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount()); /* mod ... */\n"
         "    while (1)\n"
         "    {\n"
         "        shellCheck(); /* konsolda komut varsa isler; bloklamaz */\n"
@@ -641,27 +847,36 @@ def main_header(spec: dict) -> str:
     )
 
 
+# --- README + yazma ---------------------------------------------------------------------
+
 def readme_section(spec: dict, plans: list) -> str:
     i2c = _i2c_bus_entries(spec, plans)
     lines = [
         "",
-        "## Konsol kabugu (`shell/`)",
+        "## Konsol shell'i (`shell/`)",
         "",
         "Kendi main'inde derlenir; test bench ajaniyla ilgisi yoktur. Konsol UART'indan (BSP stdin,",
-        f"`{console_uart_driver(spec)}`) satir okur, komutu kosar. `main.c` kopyala-yapistir ana programdir (acilista Colossal banner).",
+        f"`{console_uart_driver(spec)}`) satir okur, komut tablosundan dagitir. `main.c` kopyala-yapistir",
+        "ana programdir (acilista Colossal banner). Vitis kurulumu bu kodu `<app>_shell` olarak ayrica derler.",
         "",
         "| Dosya | Icerik |",
         "|---|---|",
         "| `shell/shell_uart.h/.c` | `shellUartByteRead()` (bloklamaz) / `shellUartByteWrite()` |",
-        "| `shell/shell.h/.c` | `shellInit(bus, limit, cit)`, `shellCheck()`; komutlar `cit`, `i2c_search`, `sdl`, `help` |",
-        "| `shell/main.h/.c` | banner -> bus kur -> `sistemCitInit` -> `shellInit` -> `while (1) shellCheck();` |",
+        "| `shell/shell.h/.c` | `SShellCommand` tablosu, `shellInit`, `shellCommandsRegister`, `shellCheck`; yerlesik `cit`, `i2c_search`, `sdl`, `help`; ok tusu gecmisi |",
+        "| `shell/shell_user_commands.h/.c` | KULLANICI komutlari: `S_sArrUserCommands[]` + isleyiciler; ornek `mod <0..7> <open|close>` |",
+        "| `shell/main.h/.c` | banner -> bus kur -> `sistemCitInit` -> `shellInit` -> kullanici tablosunu kaydet -> `while (1) shellCheck();` |",
+        "",
+        "Yeni komut: `shell_user_commands.c`'de `static void shellUser<Ad>(unsigned int uiArgc, const char* cpArrArgv[])`",
+        "yaz, `S_sArrUserCommands[]`'a `{\"<ad>\", shellUser<Ad>, \"<args>  aciklama\"}` satiri ekle. Argumanlar string",
+        "(`cpArrArgv[1..]`), sayi icin `atoi`. `help` tabloyu otomatik listeler.",
         "",
         "| Komut | Ne yapar |",
         "|---|---|",
         "| `cit` | `sistemCitRead()`; cerceveli/renkli rapor (INFO esigi gecici acilir) |",
         f"| `i2c_search` | {', '.join(c for c, _, _ in i2c) or 'I2C yok'}: 0x08..0x77 yazma probu, ACK listesi (switch adresleri atlanir) |",
-        "| `sdl <seviye>` | set debug level: `error` `warning` `msg` `info` `trace` ya da 0..5 |",
-        "| `help` | komut listesi |",
+        "| `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` ya da 0..5 |",
+        "| `help` | komut listesi (yerlesik + kullanici) |",
+        "| `mod <x> <y>` | ornek kullanici komutu: custom IP reg x (0..7, 4 B ofset) <= desen (`open`) ya da 0 (`close`); `SHELL_USER_MOD_BASEADDR` ayarlanmali |",
         "",
     ]
     return "\n".join(lines)
@@ -677,6 +892,8 @@ def write_shell_layer(spec: dict, out_dir: Path, plans: list) -> tuple[list[str]
         hio.write_output(shell_dir / "shell_uart.c", uart_source(spec)),
         hio.write_output(shell_dir / "shell.h", shell_header()),
         hio.write_output(shell_dir / "shell.c", shell_source(spec, plans)),
+        hio.write_output(shell_dir / "shell_user_commands.h", user_commands_header()),
+        hio.write_output(shell_dir / "shell_user_commands.c", user_commands_source()),
         hio.write_output(shell_dir / "main.h", main_header(spec)),
         hio.write_output(shell_dir / "main.c", main_source(spec)),
     ]

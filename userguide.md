@@ -342,7 +342,7 @@ transferi ERROR seviyesinde (`TRACEERR|...|asama=p|status=-1`; asama `w` yazma,
 
 | Dosya | Icerik |
 |---|---|
-| `cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar, uiEtkin}`, `citLimitDegerlendir()` (TRUE/FALSE), `CIT_OK/NOK/HATA` |
+| `cit_ortak.h/.c` | `SCitLimit {iMin, iMax, uiLimitVar}` (uiLimitVar = 0 -> limitsiz, okundu ise OK), `citLimitDegerlendir()` (TRUE/FALSE), `CIT_OK/NOK/HATA` |
 | `<mod>_cit.h/.c` | `S<Mod>CitLimit` (olcum/kanal basina limit), `S<Mod>Cit` (bayraklar + `S<Mod>Status sDurum` + olcum struct'lari), `<mod>CitInit()`, `<mod>CitRead()` |
 | `sistem_cit.h/.c` | `SSistemCitBus` (denetleyici ornekleri), `SSistemCitLimit` (cihaz basina varsayilan), `SSistemCit`; `sistemCitBusVarsayilan/Init/Read()` |
 
@@ -372,9 +372,9 @@ main'inde kopyalayip yalniz istedigin satiri degistirmen yeter:
 #define SISTEM_CIT_LIMIT_VARSAYILAN \
     { \
         .sSakkLtc29911 = { /* sakk_ltc2991_1 (LTC2991) */ \
-            .sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U, .uiEtkin = 1U}, /* SAKK_LTC2991_1_V1: [3135 .. 3465] mV */ \
-            .sV2 = {.iMin = 0, .iMax = 0, .uiLimitVar = 0U, .uiEtkin = 1U},       /* SAKK_LTC2991_1_V2: limitsiz */ \
-            .sTemperature = {.iMin = 1000, .iMax = 6000, .uiLimitVar = 1U, .uiEtkin = 1U}, /* 10.00..60.00 C */ \
+            .sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U}, /* SAKK_LTC2991_1_V1: [3135 .. 3465] mV */ \
+            .sV2 = {.iMin = 0, .iMax = 0, .uiLimitVar = 0U},       /* SAKK_LTC2991_1_V2: limitsiz */ \
+            .sTemperature = {.iMin = 1000, .iMax = 6000, .uiLimitVar = 1U}, /* 10.00..60.00 C */ \
         }, \
     }
 ```
@@ -424,16 +424,17 @@ carpimi, DS1682 gecen zaman sayaci, LMK04832 kilit bitleri) ve hata enjeksiyonu
 4. Okumalar icin surucu fonksiyonlarini ya da `sistemCitRead()`'i cagir.
 5. `dbg_printf.c`'yi derlemeye ekle; gurultu icin `dbgLevelSet(DEBUG_LEVEL_ERROR)`.
 
-### 9.1 Konsol kabugu (`shell/`)
+### 9.1 Konsol shell'i (`shell/`)
 
 Kendi main'inden konsol UART'i uzerinden komutla CIT kosturmak icin `shell/` katmani
 uretilir (cit/ olan her projede). `shell/main.c` kopyala-yapistir ana programdir (acilista proje adini
-buyuk harf FIGlet Colossal banner olarak basar):
+buyuk harf FIGlet Colossal banner olarak basar, ardindan `shell is initialized (type help)`):
 
 ```c
 sistemCitBusVarsayilan(&S_sBus);
 sistemCitInit(&S_sBus);                      /* ana dongu oncesi, bir kez */
-shellInit(&S_sBus, &S_sLimit, &S_sCit);
+shellInit(&S_sBus, &S_sLimit, &S_sCit);      /* yerlesik komutlar kaydolur */
+shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount()); /* senin komutlarin */
 while (1)
 {
     shellCheck();                            /* bloklamaz: bayt varsa isler */
@@ -446,8 +447,33 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 |---|---|
 | `cit` | `sistemCitRead()`; cerceveli/renkli raporu basar (INFO esigi gecici acilir) |
 | `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK'leri listeler, I2C switch adreslerini atlar |
-| `sdl <seviye>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
-| `help` | komut listesi |
+| `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
+| `help` | komut listesi (yerlesik + kullanici tablosu) |
+| `mod <x> <y>` | ornek KULLANICI komutu (`shell_user_commands.c`): custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
+
+**Yeni komut eklemek** (`shell/shell_user_commands.c`): komutlar bir TABLODAN dagitilir,
+if-zinciri yoktur. Her satir `SShellCommand {ad, isleyici, yardim}`; isleyici imzasi
+`void f(unsigned int uiArgc, const char* cpArrArgv[])`, `cpArrArgv[0]` komut adi, sonrakiler
+STRING arguman (sayi gerekiyorsa `atoi`/`strtol`). Iki adim:
+
+```c
+static void shellUserRele(unsigned int uiArgc, const char* cpArrArgv[])   /* 1. isleyici */
+{
+    int iKanal;
+    if (uiArgc != 2U) { xil_printf("usage: rele <0..3>\r\n"); return; }
+    iKanal = atoi(cpArrArgv[1]);
+    ...
+}
+
+static const SShellCommand S_sArrUserCommands[] = {                        /* 2. tabloya satir */
+    {"mod", shellUserMod, "<0..7> <open|close>  write custom IP register x"},
+    {"rele", shellUserRele, "<0..3>  toggle relay"},                        /* konsol adi "rele" */
+};
+```
+
+`help` yeni satiri kendiliginden listeler; `main.c` tabloyu bir kez kaydeder. `mod`
+orneginde `SHELL_USER_MOD_BASEADDR` (dosyanin basinda, `xparameters.h`'teki
+`XPAR_<IP>_BASEADDR`) 0 kaldigi surece yazim yapilmaz, uyari basilir.
 
 Yukari/asagi ok tuslari son 8 komutta gezer (yukari: onceki, asagi: sonraki, sonda bos
 satir); gelen satir duzenlenip Enter ile yeniden kosulabilir. `cit` komutunun raporu
@@ -455,7 +481,7 @@ satir); gelen satir duzenlenip Enter ile yeniden kosulabilir. `cit` komutunun ra
 surucu/CIT kodunun kendi `dbg_printf` satirlarini (or. `TRACEERR` hata izleri, `sdl 0`'da
 bile rapor icindeki hatalar gorunur cunku rapor sirasinda esik gecici INFO'dur) suzer.
 `shell_uart.c` platforma gore uretilir (XUartLite / XUartPs / XUartPsv, `STDIN_BASEADDRESS`).
-Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken kabuk
+Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken shell
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
 
 Vitis workspace kurulumu bu kodu ayrica DERLER: ayni platformda ikinci bir uygulama
@@ -534,7 +560,9 @@ skaler olcumler icin satirlar. Ayni parcadan entegreler bir satirda yan yana dur
 
 **Karar karttadir.** Bir karoya tiklayip limit (min/max, kapali aralik) ya da etkin
 durumunu degistirdiginde bagliysan bu degerler ANINDA karta yazilir (`CIT_LIMIT_SET`
-mesaji -> `cit/` limit yapisi) ve her "CIT kostur"dan once yeniden gonderilir. Limitler
+mesaji -> `cit/` limit yapisi) ve her "CIT kostur"dan once yeniden gonderilir. Kartta
+tek alan vardir: `uiLimitVar` - limit varsa aralik denetlenir, yoksa (ya da ekranda
+etkin degilse) olcum yalniz okunur ve OK sayilir; ayri bir "etkin" biti yoktur. Limitler
 EKRANDA GORDUGUN birimde girilir (sicaklik °C, voltaj mV); ekran bunu kartin birimine
 (santi-derece) cevirir, spec ve C varsayilanlari kart birimindedir. Kart
 `sistemCitRead()` ile okur, OK/NOK bitini kendisi hesaplar; ekran yalnizca kartin
@@ -547,7 +575,7 @@ manifest sirasiyla `SBoardCit`'e (deger, okuma durumu, OK biti) -> host.
 `sistemCitRead()` her kosuda `DEBUG_LEVEL_INFO` seviyesinde cerceveli bir rapor basar:
 72 sutunluk kutular, her entegre kendi kutusunda (baslik satirinda entegre sonucu), her
 olcum satirinda ad / deger / birim / limit / OK-NOK, sonda genel SONUC. Satirlar ANSI
-renklidir (OK yesil, NOK kirmizi, HATA sari, kapali olcum gri): XShell/PuTTY dogrudan
+renklidir (OK yesil, NOK kirmizi, HATA sari): XShell/PuTTY dogrudan
 renkli gosterir, Akis ekrani da ayni tonu uygular. Log esigini `info` yapinca gorunur.
 "Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
 

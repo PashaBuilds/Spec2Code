@@ -87,9 +87,27 @@ class ShellLayerGenerationTests(unittest.TestCase):
         header = _read(self.out_dir, "shell/shell.h")
         self.assertIn("void shellInit(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit);", header)
         self.assertIn("void shellCheck(void);", header)
+        self.assertIn("typedef void (*FShellHandler)(unsigned int uiArgc, const char* cpArrArgv[]);", header)
+        self.assertIn("unsigned int shellCommandsRegister(const SShellCommand* spTable, unsigned int uiCount);", header)
         source = _read(self.out_dir, "shell/shell.c")
-        for command in ('"cit"', '"i2c_search"', '"sdl"', '"help"'):
-            self.assertIn(f"strcmp(cpLine, {command}) == 0", source)
+        # Komut tablosu (ad + isleyici + yardim); if-zinciri yok.
+        self.assertNotIn("strcmp(cpLine,", source)
+        self.assertIn("static const SShellCommand S_sArrBuiltinCommands[] = {", source)
+        for command, handler in (("cit", "shellCommandCit"), ("i2c_search", "shellCommandI2cSearch"),
+                                 ("sdl", "shellCommandSdl"), ("help", "shellCommandHelp")):
+            self.assertIn(f'{{"{command}", {handler}, "', source)
+        self.assertIn("uiArgc = shellTokenize(cpLine, cpArrArgv);", source)
+        self.assertIn("spCommand->fpHandler(uiArgc, cpArrArgv);", source)
+        self.assertIn('xil_printf("\\r\\nshell is initialized (type help)\\r\\n");', source)
+        self.assertNotIn("kabuk", source.lower())
+        # Kullanici komutlari: ayri dosya, tablo + ornek mod (string arg -> atoi, Xil_Out32).
+        user = _read(self.out_dir, "shell/shell_user_commands.c")
+        self.assertIn('{"mod", shellUserMod, "', user)
+        self.assertIn("iIndex = atoi(cpArrArgv[1]);", user)
+        self.assertIn('strcmp(cpArrArgv[2], "open") == 0', user)
+        self.assertIn("Xil_Out32(uiAddress, uiValue);", user)
+        self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U", user)
+        self.assertIn("const SShellCommand* shellUserCommandTable(void);", _read(self.out_dir, "shell/shell_user_commands.h"))
         # cit: INFO esigi gecici acilir, sistemCitRead kosar, esik geri alinir.
         self.assertIn("iResult = sistemCitRead(S_spBus, S_spLimit, S_spCit);", source)
         self.assertIn("(void)dbgLevelSet(DEBUG_LEVEL_INFO);", source)
@@ -99,8 +117,8 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("S_uiArrSwitchAddress[] = {0x70U};", source)
         self.assertIn("shellI2cProbeXIic(S_spBus->sPlI2c0, uiAddress)", source)
         # sdl: adlar ve 0..5
-        for level in ("error", "warning", "msg", "info", "trace"):
-            self.assertIn(f'strcmp(cpArgument, "{level}") == 0', source)
+        self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', source)
+        self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", source)
         # satir okuma bloklamaz: while (shellUartByteRead(...))
         self.assertIn("while (shellUartByteRead(&ucByte) == TRUE)", source)
         # gecmis: ESC [ A / ESC [ B, halka, ayni komut tek kayit
@@ -123,6 +141,7 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("sistemCitBusVarsayilan(&S_sBus);", main)
         self.assertIn("iStatus = sistemCitInit(&S_sBus);", main)
         self.assertIn("shellInit(&S_sBus, &S_sLimit, &S_sCit);", main)
+        self.assertIn("(void)shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount());", main)
         self.assertNotIn("for (;;)", main)
         self.assertLess(main.index("mainBannerWrite();"), main.index("sistemCitInit("))
         self.assertLess(main.index("sistemCitInit("), main.index("while (1)"))
@@ -145,8 +164,9 @@ class ShellLayerGenerationTests(unittest.TestCase):
 
     def test_readme_mentions_shell(self) -> None:
         readme = _read(self.out_dir, "README.md")
-        self.assertIn("## Konsol kabugu (`shell/`)", readme)
-        self.assertIn("`sdl <seviye>`", readme)
+        self.assertIn("## Konsol shell'i (`shell/`)", readme)
+        self.assertIn("`sdl <level>`", readme)
+        self.assertIn("`mod <x> <y>`", readme)
 
 
 class ShellLayerPlatformTests(unittest.TestCase):
@@ -186,19 +206,22 @@ _HOST_MAIN = r"""
 #include <string.h>
 #include "sistem_cit.h"
 #include "shell.h"
+#include "shell_user_commands.h"
 extern const unsigned char* g_ucpStubUartIn;
 extern unsigned int g_uiStubUartInLen;
 static SSistemCitBus S_sBus;
 static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
 /* Son: yukari-yukari + Enter -> "sdl 9" yeniden kosar (xyz'den bir onceki); asagi-asagi -> bos satir. */
-static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\rcit\r";
+static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\r"
+                                   "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\rcit\r";
 int main(void)
 {
     unsigned int uiTur;
     sistemCitBusVarsayilan(&S_sBus);
     (void)sistemCitInit(&S_sBus);
     shellInit(&S_sBus, &S_sLimit, &S_sCit);
+    (void)shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount());
     g_ucpStubUartIn = (const unsigned char*)S_cArrScript;
     g_uiStubUartInLen = (unsigned int)strlen(S_cArrScript);
     for (uiTur = 0U; uiTur < 4U; uiTur++)
@@ -232,7 +255,7 @@ class ShellHostRoundTripTests(unittest.TestCase):
                        *[str(p) for p in (out_dir / "shell").glob("shell*.c")],
                        *[str(p) for p in (out_dir / "tests" / "sim").glob("*.c")]]
             cmd = [_find_cc(), "-std=c99", "-Wall", "-Wextra", "-Werror",
-                   "-include", "spec2code_sim_xilinx.h",
+                   "-include", "spec2code_sim_xilinx.h", "-DSHELL_USER_MOD_BASEADDR=0x43C00000U",
                    "-I", str(work), "-I", str(STUBS), "-I", str(out_dir / "drivers"),
                    "-I", str(out_dir / "cit"), "-I", str(out_dir / "shell"), "-I", str(out_dir / "tests" / "sim"),
                    "-o", str(binary), *sources]
@@ -243,14 +266,24 @@ class ShellHostRoundTripTests(unittest.TestCase):
             out = run.stdout
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
-        self.assertIn("komut kabugu hazir (help)", out)
-        self.assertIn("komutlar:", out)                       # help
-        self.assertIn("log seviyesi: info (4)", out)          # sdl info
-        self.assertEqual(out.count("sdl: gecersiz seviye '9'"), 2)  # sdl 9 + gecmisten (yukari x2) tekrar
-        self.assertIn("bilinmeyen komut: xyz (help)", out)    # xyz
-        self.assertIn("pl_i2c_0: tarama 0x08..0x77", out)     # i2c_search
-        self.assertIn("0x70  (I2C switch, atlandi)", out)
-        self.assertIn("pl_i2c_0: 0 cihaz", out)               # stub hatta ACK yok (sanal cihaz sim'de, probu gormez)
+        self.assertIn("shell is initialized (type help)", out)
+        self.assertNotIn("kabuk", out)
+        self.assertIn("commands:", out)                       # help
+        self.assertIn("  mod          <0..7> <open|close>", out)  # kullanici tablosu help'te
+        self.assertIn("log level: info (4)", out)             # sdl info
+        self.assertEqual(out.count("sdl: invalid level '9'"), 2)  # sdl 9 + gecmisten (yukari x2) tekrar
+        self.assertIn("unknown command: xyz (type help)", out)  # xyz
+        self.assertIn("pl_i2c_0: scanning 0x08..0x77", out)   # i2c_search
+        self.assertIn("0x70  (I2C switch, skipped)", out)
+        self.assertIn("pl_i2c_0: 0 device(s)", out)           # stub hatta ACK yok (sanal cihaz sim'de, probu gormez)
+        # mod: string argv -> atoi; fazla bosluk tokenizer'da sorun degil; open desen, close 0, hatali y/argc.
+        self.assertIn("XIL_OUT32 0x43C0000C <= 0x03030303", out)
+        self.assertIn("mod: reg3 @0x43C0000C <= 0x03030303 (open)", out)
+        self.assertIn("mod: x must be 0..7 (got '9')", out)
+        self.assertIn("XIL_OUT32 0x43C0000C <= 0x00000000", out)
+        self.assertIn("mod: y must be open or close (got 'half')", out)
+        self.assertIn("usage: mod <0..7> <open|close>", out)
+        self.assertEqual(out.count("XIL_OUT32"), 2)
         self.assertIn("| CIT kosusu #1", out)                 # cit raporu INFO'da basildi
         self.assertIn("cit: ", out)
         self.assertIn("SON sayac=1", out)                     # sistemCitRead bir kez kostu

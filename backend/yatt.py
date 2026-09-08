@@ -65,7 +65,7 @@ _BODY_LAYOUTS: dict[str, list[dict]] = {
         {"offset": 0, "size": 28, "name": "istek_std", "type": "request_std",
          "note": "standart istek govdesi; uiUzunluk = N (manifest cit.olcumler sayisi)"},
         {"offset": 28, "size": None, "name": "limitler", "type": "SCitLimit[N]",
-         "note": "her biri 16 B: iMin(i32) iMax(i32) uiLimitVar(u32) uiEtkin(u32); manifest sirasi"},
+         "note": "her biri 12 B: iMin(i32) iMax(i32) uiLimitVar(u32); manifest sirasi (etkin degil = limitsiz)"},
     ],
     "cit": [
         {"offset": 0, "size": 4, "name": "uiIstekSayac", "type": "u32", "note": "istegin uiMesajSayac'i"},

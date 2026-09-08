@@ -408,7 +408,7 @@ class CitHostRoundTripTest(unittest.TestCase):
 
     def test_cit_run_and_read_round_trip_over_cit_layer(self) -> None:
         spec = _cit_spec("unit_cit_rt", simulate=True)
-        # Canli limit: V1 3300..3400 (3299 disarida -> NOK), digerleri limitsiz, olcum 9 kapali.
+        # Canli limit: V1 3300..3400 (3299 disarida -> NOK), digerleri limitsiz, olcum 9 etkin degil (= limitsiz).
         limits = [{"min": None, "max": None, "enabled": True} for _ in range(12)]
         limits[0] = {"min": 3300, "max": 3400, "enabled": True}
         limits[9] = {"min": 0, "max": 0, "enabled": False}
@@ -470,7 +470,7 @@ class CitHostRoundTripTest(unittest.TestCase):
         self.assertEqual(run3["olcumler"][0]["uiDurum"], 0)
         self.assertEqual(run3["olcumler"][0]["iDeger"], 3299)
         self.assertTrue(run3["olcumler"][1]["read_ok"])   # limitsiz kanal OK
-        self.assertTrue(run3["olcumler"][9]["read_ok"])   # etkin degil (0..0 limit) -> OK sayilir
+        self.assertTrue(run3["olcumler"][9]["read_ok"])   # etkin degil -> limitsiz gonderilir -> OK sayilir
 
         # NACK: LTC olcumleri (0..8) okunamadi -> bit 0, uiDurum BUS_HATASI; digerleri temiz.
         run2 = self._decode_cit_response(lines[5], 12)

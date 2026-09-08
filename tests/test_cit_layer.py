@@ -200,7 +200,7 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn("SCitLimit sV1; /* VCC_3V3 (voltage_read, mV) */", header)
         self.assertIn("SCitLimit sTemperature;", header)
         # spec limiti varsayilana gomulur: {min, max, limitVar, etkin}
-        self.assertIn(".sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U, .uiEtkin = 1U}, /* VCC_3V3: [3135 .. 3465] mV */", header)
+        self.assertIn(".sV1 = {.iMin = 3135, .iMax = 3465, .uiLimitVar = 1U}, /* VCC_3V3: [3135 .. 3465] mV */", header)
         self.assertIn("unsigned int uiVoltageReadOkundu : 1;", header)
         self.assertIn("unsigned int uiV1Ok : 1; /* VCC_3V3: okundu VE limit icinde", header)
         self.assertIn("SLtc2991Status sDurum;", header)
@@ -234,7 +234,7 @@ class CitLayerGenerationTests(unittest.TestCase):
         self.assertIn(".sU2Ltc2991 = { /* u2_ltc2991 (LTC2991) */", header)
         self.assertIn(".sV1 = {.iMin = ", header)
         self.assertIn(".uiLimitVar = ", header)
-        self.assertIn(".uiEtkin = 1U}, /*", header)
+        self.assertNotIn("uiEtkin", header)
         self.assertNotIn("{{0, 0, 0U, 1U}", header)
         self.assertIn("int sistemCitRead(SSistemCitBus* spBus, const SSistemCitLimit* spLimit, SSistemCit* spCit);", header)
         source = _read(self.out_dir, "cit/sistem_cit.c")
@@ -385,8 +385,8 @@ int main(void)
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
     printf(" esit0 pll1ok=%u\n", S_sCit.sU4Lmk04832.sBayraklar.uiPll1LockDetectOk);
     sLimit.sU4Lmk04832.sPll1LockDetect.uiLimitVar = 0U;
-    /* etkin=0 -> degerlendirilmez */
-    sLimit.sU2Ltc2991.sV1.uiEtkin = 0U;
+    /* limitsiz -> degerlendirilmez (ayri etkin alani yok) */
+    sLimit.sU2Ltc2991.sV1.uiLimitVar = 0U;
     iRead = sistemCitRead(&S_sBus, &sLimit, &S_sCit);
     printf("E read=%d v1ok=%u\n", iRead, S_sCit.sU2Ltc2991.sBayraklar.uiV1Ok);
     /* NACK: LTC hattan dusmus gibi; TMP/LMK etkilenmez */

@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.200 - 2026-09-08
+
+- **Shell komut tablosu (SAHA istegi):** if-zinciri yerine `SShellCommand {ad, isleyici,
+  yardim}` tablolari; isleyici `void f(unsigned int uiArgc, const char* cpArrArgv[])`, tum
+  argumanlar STRING (`atoi` ile sayi). Yerlesik tablo `shell.c`'de; KULLANICI komutlari yeni
+  `shell/shell_user_commands.h/.c`'de tek tablo (`S_sArrUserCommands[]`) - yeni komut = bir
+  isleyici + bir satir; `main.c` tabloyu `shellCommandsRegister(...)` ile kaydeder, `help`
+  otomatik listeler. Ornek komut `mod <0..7> <open|close>`: custom IP register x'e
+  (`SHELL_USER_MOD_BASEADDR + 4*x`, `Xil_Out32`) open -> desen (reg1 0x01010101 ... reg7
+  0x07070707), close -> 0. Host gcc turunda dogrulandi (`mod 3 open` -> 0x03030303, `mod 9`,
+  `mod 3 half`, eksik arguman).
+- **Konsol metinleri Ingilizce:** acilis `shell is initialized (type help)`, `commands:`,
+  `unknown command: xyz (type help)`, `log level: info (4)`, `sdl: invalid level '9'`,
+  `pl_i2c_0: scanning 0x08..0x77` / `N device(s)`.
+- **`SCitLimit` tek alan:** `uiEtkin` kaldirildi; `uiLimitVar = 1` -> aralik denetlenir,
+  0 -> limitsiz (okundu ise OK). Ekranda "etkin degil" = limitsiz gonderilir. `CIT_LIMIT_SET`
+  teli 12 B/olcum (`<iiI>`, `SPEC2CODE_MESAJ_CIT_LIMIT_BOY 12U`); rapor satirinda "(kapali)"
+  durumu ve gri renk kalkti.
+
 ## v0.1.199 - 2026-09-08
 
 - **Shell main dosyalari `main.h/.c`** (eski `main_example.*`); acilista proje adi buyuk harf
