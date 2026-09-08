@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.198 - 2026-09-08
+
+- **Iki app projesi her durumda (SAHA sorusu):** eski akista ajan build'i dustugunde (or. yazilim
+  BRAM'e sigmiyor, link hatasi) Tcl orada duruyor ve shell uygulamasi hic olusmuyordu. Yeni sira:
+  iki app projesi kurulup kaynaklari import edilir -> ajan derlemesi `catch` icinde -> shell
+  derlemesi (`catch`) -> ajan hatasi en sonda yeniden yukseltilir. Ajan dusse de shell ELF
+  uretilir ve sonuca/Vitis sayfasina yazilir (is yine basarisiz doner). Fake-xsct testi
+  `test_agent_build_failure_still_reports_shell_elf`; Nexys'te ajan link hatasi (BRAM tasmasi)
+  senaryosuyla gercek Vitis'te dogrulandi.
+
 ## v0.1.197 - 2026-09-08
 
 - **Vitis: iki uygulama (SAHA istegi):** kurulum ve kaynak guncelleme artik ayni platformda

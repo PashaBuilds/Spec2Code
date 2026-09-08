@@ -134,6 +134,20 @@ def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
     )
 
 
+def write_fake_xsct_agent_build_fails(path: Path, version: str = "2024.2") -> None:
+    """Ajan link hatasi (or. BRAM'e sigmama): shell ELF yazilir, ajan ELF'i yok, exit 1."""
+    _write_fake_xsct(
+        path,
+        'write_elf(shell_app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'print("[Spec2Code] WARNING: agent application build failed; shell application will still be built: link failed")\n'
+        'print("[Spec2Code] shell ELF present: fake")\n'
+        'print("region `microblaze_0_local_memory_ilmb_bram_if_cntlr_Mem_microblaze_0_local_memory_dlmb_bram_if_cntlr_Mem\' overflowed by 12345 bytes", file=sys.stderr)\n'
+        'print("collect2.exe: error: ld returned 1 exit status", file=sys.stderr)\n'
+        "sys.exit(1)\n",
+        version,
+    )
+
+
 def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
     _write_fake_xsct(
         path,
@@ -938,7 +952,50 @@ class VitisWorkspaceTests(unittest.TestCase):
                 script = Path(result["script_path"]).read_text(encoding="utf-8")
                 self.assertIn("set shell_app_name {unit_application_shell}", script)
                 self.assertIn("importsources -name $shell_app_name -path $shell_source_path", script)
-                self.assertLess(script.index("spec2codeEnsureApplicationElf\n"), script.index("shell application: $shell_app_name"))
+                # Iki app projesi HER DURUMDA: shell create/import ajan build'inden ONCE,
+                # ajan build catch'te, shell build sonra, ajan hatasi en sonda yeniden yukseltilir.
+                self.assertLess(script.index("shell application: $shell_app_name"), script.index("set spec2code_agent_err {}"))
+                self.assertLess(script.index("set spec2code_agent_err {}"), script.index("spec2codeEnsureApplicationElf\n} spec2code_agent_err"))
+                self.assertLess(script.index("} spec2code_agent_err]}"), script.index("Ikinci uygulama (shell): derle"))
+                self.assertLess(script.index("Ikinci uygulama (shell): derle"), script.index("error $spec2code_agent_err"))
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_agent_build_failure_still_reports_shell_elf(self) -> None:
+        """Ajan link hatasi (BRAM'e sigmama) shell uygulamasini engellemez: is basarisiz ama
+        sonucta shell ELF'i vardir ve kullanici alabilir."""
+        project_name = "unit_vitis_agent_fail"
+        spec = load_sample_spec(project_name)
+        out_dir = _OUTPUTS / project_name
+        shutil.rmtree(out_dir, ignore_errors=True)
+        try:
+            codegen.generate(spec, out_dir)
+            files = sorted(path.relative_to(ROOT).as_posix() for path in out_dir.rglob("*") if path.is_file())
+            generate_job = Job(
+                id="job_unit_agent_fail", spec=spec, status="done",
+                result={"out_dir": f"outputs/{project_name}", "files": files, "qc": {"passed": True}},
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_xsct = tmp_path / "bin" / "xsct"
+                write_fake_xsct_agent_build_fails(fake_xsct)
+                xsa = tmp_path / "board.xsa"
+                xsa.write_bytes(b"fake xsa")
+                config = VitisWorkspaceConfig(
+                    vitis_path=str(tmp_path), xsa_path=str(xsa), workspace_path=str(tmp_path / "ws"),
+                    temp_path=str(tmp_path / "temp"), processor="psu_cortexa53_0", runtime="standalone",
+                    platform_name="unit_platform", system_name="unit_system", app_name="unit_application", timeout_s=10,
+                )
+                job = VitisWorkspaceJob(id="vitis_unit_fail", source_job_id=generate_job.id,
+                                        source_project=project_name, config=config, generate_job=generate_job)
+                with self.assertRaises(RuntimeError):
+                    VitisWorkspaceJobManager()._blocking(job)
+                result = job.result or {}
+                self.assertFalse(result["successful"])
+                self.assertEqual(result["vitis_elf_artifacts"]["application"], 0)
+                self.assertEqual(result["shell_app_name"], "unit_application_shell")
+                self.assertEqual(result["shell_elf_artifacts"]["application"], 1)
+                self.assertTrue((tmp_path / "ws" / "unit_application_shell" / "Debug" / "unit_application_shell.elf").is_file())
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 

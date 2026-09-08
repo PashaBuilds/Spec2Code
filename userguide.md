@@ -591,8 +591,11 @@ bir surucuyle geliyorsa `BSP default'u koru` sec.
 
 **Iki uygulama**: kurulum `<app>` (test bench ajani, GUI ile konusur; Board'da calistir
 bunu yukler) ve `<app>_shell` (drivers + cit + shell, projene tasinacak kod; ELF'i manuel
-alinir) uygulamalarini ayni platformda derler. Shell derlemesi ajani etkilemez: ELF cikmazsa
-`S2C-VITIS-SHELL-014` uyarisi verilir, is basarili sayilir. "Kaynaklari guncelle" ikisini de
+alinir) uygulamalarini ayni platformda derler. Iki proje de HER DURUMDA olusturulur: once iki
+app projesi kurulup kaynaklar import edilir, sonra derlemeler ayri ayri kosar. Ajan derlemesi
+duserse (or. yazilim BRAM'e sigmadi, link hatasi) shell yine derlenir, is "basarisiz" doner
+ama Vitis sayfasindaki "Shell ELF" satiri dolar ve ELF'i alabilirsin. Shell derlemesi ajani
+etkilemez: ELF cikmazsa `S2C-VITIS-SHELL-014` uyarisi verilir, is basarili sayilir. "Kaynaklari guncelle" ikisini de
 gunceller (eski workspace'te shell uygulamasi yoksa olusturur).
 
 **Vitis Doctor**: tamamen lokal; `S2C-VITIS-...` hata kodlari, custom IP/make.libs

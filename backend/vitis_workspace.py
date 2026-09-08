@@ -1952,15 +1952,15 @@ def build_vitis_doctor(
     }
 
 
-def _render_shell_app_tcl(*, with_system: bool) -> str:
-    """Ikinci uygulama (shell) icin Tcl: yoksa olusturur, kaynaklari import eder, derler.
+def _render_shell_app_create_tcl(*, with_system: bool) -> str:
+    """Shell uygulamasini (varsa atla) OLUSTUR + kaynaklari import et + include/lscript.
 
-    Derleme hatasi ajan akisini DURDURMAZ (catch + WARNING): shell kullanicinin manuel
-    alacagi ikincil ciktidir; Python tarafi ELF yoksa uyari issue'su uretir.
+    Ajan build'inden ONCE kosar: ajan derlemesi dusse bile (or. BRAM'e sigmama link
+    hatasi) iki application projesi de workspace'te olur. Hatalar yakalanir (WARNING).
     """
     sysproj = " -sysproj $system_name" if with_system else ""
     return (
-        "# --- Ikinci uygulama: kullanicinin projesine tasinacak kod (drivers + cit + shell) ---\n"
+        "# --- Ikinci uygulama (shell): projeyi olustur ve kaynaklari import et (build sonra) ---\n"
         "if {$shell_app_name ne \"\"} {\n"
         f"    {_tcl_put('shell application: $shell_app_name')}"
         "    set spec2code_shell_apps {}\n"
@@ -1979,6 +1979,19 @@ def _render_shell_app_tcl(*, with_system: bool) -> str:
         "            }\n"
         "        }\n"
         "        spec2codePatchLinkerStack [file join $workspace_path $shell_app_name src lscript.ld]\n"
+        "    } spec2code_shell_err]} {\n"
+        f"        {_tcl_put('WARNING: shell application sources could not be imported: $spec2code_shell_err')}"
+        "    }\n"
+        "}\n"
+    )
+
+
+def _render_shell_app_build_tcl() -> str:
+    """Shell uygulamasini derle; hata ajan akisini DURDURMAZ (catch + WARNING)."""
+    return (
+        "# --- Ikinci uygulama (shell): derle - hata ajani etkilemez ---\n"
+        "if {$shell_app_name ne \"\"} {\n"
+        "    if {[catch {\n"
         "        if {[catch {app build -name $shell_app_name} spec2code_shell_build_err]} {\n"
         f"            {_tcl_put('shell app build failed; cleaning and retrying once: $spec2code_shell_build_err')}"
         "            catch {app clean -name $shell_app_name}\n"
@@ -2386,18 +2399,29 @@ def render_xsct_script(
         "    }\n"
         "}\n\n"
         "spec2codePatchLinkerStack [file join $workspace_path $app_name src lscript.ld]\n"
-        "spec2codeSynchronizeBeforeAppBuild\n"
+        + _render_shell_app_create_tcl(with_system=True)
+        + "spec2codeSynchronizeBeforeAppBuild\n"
         f"{_tcl_put('building application')}"
         "spec2codeDisableCustomIpBspLibsrc\n"
-        "if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
-        f"    {_tcl_put('app build failed; refreshing custom IP BSP make.libs bypass and retrying once: $spec2code_build_err')}"
-        "    spec2codeDisableCustomIpBspLibsrc\n"
-        "    spec2codeSynchronizeBeforeAppBuild\n"
-        "    app build -name $app_name\n"
+        "# Ajan build'i yakalanir: dusse bile shell uygulamasi derlenir, hata SONDA yeniden yukseltilir\n"
+        "# (iki app projesi her durumda workspace'te kalir; kullanici shell ELF'ini yine alabilir).\n"
+        "set spec2code_agent_err {}\n"
+        "if {[catch {\n"
+        "    if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
+        f"        {_tcl_put('app build failed; refreshing custom IP BSP make.libs bypass and retrying once: $spec2code_build_err')}"
+        "        spec2codeDisableCustomIpBspLibsrc\n"
+        "        spec2codeSynchronizeBeforeAppBuild\n"
+        "        app build -name $app_name\n"
+        "    }\n"
+        "    spec2codeEnsureApplicationElf\n"
+        "} spec2code_agent_err]} {\n"
+        f"    {_tcl_put('WARNING: agent application build failed; shell application will still be built: $spec2code_agent_err')}"
         "}\n"
-        "spec2codeEnsureApplicationElf\n"
-        + _render_shell_app_tcl(with_system=True)
-        + f"{_tcl_put('done')}"
+        + _render_shell_app_build_tcl()
+        + "if {$spec2code_agent_err ne {}} {\n"
+        "    error $spec2code_agent_err\n"
+        "}\n"
+        f"{_tcl_put('done')}"
         "exit\n"
     )
 
@@ -2532,15 +2556,24 @@ def render_xsct_update_script(
         "    }\n"
         "}\n\n"
         "spec2codePatchLinkerStack [file join $workspace_path $app_name src lscript.ld]\n"
-        f"{_tcl_put('building application (sources-only update)')}"
-        "if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
-        f"    {_tcl_put('app build failed; cleaning and retrying once: $spec2code_build_err')}"
-        "    catch {app clean -name $app_name}\n"
-        "    app build -name $app_name\n"
+        + _render_shell_app_create_tcl(with_system=False)
+        + f"{_tcl_put('building application (sources-only update)')}"
+        "set spec2code_agent_err {}\n"
+        "if {[catch {\n"
+        "    if {[catch {app build -name $app_name} spec2code_build_err]} {\n"
+        f"        {_tcl_put('app build failed; cleaning and retrying once: $spec2code_build_err')}"
+        "        catch {app clean -name $app_name}\n"
+        "        app build -name $app_name\n"
+        "    }\n"
+        "    spec2codeEnsureApplicationElf\n"
+        "} spec2code_agent_err]} {\n"
+        f"    {_tcl_put('WARNING: agent application build failed; shell application will still be built: $spec2code_agent_err')}"
         "}\n"
-        "spec2codeEnsureApplicationElf\n"
-        + _render_shell_app_tcl(with_system=False)
-        + f"{_tcl_put('done')}"
+        + _render_shell_app_build_tcl()
+        + "if {$spec2code_agent_err ne {}} {\n"
+        "    error $spec2code_agent_err\n"
+        "}\n"
+        f"{_tcl_put('done')}"
         "exit\n"
     )
 
@@ -3489,9 +3522,10 @@ class VitisWorkspaceJobManager:
             job.result["vitis_elf_artifacts"] = elf_artifacts
             job.result["self_heal"] = self_heal
             job.result["vitis_doctor"] = vitis_doctor
+        shell_issues = self._shell_app_issues(job, workspace_path, shell_app_name)
         if build_failed:
             mapped_issues = final_issues or initial_issues or map_vitis_errors(f"{final_stdout}\n{final_stderr}")
-            issues = mapped_issues + artifact_issues
+            issues = mapped_issues + artifact_issues + shell_issues
             if job.result is not None:
                 job.result["compile_issues"] = issues
                 job.result["successful"] = False
@@ -3525,7 +3559,6 @@ class VitisWorkspaceJobManager:
                 f"Workspace: {workspace_path}"
             )
 
-        shell_issues = self._shell_app_issues(job, workspace_path, shell_app_name)
         if job.result is not None:
             job.result["compile_issues"] = shell_issues
             job.result["successful"] = True
