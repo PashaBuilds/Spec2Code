@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.201 - 2026-09-08
+
+- **Tum shell komutlari tek dosyada (SAHA istegi):** `cit`, `i2c_search`, `sdl`, `help` de
+  `shell/shell_user_commands.c`'deki `S_sArrUserCommands[]` tablosuna tasindi (`mod` ile
+  birlikte). `shell.c` artik komut icermeyen cekirdek: satir okuma, gecmis, tokenize, tablo
+  dagitimi; komutlar icin `shellBus()/shellLimit()/shellCit()` ve `shellCommandCount()/Get()`
+  erisimcileri. Host gcc turu ve Nexys COM12 dogrulamasi yenilendi.
+
 ## v0.1.200 - 2026-09-08
 
 - **Shell komut tablosu (SAHA istegi):** if-zinciri yerine `SShellCommand {ad, isleyici,

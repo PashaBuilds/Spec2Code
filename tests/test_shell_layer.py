@@ -92,33 +92,38 @@ class ShellLayerGenerationTests(unittest.TestCase):
         source = _read(self.out_dir, "shell/shell.c")
         # Komut tablosu (ad + isleyici + yardim); if-zinciri yok.
         self.assertNotIn("strcmp(cpLine,", source)
-        self.assertIn("static const SShellCommand S_sArrBuiltinCommands[] = {", source)
-        for command, handler in (("cit", "shellCommandCit"), ("i2c_search", "shellCommandI2cSearch"),
-                                 ("sdl", "shellCommandSdl"), ("help", "shellCommandHelp")):
-            self.assertIn(f'{{"{command}", {handler}, "', source)
+        # Cekirdekte komut yok; tum komutlar shell_user_commands.c'deki tek tabloda (kullanici istegi).
+        self.assertNotIn("S_sArrBuiltinCommands", source)
+        self.assertNotIn("sistemCitRead", source)
+        self.assertIn("SSistemCitBus* shellBus(void);", header)
+        self.assertIn("const SShellCommand* shellCommandGet(unsigned int uiIndex);", header)
         self.assertIn("uiArgc = shellTokenize(cpLine, cpArrArgv);", source)
         self.assertIn("spCommand->fpHandler(uiArgc, cpArrArgv);", source)
         self.assertIn('xil_printf("\\r\\nshell is initialized (type help)\\r\\n");', source)
         self.assertNotIn("kabuk", source.lower())
         # Kullanici komutlari: ayri dosya, tablo + ornek mod (string arg -> atoi, Xil_Out32).
         user = _read(self.out_dir, "shell/shell_user_commands.c")
-        self.assertIn('{"mod", shellUserMod, "', user)
+        self.assertIn("static const SShellCommand S_sArrUserCommands[] = {", user)
+        for command, handler in (("cit", "shellUserCit"), ("i2c_search", "shellUserI2cSearch"),
+                                 ("sdl", "shellUserSdl"), ("help", "shellUserHelp"), ("mod", "shellUserMod")):
+            self.assertIn(f'{{"{command}", {handler}, "', user)
+        self.assertIn("iResult = sistemCitRead(shellBus(), shellLimit(), shellCit());", user)
+        self.assertIn("spCommand = shellCommandGet(uiIndex);", user)
         self.assertIn("iIndex = atoi(cpArrArgv[1]);", user)
         self.assertIn('strcmp(cpArrArgv[2], "open") == 0', user)
         self.assertIn("Xil_Out32(uiAddress, uiValue);", user)
         self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U", user)
         self.assertIn("const SShellCommand* shellUserCommandTable(void);", _read(self.out_dir, "shell/shell_user_commands.h"))
         # cit: INFO esigi gecici acilir, sistemCitRead kosar, esik geri alinir.
-        self.assertIn("iResult = sistemCitRead(S_spBus, S_spLimit, S_spCit);", source)
-        self.assertIn("(void)dbgLevelSet(DEBUG_LEVEL_INFO);", source)
-        self.assertIn("(void)dbgLevelSet(uiOldLevel);", source)
+        self.assertIn("(void)dbgLevelSet(DEBUG_LEVEL_INFO);", user)
+        self.assertIn("(void)dbgLevelSet(uiOldLevel);", user)
         # i2c_search: AXI IIC dinamik prob, switch adresi atlanir.
-        self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucProbe, 1U, XIIC_STOP)", source)
-        self.assertIn("S_uiArrSwitchAddress[] = {0x70U};", source)
-        self.assertIn("shellI2cProbeXIic(S_spBus->sPlI2c0, uiAddress)", source)
+        self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucProbe, 1U, XIIC_STOP)", user)
+        self.assertIn("S_uiArrSwitchAddress[] = {0x70U};", user)
+        self.assertIn("shellUserI2cProbeXIic(shellBus()->sPlI2c0, uiAddress)", user)
         # sdl: adlar ve 0..5
-        self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', source)
-        self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", source)
+        self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', user)
+        self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", user)
         # satir okuma bloklamaz: while (shellUartByteRead(...))
         self.assertIn("while (shellUartByteRead(&ucByte) == TRUE)", source)
         # gecmis: ESC [ A / ESC [ B, halka, ayni komut tek kayit
@@ -176,7 +181,7 @@ class ShellLayerPlatformTests(unittest.TestCase):
             uart = _read(out_dir, "shell/shell_uart.c")
             self.assertIn('#include "xuartps_hw.h"', uart)
             self.assertIn("XUartPs_IsReceiveData(STDIN_BASEADDRESS) == 0U", uart)
-            source = _read(out_dir, "shell/shell.c")
+            source = _read(out_dir, "shell/shell_user_commands.c")
             self.assertIn("XIicPs_MasterSendPolled(spIic, &ucProbe, 1, (unsigned short)uiAddress)", source)
             self.assertIn("XIicPs_BusIsBusy(spIic)", source)
         finally:

@@ -449,9 +449,14 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `i2c_search` | her I2C denetleyicisinde 0x08..0x77 tek-bayt yazma probu; ACK'leri listeler, I2C switch adreslerini atlar |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (yerlesik + kullanici tablosu) |
-| `mod <x> <y>` | ornek KULLANICI komutu (`shell_user_commands.c`): custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
+| `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
 
-**Yeni komut eklemek** (`shell/shell_user_commands.c`): komutlar bir TABLODAN dagitilir,
+**Dosya rolleri:** `shell.c` cekirdektir ve KOMUT ICERMEZ (satir okuma, ok tusu gecmisi,
+tokenize, tablo dagitimi, `shellBus()/shellLimit()/shellCit()` erisimcileri). Komutlarin
+TAMAMI (`cit`, `i2c_search`, `sdl`, `help`, `mod`) `shell/shell_user_commands.c` icindeki tek
+tabloda `S_sArrUserCommands[]` durur; `main.c` bu tabloyu bir kez kaydeder.
+
+**Yeni komut eklemek** (`shell/shell_user_commands.c`): komutlar bu TABLODAN dagitilir,
 if-zinciri yoktur. Her satir `SShellCommand {ad, isleyici, yardim}`; isleyici imzasi
 `void f(unsigned int uiArgc, const char* cpArrArgv[])`, `cpArrArgv[0]` komut adi, sonrakiler
 STRING arguman (sayi gerekiyorsa `atoi`/`strtol`). Iki adim:
@@ -466,6 +471,10 @@ static void shellUserRele(unsigned int uiArgc, const char* cpArrArgv[])   /* 1. 
 }
 
 static const SShellCommand S_sArrUserCommands[] = {                        /* 2. tabloya satir */
+    {"cit", shellUserCit, "read all devices, print the report"},
+    {"i2c_search", shellUserI2cSearch, "scan I2C addresses 0x08..0x77"},
+    {"sdl", shellUserSdl, "<level>  set debug level: error|warning|msg|info|trace (0..5)"},
+    {"help", shellUserHelp, "list commands"},
     {"mod", shellUserMod, "<0..7> <open|close>  write custom IP register x"},
     {"rele", shellUserRele, "<0..3>  toggle relay"},                        /* konsol adi "rele" */
 };
