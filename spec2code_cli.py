@@ -178,6 +178,8 @@ def cmd_build(args: argparse.Namespace) -> int:
             "workspace": result.get("workspace_path"),
             "app": result.get("app_name"),
             "elf_count": (result.get("vitis_elf_artifacts") or {}).get("application"),
+            "shell_app": result.get("shell_app_name") or None,
+            "shell_elf_count": (result.get("shell_elf_artifacts") or {}).get("application"),
         }
         if not result.get("successful"):
             print("HATA: Vitis workspace ELF üretmedi.", file=sys.stderr)

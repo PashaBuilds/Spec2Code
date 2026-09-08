@@ -865,6 +865,20 @@ export function VitisWorkspacePanel({
             <span className="font-semibold text-ok">Log</span>
             <div className="mt-1 break-all font-mono text-text">{result.stdout_log}</div>
           </div>
+          {result.shell_app_name ? (
+            <div className="md:col-span-2">
+              <span className={cn("font-semibold", result.shell_elf_artifacts?.application ? "text-ok" : "text-warn")}>
+                Shell ELF (projene taşınacak, GUI kullanmaz)
+              </span>
+              <div className="mt-1 break-all font-mono text-text">
+                {result.shell_elf_artifacts?.application_samples?.[0]?.path_tail
+                  ?? `${result.shell_app_name}: ELF üretilmedi — xsct_stdout.log'da "shell application build failed" satırına bak`}
+              </div>
+              <div className="text-[10px] text-faint">
+                Aynı platformda ikinci uygulama: drivers/ + cit/ + shell/main_example.c. Board&apos;da çalıştır her zaman ajanı yükler.
+              </div>
+            </div>
+          ) : null}
           {result.vitis_elf_artifacts?.application_samples?.length ? (
             <div className="md:col-span-2">
               <span className="font-semibold text-ok">Application ELF</span>

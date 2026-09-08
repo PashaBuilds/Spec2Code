@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.197 - 2026-09-08
+
+- **Vitis: iki uygulama (SAHA istegi):** kurulum ve kaynak guncelleme artik ayni platformda
+  iki application derler - `<app>` (test bench ajani, GUI ile konusur; "Board'da calistir"
+  yalniz bunu yukler, secim yok) ve `<app>_shell` (drivers + cit + shell/main_example.c:
+  kullanicinin projesine tasiyacagi kod, ELF'i manuel alinir). Shell kaynaklari `src_shell/`
+  altinda ayri sahnelenir (tests/ girmez, main cakismasi yok); Tcl blogu uygulamayi yoksa
+  olusturur, import eder, include yollarini ve lscript yigin yamasini uygular, derler. Shell
+  derleme hatasi ajani DURDURMAZ: ELF yoksa `S2C-VITIS-SHELL-014` uyarisi (`missing_shell_elf`).
+  Sonuc/manifest `shell_app_name`, `shell_elf_artifacts`; Vitis sayfasinda "Shell ELF" satiri;
+  CLI JSON `shell_app`/`shell_elf_count`. Fake-xsct akis testi iki ELF'i dogrular. Nexys A7'de
+  gercek Vitis ile iki ELF uretildi; shell ELF'i COM12'den, ajan ELF'i MDM'den dogrulandi.
+
 ## v0.1.196 - 2026-09-08
 
 - **Shell komut gecmisi:** yukari/asagi ok tuslari (`ESC [ A` / `ESC [ B`) son 8 komutta gezer

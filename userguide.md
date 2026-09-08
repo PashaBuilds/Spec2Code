@@ -443,6 +443,12 @@ bile rapor icindeki hatalar gorunur cunku rapor sirasinda esik gecici INFO'dur) 
 Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken kabuk
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
 
+Vitis workspace kurulumu bu kodu ayrica DERLER: ayni platformda ikinci bir uygulama
+(`<app>_shell`, kaynaklari `drivers/ + cit/ + shell/`, main'i `main_example.c`) olusur ve
+ELF'i Vitis sayfasinda "Shell ELF" satirinda gorunur. GUI bu ELF'i kullanmaz;
+"Board'da calistir" her zaman ajani yukler. Shell ELF'ini XShell/PuTTY ile denemek icin
+`xsdb`/Vitis'ten elle yukle ya da kaynaklari kendi projene tasi.
+
 Test bench ajanini kendi projende kullanma; o yalniz Spec2Code ekranlari icindir.
 
 ---
@@ -582,6 +588,12 @@ IP ailesine benzemeyen) PL modulleri icin BSP surucusu `none` denenir; source'su
 `make.libs` dosyalari yamalanir, gerekirse self-heal script'i `bsp regenerate` +
 `app build` ile toparlar (`BSP patch N`, `self-heal gecti` rozetleri). Custom IP gercek
 bir surucuyle geliyorsa `BSP default'u koru` sec.
+
+**Iki uygulama**: kurulum `<app>` (test bench ajani, GUI ile konusur; Board'da calistir
+bunu yukler) ve `<app>_shell` (drivers + cit + shell, projene tasinacak kod; ELF'i manuel
+alinir) uygulamalarini ayni platformda derler. Shell derlemesi ajani etkilemez: ELF cikmazsa
+`S2C-VITIS-SHELL-014` uyarisi verilir, is basarili sayilir. "Kaynaklari guncelle" ikisini de
+gunceller (eski workspace'te shell uygulamasi yoksa olusturur).
 
 **Vitis Doctor**: tamamen lokal; `S2C-VITIS-...` hata kodlari, custom IP/make.libs
 sayilari, self-heal sonucu, beklenen ELF adi. Compile error mapper eksik header,

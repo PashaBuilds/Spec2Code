@@ -281,6 +281,9 @@ export interface VitisWorkspaceResult {
     xsa_make_libs_preflight?: VitisMakeLibsDiagnostic;
     workspace_make_libs_diagnostic?: VitisMakeLibsDiagnostic;
     vitis_elf_artifacts?: VitisElfArtifacts;
+    /** Ikinci uygulama: kullanicinin projesine tasinacak kod (drivers + cit + shell). GUI kullanmaz. */
+    shell_app_name?: string;
+    shell_elf_artifacts?: VitisElfArtifacts | null;
     vitis_doctor?: VitisDoctor;
     self_heal?: VitisSelfHeal;
     custom_ip_make_libs_patched?: string[];

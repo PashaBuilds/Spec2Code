@@ -84,6 +84,7 @@ _VITIS_ERROR_CODES = {
     "platform_mismatch": "S2C-VITIS-PREFLIGHT-011",
     "freertos_mb_no_intc": "S2C-VITIS-PREFLIGHT-012",
     "workspace_locked": "S2C-VITIS-PREFLIGHT-013",
+    "missing_shell_elf": "S2C-VITIS-SHELL-014",
     "workspace_stale": "S2C-VITIS-WORKSPACE-011",
     "unclassified": "S2C-VITIS-UNCLASSIFIED-099",
 }
@@ -1097,6 +1098,52 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
     return sorted(staged)
 
 
+#: Ikinci Vitis uygulamasi (`<app>_shell`): kullanicinin kendi projesine tasiyacagi
+#: kod (drivers + cit + shell/main_example.c) ayni platformda derlenir; ELF'i GUI
+#: kullanmaz, kullanici manuel alir. Ajan uygulamasi (drivers + cit + tests) degismez.
+_SHELL_STAGED_PREFIXES = ("drivers/", "cit/", "shell/")
+SHELL_APP_SUFFIX = "_shell"
+
+
+def shell_app_name_for(app_name: str) -> str:
+    return f"{app_name}{SHELL_APP_SUFFIX}"
+
+
+def stage_shell_sources(job: Job, source_root: Path) -> list[str]:
+    """Shell uygulamasi icin drivers/ + cit/ + shell/ dosyalarini sahneler.
+
+    Generate'te shell/ yoksa (CIT'siz proje) bos liste doner ve shell uygulamasi kurulmaz.
+    Ajan sahnelemesindeki 'diskte eksik' kontrolu burada da gecerlidir.
+    """
+    if not job.result:
+        raise ValueError("generate job result is not ready")
+    out_dir = job.result.get("out_dir", "")
+    files = [rel for rel in job.result.get("files", [])
+             if _relative_output_name(_posix_path(rel).lstrip("/"), out_dir).startswith(_SHELL_STAGED_PREFIXES)]
+    if not any(_relative_output_name(_posix_path(rel).lstrip("/"), out_dir).startswith("shell/") for rel in files):
+        return []
+    if source_root.exists():
+        shutil.rmtree(source_root)
+    source_root.mkdir(parents=True, exist_ok=True)
+    staged: list[str] = []
+    missing: list[str] = []
+    for rel in files:
+        rel_posix = _posix_path(rel).lstrip("/")
+        source = (_ROOT / rel_posix).resolve()
+        display = _relative_output_name(rel_posix, out_dir)
+        if not source.is_file():
+            missing.append(display)
+            continue
+        target = source_root / display
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        staged.append(target.relative_to(source_root).as_posix())
+    if missing:
+        sample = ", ".join(missing[:5]) + (" ..." if len(missing) > 5 else "")
+        raise ValueError(f"Generate ciktisi diskte eksik ({len(missing)} dosya: {sample}); once Generate'i yeniden calistirin.")
+    return sorted(staged)
+
+
 def staged_header_dirs(staged_files: list[str]) -> list[str]:
     """Subdirectories (relative to src/) that carry staged headers.
 
@@ -1905,6 +1952,51 @@ def build_vitis_doctor(
     }
 
 
+def _render_shell_app_tcl(*, with_system: bool) -> str:
+    """Ikinci uygulama (shell) icin Tcl: yoksa olusturur, kaynaklari import eder, derler.
+
+    Derleme hatasi ajan akisini DURDURMAZ (catch + WARNING): shell kullanicinin manuel
+    alacagi ikincil ciktidir; Python tarafi ELF yoksa uyari issue'su uretir.
+    """
+    sysproj = " -sysproj $system_name" if with_system else ""
+    return (
+        "# --- Ikinci uygulama: kullanicinin projesine tasinacak kod (drivers + cit + shell) ---\n"
+        "if {$shell_app_name ne \"\"} {\n"
+        f"    {_tcl_put('shell application: $shell_app_name')}"
+        "    set spec2code_shell_apps {}\n"
+        "    catch {set spec2code_shell_apps [app list]}\n"
+        "    if {[string first $shell_app_name $spec2code_shell_apps] < 0} {\n"
+        f"        if {{[catch {{app create -name $shell_app_name -platform $platform_name -domain $domain_name{sysproj} -lang C -template {{Empty Application(C)}}}} spec2code_shell_err]}} {{\n"
+        f"            catch {{app create -name $shell_app_name -platform $platform_name -domain $domain_name{sysproj} -lang C -template {{Empty Application}}}}\n"
+        "        }\n"
+        "    }\n"
+        "    if {[catch {\n"
+        "        importsources -name $shell_app_name -path $shell_source_path\n"
+        "        foreach spec2code_inc_dir $shell_include_dirs {\n"
+        "            set spec2code_inc_path [file join $workspace_path $shell_app_name src $spec2code_inc_dir]\n"
+        "            if {[file isdirectory $spec2code_inc_path]} {\n"
+        "                catch {app config -name $shell_app_name -add include-path $spec2code_inc_path}\n"
+        "            }\n"
+        "        }\n"
+        "        spec2codePatchLinkerStack [file join $workspace_path $shell_app_name src lscript.ld]\n"
+        "        if {[catch {app build -name $shell_app_name} spec2code_shell_build_err]} {\n"
+        f"            {_tcl_put('shell app build failed; cleaning and retrying once: $spec2code_shell_build_err')}"
+        "            catch {app clean -name $shell_app_name}\n"
+        "            app build -name $shell_app_name\n"
+        "        }\n"
+        "    } spec2code_shell_err]} {\n"
+        f"        {_tcl_put('WARNING: shell application build failed (agent build is unaffected): $spec2code_shell_err')}"
+        "    }\n"
+        "    set spec2code_shell_elf [file join $workspace_path $shell_app_name Debug ${shell_app_name}.elf]\n"
+        "    if {[file exists $spec2code_shell_elf]} {\n"
+        f"        {_tcl_put('shell ELF present: $spec2code_shell_elf')}"
+        "    } else {\n"
+        f"        {_tcl_put('WARNING: shell ELF missing: $spec2code_shell_elf')}"
+        "    }\n"
+        "}\n"
+    )
+
+
 def render_xsct_script(
     *,
     workspace_path: Path,
@@ -1920,7 +2012,15 @@ def render_xsct_script(
     custom_ip_driver_policy: str = "auto_none",
     custom_ip_instances: list[str] | None = None,
     source_include_dirs: list[str] | None = None,
+    shell_app_name: str = "",
+    shell_source_root: Path | None = None,
+    shell_include_dirs: list[str] | None = None,
 ) -> str:
+    shell_vars = (
+        f"set shell_app_name {{{shell_app_name}}}\n"
+        f"set shell_source_path {_tcl_path(shell_source_root) if shell_source_root is not None else '{}'}\n"
+        f"set shell_include_dirs [list {_tcl_list(shell_include_dirs or [])}]\n"
+    )
     lwip_flag = "1" if enable_lwip else "0"
     lwip_api_mode = vitis_lwip_api_mode(os_name) if enable_lwip else ""
     custom_ip_driver_policy = normalize_custom_ip_driver_policy(custom_ip_driver_policy)
@@ -2210,7 +2310,8 @@ def render_xsct_script(
         f"set system_name {{{system_name}}}\n"
         f"set domain_name {{{domain_name}}}\n"
         f"set app_name {{{app_name}}}\n"
-        f"set processor {{{processor}}}\n"
+        + shell_vars
+        + f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
         f"set spec2code_enable_lwip {lwip_flag}\n\n"
         f"set spec2code_lwip_api_mode {{{lwip_api_mode}}}\n\n"
@@ -2295,7 +2396,8 @@ def render_xsct_script(
         "    app build -name $app_name\n"
         "}\n"
         "spec2codeEnsureApplicationElf\n"
-        f"{_tcl_put('done')}"
+        + _render_shell_app_tcl(with_system=True)
+        + f"{_tcl_put('done')}"
         "exit\n"
     )
 
@@ -2308,6 +2410,9 @@ def render_xsct_update_script(
     domain_name: str,
     app_name: str,
     source_include_dirs: list[str] | None = None,
+    shell_app_name: str = "",
+    shell_source_root: Path | None = None,
+    shell_include_dirs: list[str] | None = None,
 ) -> str:
     """XSCT script for the sources-only update flow.
 
@@ -2325,7 +2430,10 @@ def render_xsct_update_script(
         f"set source_path {_tcl_path(source_root)}\n"
         f"set platform_name {{{platform_name}}}\n"
         f"set domain_name {{{domain_name}}}\n"
-        f"set app_name {{{app_name}}}\n\n"
+        f"set app_name {{{app_name}}}\n"
+        f"set shell_app_name {{{shell_app_name}}}\n"
+        f"set shell_source_path {_tcl_path(shell_source_root) if shell_source_root is not None else '{}'}\n"
+        f"set shell_include_dirs [list {_tcl_list(shell_include_dirs or [])}]\n\n"
         "proc spec2codeEnsureApplicationElf {} {\n"
         "    global workspace_path app_name\n"
         "    set spec2code_expected_elf [file join $workspace_path $app_name Debug ${app_name}.elf]\n"
@@ -2431,7 +2539,8 @@ def render_xsct_update_script(
         "    app build -name $app_name\n"
         "}\n"
         "spec2codeEnsureApplicationElf\n"
-        f"{_tcl_put('done')}"
+        + _render_shell_app_tcl(with_system=False)
+        + f"{_tcl_put('done')}"
         "exit\n"
     )
 
@@ -2729,6 +2838,13 @@ class VitisWorkspaceJobManager:
             "message": "Generated kaynaklar hazırlanıyor; workspace'teki eski staged kaynaklar temizlenecek.",
         })
         staged_files = stage_vitis_sources(job.generate_job, source_root)
+        shell_app_name = shell_app_name_for(app_name)
+        shell_source_root = staging_root / "src_shell"
+        shell_staged_files = stage_shell_sources(job.generate_job, shell_source_root)
+        if not shell_staged_files:
+            shell_app_name = ""
+        elif (workspace_path / shell_app_name / "src").is_dir():
+            clear_staged_app_sources(workspace_path, shell_app_name)
         removed = clear_staged_app_sources(workspace_path, app_name)
         if removed:
             job.emit({
@@ -2766,6 +2882,9 @@ class VitisWorkspaceJobManager:
             "source_path": str(source_root),
             "platform_name": platform_name,
             "app_name": app_name,
+            "shell_app_name": shell_app_name,
+            "shell_source_path": str(shell_source_root) if shell_app_name else "",
+            "shell_staged_files": shell_staged_files,
             "requires_lwip": requires_lwip,
             "removed_stale_sources": removed,
             "staged_files": staged_files,
@@ -2787,6 +2906,9 @@ class VitisWorkspaceJobManager:
                 domain_name=domain_name,
                 app_name=app_name,
                 source_include_dirs=staged_header_dirs(staged_files),
+                shell_app_name=shell_app_name,
+                shell_source_root=shell_source_root if shell_app_name else None,
+                shell_include_dirs=staged_header_dirs(shell_staged_files),
             ),
             encoding="utf-8",
         )
@@ -2860,6 +2982,7 @@ class VitisWorkspaceJobManager:
             build_failed = True
             issues.append(stale)
 
+        issues.extend(self._shell_app_issues(job, workspace_path, shell_app_name))
         if job.result is not None:
             job.result["xsct_exit_code"] = completed.returncode
             job.result["xsct_initial_exit_code"] = completed.returncode
@@ -2891,6 +3014,42 @@ class VitisWorkspaceJobManager:
             "platform_name": platform_name,
             "app_name": app_name,
         })
+
+    @staticmethod
+    def _shell_app_issues(job: VitisWorkspaceJob, workspace_path: Path, shell_app_name: str) -> list[dict]:
+        """Shell uygulamasi ELF raporu: sonuca `shell_app_name`/`shell_elf_artifacts` yazar,
+        ELF yoksa UYARI issue'su (ajan akisini basarisiz saymaz - shell manuel alinan ikincil ciktidir)."""
+        if job.result is not None:
+            job.result["shell_app_name"] = shell_app_name
+            job.result["shell_elf_artifacts"] = None
+        if not shell_app_name:
+            return []
+        shell_elf = inspect_vitis_elf_artifacts([workspace_path / shell_app_name], shell_app_name)
+        if job.result is not None:
+            job.result["shell_elf_artifacts"] = shell_elf
+        found = int(shell_elf.get("application", 0)) > 0
+        job.emit({
+            "event": "vitis.shell_app",
+            "stage": "run",
+            "progress": 97,
+            "message": (
+                f"Shell uygulamasi ({shell_app_name}) derlendi: "
+                + str((shell_elf.get("application_samples") or [{}])[0].get("path_tail", ""))
+                if found else
+                f"Shell uygulamasi ({shell_app_name}) ELF uretmedi; ajan etkilenmez, xsct_stdout.log'da 'shell application build failed' satirina bak."
+            ),
+            "shell_app_name": shell_app_name,
+            "shell_elf_found": found,
+        })
+        if found:
+            return []
+        return [{
+            "file": str(workspace_path / shell_app_name), "line": 0, "column": 0,
+            "rule": "spec2code-vitis-artifact", "severity": "warning",
+            "category": "missing_shell_elf", "source": "Spec2Code",
+            "message": (f"Shell uygulamasi '{shell_app_name}' ELF uretmedi (ajan uygulamasi etkilenmedi). "
+                        "xsct_stdout.log icinde 'shell application build failed' satirina bak."),
+        }]
 
     def _blocking_full(self, job: VitisWorkspaceJob) -> None:
         config = job.config
@@ -3022,6 +3181,11 @@ class VitisWorkspaceJobManager:
             "message": "XSA kopyası ve generated C/H kaynakları Vitis staging klasörüne hazırlanıyor.",
         })
         staged_files = stage_vitis_sources(job.generate_job, source_root)
+        shell_app_name = shell_app_name_for(app_name)
+        shell_source_root = staging_root / "src_shell"
+        shell_staged_files = stage_shell_sources(job.generate_job, shell_source_root)
+        if not shell_staged_files:
+            shell_app_name = ""
         requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
         lwip_api_mode = vitis_lwip_api_mode(os_name) if requires_lwip else None
         vitis_doctor = build_vitis_doctor(
@@ -3070,6 +3234,9 @@ class VitisWorkspaceJobManager:
             "custom_ip_xsa_driver_dirs_neutralized_count": len(xsa_neutralized_driver_dirs),
             "vitis_doctor": vitis_doctor,
             "staged_files": staged_files,
+            "shell_app_name": shell_app_name,
+            "shell_source_path": str(shell_source_root) if shell_app_name else "",
+            "shell_staged_files": shell_staged_files,
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -3095,6 +3262,9 @@ class VitisWorkspaceJobManager:
                 custom_ip_driver_policy=custom_ip_driver_policy,
                 custom_ip_instances=[item.instance for item in custom_pl_ips],
                 source_include_dirs=staged_header_dirs(staged_files),
+                shell_app_name=shell_app_name,
+                shell_source_root=shell_source_root if shell_app_name else None,
+                shell_include_dirs=staged_header_dirs(shell_staged_files),
             ),
             encoding="utf-8",
         )
@@ -3355,8 +3525,9 @@ class VitisWorkspaceJobManager:
                 f"Workspace: {workspace_path}"
             )
 
+        shell_issues = self._shell_app_issues(job, workspace_path, shell_app_name)
         if job.result is not None:
-            job.result["compile_issues"] = []
+            job.result["compile_issues"] = shell_issues
             job.result["successful"] = True
         job.emit({
             "event": "vitis.done",

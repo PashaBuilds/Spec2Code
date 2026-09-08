@@ -59,6 +59,16 @@ def app_name_from_script(script_path):
     return match.group(1) if match else ""
 
 
+def shell_app_name_from_script(script_path):
+    try:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return ""
+    match = re.search(r"^set shell_app_name \\{(.*)\\}$", text, re.MULTILINE)
+    return match.group(1) if match else ""
+
+
 def write_elf(app_name):
     if not app_name:
         return
@@ -117,6 +127,7 @@ def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
     _write_fake_xsct(
         path,
         'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'write_elf(shell_app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
         'print("fake xsct ran " + " ".join(sys.argv[1:]))\n'
         "sys.exit(0)\n",
         version,
@@ -180,6 +191,7 @@ def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
         '    print("make[1]: *** [Makefile:46: psu_cortexa53_0/libsrc/mem_pcie_intr_v1_0/src/make.libs] Error 2", file=sys.stderr)\n'
         "    sys.exit(2)\n"
         'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'write_elf(shell_app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
         'print("self-heal recovery build ok")\n'
         "sys.exit(0)\n",
         version,
@@ -219,6 +231,7 @@ def write_hsi_noise_xsct(path: Path, version: str = "2024.2") -> None:
         path,
         'print("ERROR: [Hsi 55-1464] Hardware instance jesd_jesd204_phy_0 not found in the design", file=sys.stderr)\n'
         'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
+        'write_elf(shell_app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
         'print("[Spec2Code] done")\n'
         "sys.exit(0)\n",
         version,
@@ -915,6 +928,17 @@ class VitisWorkspaceTests(unittest.TestCase):
                     self.assertIn("int main(void)", selftest_source)
                 self.assertEqual(result["vitis_elf_artifacts"]["application"], 1)
                 self.assertTrue((workspace / "unit_application" / "Debug" / "unit_application.elf").is_file())
+                # Ikinci uygulama: drivers + cit + shell (main_example.c) ayri sahnelenir ve derlenir.
+                self.assertEqual(result["shell_app_name"], "unit_application_shell")
+                shell_src = temp_root / "vitis_unit" / "src_shell"
+                self.assertTrue((shell_src / "shell" / "main_example.c").is_file())
+                self.assertTrue((shell_src / "cit" / "sistem_cit.c").is_file())
+                self.assertFalse((shell_src / "tests").exists())
+                self.assertEqual(result["shell_elf_artifacts"]["application"], 1)
+                script = Path(result["script_path"]).read_text(encoding="utf-8")
+                self.assertIn("set shell_app_name {unit_application_shell}", script)
+                self.assertIn("importsources -name $shell_app_name -path $shell_source_path", script)
+                self.assertLess(script.index("spec2codeEnsureApplicationElf\n"), script.index("shell application: $shell_app_name"))
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
 
