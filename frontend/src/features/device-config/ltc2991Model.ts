@@ -50,7 +50,7 @@ export function defaultLtc2991Config(): Record<string, unknown> {
       v7_v8: { mode: "single_ended_voltage", shunt_milliohm: null },
     },
     internal_temperature: true,
-    vcc_read: false,
+    vcc_read: true, // kullanici istegi 2026-09-09: VCC olcumu varsayilan acik
   };
 }
 

@@ -163,7 +163,9 @@ export interface VitisWorkspaceRequest {
   system_name?: string;
   app_name?: string;
   timeout_s?: number;
-  custom_ip_driver_policy?: "auto_none" | "keep";
+  custom_ip_driver_policy?: "auto_none" | "keep" | "select";
+  /** policy == "select": BSP surucusu korunacak (xparameters.h'a girecek) custom IP instance'lari. */
+  custom_ip_keep?: string[];
   /** full = platform+BSP+app sıfırdan; update = mevcut workspace'te yalnızca kaynak + app build. */
   mode?: "full" | "update";
 }
@@ -277,7 +279,9 @@ export interface VitisWorkspaceResult {
     requires_lwip?: boolean;
     lwip_api_mode?: string | null;
     custom_ip_driver_policy?: "auto_none" | "keep";
+    custom_ip_driver_policy_requested?: "auto_none" | "keep" | "select";
     custom_pl_ip_candidates?: CustomPlIpCandidate[];
+    custom_pl_ip_kept?: CustomPlIpCandidate[];
     xsa_make_libs_preflight?: VitisMakeLibsDiagnostic;
     workspace_make_libs_diagnostic?: VitisMakeLibsDiagnostic;
     vitis_elf_artifacts?: VitisElfArtifacts;

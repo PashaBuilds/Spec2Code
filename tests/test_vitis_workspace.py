@@ -298,7 +298,19 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertEqual(vitis_lwip_api_mode("freertos10_xilinx"), "SOCKET_API")
         self.assertEqual(vitis_lwip_api_mode("standalone"), "RAW_API")
         self.assertEqual(normalize_custom_ip_driver_policy("keep"), "keep")
+        self.assertEqual(normalize_custom_ip_driver_policy("select"), "select")
         self.assertEqual(normalize_custom_ip_driver_policy("unexpected"), "auto_none")
+
+    def test_select_policy_keeps_chosen_custom_ips(self) -> None:
+        from backend.vitis_workspace import CustomPlIpCandidate, select_custom_pl_ips
+        a = CustomPlIpCandidate(instance="mem_pcie_intr_0", vlnv="user.org:user:mem_pcie_intr:1.0", ip_name="mem_pcie_intr", reason="r")
+        b = CustomPlIpCandidate(instance="pl_blob_0", vlnv="user.org:user:pl_blob:1.0", ip_name="pl_blob", reason="r")
+        # select: secilen korunur (BSP default -> xparameters.h), kalan none; dusuk seviye adimlar auto_none.
+        policy, to_none, kept = select_custom_pl_ips([a, b], "select", ["MEM_PCIE_INTR_0"])
+        self.assertEqual((policy, [c.instance for c in to_none], [c.instance for c in kept]), ("auto_none", ["pl_blob_0"], ["mem_pcie_intr_0"]))
+        self.assertEqual(select_custom_pl_ips([a, b], "auto_none", ["mem_pcie_intr_0"])[1], [a, b])
+        self.assertEqual(select_custom_pl_ips([a, b], "keep", [])[0], "keep")
+        self.assertEqual(select_custom_pl_ips([a, b], "keep", [])[1], [])
 
     def test_xsct_script_contains_workspace_creation_steps(self) -> None:
         script = render_xsct_script(

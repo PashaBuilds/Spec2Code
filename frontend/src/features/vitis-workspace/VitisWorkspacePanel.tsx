@@ -5,7 +5,7 @@ import { api, openVitisSocket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import RunOnBoardCard from "./RunOnBoardCard";
-import type { JobEvent, VitisCompileIssue, VitisDoctor, VitisSelfHeal, VitisWorkspaceResult } from "@/lib/types";
+import type { CustomPlIpCandidate, JobEvent, VitisCompileIssue, VitisDoctor, VitisSelfHeal, VitisWorkspaceResult } from "@/lib/types";
 
 // Koşan/son Vitis işinin kimliği: panel unmount olsa da (adım/ekran
 // geçişi, sayfa yenileme) mount'ta işe yeniden bağlanmak için saklanır.
@@ -21,7 +21,7 @@ const VITIS_STAGES = [
 ] as const;
 
 type VitisStageId = (typeof VITIS_STAGES)[number]["id"] | "start" | "error" | "end";
-type CustomIpDriverPolicy = "auto_none" | "keep";
+type CustomIpDriverPolicy = "auto_none" | "keep" | "select";
 
 /** ELF üretim zamanı etiketi: karta eski ELF yükleme tuzağını görünür kılar. */
 function elfTimeLabel(epochSeconds: number): string {
@@ -66,7 +66,18 @@ function cleanPathInput(value: string) {
 }
 
 function customIpDriverPolicyFromStorage(): CustomIpDriverPolicy {
-  return localStorage.getItem("spec2code.customIpDriverPolicy") === "keep" ? "keep" : "auto_none";
+  const raw = localStorage.getItem("spec2code.customIpDriverPolicy");
+  return raw === "keep" || raw === "select" ? raw : "auto_none";
+}
+
+/** policy=select: BSP surucusu korunacak custom IP instance'lari (kalici). */
+function customIpKeepFromStorage(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("spec2code.customIpKeep") ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function fieldError(error: unknown) {
@@ -407,6 +418,29 @@ export function VitisWorkspacePanel({
   const [systemName, setSystemName] = useState(() => localStorage.getItem("spec2code.systemName") ?? "");
   const [appName, setAppName] = useState(() => localStorage.getItem("spec2code.appName") ?? "");
   const [customIpDriverPolicy, setCustomIpDriverPolicy] = useState<CustomIpDriverPolicy>(customIpDriverPolicyFromStorage);
+  const [customIpKeep, setCustomIpKeep] = useState<string[]>(customIpKeepFromStorage);
+  const [customIpCandidates, setCustomIpCandidates] = useState<CustomPlIpCandidate[] | null>(null);
+  const [customIpCandidatesError, setCustomIpCandidatesError] = useState<string | null>(null);
+  // policy=select: XSA'daki custom IP adaylari listelenir, kullanici hangisinin BSP surucusunu
+  // koruyacagini (xparameters.h'a girecegini) tikler; secim localStorage'da kalicidir.
+  const selectXsaPath = customIpDriverPolicy === "select" ? cleanPathInput(localStorage.getItem("spec2code.xsaPath") ?? "") : "";
+  useEffect(() => {
+    if (customIpDriverPolicy !== "select" || !selectXsaPath) {
+      setCustomIpCandidates(null);
+      return;
+    }
+    let cancelled = false;
+    api.vitisCustomIps(selectXsaPath)
+      .then((r) => { if (!cancelled) { setCustomIpCandidates(r.candidates); setCustomIpCandidatesError(null); } })
+      .catch((err) => { if (!cancelled) { setCustomIpCandidates([]); setCustomIpCandidatesError(fieldError(err)); } });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customIpDriverPolicy, selectXsaPath]);
+  function toggleCustomIpKeep(instance: string, keep: boolean) {
+    const next = keep ? Array.from(new Set([...customIpKeep, instance])) : customIpKeep.filter((x) => x !== instance);
+    setCustomIpKeep(next);
+    localStorage.setItem("spec2code.customIpKeep", JSON.stringify(next));
+  }
   const [buildMode, setBuildMode] = useState<"full" | "update">(() =>
     localStorage.getItem("spec2code.vitisBuildMode") === "update" ? "update" : "full");
   const [events, setEvents] = useState<JobEvent[]>([]);
@@ -544,6 +578,7 @@ export function VitisWorkspacePanel({
         app_name: appName.trim(),
         timeout_s: 1800,
         custom_ip_driver_policy: customIpDriverPolicy,
+        custom_ip_keep: customIpDriverPolicy === "select" ? customIpKeep : [],
         mode: buildMode,
       });
 
@@ -594,6 +629,9 @@ export function VitisWorkspacePanel({
           {result ? <Badge tone={workspaceFailed ? "warn" : "ok"}>Vitis {result.vitis_version}</Badge> : null}
           {result?.requires_lwip ? <Badge tone="accent">lwIP {result.lwip_api_mode || "gerekli"}</Badge> : null}
           {result?.custom_ip_driver_policy === "keep" ? <Badge tone="neutral">custom IP keep</Badge> : null}
+          {result?.custom_ip_driver_policy_requested === "select" ? (
+            <Badge tone="accent">custom IP seç: {result.custom_pl_ip_kept?.length ?? 0} koru</Badge>
+          ) : null}
           {result?.custom_pl_ip_candidates?.length ? <Badge tone="warn">custom IP none {result.custom_pl_ip_candidates.length}</Badge> : null}
           {result && result.custom_ip_driver_policy !== "keep" ? <Badge tone={bspPatchCount ? "warn" : "neutral"}>BSP patch {bspPatchCount}</Badge> : null}
           {result ? <Badge tone={elfApplicationCount ? "ok" : "warn"}>ELF {elfApplicationCount}</Badge> : null}
@@ -729,8 +767,41 @@ export function VitisWorkspacePanel({
             <SelectContent>
               <SelectItem value="auto_none">Auto: custom IP - none</SelectItem>
               <SelectItem value="keep">BSP default'u koru</SelectItem>
+              <SelectItem value="select">Seç: IP başına koru / none</SelectItem>
             </SelectContent>
           </Select>
+          {customIpDriverPolicy === "select" ? (
+            <div className="mt-2 rounded-md border border-border/60 bg-inset/40 px-2.5 py-2 text-xs">
+              <div className="mb-1 text-muted">
+                Tikli IP'nin BSP sürücüsü korunur (adresi <span className="font-mono">xparameters.h</span>'a girer, sürücü kaynağı XSA'da
+                olmalı); tiksiz olanlar <span className="font-mono">none</span> yapılır.
+              </div>
+              {customIpCandidatesError ? <div className="text-danger">{customIpCandidatesError}</div> : null}
+              {customIpCandidates === null ? (
+                <div className="text-faint">{selectXsaPath ? "XSA okunuyor…" : "Önce Setup'ta XSA seç (spec2code.xsaPath)."}</div>
+              ) : customIpCandidates.length === 0 ? (
+                <div className="text-faint">XSA'da custom PL IP adayı bulunamadı.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {customIpCandidates.map((c) => (
+                    <li key={c.instance} className="flex items-center gap-2">
+                      <input
+                        id={`custom-ip-keep-${c.instance}`}
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-accent"
+                        checked={customIpKeep.includes(c.instance)}
+                        onChange={(e) => toggleCustomIpKeep(c.instance, e.target.checked)}
+                      />
+                      <label htmlFor={`custom-ip-keep-${c.instance}`} className="font-mono text-[11px] text-text" title={c.reason}>
+                        {c.instance}
+                        <span className="text-faint"> · {c.ip_name}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
         </div>
         <div className="flex items-end">
           <Button type="button" onClick={start} disabled={!canStart} className="w-full lg:w-auto">

@@ -224,7 +224,9 @@ function summaryOf(rows: Row[]): { label: string; tone: Tone } {
 
 /** Manifestten yer tutucu ölçüm listesi (koşu öncesi kutular boş değerle durur). */
 function pendingMeasurements(manifest: TestbenchManifest): CitDecodeMeasurement[] {
-  return (manifest.cit?.olcumler ?? []).map((m) => ({
+  // LTC2991 current_read CIT olcumu degildir (codegen de uretmez); eski/onbellekli manifestte
+  // kalmis olsa bile ekranda akim karosu cikmaz (kullanici istegi 2026-09-09).
+  return (manifest.cit?.olcumler ?? []).filter((m) => !(m.part === "LTC2991" && m.op === "current_read")).map((m) => ({
     index: m.index,
     name: m.name,
     cname: m.cname,

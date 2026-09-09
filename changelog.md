@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.206 - 2026-09-09
+
+- **Custom PL IP driver: 3. secenek "Sec: IP basina koru / none".** Vitis ekraninda XSA'daki
+  custom IP adaylari listelenir (`GET /api/vitis/custom-ips`), tikli IP'nin BSP surucusu
+  korunur (adresi `xparameters.h`'a girer), tiksizler none yapilir. Istek `custom_ip_keep`,
+  sonuc `custom_pl_ip_kept`; secim tarayicida kalicidir.
+- `mod` ornegi: reg x'e (x+1) tekrarli bayt deseni (reg0 0x01010101 ... reg7 0x08080808),
+  0x00000000 ile baslamaz.
+- LTC2991: `vcc_read` semada varsayilan tikli; CIT ekrani eski/onbellekli manifestte kalmis
+  LTC2991 akim satirlarini da gostermez.
+
 ## v0.1.205 - 2026-09-09
 
 - **Custom IP shell komutlari otomatik (SAHA istegi):** XSA'daki taninmayan REGISTER tipli

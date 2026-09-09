@@ -2,6 +2,7 @@
 // dev proxy (and production same-origin serving) both work.
 
 import type {
+  CustomPlIpCandidate,
   CatalogDevice,
   DescriptorMeta,
   DeviceDescriptor,
@@ -176,6 +177,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  vitisCustomIps: (xsaPath: string) =>
+    req<{ xsa_path: string; candidates: CustomPlIpCandidate[] }>(`/api/vitis/custom-ips?xsa_path=${encodeURIComponent(xsaPath)}`),
 
   vitisWorkspaceResult: (vitisJobId: string) =>
     req<VitisWorkspaceResult>(`/api/vitis/jobs/${encodeURIComponent(vitisJobId)}/result`),

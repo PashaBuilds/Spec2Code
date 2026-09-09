@@ -68,7 +68,9 @@ _HWH_MODULE_KINDS = {
     "CLOCK",
     "RESET",
 }
-_CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep"}
+#: auto_none: tum custom PL IP'lerin BSP surucusu none; keep: BSP default'u; select: kullanicinin
+#: sectikleri (custom_ip_keep) BSP default'unda kalir (xparameters.h'a girer), digerleri none.
+_CUSTOM_IP_DRIVER_POLICIES = {"auto_none", "keep", "select"}
 _VITIS_ERROR_CODES = {
     "custom_ip_bsp_driver": "S2C-VITIS-CUSTOM-IP-MAKELIBS-001",
     "missing_include": "S2C-VITIS-MISSING-INCLUDE-002",
@@ -161,6 +163,8 @@ class VitisWorkspaceConfig:
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
+    #: policy == "select": BSP surucusu KORUNACAK custom IP instance'lari (buyuk/kucuk harf duyarsiz).
+    custom_ip_keep: tuple[str, ...] = ()
     #: "full" = platform + BSP + app sifirdan kurulur (mevcut davranis).
     #: "update" = mevcut workspace'te yalnizca generated kaynaklar degistirilip
     #: app build alinir - yazilim-only degisikliklerde (yeni entegre, operasyon,
@@ -606,6 +610,25 @@ def normalize_custom_ip_driver_policy(value: str) -> str:
     if normalized in _CUSTOM_IP_DRIVER_POLICIES:
         return normalized
     return "auto_none"
+
+
+def select_custom_pl_ips(candidates: list["CustomPlIpCandidate"], policy: str,
+                         keep: "tuple[str, ...] | list[str]") -> tuple[str, list["CustomPlIpCandidate"], list["CustomPlIpCandidate"]]:
+    """Politikayi dusuk seviye adimlar icin cozer: (etkin politika, none yapilacak adaylar, korunanlar).
+
+    * auto_none: hepsi none.  * keep: hicbiri (etkin "keep").
+    * select: `keep` listesindekiler korunur (BSP default, xparameters.h'a girer), kalanlar none;
+      dusuk seviye adimlar daraltilmis listeyle "auto_none" olarak kosar (kullanici istegi 2026-09-09).
+    """
+    policy = normalize_custom_ip_driver_policy(policy)
+    if policy == "keep":
+        return "keep", [], list(candidates)
+    if policy != "select":
+        return "auto_none", list(candidates), []
+    keep_set = {str(item).strip().lower() for item in keep if str(item).strip()}
+    kept = [item for item in candidates if item.instance.lower() in keep_set]
+    to_none = [item for item in candidates if item.instance.lower() not in keep_set]
+    return "auto_none", to_none, kept
 
 
 def _xml_local_name(tag: str) -> str:
@@ -3155,9 +3178,26 @@ class VitisWorkspaceJobManager:
             })
             raise RuntimeError("Spec/XSA uyumsuz: " + " | ".join(i["message"] for i in preflight_issues))
 
-        custom_ip_driver_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
-        custom_pl_ips = discover_custom_pl_ips(staged_xsa_path) if custom_ip_driver_policy == "auto_none" else []
+        requested_custom_ip_policy = normalize_custom_ip_driver_policy(config.custom_ip_driver_policy)
+        discovered_custom_pl_ips = (
+            discover_custom_pl_ips(staged_xsa_path) if requested_custom_ip_policy in ("auto_none", "select") else []
+        )
+        custom_ip_driver_policy, custom_pl_ips, kept_custom_pl_ips = select_custom_pl_ips(
+            discovered_custom_pl_ips, requested_custom_ip_policy, config.custom_ip_keep)
         custom_ip_instances = [item.instance for item in custom_pl_ips]
+        if requested_custom_ip_policy == "select":
+            job.emit({
+                "event": "vitis.custom_ip_policy",
+                "stage": "stage_sources",
+                "progress": 34,
+                "message": (
+                    f"Custom PL IP secimi: {len(kept_custom_pl_ips)} IP BSP default'unda kalir"
+                    f" ({', '.join(item.instance for item in kept_custom_pl_ips) or '-'}); "
+                    f"{len(custom_pl_ips)} IP driver none ({', '.join(custom_ip_instances) or '-'})."
+                ),
+                "custom_pl_ip_kept": [item.instance for item in kept_custom_pl_ips],
+                "custom_pl_ip_instances": custom_ip_instances,
+            })
         xsa_make_libs_preflight = inspect_xsa_make_libs(
             staged_xsa_path,
             custom_ip_instances,
@@ -3261,7 +3301,9 @@ class VitisWorkspaceJobManager:
             "requires_lwip": requires_lwip,
             "lwip_api_mode": lwip_api_mode,
             "custom_ip_driver_policy": custom_ip_driver_policy,
+            "custom_ip_driver_policy_requested": requested_custom_ip_policy,
             "custom_pl_ip_candidates": [asdict(item) for item in custom_pl_ips],
+            "custom_pl_ip_kept": [asdict(item) for item in kept_custom_pl_ips],
             "xsa_make_libs_preflight": xsa_make_libs_preflight,
             "custom_ip_xsa_make_libs_patched": xsa_patched_make_libs,
             "custom_ip_xsa_make_libs_patched_count": len(xsa_patched_make_libs),

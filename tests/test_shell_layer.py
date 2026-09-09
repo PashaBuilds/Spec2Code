@@ -116,7 +116,7 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("iIndex = atoi(cpArrArgv[1]);", user)
         self.assertIn('strcmp(cpArrArgv[2], "open") == 0', user)
         self.assertIn("Xil_Out32(uiAddress, uiValue);", user)
-        self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U", user)
+        self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U, 0x08080808U", user)
         self.assertIn("const SShellCommand* shellUserCommandTable(void);", _read(self.out_dir, "shell/shell_user_commands.h"))
         # cit: esik ZORLANMAZ (kullanici sdl ile acar); yalniz sdl komutu dbgLevelSet cagirir.
         self.assertNotIn("dbgLevelSet(DEBUG_LEVEL_INFO)", user)
@@ -308,8 +308,8 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("0x4A  ACK  u3_tmp101 (TMP101, switch 0x70 ch1)", out)
         self.assertIn("pl_i2c_0: 1 device(s)", out)
         # mod: string argv -> atoi; fazla bosluk tokenizer'da sorun degil; open desen, close 0, hatali y/argc.
-        self.assertIn("XIL_OUT32 0x43C0000C <= 0x03030303", out)
-        self.assertIn("mod: reg3 @0x43C0000C <= 0x03030303 (open)", out)
+        self.assertIn("XIL_OUT32 0x43C0000C <= 0x04040404", out)   # reg3 -> (3+1) deseni
+        self.assertIn("mod: reg3 @0x43C0000C <= 0x04040404 (open)", out)
         self.assertIn("mod: x must be 0..7 (got '9')", out)
         self.assertIn("XIL_OUT32 0x43C0000C <= 0x00000000", out)
         self.assertIn("mod: y must be open or close (got 'half')", out)

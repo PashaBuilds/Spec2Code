@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import io
+from dataclasses import asdict
 import os
 import re
 import struct
@@ -40,7 +41,7 @@ from backend.registers import snapshot_registers
 from backend.run_on_board import RunOnBoardConfig, normalize_hw_server_url, runboard_manager
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
-from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, vitis_manager, vitis_os
+from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, discover_custom_pl_ips, vitis_manager, vitis_os
 from backend.vivado_design import (
     VivadoDesignConfig,
     VivadoPeripheral,
@@ -117,6 +118,7 @@ class VitisWorkspaceRequest(BaseModel):
     app_name: str = ""
     timeout_s: int = 1800
     custom_ip_driver_policy: str = "auto_none"
+    custom_ip_keep: list[str] = []  # policy == "select": BSP surucusu korunacak custom IP instance'lari
     mode: str = "full"  # full = platform+BSP+app sıfırdan; update = yalnızca kaynak + app build
 
 
@@ -929,12 +931,26 @@ async def create_vitis_workspace(job_id: str, req: VitisWorkspaceRequest) -> dic
                 app_name=req.app_name,
                 timeout_s=req.timeout_s,
                 custom_ip_driver_policy=req.custom_ip_driver_policy,
+                custom_ip_keep=tuple(str(item) for item in req.custom_ip_keep),
                 mode=req.mode if req.mode in ("full", "update") else "full",
             ),
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"vitis_job_id": vitis_job_id}
+
+
+@router.get("/vitis/custom-ips")
+def vitis_custom_ips(xsa_path: str) -> dict:
+    """XSA'daki custom PL IP adaylari (policy=select icin secim listesi): instance, ip_name, vlnv, reason."""
+    path = Path(xsa_path.strip().strip('"'))
+    if not path.is_file():
+        raise HTTPException(404, f"XSA bulunamadi: {path}")
+    try:
+        candidates = discover_custom_pl_ips(path)
+    except Exception as exc:  # bozuk zip/hwh
+        raise HTTPException(422, f"XSA okunamadi: {exc}") from exc
+    return {"xsa_path": str(path), "candidates": [asdict(item) for item in candidates]}
 
 
 @router.get("/vitis/jobs/{vitis_job_id}/result")

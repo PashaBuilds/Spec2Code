@@ -454,7 +454,7 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `<custom_ip> dump` / `read <n>` / `write <n> <value>` | XSA'daki her custom IP icin OTOMATIK uretilir (komut adi = IP instance adi, or. `mem_pcie_intr_0`). `n` register numarasi (0'dan, her biri 4 bayt: adres = base + 4n); XSA adres araligiyla sinirlidir, disina cikan `out of range`. `dump` tum araligi 4'er bayt basar, `write` yazdiktan sonra geri okur |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (tablodan) |
-| `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
+| `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg0` 0x01010101 ... `reg7` 0x08080808), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
 
 **Custom IP komutlari:** Setup'ta XSA okunurken taninmayan REGISTER tipli PL IP'ler
 (`user:user` VLNV'li kendi IP'lerin) spec'e `custom_ips` olarak yazilir: `id` (instance adi),
@@ -660,7 +660,12 @@ Staging dizini:
 IP ailesine benzemeyen) PL modulleri icin BSP surucusu `none` denenir; source'suz
 `make.libs` dosyalari yamalanir, gerekirse self-heal script'i `bsp regenerate` +
 `app build` ile toparlar (`BSP patch N`, `self-heal gecti` rozetleri). Custom IP gercek
-bir surucuyle geliyorsa `BSP default'u koru` sec.
+bir surucuyle geliyorsa `BSP default'u koru` sec. Ucuncu secenek **`Sec: IP basina koru /
+none`**: XSA'daki custom IP adaylari listelenir; tikledigin IP'nin BSP surucusu korunur
+(surucu kaynagi XSA'da olmali; adresi `xparameters.h`'a `XPAR_<INSTANCE>_..._BASEADDR` olarak
+girer), tiksizler `none` yapilir. Secim tarayicida kalicidir; sonuc rozeti `custom IP sec: N
+koru`. Shell'deki `<id> dump|read|write` komutlari bu politikadan bagimsizdir (adres XSA'dan
+gelir, surucuye ihtiyac duymaz).
 
 **Iki uygulama**: kurulum `<app>` (test bench ajani, GUI ile konusur; Board'da calistir
 bunu yukler) ve `<app>_shell` (drivers + cit + shell, projene tasinacak kod; ELF'i manuel
