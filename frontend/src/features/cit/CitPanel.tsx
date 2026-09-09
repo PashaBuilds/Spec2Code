@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Check, Cpu, HeartPulse, Loader2, Pause, Pencil, Play, Power, RefreshCw, X } from "lucide-react";
+import { Activity, Check, Cpu, Download, HeartPulse, Loader2, Pause, Pencil, Play, Power, RefreshCw, X } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { useBoardConnection } from "@/store/connection";
 import { api } from "@/lib/api";
@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 import { findManifest, loadCachedManifest } from "@/features/testbench/manifest";
 import { MAIN_BOARD_ID } from "@/lib/boards";
+import { APP_VERSION } from "@/lib/version";
+import { citReportFileName, renderCitReportHtml } from "@/features/cit/citReport";
 import type {
   CitDecodeMeasurement,
   CitDecodeResult,
@@ -477,6 +479,35 @@ export default function CitPanel() {
         .filter((s) => s.groups.length > 0)
     : [{ boardId: MAIN_BOARD_ID, boardName: "", groups: deviceGroups }];
 
+  // Son okunan CIT'i kendi kendine yeten HTML rapor olarak indirir (bring-up sertifikasiyla ayni ruh):
+  // genel karar, ozet, her entegre cerceveli kutuda, olcum / deger / limit / OK-NOK renkli.
+  function downloadReport() {
+    if (!result) return;
+    const html = renderCitReportHtml({
+      projectName,
+      appVersion: APP_VERSION,
+      result,
+      ranAt: lastRunAt,
+      sections: boardSections.map((s) => ({
+        boardName: s.boardName,
+        groups: s.groups.map((g) => ({ id: g.id, manifestDevice: g.manifestDevice, rows: g.rows.map((r) => ({ m: r.m, eff: r.eff })) })),
+      })),
+      boardsDeclared,
+      transport: board.transport,
+      formatValue,
+      limitText,
+      statusLabel,
+    });
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = citReportFileName(projectName, result, lastRunAt);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function renderEditForm(measurement: CitDecodeMeasurement) {
     // Tek satir: min .. max | onem | kaydet / iptal (isim tekrar yazilmaz; ad ustte zaten gorunur).
     return (
@@ -722,6 +753,15 @@ export default function CitPanel() {
             </Button>
             <Button size="sm" variant="outline" onClick={() => void runCit("read")} disabled={!connected || busy}>
               <RefreshCw className="h-4 w-4" aria-hidden /> Son CİT'i oku
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={downloadReport}
+              disabled={!result}
+              title={result ? "Son okunan CİT'i HTML rapor olarak indir (sonuçlar, limitler, OK/NOK)" : "Önce bir CİT sonucu oku"}
+            >
+              <Download className="h-4 w-4" aria-hidden /> Rapor indir
             </Button>
             <Button
               size="sm"

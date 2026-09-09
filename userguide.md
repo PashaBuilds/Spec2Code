@@ -604,7 +604,10 @@ limit/isim degisiklikleri spec'e (cihaz `config.cit.measurements`) yazilir; spec
 korunur ve bir sonraki uretimde `SISTEM_CIT_LIMIT_VARSAYILAN` ile rapor adlari boyle gelir. Satirlar ANSI
 renklidir (OK yesil, NOK kirmizi, HATA sari): XShell/PuTTY dogrudan
 renkli gosterir, Akis ekrani da ayni tonu uygular. Log esigini `info` yapinca gorunur.
-"Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur.
+"Otomatik yenile" `CIT_READ` ile son kosuyu yeniden kosmadan okur. **Rapor indir** son okunan
+kosuyu tek dosya HTML rapor olarak verir (bring-up sertifikasi gibi): genel karar, ozet, dikkat
+gerektiren olcumler, her entegre cerceveli kutuda deger / limit / OK-NOK renkli; yazdirilabilir,
+paylasilabilir.
 
 Not: cit/ okumalari ilklendirilmis entegre ister; once Test Bench'ten "butun
 cihazlari ilklendir" ya da Bring-up kos.

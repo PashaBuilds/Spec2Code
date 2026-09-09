@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.207 - 2026-09-09
+
+- **CIT raporu indir:** CIT ekraninda "Rapor indir" son okunan kosuyu bring-up sertifikasi
+  ruhunda tek dosya HTML olarak verir (`cit_raporu_<proje>_<tarih>_kosu<n>.html`): genel karar
+  (GECTI / LIMIT DISI / OKUMA HATASI), ozet kutulari, "dikkat gerektirenler" listesi, her
+  entegre cerceveli kutuda (parca, kimlik, adres/CS, switch, SANAL) olcum / deger+birim /
+  canli limit / OK-NOK; NOK kirmizi, HATA sari, OK yesil, limitsiz gri. Yazdirilabilir,
+  sunucu gerektirmez (tarayicida uretilir).
+
 ## v0.1.206 - 2026-09-09
 
 - **Custom PL IP driver: 3. secenek "Sec: IP basina koru / none".** Vitis ekraninda XSA'daki
