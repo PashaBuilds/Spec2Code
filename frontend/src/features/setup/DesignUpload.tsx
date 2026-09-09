@@ -20,6 +20,7 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState<number | null>(null);
+  const [customCount, setCustomCount] = useState<number>(0);
   const [detected, setDetected] = useState<string | null>(null);
   // Vivado sayfasında üretilen son XSA: tek tuşla seçilebilir (esneklik —
   // kullanıcı isterse yolu elle de yapıştırabilir).
@@ -40,6 +41,7 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
     localStorage.setItem("spec2code.xsaPath", res.xsa_path);
     setDesignPath(res.xsa_path);
     setCount(res.controllers.length);
+    setCustomCount(res.custom_ips?.length ?? 0);
     setDetected(res.platform);
     setStep("schematic");
   }
@@ -98,6 +100,11 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
           </Button>
           {detected && <Badge tone="accent">{detected}</Badge>}
           {count !== null && <Badge tone="ok">{count} controllers</Badge>}
+          {customCount > 0 && (
+            <Badge tone="accent" title="XSA'daki taninmayan memory-mapped IP'ler: shell'e <id> dump|read|write komutu uretilir">
+              {customCount} custom IP
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Input

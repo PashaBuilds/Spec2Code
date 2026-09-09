@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
+  CustomIp,
   Board,
   CatalogDevice,
   Connector,
@@ -50,6 +51,8 @@ interface StoreState {
   cores: Core[];
   controllers: Controller[];
   unmatched: { instance: string; base_address: string; reason: string }[];
+  /** XSA'dan gelen custom PL IP'ler; spec'e `custom_ips` olarak gider, shell komutu uretir. */
+  customIps: CustomIp[];
   muxes: Mux[];
   devices: Device[];
   /** Fiziksel kartlar. BOS = kart katmani kapali (kanvas ve uretilen cikti
@@ -84,6 +87,7 @@ interface StoreState {
   applyParse: (r: {
     controllers: Controller[];
     unmatched: { instance: string; base_address: string; reason: string }[];
+    custom_ips?: CustomIp[];
     zones: Zone[];
     cores: Core[];
   }) => void;
@@ -226,6 +230,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   cores: [],
   controllers: [],
   unmatched: [],
+  customIps: [],
   muxes: [],
   devices: [],
   boards: [],
@@ -256,6 +261,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     set({
       controllers: r.controllers,
       unmatched: r.unmatched ?? [],
+      customIps: r.custom_ips ?? [],
       zones: r.zones ?? [],
       cores: r.cores ?? [],
       muxes: [],
@@ -284,6 +290,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       connectors: spec.connectors ?? [],
       boardSizes: {},
       unmatched: [],
+      customIps: spec.custom_ips ?? [],
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
       job: { id: null, status: "idle", events: [], files: [], qc: null },
@@ -441,6 +448,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       muxes: boardsOn ? s.muxes : s.muxes.map(withoutBoardId),
       generation_options: { qc_max_rounds: 3, include_doxygen: false, line_ending: "crlf" },
     };
+    if (s.customIps.length) spec.custom_ips = s.customIps;
     if (boardsOn) {
       spec.boards = s.boards.map(specBoard);
       if (s.connectors.length) spec.connectors = s.connectors.map(specConnector);
@@ -465,6 +473,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     cores: s.cores,
     controllers: s.controllers,
     unmatched: s.unmatched,
+    customIps: s.customIps,
     muxes: s.muxes,
     devices: s.devices,
     boards: s.boards,

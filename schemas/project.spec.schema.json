@@ -5,69 +5,191 @@
   "description": "Canonical handoff artifact produced by the UI and consumed by the orchestrator (Brief 6.1).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "project", "controllers", "devices"],
+  "required": [
+    "schema_version",
+    "project",
+    "controllers",
+    "devices"
+  ],
   "properties": {
-    "schema_version": { "type": "string" },
+    "schema_version": {
+      "type": "string"
+    },
     "project": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "platform", "target_core", "runtime"],
+      "required": [
+        "name",
+        "platform",
+        "target_core",
+        "runtime"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
         "platform": {
           "type": "string",
-          "enum": ["zynq_7000", "zynq_ultrascale", "versal", "microblaze_7series"]
+          "enum": [
+            "zynq_7000",
+            "zynq_ultrascale",
+            "versal",
+            "microblaze_7series"
+          ]
         },
-        "target_core": { "type": "string", "minLength": 1 },
-        "runtime": { "type": "string", "enum": ["bare_metal", "freertos"] },
-        "output_mode": { "type": "string", "enum": ["dropin"], "default": "dropin" },
+        "target_core": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "bare_metal",
+            "freertos"
+          ]
+        },
+        "output_mode": {
+          "type": "string",
+          "enum": [
+            "dropin"
+          ],
+          "default": "dropin"
+        },
         "testbench_transport": {
           "type": "string",
-          "enum": ["auto", "eth", "uart", "coresight", "mdm"],
+          "enum": [
+            "auto",
+            "eth",
+            "uart",
+            "coresight",
+            "mdm"
+          ],
           "default": "auto",
           "description": "Test bench agent transport: auto = eth varsa lwIP TCP, yoksa PS UART. coresight = JTAG DCC (psu_coresight_0, ZynqMP), mdm = MicroBlaze Debug Module UART (XUartLite, xsdb jtagterminal koprusu); ikisini de auto asla secmez."
         }
       }
     },
-    "coding_standard_ref": { "type": "string" },
+    "coding_standard_ref": {
+      "type": "string"
+    },
     "llm": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "enabled": { "type": "boolean", "default": false },
-        "base_url": { "type": "string" },
-        "model": { "type": "string" },
-        "api_key": { "type": "string" },
-        "timeout_s": { "type": "number", "minimum": 1, "default": 120 },
-        "max_tokens": { "type": "integer", "minimum": 128, "default": 4096 },
-        "max_response_chars": { "type": "integer", "minimum": 1024, "default": 120000 },
-        "retries": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 }
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "api_key": {
+          "type": "string"
+        },
+        "timeout_s": {
+          "type": "number",
+          "minimum": 1,
+          "default": 120
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 128,
+          "default": 4096
+        },
+        "max_response_chars": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 120000
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 0
+        }
       },
-      "required": ["enabled"]
+      "required": [
+        "enabled"
+      ]
     },
     "controllers": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "type", "instance", "base_address", "source", "zone"],
+        "required": [
+          "id",
+          "type",
+          "instance",
+          "base_address",
+          "source",
+          "zone"
+        ],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
           "type": {
             "type": "string",
-            "enum": ["i2c", "spi", "qspi", "gpio", "uart", "dma", "can", "eth", "sdio", "unknown"]
+            "enum": [
+              "i2c",
+              "spi",
+              "qspi",
+              "gpio",
+              "uart",
+              "dma",
+              "can",
+              "eth",
+              "sdio",
+              "unknown"
+            ]
           },
-          "instance": { "type": "string" },
-          "base_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
-          "device_id": { "type": ["string", "integer"] },
-          "driver": { "type": "string", "description": "Canonical Xilinx driver (e.g. XIicPs), used by codegen to pick the BSP API. Optional." },
+          "instance": {
+            "type": "string"
+          },
+          "base_address": {
+            "type": "string",
+            "pattern": "^0[xX][0-9a-fA-F]+$"
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "driver": {
+            "type": "string",
+            "description": "Canonical Xilinx driver (e.g. XIicPs), used by codegen to pick the BSP API. Optional."
+          },
           "subtype": {
             "type": "string",
-            "enum": ["mdm"],
+            "enum": [
+              "mdm"
+            ],
             "description": "Ek/opsiyonel ayrim: driver ADI yetmediginde. mdm = MicroBlaze Debug Module UART'i (surucu yine XUartLite'tir, ama transport xsdb jtagterminal koprusudur). Diger her denetleyicide alan HIC bulunmaz."
           },
-          "source": { "type": "string", "enum": ["xparameters", "manual"] },
-          "zone": { "type": "string", "enum": ["ps", "pl", "noc", "aie"] }
+          "source": {
+            "type": "string",
+            "enum": [
+              "xparameters",
+              "manual"
+            ]
+          },
+          "zone": {
+            "type": "string",
+            "enum": [
+              "ps",
+              "pl",
+              "noc",
+              "aie"
+            ]
+          }
         }
       }
     },
@@ -76,11 +198,26 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "part", "attach"],
+        "required": [
+          "id",
+          "part",
+          "attach"
+        ],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "part": { "type": "string", "minLength": 1 },
-          "descriptor_ref": { "type": ["string", "null"] },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "part": {
+            "type": "string",
+            "minLength": 1
+          },
+          "descriptor_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "simulate": {
             "type": "boolean",
             "description": "Sanal cihaz: kartta takili degil; test bench ajani ve CIT bu cihazi cit/ simulatoru uzerinden cevaplar (yalniz I2C register ve SPI TICS-register cihazlari)."
@@ -94,37 +231,115 @@
             "type": "object",
             "description": "Connection metadata only (address/cs/mux/channel/gpio). Behaviour lives in the descriptor. Versioned + extensible (Brief 10).",
             "additionalProperties": true,
-            "required": ["controller_id"],
+            "required": [
+              "controller_id"
+            ],
             "properties": {
-              "controller_id": { "type": "string", "minLength": 1 },
-              "i2c_address": { "type": ["string", "null"], "pattern": "^0[xX][0-9a-fA-F]+$" },
-              "spi_chip_select": { "type": ["integer", "null"], "minimum": 0 },
-              "address_width": { "type": ["integer", "null"], "enum": [8, 16, 24, 32, null] },
+              "controller_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "i2c_address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^0[xX][0-9a-fA-F]+$"
+              },
+              "spi_chip_select": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "address_width": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "enum": [
+                  8,
+                  16,
+                  24,
+                  32,
+                  null
+                ]
+              },
               "via_mux": {
-                "type": ["object", "null"],
+                "type": [
+                  "object",
+                  "null"
+                ],
                 "additionalProperties": false,
-                "required": ["mux_id", "channel"],
+                "required": [
+                  "mux_id",
+                  "channel"
+                ],
                 "properties": {
-                  "mux_id": { "type": "string", "minLength": 1 },
-                  "channel": { "type": "integer", "minimum": 0, "maximum": 7 }
+                  "mux_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "channel": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 7
+                  }
                 }
               },
               "gpio_channel": {
-                "type": ["integer", "null"],
-                "enum": [1, 2, null],
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "enum": [
+                  1,
+                  2,
+                  null
+                ],
                 "description": "gpio transport: AXI GPIO channel the device's lines sit on (1 or 2). Default 1."
               },
               "gpio_pin_mask": {
-                "type": ["integer", "string", "null"],
+                "type": [
+                  "integer",
+                  "string",
+                  "null"
+                ],
                 "description": "gpio transport: 32-bit mask of the lines this device owns on that channel (integer or 0x hex string). Default all 32 pins."
               },
-              "reset_gpio": { "type": ["string", "integer", "null"] },
-              "irq_line": { "type": ["string", "integer", "null"] }
+              "reset_gpio": {
+                "type": [
+                  "string",
+                  "integer",
+                  "null"
+                ]
+              },
+              "irq_line": {
+                "type": [
+                  "string",
+                  "integer",
+                  "null"
+                ]
+              }
             }
           },
-          "operations_requested": { "type": "array", "items": { "type": "string" } },
-          "tests_requested": { "type": "array", "items": { "type": "string" } },
-          "board_id": { "type": "string", "description": "Cihazin bulundugu kart; verilmezse ana kart." }
+          "operations_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tests_requested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "board_id": {
+            "type": "string",
+            "description": "Cihazin bulundugu kart; verilmezse ana kart."
+          }
         }
       }
     },
@@ -133,14 +348,39 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "part", "controller_id", "i2c_address", "channels"],
+        "required": [
+          "id",
+          "part",
+          "controller_id",
+          "i2c_address",
+          "channels"
+        ],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "part": { "type": "string", "minLength": 1 },
-          "controller_id": { "type": "string", "minLength": 1 },
-          "i2c_address": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]+$" },
-          "channels": { "type": "integer", "minimum": 1, "maximum": 8 },
-          "board_id": { "type": "string", "description": "Cihazin bulundugu kart; verilmezse ana kart." }
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "part": {
+            "type": "string",
+            "minLength": 1
+          },
+          "controller_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "i2c_address": {
+            "type": "string",
+            "pattern": "^0[xX][0-9a-fA-F]+$"
+          },
+          "channels": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "board_id": {
+            "type": "string",
+            "description": "Cihazin bulundugu kart; verilmezse ana kart."
+          }
         }
       }
     },
@@ -150,12 +390,30 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "role"],
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-          "name": { "type": "string", "minLength": 1 },
-          "role": { "type": "string", "enum": ["main", "peripheral"] },
-          "notes": { "type": "string" }
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "main",
+              "peripheral"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
         }
       }
     },
@@ -165,30 +423,60 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "from_board", "to_board", "bus"],
+        "required": [
+          "id",
+          "name",
+          "from_board",
+          "to_board",
+          "bus"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
-          "name": { "type": "string", "minLength": 1 },
-          "from_board": { "type": "string" },
-          "to_board": { "type": "string" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "from_board": {
+            "type": "string"
+          },
+          "to_board": {
+            "type": "string"
+          },
           "bus": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["controller_id"],
+            "required": [
+              "controller_id"
+            ],
             "properties": {
-              "controller_id": { "type": "string" },
+              "controller_id": {
+                "type": "string"
+              },
               "via_mux": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["mux_id", "channel"],
+                "required": [
+                  "mux_id",
+                  "channel"
+                ],
                 "properties": {
-                  "mux_id": { "type": "string" },
-                  "channel": { "type": "integer", "minimum": 0 }
+                  "mux_id": {
+                    "type": "string"
+                  },
+                  "channel": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
                 }
               }
             }
           },
-          "notes": { "type": "string" }
+          "notes": {
+            "type": "string"
+          }
         }
       }
     },
@@ -196,9 +484,63 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "qc_max_rounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
-        "include_doxygen": { "type": "boolean", "default": false },
-        "line_ending": { "type": "string", "enum": ["crlf"], "default": "crlf" }
+        "qc_max_rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "include_doxygen": {
+          "type": "boolean",
+          "default": false
+        },
+        "line_ending": {
+          "type": "string",
+          "enum": [
+            "crlf"
+          ],
+          "default": "crlf"
+        }
+      }
+    },
+    "custom_ips": {
+      "type": "array",
+      "description": "XSA'dan gelen taninmayan (custom) memory-mapped PL IP'ler; shell'e <id> dump|read|write komutlari uretir.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "base_address",
+          "register_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "ip_name": {
+            "type": "string"
+          },
+          "base_address": {
+            "type": "string",
+            "pattern": "^0[xX][0-9a-fA-F]+$"
+          },
+          "high_address": {
+            "type": "string",
+            "pattern": "^0[xX][0-9a-fA-F]+$"
+          },
+          "register_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576,
+            "description": "4 baytlik register sayisi (ADDR_WIDTH ya da HIGH-BASE+1 / 4)."
+          }
+        }
       }
     }
   }

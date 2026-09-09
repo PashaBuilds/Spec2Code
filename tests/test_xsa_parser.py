@@ -22,7 +22,25 @@ _SYNTH_HWH = """<?xml version="1.0" encoding="UTF-8"?>
       <MEMORYMAP><MEMRANGE BASEVALUE="0xFF0F0000" HIGHVALUE="0xFF0FFFFF"/></MEMORYMAP>
     </MODULE>
     <MODULE FULLNAME="/mem_pcie_intr_0" INSTANCE="mem_pcie_intr_0" MODTYPE="mem_pcie_intr" IPTYPE="PERIPHERAL" VLNV="user.org:user:mem_pcie_intr:1.0">
-      <MEMORYMAP><MEMRANGE BASEVALUE="0xA0000000" HIGHVALUE="0xA000FFFF"/></MEMORYMAP>
+      <MEMORYMAP><MEMRANGE BASEVALUE="0xA0000000" HIGHVALUE="0xA000FFFF" MEMTYPE="REGISTER" SLAVEBUSINTERFACE="S00_AXI"/></MEMORYMAP>
+      <PARAMETERS><PARAMETER NAME="C_S00_AXI_ADDR_WIDTH" VALUE="4"/></PARAMETERS>
+    </MODULE>
+    <MODULE FULLNAME="/pl_blob_0" INSTANCE="pl_blob_0" MODTYPE="pl_blob" IPTYPE="PERIPHERAL" VLNV="user.org:user:pl_blob:1.0">
+      <MEMORYMAP><MEMRANGE BASEVALUE="0xA0010000" HIGHVALUE="0xA00100FF" MEMTYPE="REGISTER"/></MEMORYMAP>
+    </MODULE>
+    <MODULE FULLNAME="/lmb_bram_0" INSTANCE="lmb_bram_0" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL">
+      <MEMORYMAP><MEMRANGE BASEVALUE="0x00000000" HIGHVALUE="0x0003FFFF" MEMTYPE="MEMORY"/></MEMORYMAP>
+    </MODULE>
+    <MODULE FULLNAME="/real_ip_0" INSTANCE="real_ip_0" MODTYPE="real_ip" IPTYPE="PERIPHERAL" VLNV="user.org:user:real_ip:1.0">
+      <ADDRESSBLOCKS><ADDRESSBLOCK INTERFACE="S00_AXI" NAME="S00_AXI_reg" RANGE="4096" USAGE="register"/></ADDRESSBLOCKS>
+      <PARAMETERS><PARAMETER NAME="C_S00_AXI_ADDR_WIDTH" VALUE="6"/><PARAMETER NAME="C_S00_AXI_BASEADDR" VALUE="0xA0020000"/><PARAMETER NAME="C_S00_AXI_HIGHADDR" VALUE="0xA002FFFF"/></PARAMETERS>
+    </MODULE>
+    <MODULE FULLNAME="/lmb_bram_2" INSTANCE="lmb_bram_2" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL" MODCLASS="MEMORY_CNTLR">
+      <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x00000000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x0003FFFF"/></PARAMETERS>
+    </MODULE>
+    <MODULE FULLNAME="/lmb_bram_1" INSTANCE="lmb_bram_1" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL">
+      <ADDRESSBLOCKS><ADDRESSBLOCK INTERFACE="SLMB" NAME="Mem" RANGE="8192" USAGE="memory"/></ADDRESSBLOCKS>
+      <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x00000000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x0003FFFF"/></PARAMETERS>
     </MODULE>
     <MODULE FULLNAME="/proc_sys_reset_0" INSTANCE="proc_sys_reset_0" MODTYPE="proc_sys_reset" IPTYPE="RESET"/>
   </MODULES>
@@ -55,9 +73,20 @@ class SyntheticXsaTests(unittest.TestCase):
         self.assertEqual(by_type["uart"]["driver"], "XUartPs")
         self.assertEqual(by_type["qspi"]["driver"], "XQspiPsu")
         # The custom AXI IP surfaces as unmatched, not silently dropped.
-        self.assertEqual(len(result.unmatched), 1)
+        self.assertEqual(len(result.unmatched), 6)
         self.assertIn("mem_pcie_intr", result.unmatched[0]["reason"])
         self.assertEqual(result.unmatched[0]["base_address"], "0xA0000000")
+        # REGISTER tipli custom IP'ler custom_ips'e girer (MEMORY tipli LMB BRAM girmez);
+        # register_count ADDR_WIDTH'ten (4 bit -> 16 B -> 4 reg), yoksa HIGH-BASE+1 / 4 (256 B -> 64).
+        # Gercek hwh'de MEMRANGE islemci altindadir: modul parametreleri (C_<IF>_BASEADDR/HIGHADDR)
+        # + ADDRESSBLOCK USAGE ile cozulur (real_ip_0: 6 bit -> 16 reg); USAGE=memory (lmb_bram_1) ve
+        # MODCLASS=MEMORY_CNTLR (lmb_bram_2, ADDRESSBLOCK'suz ILMB) girmez.
+        self.assertEqual([ip["id"] for ip in result.custom_ips], ["mem_pcie_intr_0", "pl_blob_0", "real_ip_0"])
+        self.assertEqual((result.custom_ips[2]["base_address"], result.custom_ips[2]["register_count"]), ("0xA0020000", 16))
+        pcie = result.custom_ips[0]
+        self.assertEqual((pcie["instance"], pcie["ip_name"]), ("XPAR_MEM_PCIE_INTR_0", "mem_pcie_intr"))
+        self.assertEqual((pcie["base_address"], pcie["high_address"], pcie["register_count"]), ("0xA0000000", "0xA000FFFF", 4))
+        self.assertEqual(result.custom_ips[1]["register_count"], 64)
 
     def test_hdf_parses_like_xsa(self) -> None:
         # Eski SDK handoff'u (.hdf) ayni kap bicimidir: zip icinde .hwh.

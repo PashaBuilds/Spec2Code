@@ -92,6 +92,10 @@ class XsaParseResult:
     controllers: list[dict] = field(default_factory=list)
     unmatched: list[dict] = field(default_factory=list)
     processors: list[str] = field(default_factory=list)
+    #: Taninmayan REGISTER tipli PL cevre birimleri (custom IP): id, instance, ip_name,
+    #: base_address, high_address, register_count (4 baytlik register sayisi). Shell'e
+    #: `<id> dump|read|write` komutlari olarak girer (kullanici istegi 2026-09-09).
+    custom_ips: list[dict] = field(default_factory=list)
 
 
 def _local_name(tag: str) -> str:
@@ -157,6 +161,73 @@ def _base_address_of(element: ET.Element) -> int | None:
             except (TypeError, ValueError):
                 continue
     return None
+
+
+def _register_ranges(element: ET.Element) -> list[tuple[int, int, str]]:
+    """REGISTER tipli MEMRANGE'ler: (base, high, slave arayuz adi). MEMTYPE yoksa register sayilir."""
+    out: list[tuple[int, int, str]] = []
+    for child in element.iter():
+        if _local_name(child.tag).upper() != "MEMRANGE":
+            continue
+        memtype = _attr(child, "MEMTYPE").upper()
+        if memtype and memtype != "REGISTER":
+            continue
+        try:
+            base = int(_attr(child, "BASEVALUE"), 0)
+            high = int(_attr(child, "HIGHVALUE"), 0)
+        except (TypeError, ValueError):
+            continue
+        if high < base:
+            continue
+        out.append((base, high, _attr(child, "SLAVEBUSINTERFACE")))
+    if out:
+        return out
+    # Gercek hwh'de MEMRANGE master (islemci) altinda durur; modulun kendisinde yalniz
+    # parametreler vardir: C_<IF>_BASEADDR / C_<IF>_HIGHADDR ciftleri (USAGE=register bloklari).
+    params = _module_parameters(element)
+    usages = {
+        _attr(child, "INTERFACE").upper(): _attr(child, "USAGE").lower()
+        for child in element.iter() if _local_name(child.tag).upper() == "ADDRESSBLOCK"
+    }
+    for key, raw_base in params.items():
+        if not key.endswith("_BASEADDR"):
+            continue
+        prefix = key[: -len("_BASEADDR")]
+        raw_high = params.get(f"{prefix}_HIGHADDR")
+        if raw_high is None:
+            continue
+        slave_if = prefix[2:] if prefix.startswith("C_") else prefix
+        # Arayuze bagli USAGE; `C_BASEADDR` gibi arayuzsuz ciftte tek blok varsa onun USAGE'i.
+        usage = usages.get(slave_if.upper()) if slave_if else None
+        if usage is None and len(usages) == 1:
+            usage = next(iter(usages.values()))
+        if usage == "memory":
+            continue
+        try:
+            base, high = int(raw_base, 0), int(raw_high, 0)
+        except ValueError:
+            continue
+        if high >= base:
+            out.append((base, high, slave_if))
+    return out
+
+
+def _custom_ip_register_count(element: ET.Element, base: int, high: int, slave_if: str) -> int:
+    """4 baytlik register sayisi: `C_<IF>_ADDR_WIDTH` (2^w bayt) varsa o, yoksa HIGH-BASE+1 / 4.
+
+    Vivado'nun AXI4-Lite sablonunda MEMRANGE 64K'lik pencereyi gosterir ama gercek register
+    alani ADDR_WIDTH ile belirlenir (4 bit -> 16 bayt -> 4 register). Dump'in butun 64K'yi
+    okumamasi icin once ADDR_WIDTH'e bakilir."""
+    params = _module_parameters(element)
+    for key in (f"C_{slave_if.upper()}_ADDR_WIDTH" if slave_if else "", "C_S_AXI_ADDR_WIDTH", "C_S00_AXI_ADDR_WIDTH"):
+        if key and key in params:
+            try:
+                width = int(params[key], 0)
+            except ValueError:
+                continue
+            if 2 <= width <= 24:
+                return max(1, (1 << width) // 4)
+    return max(1, (high - base + 1) // 4)
 
 
 def _module_parameters(element: ET.Element) -> dict[str, str]:
@@ -252,6 +323,19 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
                     "base_address": f"0x{base:08X}",
                     "reason": f"tanınmayan IP '{modtype or instance}' (custom PL IP olabilir)",
                 })
+                # REGISTER tipli aralik -> custom IP kaydi (LMB BRAM gibi MEMORY tipi / bellek
+                # denetleyicisi MODCLASS'i haric).
+                ranges = [] if "MEMORY" in _attr(element, "MODCLASS").upper() else _register_ranges(element)
+                if ranges:
+                    reg_base, reg_high, slave_if = min(ranges)
+                    result.custom_ips.append({
+                        "id": re.sub(r"[^a-z0-9_]", "_", instance.lower()),
+                        "instance": f"XPAR_{instance.upper()}",
+                        "ip_name": modtype or instance,
+                        "base_address": f"0x{reg_base:08X}",
+                        "high_address": f"0x{reg_high:08X}",
+                        "register_count": _custom_ip_register_count(element, reg_base, reg_high, slave_if),
+                    })
 
     if not result.platform and any(
         item["instance"].startswith("XPAR_PSV_") for item in raw_controllers

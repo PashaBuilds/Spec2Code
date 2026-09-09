@@ -42,6 +42,8 @@ def _axi_spec(name: str, transport: str = "uart") -> dict:
         ],
         "muxes": [{"id": "u1_tca9548a", "part": "TCA9548A", "controller_id": "pl_i2c_0",
                    "i2c_address": "0x70", "channels": 8}],
+        "custom_ips": [{"id": "mem_pcie_intr_0", "instance": "XPAR_MEM_PCIE_INTR_0", "ip_name": "mem_pcie_intr",
+                        "base_address": "0x43C00000", "high_address": "0x43C0FFFF", "register_count": 6}],
         "devices": [
             {"id": "u3_tmp101", "part": "TMP101", "descriptor_ref": "descriptors/tmp101.yaml",
              "attach": {"controller_id": "pl_i2c_0", "i2c_address": "0x4A",
@@ -107,7 +109,7 @@ class ShellLayerGenerationTests(unittest.TestCase):
         for command, handler in (("cit", "shellUserCit"), ("i2c_search", "shellUserI2cSearch"),
                                  ("i2c_read", "shellUserI2cRead"), ("i2c_write", "shellUserI2cWrite"),
                                  ("mem", "shellUserMem"), ("sdl", "shellUserSdl"), ("help", "shellUserHelp"),
-                                 ("mod", "shellUserMod")):
+                                 ("mod", "shellUserMod"), ("mem_pcie_intr_0", "shellUserMemPcieIntr0")):
             self.assertIn(f'{{"{command}", {handler}, "', user)
         self.assertIn("iResult = sistemCitRead(shellBus(), shellLimit(), shellCit());", user)
         self.assertIn("spCommand = shellCommandGet(uiIndex);", user)
@@ -132,6 +134,9 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("XIic_DynSend(spIic->BaseAddress, (unsigned short)uiAddress, &ucRegister, 1U, XIIC_REPEATED_START)", user)
         self.assertIn("XIic_DynRecv(spIic->BaseAddress, (unsigned char)uiAddress, ucpData, (unsigned char)uiCount)", user)
         self.assertIn("Xil_In32((UINTPTR)ulAddress)", user)
+        # Custom IP: XSA araligi (register_count) ile sinirli dump/read/write; base spec'ten.
+        self.assertIn('shellUserCustomIp("mem_pcie_intr_0", 0x43C00000U, 6U, uiArgc, cpArrArgv);', user)
+        self.assertIn("if (ulIndex >= (unsigned long)uiCount)", user)
         # sdl: adlar ve 0..5
         self.assertIn('S_cpArrLevelName[] = {"always", "error", "warning", "msg", "info", "trace"};', user)
         self.assertIn("strcmp(cpArgument, S_cpArrLevelName[uiIndex]) == 0", user)
@@ -234,7 +239,10 @@ static SSistemCit S_sCit;
 static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\r"
                                    "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\r"
                                    "i2c_read 0x4A 0x00 2\ri2c_read 0x4B 0\ri2c_read 0x4A zz\ri2c_write 0x4A 0x01 0x60\r"
-                                   "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\rcit\rsdl error\rcit\r";
+                                   "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\r"
+                                   "mem_pcie_intr_0 dump\rmem_pcie_intr_0 read 5\rmem_pcie_intr_0 read 6\r"
+                                   "mem_pcie_intr_0 write 2 0xCAFE0002\rmem_pcie_intr_0 write 9 1\rmem_pcie_intr_0 flip\r"
+                                   "cit\rsdl error\rcit\r";
 int main(void)
 {
     unsigned int uiTur;
@@ -306,7 +314,17 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("XIL_OUT32 0x43C0000C <= 0x00000000", out)
         self.assertIn("mod: y must be open or close (got 'half')", out)
         self.assertIn("usage: mod <0..7> <open|close>", out)
-        self.assertEqual(out.count("XIL_OUT32"), 3)  # mod open, mod close, mem yazma
+        self.assertEqual(out.count("XIL_OUT32"), 4)  # mod open, mod close, mem yazma, custom IP write
+        # Custom IP komutu: dump 6 register (4 + 2 satir), read sinir, write + readback, hatali alt komut.
+        self.assertIn("mem_pcie_intr_0: base 0x43C00000, 6 registers", out)
+        self.assertIn("  reg   0 @0x43C00000: 00000000 00000000 00000000 00000000", out)
+        self.assertIn("  reg   4 @0x43C00010: 00000000 00000000", out)
+        self.assertIn("mem_pcie_intr_0 reg5 @0x43C00014 = 0x00000000", out)
+        self.assertIn("mem_pcie_intr_0: register 6 out of range (0..5)", out)
+        self.assertIn("XIL_OUT32 0x43C00008 <= 0xCAFE0002", out)
+        self.assertIn("mem_pcie_intr_0 reg2 @0x43C00008 <= 0xCAFE0002, readback 0x00000000", out)
+        self.assertIn("mem_pcie_intr_0: register 9 out of range (0..5)", out)
+        self.assertIn("usage: mem_pcie_intr_0 dump | read <n> | write <n> <value>", out)
         # i2c_read/i2c_write: stub yalniz 0x4A'ya ACK verir; DynRecv A0, A1 doldurur.
         self.assertIn("0x4A reg 0x00: A0 A1", out)
         self.assertIn("i2c_read 0x4B: NACK / bus error", out)

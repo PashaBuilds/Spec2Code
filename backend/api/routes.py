@@ -484,6 +484,7 @@ def parse(req: ParseRequest) -> dict:
         "cores": model.get("cores", []),
         "controllers": result.controllers,
         "unmatched": result.unmatched,
+        "custom_ips": [],
     }
 
 
@@ -509,6 +510,7 @@ def _xsa_parse_response(xsa_path: Path) -> dict:
         "cores": model.get("cores", []),
         "controllers": detected.controllers,
         "unmatched": detected.unmatched,
+        "custom_ips": detected.custom_ips,
         "processors": detected.processors,
         "xsa_path": str(xsa_path),
     }

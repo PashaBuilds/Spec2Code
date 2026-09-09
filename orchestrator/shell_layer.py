@@ -31,6 +31,7 @@ Tasarim notlari:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from hostplat import io as hio
@@ -223,6 +224,27 @@ def _i2c_device_names(spec: dict, controller_id: str) -> list[tuple[int, str]]:
 
 def _i2c_table_name(controller_id: str) -> str:
     return "S_sArrI2cDevice" + "".join(p.capitalize() for p in controller_id.split("_"))
+
+
+def custom_ips(spec: dict) -> list[dict]:
+    """Spec'teki custom IP'ler (id, base_address, register_count); bozuk kayit atlanir."""
+    out: list[dict] = []
+    for item in spec.get("custom_ips", []) or []:
+        try:
+            base = int(str(item.get("base_address")), 0)
+            count = int(item.get("register_count") or 0)
+        except (TypeError, ValueError):
+            continue
+        cid = re.sub(r"[^a-z0-9_]", "_", str(item.get("id", "")).lower())
+        if not cid or count < 1:
+            continue
+        out.append({"id": cid, "base": base, "count": count, "instance": str(item.get("instance") or ""),
+                    "ip_name": str(item.get("ip_name") or "")})
+    return out
+
+
+def _custom_ip_handler(cid: str) -> str:
+    return "shellUser" + "".join(p.capitalize() for p in cid.split("_") if p)
 
 
 def _mux_addresses(spec: dict) -> list[int]:
@@ -587,6 +609,7 @@ def user_commands_source(spec: dict, plans: list) -> str:
     i2c = _i2c_bus_entries(spec, plans)
     htypes = sorted({h for _, _, h in i2c})
     mux_addrs = _mux_addresses(spec)
+    ips = custom_ips(spec)
     e = cit_layer._E(0)
     e.ln("/**")
     e.ln(" * @file shell_user_commands.c")
@@ -683,6 +706,68 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln('    xil_printf("0x%08X = 0x%08X\\r\\n", (unsigned int)ulAddress, (unsigned int)Xil_In32((UINTPTR)ulAddress));')
     e.ln("}")
     e.blank()
+    if ips:
+        e.ln("/* --- custom IP register erisimi: <id> dump | read <n> | write <n> <value> ------------------")
+        e.ln(" * n = register numarasi (0'dan baslar, her biri 4 bayt: adres = base + 4*n); XSA'daki adres")
+        e.ln(" * araligiyla (register_count) sinirlidir. dump tum araligi 4'er bayt okur. */")
+        e.ln("static void shellUserCustomIp(const char* cpName, unsigned int uiBase, unsigned int uiCount, unsigned int uiArgc, const char* cpArrArgv[])")
+        e.ln("{")
+        e.ln("    unsigned long ulIndex;")
+        e.ln("    unsigned long ulValue;")
+        e.ln("    unsigned int uiIndex;")
+        e.blank()
+        e.ln('    if ((uiArgc >= 2U) && (strcmp(cpArrArgv[1], "dump") == 0))')
+        e.ln("    {")
+        e.ln('        xil_printf("%s: base 0x%08X, %u registers\\r\\n", cpName, uiBase, uiCount);')
+        e.ln("        for (uiIndex = 0U; uiIndex < uiCount; uiIndex++)")
+        e.ln("        {")
+        e.ln("            if ((uiIndex % 4U) == 0U)")
+        e.ln("            {")
+        e.ln('                xil_printf("  reg%4u @0x%08X:", uiIndex, uiBase + (uiIndex * 4U));')
+        e.ln("            }")
+        e.ln('            xil_printf(" %08X", (unsigned int)Xil_In32((UINTPTR)uiBase + ((UINTPTR)uiIndex * 4U)));')
+        e.ln("            if (((uiIndex % 4U) == 3U) || (uiIndex == (uiCount - 1U)))")
+        e.ln("            {")
+        e.ln('                xil_printf("\\r\\n");')
+        e.ln("            }")
+        e.ln("        }")
+        e.ln("        return;")
+        e.ln("    }")
+        e.ln('    if ((uiArgc >= 3U) && (strcmp(cpArrArgv[1], "read") == 0) && (shellUserParseNumber(cpArrArgv[2], &ulIndex) == TRUE))')
+        e.ln("    {")
+        e.ln("        if (ulIndex >= (unsigned long)uiCount)")
+        e.ln("        {")
+        e.ln('            xil_printf("%s: register %lu out of range (0..%u)\\r\\n", cpName, ulIndex, uiCount - 1U);')
+        e.ln("            return;")
+        e.ln("        }")
+        e.ln('        xil_printf("%s reg%lu @0x%08X = 0x%08X\\r\\n", cpName, ulIndex, uiBase + ((unsigned int)ulIndex * 4U),')
+        e.ln("                   (unsigned int)Xil_In32((UINTPTR)uiBase + ((UINTPTR)ulIndex * 4U)));")
+        e.ln("        return;")
+        e.ln("    }")
+        e.ln('    if ((uiArgc >= 4U) && (strcmp(cpArrArgv[1], "write") == 0) && (shellUserParseNumber(cpArrArgv[2], &ulIndex) == TRUE) &&')
+        e.ln("        (shellUserParseNumber(cpArrArgv[3], &ulValue) == TRUE))")
+        e.ln("    {")
+        e.ln("        if (ulIndex >= (unsigned long)uiCount)")
+        e.ln("        {")
+        e.ln('            xil_printf("%s: register %lu out of range (0..%u)\\r\\n", cpName, ulIndex, uiCount - 1U);')
+        e.ln("            return;")
+        e.ln("        }")
+        e.ln("        Xil_Out32((UINTPTR)uiBase + ((UINTPTR)ulIndex * 4U), (u32)ulValue);")
+        e.ln('        xil_printf("%s reg%lu @0x%08X <= 0x%08X, readback 0x%08X\\r\\n", cpName, ulIndex, uiBase + ((unsigned int)ulIndex * 4U),')
+        e.ln("                   (unsigned int)ulValue, (unsigned int)Xil_In32((UINTPTR)uiBase + ((UINTPTR)ulIndex * 4U)));")
+        e.ln("        return;")
+        e.ln("    }")
+        e.ln('    xil_printf("usage: %s dump | read <n> | write <n> <value>   (n = 0..%u, 4-byte registers)\\r\\n", cpName, uiCount - 1U);')
+        e.ln("}")
+        e.blank()
+        for ip in ips:
+            note = f"{ip['instance']}" + (f", {ip['ip_name']}" if ip["ip_name"] else "")
+            e.ln(f"/* {ip['id']}: {note}; base 0x{ip['base']:08X}, {ip['count']} x 4 B (XSA adres araligi). */")
+            e.ln(f"static void {_custom_ip_handler(ip['id'])}(unsigned int uiArgc, const char* cpArrArgv[])")
+            e.ln("{")
+            e.ln(f'    shellUserCustomIp("{ip["id"]}", 0x{ip["base"]:08X}U, {ip["count"]}U, uiArgc, cpArrArgv);')
+            e.ln("}")
+            e.blank()
     e.ln("/* cit: sistemCitRead kosar. Rapor dbg_printf INFO satirlaridir: gorunmesi icin `sdl info` (ya da ustu);")
     e.ln(" * esik burada DEGISTIRILMEZ (kullanici istegi), sonuc satiri her zaman basilir. */")
     e.ln("static void shellUserCit(unsigned int uiArgc, const char* cpArrArgv[])")
@@ -1003,6 +1088,8 @@ def user_commands_source(spec: dict, plans: list) -> str:
         e.ln('    {"i2c_read", shellUserI2cRead, "<addr> <reg> [n]  write reg pointer, read n bytes (default 1)"},')
         e.ln('    {"i2c_write", shellUserI2cWrite, "<addr> <byte...>  write raw bytes (first byte usually the reg)"},')
     e.ln('    {"mem", shellUserMem, "<addr> [value]  read / write a 32-bit register (Xil_In32/Xil_Out32)"},')
+    for ip in ips:
+        e.ln(f'    {{"{ip["id"]}", {_custom_ip_handler(ip["id"])}, "dump | read <n> | write <n> <value>  custom IP @0x{ip["base"]:08X}, {ip["count"]} regs"}},')
     e.ln('    {"sdl", shellUserSdl, "<level>  set debug level: error|warning|msg|info|trace (0..5)"},')
     e.ln('    {"help", shellUserHelp, "list commands"},')
     e.ln('    {"mod", shellUserMod, "<0..7> <open|close>  write custom IP register x (open: pattern, close: 0)"},')
@@ -1176,6 +1263,8 @@ def readme_section(spec: dict, plans: list) -> str:
         "| `i2c_write <addr> <byte...>` | ham bayt dizisi yazar (ilk bayt genelde register; switch icin `i2c_write 0x70 0x08`) |",
         "| `i2c_bus [id]` | birden fazla I2C denetleyicisi varsa: i2c_read/i2c_write icin denetleyici sec/listele |",
         "| `mem <addr> [value]` | 32-bit register oku / yaz (`Xil_In32` / `Xil_Out32`), yazinca geri okur |",
+        *[f"| `{ip['id']} dump\\|read <n>\\|write <n> <value>` | custom IP ({ip['ip_name'] or ip['instance']}) base 0x{ip['base']:08X}, {ip['count']} x 4 B register: n = register no (0..{ip['count'] - 1}), dump tum araligi okur |"
+          for ip in custom_ips(spec)],
         "| `help` | komut listesi (tablodan) |",
         "| `mod <x> <y>` | ornek kullanici komutu: custom IP reg x (0..7, 4 B ofset) <= desen (`open`) ya da 0 (`close`); `SHELL_USER_MOD_BASEADDR` ayarlanmali |",
         "",

@@ -746,6 +746,8 @@ export interface ProjectSpec {
   controllers: Controller[];
   devices: Device[];
   muxes: Mux[];
+  /** Custom PL IP'ler (XSA'dan). Yoksa anahtar yazilmaz. */
+  custom_ips?: CustomIp[];
   /** Fiziksel kartlar. Kart tanimlanmamissa ANAHTAR HIC YAZILMAZ — uretilen
    *  cikti o zaman bugunkuyle bayt-bayt ayni kalir (tasarim §4.1). */
   boards?: Board[];
@@ -848,12 +850,24 @@ export interface PlatformInfo {
   cores: Core[];
   zones: Zone[];
 }
+/** XSA'dan gelen taninmayan memory-mapped PL IP (custom IP): shell'e `<id> dump|read|write` komutu uretir. */
+export interface CustomIp {
+  id: string;
+  instance?: string;
+  ip_name?: string;
+  base_address: string;
+  high_address?: string;
+  /** 4 baytlik register sayisi (XSA ADDR_WIDTH ya da adres araligindan). */
+  register_count: number;
+}
+
 export interface ParseResult {
   platform: string;
   zones: Zone[];
   cores: Core[];
   controllers: Controller[];
   unmatched: { instance: string; base_address: string; reason: string }[];
+  custom_ips?: CustomIp[];
 }
 
 export interface XsaParseResult extends ParseResult {

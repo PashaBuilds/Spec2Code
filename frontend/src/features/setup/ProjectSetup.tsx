@@ -66,6 +66,7 @@ const PREFIXES = [
 
 export default function ProjectSetup() {
   const project = useStore((s) => s.project);
+  const customIps = useStore((s) => s.customIps);
   const setProject = useStore((s) => s.setProject);
   const codingStandardRef = useStore((s) => s.codingStandardRef);
   const llm = useStore((s) => s.llm);
@@ -151,6 +152,20 @@ export default function ProjectSetup() {
         </div>
       </div>
       <div className="space-y-4">
+        {customIps.length > 0 && (
+          <div className="rounded-md border border-border/60 bg-inset/40 px-3 py-2 text-xs">
+            <div className="mb-1 font-semibold text-text">Custom IP ({customIps.length}) — shell komutu: <span className="font-mono">&lt;id&gt; dump | read &lt;n&gt; | write &lt;n&gt; &lt;value&gt;</span></div>
+            <ul className="space-y-0.5 font-mono text-[11px] text-muted">
+              {customIps.map((ip) => (
+                <li key={ip.id}>
+                  {ip.id} · {ip.base_address}
+                  {ip.high_address ? `..${ip.high_address}` : ""} · {ip.register_count} × 4 B
+                  {ip.ip_name ? ` · ${ip.ip_name}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {(projectIoMessage || projectIoError) && (
           <div
             className={

@@ -451,9 +451,18 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `i2c_write <addr> <byte...>` | ham bayt dizisi yazar, ilk bayt genelde register adresi: `i2c_write 0x48 0x06 0x10`; I2C switch kanali secmek icin `i2c_write 0x70 0x08` |
 | `i2c_bus [id]` | birden fazla I2C denetleyicisi olan projede uretilir: i2c_read/i2c_write'in kullandigi denetleyiciyi listeler/secer (`*` isaretli) |
 | `mem <addr> [value]` | 32-bit register oku / yaz (`Xil_In32` / `Xil_Out32`), yazinca geri okur: `mem 0x43C00000`, `mem 0x43C00004 0x12345678`; adres 4'e hizali olmali |
+| `<custom_ip> dump` / `read <n>` / `write <n> <value>` | XSA'daki her custom IP icin OTOMATIK uretilir (komut adi = IP instance adi, or. `mem_pcie_intr_0`). `n` register numarasi (0'dan, her biri 4 bayt: adres = base + 4n); XSA adres araligiyla sinirlidir, disina cikan `out of range`. `dump` tum araligi 4'er bayt basar, `write` yazdiktan sonra geri okur |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (tablodan) |
 | `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg1` 0x01010101 ... `reg7` 0x07070707), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
+
+**Custom IP komutlari:** Setup'ta XSA okunurken taninmayan REGISTER tipli PL IP'ler
+(`user:user` VLNV'li kendi IP'lerin) spec'e `custom_ips` olarak yazilir: `id` (instance adi),
+`base_address`, `high_address`, `register_count`. Register sayisi hwh'deki `C_<IF>_ADDR_WIDTH`
+parametresinden gelir (AXI4-Lite sablonu: 4 bit -> 16 B -> 4 register); parametre yoksa
+`HIGHADDR-BASEADDR+1 / 4` (64K pencere -> 16384 register, dump uzun surer). Setup ekraninda
+"N custom IP" rozeti ve liste gorunur; register map dosyasi gerekmez, adres elle yazilmaz.
+LMB BRAM gibi MEMORY tipli araliklar custom IP sayilmaz.
 
 **Dosya rolleri:** `shell.c` cekirdektir ve KOMUT ICERMEZ (satir okuma, ok tusu gecmisi,
 tokenize, tablo dagitimi, `shellBus()/shellLimit()/shellCit()` erisimcileri). Komutlarin

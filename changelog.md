@@ -3,6 +3,18 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.205 - 2026-09-09
+
+- **Custom IP shell komutlari otomatik (SAHA istegi):** XSA'daki taninmayan REGISTER tipli
+  PL IP'ler spec'e `custom_ips` (id, instance, ip_name, base_address, high_address,
+  register_count) olarak girer; shell her biri icin `<id> dump | read <n> | write <n> <value>`
+  komutu uretir (n = 4 baytlik register numarasi, adres = base + 4n, XSA adres araligiyla
+  sinirli; dump tum araligi 4'er bayt okur, write geri okur). Register sayisi hwh
+  `C_<IF>_ADDR_WIDTH`'ten (4 bit -> 4 register), yoksa HIGH-BASE+1/4. MEMORY tipli LMB BRAM
+  araliklari haric. Setup'ta "N custom IP" rozeti + liste; spec semasina `custom_ips` eklendi.
+  Host gcc turunda dump/read/write/sinir; Nexys'te AXI SPI register penceresi custom IP gibi
+  tanimlanip COM12'den okundu/yazildi.
+
 ## v0.1.204 - 2026-09-08
 
 - **`cit` komutu log esigini zorlamiyor** (kullanici istegi): rapor `dbg_printf` INFO
