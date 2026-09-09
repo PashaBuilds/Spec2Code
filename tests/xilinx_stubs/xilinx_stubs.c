@@ -47,4 +47,33 @@ void XUartLite_SendByte(UINTPTR BaseAddress, u8 Data) { (void)BaseAddress; (void
 u32 g_uiStubLastOutAddr = 0U;
 u32 g_uiStubLastOutValue = 0U;
 void Xil_Out32(UINTPTR Addr, u32 Value) { g_uiStubLastOutAddr = (u32)Addr; g_uiStubLastOutValue = Value; printf("XIL_OUT32 0x%08X <= 0x%08X\n", (unsigned int)Addr, (unsigned int)Value); }
-u32 Xil_In32(UINTPTR Addr) { (void)Addr; return 0U; }
+u32 (*g_fpStubIn32)(UINTPTR Addr) = NULL; /* test, adres -> deger fonksiyonu takabilir */
+u32 Xil_In32(UINTPTR Addr) { return (g_fpStubIn32 != NULL) ? g_fpStubIn32(Addr) : 0U; }
+
+/* --- xintc.h / xil_exception.h / sleep.h: AXI INTC + kesme simulasyonu (shell mod test) ---- */
+#include "xintc.h"
+#include "xil_exception.h"
+#include "sleep.h"
+static XInterruptHandler S_fpStubIntcHandler = NULL;
+static void* S_pvStubIntcArgument = NULL;
+unsigned long g_ulStubSleptUs = 0UL;
+unsigned long g_uiStubIntcFireAfterUs = 0UL; /* 0 = kesme hic gelmez; >0 = toplam uyku bu esigi gecince BIR kez */
+static unsigned int S_uiStubIntcFired = 0U;
+int XIntc_Initialize(XIntc* i, u16 DeviceId) { (void)DeviceId; i->IsReady = 1U; return XST_SUCCESS; }
+int XIntc_Connect(XIntc* i, u8 Id, XInterruptHandler Handler, void* CallBackRef) { (void)i; (void)Id; S_fpStubIntcHandler = Handler; S_pvStubIntcArgument = CallBackRef; return XST_SUCCESS; }
+int XIntc_Start(XIntc* i, u8 Mode) { (void)i; (void)Mode; return XST_SUCCESS; }
+void XIntc_Enable(XIntc* i, u8 Id) { (void)i; (void)Id; }
+void XIntc_InterruptHandler(XIntc* i) { (void)i; }
+void Xil_ExceptionInit(void) {}
+void Xil_ExceptionRegisterHandler(u32 Id, Xil_ExceptionHandler Handler, void* Data) { (void)Id; (void)Handler; (void)Data; }
+void Xil_ExceptionEnable(void) {}
+int usleep(unsigned long useconds)
+{
+    g_ulStubSleptUs += useconds;
+    if ((S_uiStubIntcFired == 0U) && (g_uiStubIntcFireAfterUs != 0UL) && (g_ulStubSleptUs >= g_uiStubIntcFireAfterUs) && (S_fpStubIntcHandler != NULL))
+    {
+        S_uiStubIntcFired = 1U;
+        S_fpStubIntcHandler(S_pvStubIntcArgument);
+    }
+    return 0;
+}

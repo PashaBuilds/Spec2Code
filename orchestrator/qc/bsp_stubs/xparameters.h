@@ -30,4 +30,7 @@
 #endif
 #endif
 
+/* AXI INTC (shell mod test kodu QC'de analiz edilsin diye) */
+#define XPAR_XINTC_NUM_INSTANCES 1
+#define XPAR_INTC_0_DEVICE_ID 0
 #endif /* XPARAMETERS_H */

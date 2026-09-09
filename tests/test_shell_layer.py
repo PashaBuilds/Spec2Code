@@ -115,7 +115,14 @@ class ShellLayerGenerationTests(unittest.TestCase):
         self.assertIn("spCommand = shellCommandGet(uiIndex);", user)
         self.assertIn("iIndex = atoi(cpArrArgv[1]);", user)
         self.assertIn('strcmp(cpArrArgv[2], "open") == 0', user)
-        self.assertIn("Xil_Out32(uiAddress, uiValue);", user)
+        self.assertIn("Xil_Out32((UINTPTR)uiAddress, (u32)uiValue);", user)
+        # mod test: AXI INTC (XPAR_XINTC_NUM_INSTANCES ile korunur), volatile bayrak, 1 s zaman asimi, 14 durum.
+        self.assertIn("static volatile unsigned int S_uiModTestDone = 0U;", user)
+        self.assertIn("XIntc_Connect(&S_sModIntc, (u8)SHELL_USER_MOD_INTR_ID, shellUserModInterruptHandler, NULL)", user)
+        self.assertIn("#define SHELL_USER_MOD_INTR_ID_UNSET 1", user)
+        self.assertIn("#define SHELL_USER_MOD_TEST_TIMEOUT_MS 1000U", user)
+        self.assertIn("#define SHELL_USER_MOD_CONNECTOR_COUNT 14U", user)
+        self.assertIn('xil_printf("mod: no AXI INTC in this design', user)
         self.assertIn("0x01010101U, 0x02020202U, 0x03030303U, 0x04040404U, 0x05050505U, 0x06060606U, 0x07070707U, 0x08080808U", user)
         self.assertIn("const SShellCommand* shellUserCommandTable(void);", _read(self.out_dir, "shell/shell_user_commands.h"))
         # cit: esik ZORLANMAZ (kullanici sdl ile acar); yalniz sdl komutu dbgLevelSet cagirir.
@@ -220,6 +227,8 @@ _HOST_XPARAMETERS = """#ifndef XPARAMETERS_H
 #define XPAR_AXI_IIC_0_DEVICE_ID 0U
 #define STDIN_BASEADDRESS 0x40600000UL
 #define STDOUT_BASEADDRESS 0x40600000UL
+#define XPAR_XINTC_NUM_INSTANCES 1
+#define XPAR_INTC_0_DEVICE_ID 0
 #endif
 """
 
@@ -232,12 +241,21 @@ _HOST_MAIN = r"""
 extern const unsigned char* g_ucpStubUartIn;
 extern unsigned int g_uiStubUartInLen;
 extern unsigned int g_uiStubI2cAckAddress;
+extern unsigned long g_uiStubIntcFireAfterUs;
+extern u32 (*g_fpStubIn32)(UINTPTR Addr);
+/* mod test: konnektor 1 (reg8) bit31+bit0 hatali, konnektor 14 (reg21) bit8 hatali, digerleri temiz. */
+static u32 stubIn32(UINTPTR ulAddress)
+{
+    if (ulAddress == 0x43C00020UL) { return 0x80000001U; }
+    if (ulAddress == 0x43C00054UL) { return 0x00000100U; }
+    return 0U;
+}
 static SSistemCitBus S_sBus;
 static const SSistemCitLimit S_sLimit = SISTEM_CIT_LIMIT_VARSAYILAN;
 static SSistemCit S_sCit;
 /* Son: yukari-yukari + Enter -> "sdl 9" yeniden kosar (xyz'den bir onceki); asagi-asagi -> bos satir. */
 static const char S_cArrScript[] = "help\rsdl info\rsdl 9\rxyz\r\x1b[A\x1b[A\r\x1b[B\x1b[B\rsdl\ri2c_search\r"
-                                   "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\r"
+                                   "mod 3 open\rmod  9  open\rmod 3 close\rmod 3 half\rmod 3\rmod 0 test\rmod 1 test\r"
                                    "i2c_read 0x4A 0x00 2\ri2c_read 0x4B 0\ri2c_read 0x4A zz\ri2c_write 0x4A 0x01 0x60\r"
                                    "i2c_write 0x4B 1\rmem 0x43C00000\rmem 0x43C00004 0x12345678\rmem 0x43C00001\r"
                                    "mem_pcie_intr_0 dump\rmem_pcie_intr_0 read 5\rmem_pcie_intr_0 read 6\r"
@@ -251,6 +269,8 @@ int main(void)
     shellInit(&S_sBus, &S_sLimit, &S_sCit);
     (void)shellCommandsRegister(shellUserCommandTable(), shellUserCommandCount());
     g_uiStubI2cAckAddress = 0x4AU; /* i2c_search: yalniz TMP101 adresi ACK */
+    g_uiStubIntcFireAfterUs = 5000UL; /* ilk mod test: 5. usleep(1000)'de kesme; ikincisi zaman asimi */
+    g_fpStubIn32 = stubIn32;
     g_ucpStubUartIn = (const unsigned char*)S_cArrScript;
     g_uiStubUartInLen = (unsigned int)strlen(S_cArrScript);
     for (uiTur = 0U; uiTur < 4U; uiTur++)
@@ -284,7 +304,7 @@ class ShellHostRoundTripTests(unittest.TestCase):
                        *[str(p) for p in (out_dir / "shell").glob("shell*.c")],
                        *[str(p) for p in (out_dir / "tests" / "sim").glob("*.c")]]
             cmd = [_find_cc(), "-std=c99", "-Wall", "-Wextra", "-Werror",
-                   "-include", "spec2code_sim_xilinx.h", "-DSHELL_USER_MOD_BASEADDR=0x43C00000U",
+                   "-include", "spec2code_sim_xilinx.h", "-DSHELL_USER_MOD_BASEADDR=0x43C00000U", "-DSHELL_USER_MOD_INTR_ID=3U",
                    "-I", str(work), "-I", str(STUBS), "-I", str(out_dir / "drivers"),
                    "-I", str(out_dir / "cit"), "-I", str(out_dir / "shell"), "-I", str(out_dir / "tests" / "sim"),
                    "-o", str(binary), *sources]
@@ -298,7 +318,7 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("shell is initialized (type help)", out)
         self.assertNotIn("kabuk", out)
         self.assertIn("commands:", out)                       # help
-        self.assertIn("  mod          <0..7> <open|close>", out)  # kullanici tablosu help'te
+        self.assertIn("  mod          <0..7> <open|close|test>", out)  # kullanici tablosu help'te
         self.assertIn("log level: info (4)", out)             # sdl info
         self.assertEqual(out.count("sdl: invalid level '9'"), 2)  # sdl 9 + gecmisten (yukari x2) tekrar
         self.assertIn("unknown command: xyz (type help)", out)  # xyz
@@ -312,9 +332,25 @@ class ShellHostRoundTripTests(unittest.TestCase):
         self.assertIn("mod: reg3 @0x43C0000C <= 0x04040404 (open)", out)
         self.assertIn("mod: x must be 0..7 (got '9')", out)
         self.assertIn("XIL_OUT32 0x43C0000C <= 0x00000000", out)
-        self.assertIn("mod: y must be open or close (got 'half')", out)
-        self.assertIn("usage: mod <0..7> <open|close>", out)
-        self.assertEqual(out.count("XIL_OUT32"), 4)  # mod open, mod close, mem yazma, custom IP write
+        self.assertIn("mod: y must be open, close or test (got 'half')", out)
+        self.assertIn("usage: mod <0..7> <open|close|test>", out)
+        # mod 0 test: desen yaz, kesme 5 ms'de gelir (stub), 14 konnektor renkli, close yazilir.
+        self.assertIn("mod: test 0 started (reg0 <= 0x01010101), waiting for interrupt (max 1000 ms)", out)
+        self.assertIn("mod: interrupt received after 5 ms", out)
+        self.assertIn("XIL_OUT32 0x43C00000 <= 0x01010101", out)
+        self.assertIn("     1    8  0x43C00020  0x80000001  ", out)
+        self.assertIn("    14   21  0x43C00054  0x00000100  ", out)
+        self.assertIn("\x1b[31m1\x1b[32m0\x1b[32m0", out)            # bit31 kirmizi, sonrakiler yesil
+        self.assertIn("\x1b[31m2 error(s)", out)                      # konnektor 1
+        self.assertIn("\x1b[32m0 error(s)", out)                      # temiz konnektor
+        self.assertIn("mod: gpio loopback NOK - 3 error bit(s) in 14 connectors", out)
+        self.assertIn("mod: reg0 <= 0x00000000 (close)", out)
+        # mod 1 test: kesme gelmez -> 1000 ms sonra TIMEOUT, durum yine basilir, close yazilir.
+        self.assertIn("mod: test 1 started (reg1 <= 0x02020202)", out)
+        self.assertIn("mod: TIMEOUT - no interrupt within 1000 ms", out)
+        self.assertIn("mod: reg1 <= 0x00000000 (close)", out)
+        self.assertEqual(out.count("mod: gpio loopback NOK"), 2)
+        self.assertEqual(out.count("XIL_OUT32"), 8)  # mod open/close, mem yazma, custom IP write, 2 x (test open + close)
         # Custom IP komutu: dump 6 register (4 + 2 satir), read sinir, write + readback, hatali alt komut.
         self.assertIn("mem_pcie_intr_0: base 0x43C00000, 6 registers", out)
         self.assertIn("  reg   0 @0x43C00000: 00000000 00000000 00000000 00000000", out)

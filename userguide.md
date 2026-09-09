@@ -454,7 +454,7 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `<custom_ip> dump` / `read <n>` / `write <n> <value>` | XSA'daki her custom IP icin OTOMATIK uretilir (komut adi = IP instance adi, or. `mem_pcie_intr_0`). `n` register numarasi (0'dan, her biri 4 bayt: adres = base + 4n); XSA adres araligiyla sinirlidir, disina cikan `out of range`. `dump` tum araligi 4'er bayt basar, `write` yazdiktan sonra geri okur |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (tablodan) |
-| `mod <x> <y>` | ornek komut: custom IP register x (0..7, 4 B ofset) `open` -> desen (`reg0` 0x01010101 ... `reg7` 0x08080808), `close` -> 0; `Xil_Out32(SHELL_USER_MOD_BASEADDR + 4*x, deger)` |
+| `mod <x> <y>` | GPIO loopback test IP'si (14 Samtec konnektor): `open` reg x <= desen (`reg0` 0x01010101 ... `reg7` 0x08080808), `close` 0, **`test`** = open + AXI INTC kesmesini bekle (1 s, gelmezse TIMEOUT) + reg8..reg21'deki 14 konnektor durumunu bit bit renkli bas (0 yesil OK, 1 kirmizi HATA, satir sonunda hata sayisi, altta genel OK/NOK) + close. Kesme isleyicisi yalniz `volatile` bayrak kurar. `shell_user_commands.c` basinda `SHELL_USER_MOD_BASEADDR` (XPAR_<IP>_BASEADDR) ve `SHELL_USER_MOD_INTR_ID` (XPAR_INTC_0_<IP>_<PORT>_VEC_ID) ayarlanir; tasarimda AXI INTC yoksa `test` bunu soyler |
 
 **Custom IP komutlari:** Setup'ta XSA okunurken taninmayan REGISTER tipli PL IP'ler
 (`user:user` VLNV'li kendi IP'lerin) spec'e `custom_ips` olarak yazilir: `id` (instance adi),

@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.208 - 2026-09-09
+
+- **`mod <x> test` - GPIO loopback testi (SAHA istegi):** shell'deki `mod` ornegi projeye ozgu
+  test IP'sine donustu: reg0..reg7 test modu (desen = basla, 0 = bitir), reg8..reg21 14
+  konnektorun durum registeri (bit = GPIO, 0 OK / 1 HATA). `test`: deseni yazar, AXI INTC
+  kesmesini (rising edge, isleyici yalniz `volatile` bayrak kurar) 1 s bekler, gelmezse
+  TIMEOUT der, 14 durumu bit bit renkli (yesil/kirmizi) + hata sayisi + genel OK/NOK basar,
+  0 yazarak kapatir. `open`/`close` teshis icin duruyor. Makrolar: `SHELL_USER_MOD_BASEADDR`,
+  `SHELL_USER_MOD_INTR_ID` (xparameters.h `..._VEC_ID`), `SHELL_USER_MOD_INTC_DEVICE_ID`
+  (varsayilan `XPAR_INTC_0_DEVICE_ID`); INTC'siz tasarimda kod `XPAR_XINTC_NUM_INSTANCES`
+  ile disarida kalir. Host turunda kesme/zaman asimi/renkli durum dogrulandi; QC stublarina
+  xintc/xil_exception/sleep eklendi.
+
 ## v0.1.207 - 2026-09-09
 
 - **CIT raporu indir:** CIT ekraninda "Rapor indir" son okunan kosuyu bring-up sertifikasi
