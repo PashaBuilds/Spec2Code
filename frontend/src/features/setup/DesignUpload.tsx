@@ -28,6 +28,8 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
   // Dosya secici ile yuklenen XSA sunucuya KOPYALANIR (tarayici gercek yolu vermez);
   // kullanici orijinal yolu gorunce sasirmasin diye acik not gosterilir.
   const [copiedNote, setCopiedNote] = useState<string | null>(null);
+  // XSA uygulandiktan sonra sema ozeti; Schematic'e gecis KULLANICININ tiklamasiyla (otomatik atlama yok).
+  const [applied, setApplied] = useState<{ devices: number; muxes: number; dropped: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function applyResult(res: XsaParseResult) {
@@ -37,13 +39,13 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
       platform: res.platform as PlatformId,
       target_core: res.cores[0]?.id ?? project.target_core,
     });
-    applyParse(res);
+    const summary = applyParse(res);
     localStorage.setItem("spec2code.xsaPath", res.xsa_path);
     setDesignPath(res.xsa_path);
     setCount(res.controllers.length);
     setCustomCount(res.custom_ips?.length ?? 0);
     setDetected(res.platform);
-    setStep("schematic");
+    setApplied(summary);
   }
 
   async function onDesignFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -125,6 +127,20 @@ export default function DesignUpload({ onOpenVivado }: { onOpenVivado?: () => vo
           <p className="mt-2 rounded border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px] leading-relaxed text-warn">
             {copiedNote}
           </p>
+        ) : null}
+        {applied ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-ok/30 bg-ok/10 px-2 py-1.5 text-[11px] leading-relaxed text-ok">
+            <span>
+              Tasarım uygulandı.{" "}
+              {applied.devices + applied.muxes > 0
+                ? `Şematik korundu: ${applied.devices} cihaz, ${applied.muxes} switch (denetleyicileri yeni tasarımda da var).`
+                : "Şematik boş; entegreleri Schematic'te ekle."}
+              {applied.dropped.length ? ` Denetleyicisi kaybolduğu için kaldırılan: ${applied.dropped.join(", ")}.` : ""}
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setStep("schematic")}>
+              <CircuitBoard className="h-4 w-4" /> Schematic&apos;e git
+            </Button>
+          </div>
         ) : null}
         <p className="mt-3 text-[11px] leading-relaxed text-faint">
           Dosya içindeki hardware handoff (.hwh) okunur: PS çevre birimleri, PL IP&apos;leri ve adres

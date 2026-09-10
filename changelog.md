@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.209 - 2026-09-10
+
+- **XSA degisince sema korunur (SAHA istegi):** yeni XSA'da ayni kimlik + tipte denetleyicisi
+  bulunan cihaz / switch / konnektor yerinde kalir (limit, isim, config dahil); denetleyicisi
+  kaybolanlar dusurulur ve ozet satirinda listelenir; kartlar korunur.
+- **XSA secince Schematic'e otomatik atlama kaldirildi:** Setup'ta yesil ozet + "Schematic'e git"
+  dugmesi.
+
 ## v0.1.208 - 2026-09-09
 
 - **`mod <x> test` - GPIO loopback testi (SAHA istegi):** shell'deki `mod` ornegi projeye ozgu

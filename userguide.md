@@ -155,6 +155,13 @@ Vitis adimi bu kopyayi kullanir (ekranda sari notla gosterilir). Orijinal dosyay
 yerinde kullanmak istersen tam yolu (`D:\...\board.xsa`) alttaki alana yazip
 "Semayi kur" de: bu durumda kopya olusmaz, Vitis dogrudan o yolu okur.
 
+XSA uygulaninca ekran Schematic'e KENDILIGINDEN gecmez; yesil ozet satirindaki
+"Schematic'e git" ile gecersin. **Sema korunur:** yeni XSA'da ayni kimlik ve tipte
+denetleyicisi (`pl_i2c_0`, `ps_spi_0` ...) bulunan cihazlar, switch'ler ve konnektorler
+yerinde kalir (limitler, isimler, config dahil); denetleyicisi kaybolanlar dusurulur ve
+ozet satirinda adiyla listelenir. Kartlar her zaman korunur. Boylece PL bloklari ayni
+kalip yalniz bitstream/PS ayari degisen XSA'larda semayi yeniden kurmak gerekmez.
+
 ### `xparameters.h`
 
 Dosyayi yukle ya da icerigini yapistir; denetleyiciler (I2C, SPI/QSPI, GPIO, UART,

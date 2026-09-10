@@ -1,5 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+export interface ApplyParseSummary {
+  devices: number;
+  muxes: number;
+  dropped: string[];
+}
+
 import type {
   CustomIp,
   Board,
@@ -84,13 +90,16 @@ interface StoreState {
   setStep: (s: Step) => void;
   setProject: (p: Partial<ProjectMeta>) => void;
   setLlm: (p: Partial<LlmConfig>) => void;
+  /** Yeni XSA/parse sonucunu uygular. Sema KORUNUR: denetleyicisi (ayni id + tip) yeni tasarimda
+   *  da olan cihaz/switch/konnektor kalir, denetleyicisi kaybolanlar dusurulur (kullanici istegi
+   *  2026-09-10: PL bloklari ayni kaldigi surece XSA degisince sema sifirlanmasin). Donus: ozet. */
   applyParse: (r: {
     controllers: Controller[];
     unmatched: { instance: string; base_address: string; reason: string }[];
     custom_ips?: CustomIp[];
     zones: Zone[];
     cores: Core[];
-  }) => void;
+  }) => ApplyParseSummary;
   loadSpec: (spec: ProjectSpec, context?: { zones?: Zone[]; cores?: Core[] }) => void;
   setCatalog: (c: CatalogDevice[]) => void;
   setDescriptors: (d: DescriptorMeta[]) => void;
@@ -257,21 +266,40 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),
   setLlm: (p) => set((s) => ({ llm: { ...s.llm, ...p } })),
 
-  applyParse: (r) =>
+  applyParse: (r) => {
+    const s0 = get();
+    const nextControllers = new Map(r.controllers.map((c) => [c.id, c]));
+    const controllerKept = (id: string | undefined) => {
+      if (!id) return false;
+      const before = s0.controllers.find((c) => c.id === id);
+      const after = nextControllers.get(id);
+      return Boolean(after) && (!before || before.type === after!.type);
+    };
+    const keptMuxes = s0.muxes.filter((m) => controllerKept(m.controller_id));
+    const keptMuxIds = new Set(keptMuxes.map((m) => m.id));
+    const keptDevices = s0.devices
+      .filter((d) => controllerKept(d.attach.controller_id))
+      .map((d) => (d.attach.via_mux && !keptMuxIds.has(d.attach.via_mux.mux_id) ? { ...d, attach: { ...d.attach, via_mux: null } } : d));
+    const keptDeviceIds = new Set(keptDevices.map((d) => d.id));
+    const keptConnectors = s0.connectors.filter((c) => controllerKept(c.bus.controller_id));
+    const dropped = [
+      ...s0.devices.filter((d) => !keptDeviceIds.has(d.id)).map((d) => `${d.id} (${d.attach.controller_id})`),
+      ...s0.muxes.filter((m) => !keptMuxIds.has(m.id)).map((m) => `${m.id} (${m.controller_id})`),
+    ];
     set({
       controllers: r.controllers,
       unmatched: r.unmatched ?? [],
       customIps: r.custom_ips ?? [],
       zones: r.zones ?? [],
       cores: r.cores ?? [],
-      muxes: [],
-      devices: [],
-      // Yeni tasarim = yeni topoloji: kartlar da sifirlanir.
-      boards: [],
-      connectors: [],
-      boardSizes: {},
+      muxes: keptMuxes,
+      devices: keptDevices,
+      // Kartlar topolojiye bagli degil: korunur; konnektor yalniz denetleyicisi kaybolunca duser.
+      connectors: keptConnectors,
       selectedId: null,
-    }),
+    });
+    return { devices: keptDevices.length, muxes: keptMuxes.length, dropped };
+  },
 
   loadSpec: (spec, context) =>
     set({
