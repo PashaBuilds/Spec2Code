@@ -16,7 +16,7 @@ Uretilen agac:
                                       ``mod <x> <y>`` (custom IP register yazimi).
                                       Yeni komut = bir fonksiyon + tabloya bir satir (kullanici istegi 2026-09-08:
                                       cit/sdl gibi komutlar da bu dosyada dursun).
-* ``shell/main.h/.c``                - ana program: Colossal banner, bus kur, ``sistemCitInit``, ``shellInit``,
+* ``main.h/.c`` (KOK dizin)          - ana program: Colossal banner, bus kur, ``sistemCitInit``, ``shellInit``,
                                       ``shellCommandsRegister(shellUserCommandTable(), ...)``,
                                       ``while (1) shellCheck();``.
 
@@ -1325,6 +1325,7 @@ def main_source(spec: dict) -> str:
         " * @file main.c\n"
         f" * @brief {name}: ana program - CIT + konsol shell'i. Kendi projene kopyala ve uyarla.\n"
         " *\n"
+        " * Konum: cikti kokunde (shell/ icinde degil) - Vitis src/ altinda tek basina durur.\n"
         " * Derleme: drivers/ (kart alt klasorleri dahil), cit/ ve shell/ include yolunda; dbg_printf.c\n"
         " * dahil tum .c dosyalari projede. Test bench ajani (tests/) BU projeye alinmaz.\n"
         " *\n"
@@ -1402,7 +1403,7 @@ def readme_section(spec: dict, plans: list) -> str:
         "| `shell/shell_uart.h/.c` | `shellUartByteRead()` (bloklamaz) / `shellUartByteWrite()` |",
         "| `shell/shell.h/.c` | cekirdek (komut yok): satir okuma, ok tusu gecmisi, tokenize, `SShellCommand` tablo dagitimi; `shellInit`, `shellCommandsRegister`, `shellCheck` |",
         "| `shell/shell_user_commands.h/.c` | TUM komutlar tek tabloda `S_sArrUserCommands[]`: `cit`, `i2c_search`, `sdl`, `help` ve ornek `mod <0..7> <open|close>` |",
-        "| `shell/main.h/.c` | banner -> bus kur -> `sistemCitInit` -> `shellInit` -> kullanici tablosunu kaydet -> `while (1) shellCheck();` |",
+        "| `main.h/.c` (kok dizin) | banner -> bus kur -> `sistemCitInit` -> `shellInit` -> komut tablosunu kaydet -> `while (1) shellCheck();`; Vitis `<app>_shell` src/ kokunde tek basina |",
         "",
         "Yeni komut: `shell_user_commands.c`'de `static void shellUser<Ad>(unsigned int uiArgc, const char* cpArrArgv[])`",
         "yaz, `S_sArrUserCommands[]`'a `{\"<ad>\", shellUser<Ad>, \"<args>  aciklama\"}` satiri ekle. Argumanlar string",
@@ -1438,7 +1439,14 @@ def write_shell_layer(spec: dict, out_dir: Path, plans: list) -> tuple[list[str]
         hio.write_output(shell_dir / "shell.c", shell_source()),
         hio.write_output(shell_dir / "shell_user_commands.h", user_commands_header()),
         hio.write_output(shell_dir / "shell_user_commands.c", user_commands_source(spec, plans)),
-        hio.write_output(shell_dir / "main.h", main_header(spec)),
-        hio.write_output(shell_dir / "main.c", main_source(spec)),
+        # main.h/.c KOK dizinde, shell/ icinde degil: Vitis src/ altinda tek basina, bagimsiz durur
+        # (kullanici istegi 2026-09-11). Eski surumlerin shell/main.* ve main_example.* kalintilari
+        # silinir - ayni agacta iki main olmasin.
+        hio.write_output(out_dir / "main.h", main_header(spec)),
+        hio.write_output(out_dir / "main.c", main_source(spec)),
     ]
+    for stale in ("main.h", "main.c", "main_example.h", "main_example.c"):
+        stale_path = shell_dir / stale
+        if stale_path.is_file():
+            stale_path.unlink()
     return [str(p) for p in written], readme_section(spec, plans)

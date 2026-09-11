@@ -1122,9 +1122,11 @@ def stage_vitis_sources(job: Job, source_root: Path) -> list[str]:
 
 
 #: Ikinci Vitis uygulamasi (`<app>_shell`): kullanicinin kendi projesine tasiyacagi
-#: kod (drivers + cit + shell/main.c) ayni platformda derlenir; ELF'i GUI
+#: kod (drivers + cit + shell + kokteki main.c) ayni platformda derlenir; ELF'i GUI
 #: kullanmaz, kullanici manuel alir. Ajan uygulamasi (drivers + cit + tests) degismez.
 _SHELL_STAGED_PREFIXES = ("drivers/", "cit/", "shell/")
+#: Kok dizinden sahnelenen dosyalar: ana program src/ altinda tek basina durur.
+_SHELL_STAGED_ROOT_FILES = ("main.c", "main.h")
 SHELL_APP_SUFFIX = "_shell"
 
 
@@ -1142,7 +1144,8 @@ def stage_shell_sources(job: Job, source_root: Path) -> list[str]:
         raise ValueError("generate job result is not ready")
     out_dir = job.result.get("out_dir", "")
     files = [rel for rel in job.result.get("files", [])
-             if _relative_output_name(_posix_path(rel).lstrip("/"), out_dir).startswith(_SHELL_STAGED_PREFIXES)]
+             if _relative_output_name(_posix_path(rel).lstrip("/"), out_dir).startswith(_SHELL_STAGED_PREFIXES)
+             or _relative_output_name(_posix_path(rel).lstrip("/"), out_dir) in _SHELL_STAGED_ROOT_FILES]
     if not any(_relative_output_name(_posix_path(rel).lstrip("/"), out_dir).startswith("shell/") for rel in files):
         return []
     if source_root.exists():
@@ -2607,7 +2610,7 @@ def render_xsct_update_script(
 #: bunlar silinip yeniden import edilir - kaldirilan dosyalar (ör. transport
 #: degisince eski agent main'i) workspace'te bayat kalmasin.
 _STAGED_SRC_SUBDIRS = ("drivers", "tests", "cit", "shell", "reference_sources")
-_STAGED_SRC_ROOT_FILES = ("spec2code_selftest_main.c", "spec2code_selftest_main.h")
+_STAGED_SRC_ROOT_FILES = ("spec2code_selftest_main.c", "spec2code_selftest_main.h", "main.c", "main.h")
 
 
 def clear_staged_app_sources(workspace_path: Path, app_name: str) -> list[str]:

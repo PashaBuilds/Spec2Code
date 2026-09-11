@@ -957,7 +957,9 @@ class VitisWorkspaceTests(unittest.TestCase):
                 # Ikinci uygulama: drivers + cit + shell (main_example.c) ayri sahnelenir ve derlenir.
                 self.assertEqual(result["shell_app_name"], "unit_application_shell")
                 shell_src = temp_root / "vitis_unit" / "src_shell"
-                self.assertTrue((shell_src / "shell" / "main.c").is_file())
+                self.assertTrue((shell_src / "main.c").is_file())   # ana program src/ kokunde
+                self.assertTrue((shell_src / "main.h").is_file())
+                self.assertFalse((shell_src / "shell" / "main.c").exists())
                 self.assertTrue((shell_src / "cit" / "sistem_cit.c").is_file())
                 self.assertFalse((shell_src / "tests").exists())
                 self.assertEqual(result["shell_elf_artifacts"]["application"], 1)

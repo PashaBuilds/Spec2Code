@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.210 - 2026-09-11
+
+- **`main.c` / `main.h` cikti kokune tasindi** (kullanici istegi): artik `shell/` icinde degil,
+  Vitis `<app>_shell` projesinde `src/` altinda tek basina duruyor; `drivers/ cit/ shell/`
+  alt klasorleri ayni. Eski `shell/main.*` kalintilari uretimde silinir; QC kok `main.c`'yi de
+  denetler; Vitis update kok `main.*`'i yeniden sahneler.
+
 ## v0.1.209 - 2026-09-10
 
 - **XSA degisince sema korunur (SAHA istegi):** yeni XSA'da ayni kimlik + tipte denetleyicisi

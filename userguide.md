@@ -434,7 +434,8 @@ carpimi, DS1682 gecen zaman sayaci, LMK04832 kilit bitleri) ve hata enjeksiyonu
 ### 9.1 Konsol shell'i (`shell/`)
 
 Kendi main'inden konsol UART'i uzerinden komutla CIT kosturmak icin `shell/` katmani
-uretilir (cit/ olan her projede). `shell/main.c` kopyala-yapistir ana programdir (acilista proje adini
+uretilir (cit/ olan her projede). Cikti kokundeki `main.c` / `main.h` (shell/ icinde DEGIL; Vitis
+`<app>_shell` projesinde `src/` altinda tek basina durur) kopyala-yapistir ana programdir (acilista proje adini
 buyuk harf FIGlet Colossal banner olarak basar, ardindan `shell is initialized (type help)`):
 
 ```c
@@ -513,7 +514,7 @@ Test bench ajani (tests/) ile birlikte derlenmez; UART ajani konsolu kullanirken
 ayni hatta olamaz, MDM/CoreSight/TCP ajanlarinin yaninda konsolda calisabilir.
 
 Vitis workspace kurulumu bu kodu ayrica DERLER: ayni platformda ikinci bir uygulama
-(`<app>_shell`, kaynaklari `drivers/ + cit/ + shell/`, main'i `main.c`) olusur ve
+(`<app>_shell`, kaynaklari `drivers/ + cit/ + shell/` + kokteki `main.c/main.h`) olusur ve
 ELF'i Vitis sayfasinda "Shell ELF" satirinda gorunur. GUI bu ELF'i kullanmaz;
 "Board'da calistir" her zaman ajani yukler. Shell ELF'ini XShell/PuTTY ile denemek icin
 `xsdb`/Vitis'ten elle yukle ya da kaynaklari kendi projene tasi.

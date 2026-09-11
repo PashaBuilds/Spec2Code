@@ -93,8 +93,11 @@ def _run_qc_rounds(
     if config_error:
         emit({"event": "qc.format_config_rejected", "reason": config_error})
 
+    # Kok dizindeki main.c/main.h (shell uygulamasinin ana programi) de kapidan gecer.
+    root_c = [p for p in (out_dir / "main.c",) if p.is_file()]
+    root_h = [p for p in (out_dir / "main.h",) if p.is_file()]
     c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"),
-                      *[f for d in layer_dirs for f in d.rglob("*.c")]])
+                      *[f for d in layer_dirs for f in d.rglob("*.c")], *root_c])
     fmt_files = sorted([
         *drivers_dir.rglob("*.c"),
         *drivers_dir.rglob("*.h"),
@@ -102,6 +105,8 @@ def _run_qc_rounds(
         *tests_dir.glob("*.h"),
         *[f for d in layer_dirs for f in d.rglob("*.c")],
         *[f for d in layer_dirs for f in d.rglob("*.h")],
+        *root_c,
+        *root_h,
     ])
     runners.write_project_xparameters_stub(qc_include_dir, fmt_files)
 
