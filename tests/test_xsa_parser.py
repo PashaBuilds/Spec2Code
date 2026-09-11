@@ -38,6 +38,10 @@ _SYNTH_HWH = """<?xml version="1.0" encoding="UTF-8"?>
     <MODULE FULLNAME="/lmb_bram_2" INSTANCE="lmb_bram_2" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL" MODCLASS="MEMORY_CNTLR">
       <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x00000000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x0003FFFF"/></PARAMETERS>
     </MODULE>
+    <MODULE FULLNAME="/axi_timer_0" INSTANCE="axi_timer_0" MODTYPE="axi_timer" IPTYPE="PERIPHERAL" VLNV="xilinx.com:ip:axi_timer:2.0">
+      <ADDRESSBLOCKS><ADDRESSBLOCK INTERFACE="S_AXI" NAME="Reg" RANGE="65536" USAGE="register"/></ADDRESSBLOCKS>
+      <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x41C00000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x41C0FFFF"/></PARAMETERS>
+    </MODULE>
     <MODULE FULLNAME="/lmb_bram_1" INSTANCE="lmb_bram_1" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL">
       <ADDRESSBLOCKS><ADDRESSBLOCK INTERFACE="SLMB" NAME="Mem" RANGE="8192" USAGE="memory"/></ADDRESSBLOCKS>
       <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x00000000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x0003FFFF"/></PARAMETERS>
@@ -73,14 +77,15 @@ class SyntheticXsaTests(unittest.TestCase):
         self.assertEqual(by_type["uart"]["driver"], "XUartPs")
         self.assertEqual(by_type["qspi"]["driver"], "XQspiPsu")
         # The custom AXI IP surfaces as unmatched, not silently dropped.
-        self.assertEqual(len(result.unmatched), 6)
+        self.assertEqual(len(result.unmatched), 7)
         self.assertIn("mem_pcie_intr", result.unmatched[0]["reason"])
         self.assertEqual(result.unmatched[0]["base_address"], "0xA0000000")
         # REGISTER tipli custom IP'ler custom_ips'e girer (MEMORY tipli LMB BRAM girmez);
         # register_count ADDR_WIDTH'ten (4 bit -> 16 B -> 4 reg), yoksa HIGH-BASE+1 / 4 (256 B -> 64).
         # Gercek hwh'de MEMRANGE islemci altindadir: modul parametreleri (C_<IF>_BASEADDR/HIGHADDR)
         # + ADDRESSBLOCK USAGE ile cozulur (real_ip_0: 6 bit -> 16 reg); USAGE=memory (lmb_bram_1) ve
-        # MODCLASS=MEMORY_CNTLR (lmb_bram_2, ADDRESSBLOCK'suz ILMB) girmez.
+        # MODCLASS=MEMORY_CNTLR (lmb_bram_2, ADDRESSBLOCK'suz ILMB) ve standart Xilinx IP
+        # (axi_timer_0, VLNV xilinx.com:ip) girmez - surucusu BSP'dedir, shell komutu uretilmez.
         self.assertEqual([ip["id"] for ip in result.custom_ips], ["mem_pcie_intr_0", "pl_blob_0", "real_ip_0"])
         self.assertEqual((result.custom_ips[2]["base_address"], result.custom_ips[2]["register_count"]), ("0xA0020000", 16))
         pcie = result.custom_ips[0]

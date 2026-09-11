@@ -4415,6 +4415,33 @@ def _zynqmp_lwip_eth_controller(spec: dict) -> dict | None:
     return None
 
 
+def _microblaze_lwip_eth_controller(spec: dict) -> dict | None:
+    """MicroBlaze PL Ethernet (AXI EthernetLite, XEmacLite) - lwIP RAW ajaninin tasiyicisi.
+
+    Xilinx lwIP portu EmacLite'i xtopology (BSP) uzerinden AXI INTC'ye bagli kesmeyle surer;
+    TCP zamanlayicilari AXI Timer kesmesinden gelir (resmi lwip_echo_server platform_mb.c
+    kalibi). Bu yuzden tasarimda AXI INTC + AXI Timer olmali; yoksa Vitis derlemesi
+    XPAR_INTC_0_* / XPAR_TMRCTR_0_* eksigiyle duser (kilavuz 14).
+    """
+    if spec.get("project", {}).get("platform") != "microblaze_7series":
+        return None
+    for controller in spec.get("controllers", []):
+        if controller.get("type") != "eth" or controller.get("zone") != "pl":
+            continue
+        if controller.get("driver") == "XEmacLite":
+            return controller
+    return None
+
+
+def _lwip_eth_controller(spec: dict) -> dict | None:
+    """lwIP ajaninin kullanabilecegi Ethernet: ZynqMP PS GEM ya da MicroBlaze AXI EthernetLite."""
+    return _zynqmp_lwip_eth_controller(spec) or _microblaze_lwip_eth_controller(spec)
+
+
+def _lwip_on_microblaze(spec: dict) -> bool:
+    return _zynqmp_lwip_eth_controller(spec) is None and _microblaze_lwip_eth_controller(spec) is not None
+
+
 #: UART drivers the serial agent can be generated for. The Versal uartpsv
 #: driver mirrors the uartps API one-to-one (Lookup/CfgInitialize/
 #: SetBaudRate/Recv/Send); MicroBlaze's AXI UARTLITE has the same polled
@@ -4522,12 +4549,18 @@ def _testbench_transport_agent(spec: dict) -> str | None:
     jtagterminal bridge on the host, so they must be explicit.
     """
     choice = str(spec.get("project", {}).get("testbench_transport", "auto") or "auto")
-    lwip_possible = _zynqmp_lwip_eth_controller(spec) is not None
+    lwip_possible = _lwip_eth_controller(spec) is not None
     uart_possible = _testbench_uart_controller(spec) is not None
     if choice == "eth":
+        if lwip_possible and _lwip_on_microblaze(spec) and _testbench_runtime_is_freertos(spec):
+            raise cmodel.CodegenError(
+                "MicroBlaze AXI EthernetLite lwIP ajani yalnizca bare_metal (RAW API) icin uretilir; "
+                "FreeRTOS'ta uart/mdm transportunu kullanin")
         return "lwip" if lwip_possible else None
     if choice == "uart":
         return "uart" if uart_possible else None
+    if lwip_possible and _lwip_on_microblaze(spec) and _testbench_runtime_is_freertos(spec):
+        lwip_possible = False  # auto: MB EthernetLite ajani RAW-only; FreeRTOS'ta UART'a dus
     if choice == "coresight":
         if _testbench_coresight_supported(spec):
             return "coresight"
@@ -5047,7 +5080,7 @@ def _testbench_lwip_source(spec: dict) -> str:
 def _testbench_lwip_source_socket(spec: dict) -> str:
     eth = _zynqmp_lwip_eth_controller(spec)
     if eth is None:
-        raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
+        raise cmodel.CodegenError("lwIP SOCKET_API (FreeRTOS) test bench requested without a ZynqMP PS Ethernet controller")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
     telnet = _telnet_log_enabled(spec)
@@ -5342,9 +5375,10 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
 
 
 def _testbench_lwip_source_raw(spec: dict) -> str:
-    eth = _zynqmp_lwip_eth_controller(spec)
+    eth = _lwip_eth_controller(spec)
     if eth is None:
-        raise cmodel.CodegenError("lwIP test bench requested without a ZynqMP PS Ethernet controller")
+        raise cmodel.CodegenError("lwIP test bench requested without an Ethernet controller (ZynqMP PS GEM or MicroBlaze AXI EthernetLite)")
+    microblaze = _lwip_on_microblaze(spec)
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
     telnet = _telnet_log_enabled(spec)
@@ -5365,6 +5399,9 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         '#include "netif/xadapter.h"',
         '#include <stddef.h>',
     ]
+    if microblaze:
+        # Resmi lwip_echo_server platform_mb.c kalibi: AXI INTC + AXI Timer (dusuk seviye API).
+        headers += ['#include "xintc.h"', '#include "xtmrctr_l.h"', '#include "mb_interface.h"']
     if telnet:
         headers.append('#include "spec2code_telnet_log.h"')
     if any(entry["htype"] == "XIicPs" for entry in entries):
@@ -5373,11 +5410,19 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         headers.append('#include "xspips.h"')
     if any(entry["htype"] == "XQspiPsu" for entry in entries):
         headers.append('#include "xqspipsu.h"')
+    if any(entry["htype"] == "XIic" for entry in entries):
+        headers.append('#include "xiic.h"')
+    if any(entry["htype"] == "XSpi" for entry in entries):
+        headers.append('#include "xspi.h"')
+    if any(entry["htype"] == "XGpio" for entry in entries):
+        headers.append('#include "xgpio.h"')
 
     lines = [
         "/**",
         " * @file spec2code_testbench_lwip.c",
-        " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent for Spec2Code test bench.",
+        (" * @brief MicroBlaze AXI EthernetLite lwIP TCP agent for Spec2Code test bench."
+         if microblaze else
+         " * @brief Zynq UltraScale+ PS Ethernet lwIP TCP agent for Spec2Code test bench."),
         " *",
         " * RAW API callback'i pbuf baytlarini S2C-MSG cozucusune (parser)",
         " * feed-forward besler; her tam cercevede spec2codeMesajIsle yaniti",
@@ -5410,6 +5455,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "static unsigned int S_uiServerReady;",
         "",
         *_testbench_board_handle_decls(entries),
+        *(_testbench_lwip_microblaze_platform_lines() if microblaze else []),
         "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb,",
         "                                            const unsigned char* ucpFrame,",
         "                                            unsigned int uiLength)",
@@ -5531,6 +5577,8 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    {",
         "        return XST_SUCCESS;",
         "    }",
+        *(["    spec2codeTestbenchPlatformInterruptsSetup(); /* INTC + timer (kesmeler henuz kapali) */"]
+          if microblaze else []),
         "    lwip_init();",
         "    IP4_ADDR(&sIpAddr,",
         "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
@@ -5554,11 +5602,14 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "                  S_ucArrMac,",
         "                  SPEC2CODE_TESTBENCH_ETH_BASEADDR) == NULL)",
         "    {",
-        '        xil_printf("Spec2Code lwIP PS Ethernet init failed\\r\\n");',
+        ('        xil_printf("Spec2Code lwIP AXI EthernetLite init failed\\r\\n");' if microblaze else
+         '        xil_printf("Spec2Code lwIP PS Ethernet init failed\\r\\n");'),
         "        return XST_FAILURE;",
         "    }",
         "    netif_set_default(&S_sNetif);",
         "    netif_set_up(&S_sNetif);",
+        *(["    spec2codeTestbenchPlatformInterruptsEnable(); /* xemac_add EMAC ISR'ini kaydetti; simdi ac */"]
+          if microblaze else []),
         "    S_uiNetworkReady = 1U;",
         *([
             "    /* netif up: telnet log sunucusunu (port 23) ayni netif uzerinde",
@@ -5619,6 +5670,20 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "{",
         "    if (S_uiNetworkReady == 1U)",
         "    {",
+        *([
+            "        /* MicroBlaze: TCP zamanlayicilari AXI Timer kesmesinin kurdugu bayraklardan",
+            "         * (resmi lwip_echo_server main dongusu). */",
+            "        if (S_uiTcpFastTimerFlag == 1U)",
+            "        {",
+            "            tcp_fasttmr();",
+            "            S_uiTcpFastTimerFlag = 0U;",
+            "        }",
+            "        if (S_uiTcpSlowTimerFlag == 1U)",
+            "        {",
+            "            tcp_slowtmr();",
+            "            S_uiTcpSlowTimerFlag = 0U;",
+            "        }",
+        ] if microblaze else []),
         "        xemacif_input(&S_sNetif);",
         *([
             "        /* RAW/bare-metal: telnet zamanlayicilarini isle ve kuyrugu",
@@ -5632,6 +5697,70 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _testbench_lwip_microblaze_platform_lines() -> list[str]:
+    """MicroBlaze lwIP platform katmani (resmi lwip_echo_server platform_mb.c + platform.c kalibi).
+
+    * AXI INTC: XIntc_Initialize/Start(REAL) + MasterEnable, islemci kesme vektoru XIntc_InterruptHandler.
+    * AXI Timer 0: 50 ms periyot (XPAR_TMRCTR_0_CLOCK_FREQ_HZ / 20), dusuk seviye API; kesmede
+      TCP hizli (250 ms) / yavas (500 ms) bayraklari kurulur, timer yeniden yuklenir, INTC ack.
+    * EMAC kesmesi: lwIP portu xemac_add icinde xtopology ile INTC'ye kaydeder; burada yalniz
+      vektoru acar. microblaze_enable_interrupts() xemac_add SONRASI (kalip boyle).
+    """
+    return [
+        "/* --- MicroBlaze platform: AXI INTC + AXI Timer (lwip_echo_server platform_mb.c kalibi) --- */",
+        "#define SPEC2CODE_TESTBENCH_TIMER_TLR (XPAR_TMRCTR_0_CLOCK_FREQ_HZ / 20U) /* 50 ms */",
+        "static XIntc S_sIntc;",
+        "static volatile unsigned int S_uiTcpFastTimerFlag;",
+        "static volatile unsigned int S_uiTcpSlowTimerFlag;",
+        "",
+        "static void spec2codeTestbenchTimerHandler(void* vpArg)",
+        "{",
+        "    static unsigned int S_uiTick = 0U;",
+        "",
+        "    (void)vpArg;",
+        "    S_uiTick++;",
+        "    if ((S_uiTick % 5U) == 0U)",
+        "    {",
+        "        S_uiTcpFastTimerFlag = 1U;",
+        "    }",
+        "    if ((S_uiTick % 10U) == 0U)",
+        "    {",
+        "        S_uiTcpSlowTimerFlag = 1U;",
+        "    }",
+        "    /* Timer'i yeniden yukle, kesme bitini temizle, INTC'ye ack. */",
+        "    XTmrCtr_SetControlStatusReg(XPAR_TMRCTR_0_BASEADDR, 0U, XTC_CSR_INT_OCCURED_MASK | XTC_CSR_LOAD_MASK);",
+        "    XTmrCtr_SetControlStatusReg(XPAR_TMRCTR_0_BASEADDR, 0U,",
+        "                                XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK | XTC_CSR_AUTO_RELOAD_MASK |",
+        "                                XTC_CSR_DOWN_COUNT_MASK);",
+        "    XIntc_AckIntr(XPAR_INTC_0_BASEADDR, 1U << XPAR_INTC_0_TMRCTR_0_VEC_ID);",
+        "}",
+        "",
+        "static void spec2codeTestbenchPlatformInterruptsSetup(void)",
+        "{",
+        "    (void)XIntc_Initialize(&S_sIntc, XPAR_INTC_0_DEVICE_ID);",
+        "    (void)XIntc_Start(&S_sIntc, XIN_REAL_MODE);",
+        "    XIntc_MasterEnable(XPAR_INTC_0_BASEADDR);",
+        "    microblaze_register_handler((XInterruptHandler)XIntc_InterruptHandler, &S_sIntc);",
+        "    /* AXI Timer 0: yukle, temizle, otomatik yeniden yukle + geri sayim + kesme. */",
+        "    XTmrCtr_SetLoadReg(XPAR_TMRCTR_0_BASEADDR, 0U, SPEC2CODE_TESTBENCH_TIMER_TLR);",
+        "    XTmrCtr_SetControlStatusReg(XPAR_TMRCTR_0_BASEADDR, 0U, XTC_CSR_INT_OCCURED_MASK | XTC_CSR_LOAD_MASK);",
+        "    XTmrCtr_SetControlStatusReg(XPAR_TMRCTR_0_BASEADDR, 0U,",
+        "                                XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK | XTC_CSR_AUTO_RELOAD_MASK |",
+        "                                XTC_CSR_DOWN_COUNT_MASK);",
+        "    XIntc_RegisterHandler(XPAR_INTC_0_BASEADDR, XPAR_INTC_0_TMRCTR_0_VEC_ID,",
+        "                          (XInterruptHandler)spec2codeTestbenchTimerHandler, NULL);",
+        "}",
+        "",
+        "static void spec2codeTestbenchPlatformInterruptsEnable(void)",
+        "{",
+        "    XIntc_Enable(&S_sIntc, XPAR_INTC_0_TMRCTR_0_VEC_ID);",
+        "    XIntc_Enable(&S_sIntc, XPAR_INTC_0_EMACLITE_0_VEC_ID);",
+        "    microblaze_enable_interrupts();",
+        "}",
+        "",
+    ]
 
 
 #: Telnet log sunucusu sabitleri (kullanici karari - esneklik yok):

@@ -148,6 +148,10 @@ class TestbenchConnectRequest(BaseModel):
     transport: str = "tcp"  # "tcp" | "serial" | "coresight" | "mdm"
     host: str = ""
     port: int = 0
+    # tcp: istege bagli yerel kaynak IP'si (bind). Ayni alt ag birden fazla arayuzde
+    # (or. APIPA 169.254/16 Tailscale + Ethernet) gorunuyorsa Windows yanlis arayuzden
+    # cikabilir; kaynak IP verilince baglanti o arayuzden gider. Bos = isletim sistemi secer.
+    source_ip: str = ""
     serial_port: str = ""
     baud: int = 115200
     vitis_path: str = ""  # coresight/mdm: xsdb bu kurulumdan bulunur
@@ -1298,7 +1302,7 @@ def testbench_session_connect(req: TestbenchConnectRequest) -> dict:
             return testbench_sessions.connect_mdm(
                 req.session_id, req.vitis_path, req.hw_server_url,
                 processor, req.timeout_s).__dict__
-        return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s).__dict__
+        return testbench_sessions.connect(req.session_id, req.host, req.port, req.timeout_s, source_ip=req.source_ip).__dict__
     except TestbenchSessionError as exc:
         raise HTTPException(400, {"message": "testbench session is invalid", "error": str(exc)}) from exc
     except ImportError as exc:

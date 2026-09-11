@@ -17,6 +17,7 @@ const VITIS_PATH_KEY = "spec2code.vitisPath";
 const FIELD_KEYS: Record<string, string> = {
   transport: "spec2code.testbench.transport",
   host: "spec2code.testbench.host",
+  sourceIp: "spec2code.testbench.sourceIp",
   port: "spec2code.testbench.port",
   timeoutS: "spec2code.testbench.timeout",
   serialPort: "spec2code.testbench.serialPort",
@@ -46,6 +47,7 @@ function write(key: string, value: string): void {
 type BoardSettings = {
   transport: BoardTransport;
   host: string;
+  sourceIp: string;
   port: string;
   timeoutS: string;
   serialPort: string;
@@ -98,6 +100,7 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
   sessionId: persistentSessionId(),
   transport: initialTransport(),
   host: read(FIELD_KEYS.host, "127.0.0.1"),
+  sourceIp: read(FIELD_KEYS.sourceIp),
   port: read(FIELD_KEYS.port, "5000"),
   timeoutS: read(FIELD_KEYS.timeoutS, "5"),
   serialPort: read(FIELD_KEYS.serialPort),
@@ -184,6 +187,7 @@ export const useBoardConnection = create<BoardConnectionState>((set, get) => ({
                 transport: "tcp",
                 host: state.host.trim(),
                 port: Number.parseInt(state.port, 10) || 0,
+                source_ip: state.sourceIp.trim(),
                 timeout_s: get().timeoutSeconds(),
               },
       );

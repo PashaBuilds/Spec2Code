@@ -325,7 +325,11 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
                 })
                 # REGISTER tipli aralik -> custom IP kaydi (LMB BRAM gibi MEMORY tipi / bellek
                 # denetleyicisi MODCLASS'i haric).
-                ranges = [] if "MEMORY" in _attr(element, "MODCLASS").upper() else _register_ranges(element)
+                # Standart Xilinx IP'leri (axi_timer, axi_intc ... VLNV xilinx.com:ip) custom IP degildir:
+                # surucusu BSP'de vardir, shell komutu uretilmez; yalniz kullanici/ucuncu parti VLNV.
+                vlnv = _attr(element, "VLNV").lower()
+                standard_xilinx = vlnv.startswith("xilinx.com:ip:")
+                ranges = [] if (standard_xilinx or "MEMORY" in _attr(element, "MODCLASS").upper()) else _register_ranges(element)
                 if ranges:
                     reg_base, reg_high, slave_if = min(ranges)
                     result.custom_ips.append({

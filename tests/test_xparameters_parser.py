@@ -116,3 +116,20 @@ class XparametersParserTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlEthernetTests(unittest.TestCase):
+    def test_axi_ethernetlite_and_axi_ethernet_are_pl_eth(self) -> None:
+        text = """
+        #define XPAR_AXI_ETHERNETLITE_0_DEVICE_ID 0
+        #define XPAR_AXI_ETHERNETLITE_0_BASEADDR 0x40E00000
+        #define XPAR_AXI_ETHERNETLITE_0_HIGHADDR 0x40E0FFFF
+        #define XPAR_AXI_ETHERNET_0_DEVICE_ID 0
+        #define XPAR_AXI_ETHERNET_0_BASEADDR 0x40C00000
+        """
+        result = parse_xparameters(text, None)
+        by_driver = {c["driver"]: c for c in result.controllers}
+        self.assertEqual(by_driver["XEmacLite"]["type"], "eth")
+        self.assertEqual(by_driver["XEmacLite"]["zone"], "pl")
+        self.assertEqual(by_driver["XEmacLite"]["instance"], "XPAR_AXI_ETHERNETLITE_0")
+        self.assertEqual(by_driver["XAxiEthernet"]["type"], "eth")

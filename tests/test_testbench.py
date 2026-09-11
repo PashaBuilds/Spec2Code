@@ -21,7 +21,7 @@ from backend.testbench import (
     send_command,
 )
 from backend.vitis_errors import map_vitis_errors
-from orchestrator import codegen
+from orchestrator import cmodel, codegen
 
 
 def _pad4(data: bytes) -> bytes:
@@ -70,6 +70,19 @@ def load_sample_spec(project_name: str) -> dict:
     spec = json.loads((ROOT / "specs/samples/radar_io_board.spec.json").read_text(encoding="utf-8"))
     spec["project"] = {**spec["project"], "name": project_name}
     return spec
+
+
+def add_microblaze_ethernetlite(spec: dict) -> None:
+    spec["controllers"].append({
+        "id": "pl_eth_0",
+        "type": "eth",
+        "instance": "XPAR_AXI_ETHERNETLITE_0",
+        "base_address": "0x40E00000",
+        "device_id": 0,
+        "driver": "XEmacLite",
+        "source": "xparameters",
+        "zone": "pl",
+    })
 
 
 def add_zynqmp_ps_ethernet(spec: dict) -> None:
@@ -565,6 +578,22 @@ class TestbenchTests(unittest.TestCase):
         # yanitini fallback olarak dondurme) hala calismali (var olan test:
         # test_serial_send_falls_back_to_mismatched_response_on_timeout).
 
+    def test_tcp_session_binds_optional_source_ip(self) -> None:
+        # source_ip verilirse soket yerel adaptore baglanir (ayni alt ag birden fazla
+        # arayuzdeyse OS yanlis arayuzu secmesin); bos ise create_connection'a None gider.
+        manager = SessionManager()
+        with socketserver.TCPServer(("127.0.0.1", 0), PersistentHandler) as server:
+            thread = threading.Thread(target=server.handle_request, daemon=True)
+            thread.start()
+            status = manager.connect("unit_src", "127.0.0.1", server.server_address[1], 2, source_ip="127.0.0.1")
+            try:
+                local_ip = manager._sessions["unit_src"]._sock.getsockname()[0]
+            finally:
+                manager.disconnect("unit_src")
+                thread.join(timeout=2)
+        self.assertTrue(status.connected)
+        self.assertEqual(local_ip, "127.0.0.1")
+
     def test_tcp_session_records_tx_rx_traffic(self) -> None:
         manager = SessionManager()
         with socketserver.TCPServer(("127.0.0.1", 0), PersistentHandler) as server:
@@ -833,6 +862,54 @@ class TestbenchTests(unittest.TestCase):
         self.assertNotIn("lwip_socket(", lwip_source)
         self.assertNotIn("vTaskStartScheduler", main_source)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
+
+    def test_lwip_agent_on_microblaze_ethernetlite_uses_intc_timer_platform(self) -> None:
+        # MicroBlaze + AXI EthernetLite: RAW ajan + resmi platform_mb.c kalibi (INTC + AXI Timer
+        # kesmeleri, TCP fast/slow bayraklari); PS eth olmayan tasarimda eth transportu artik mumkun.
+        spec = json.loads((ROOT / "specs/samples/radar_io_board.spec.json").read_text(encoding="utf-8"))
+        spec["project"] = {**spec["project"], "name": "unit_lwip_mb", "platform": "microblaze_7series",
+                           "target_core": "microblaze_0", "runtime": "bare_metal", "testbench_transport": "eth"}
+        spec["controllers"] = [
+            {"id": "pl_i2c_0", "type": "i2c", "instance": "XPAR_AXI_IIC_0", "base_address": "0x40800000",
+             "device_id": 0, "driver": "XIic", "source": "xparameters", "zone": "pl"},
+            {"id": "pl_uart_0", "type": "uart", "instance": "XPAR_AXI_UARTLITE_0", "base_address": "0x40600000",
+             "device_id": 0, "driver": "XUartLite", "source": "xparameters", "zone": "pl"},
+        ]
+        spec["muxes"] = []
+        spec["devices"] = [d for d in spec["devices"] if d["part"] == "ADT7420"][:1] or spec["devices"][:1]
+        for d in spec["devices"]:
+            d["attach"] = {"controller_id": "pl_i2c_0", "i2c_address": "0x4B"}
+        add_microblaze_ethernetlite(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / spec["project"]["name"]
+            codegen.generate(spec, out_dir)
+            lwip_source = (out_dir / "tests" / "spec2code_testbench_lwip.c").read_text(encoding="utf-8")
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["transport_agent"], "lwip")
+        self.assertIn("#define SPEC2CODE_TESTBENCH_ETH_BASEADDR XPAR_AXI_ETHERNETLITE_0_BASEADDR", lwip_source)
+        self.assertIn('#include "xtmrctr_l.h"', lwip_source)
+        self.assertIn("XIntc_MasterEnable(XPAR_INTC_0_BASEADDR);", lwip_source)
+        self.assertIn("XTmrCtr_SetLoadReg(XPAR_TMRCTR_0_BASEADDR, 0U, SPEC2CODE_TESTBENCH_TIMER_TLR);", lwip_source)
+        self.assertIn("XIntc_Enable(&S_sIntc, XPAR_INTC_0_EMACLITE_0_VEC_ID);", lwip_source)
+        self.assertIn("microblaze_enable_interrupts();", lwip_source)
+        self.assertIn("tcp_fasttmr();", lwip_source)
+        self.assertIn("tcp_slowtmr();", lwip_source)
+        self.assertIn("xemacif_input(&S_sNetif);", lwip_source)
+        # Telnet (ZynqMP PS eth'e ozgu) MicroBlaze'de uretilmez.
+        self.assertNotIn("spec2codeTelnetLogBaslat", lwip_source)
+        # FreeRTOS'ta MB EthernetLite ajani yok: eth acikca istenirse hata, auto'da UART'a duser.
+        spec["project"]["runtime"] = "freertos"
+        with self.assertRaises(cmodel.CodegenError):
+            with tempfile.TemporaryDirectory() as tmp:
+                codegen.generate(spec, Path(tmp) / "x")
+        spec["project"]["testbench_transport"] = "auto"
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "y"
+            codegen.generate(spec, out_dir)
+            manifest = json.loads(
+                (out_dir / "tests" / "spec2code_testbench_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["transport_agent"], "uart")
 
     def test_uart_agent_generated_when_transport_is_uart(self) -> None:
         # Polled XUartPs agent per the official xuartps polled example; shares

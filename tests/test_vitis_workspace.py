@@ -968,6 +968,11 @@ class VitisWorkspaceTests(unittest.TestCase):
                 self.assertIn("importsources -name $shell_app_name -path $shell_source_path", script)
                 # Bayat shell ELF'i derlemeden once silinir (derleme duserse 'present' gorunmesin).
                 self.assertIn("catch {file delete [file join $workspace_path $shell_app_name Debug ${shell_app_name}.elf]}", script)
+                # lwIP: Xilinx lwip213 xadapter.c emaclite 'status' cift bildirimi yamasi (MicroBlaze EthernetLite)
+                # ve LMB icin kucultulmus havuzlar (tcp_snd_buf >= 2*MSS, memp_n_tcp_seg >= TCP_SND_QUEUELEN).
+                self.assertIn("proc spec2codePatchLwipEmacliteStatus {}", script)
+                self.assertIn("u32_t phy_link_status, phy_autoneg_status; /* Spec2Code: duplicate status fixed */", script)
+                self.assertIn("tcp_wnd 4096 tcp_snd_buf 4096 memp_n_tcp_pcb 4 memp_n_tcp_seg 64", script)
                 # Iki app projesi HER DURUMDA: shell create/import ajan build'inden ONCE,
                 # ajan build catch'te, shell build sonra, ajan hatasi en sonda yeniden yukseltilir.
                 self.assertLess(script.index("shell application: $shell_app_name"), script.index("set spec2code_agent_err {}"))

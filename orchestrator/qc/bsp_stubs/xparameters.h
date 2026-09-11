@@ -33,4 +33,10 @@
 /* AXI INTC (shell mod test kodu QC'de analiz edilsin diye) */
 #define XPAR_XINTC_NUM_INSTANCES 1
 #define XPAR_INTC_0_DEVICE_ID 0
+/* MicroBlaze lwIP platformu (AXI INTC + AXI Timer + EthernetLite kesme vektorleri) */
+#define XPAR_INTC_0_BASEADDR 0x41200000U
+#define XPAR_TMRCTR_0_BASEADDR 0x41C00000U
+#define XPAR_TMRCTR_0_CLOCK_FREQ_HZ 100000000U
+#define XPAR_INTC_0_TMRCTR_0_VEC_ID 1U
+#define XPAR_INTC_0_EMACLITE_0_VEC_ID 0U
 #endif /* XPARAMETERS_H */

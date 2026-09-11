@@ -111,6 +111,10 @@ _RULES: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"AXI_SPI|^XSPI"), "spi", "pl", "XSpi"),
     (re.compile(r"AXI_GPIO|^XGPIO"), "gpio", "pl", "XGpio"),
     (re.compile(r"UARTLITE"), "uart", "pl", "XUartLite"),
+    # PL Ethernet: AXI EthernetLite (MicroBlaze lwIP ajani; XEmacLite) ve AXI 1G Ethernet
+    # (XAxiEthernet; taninir, lwIP ajani henuz yalniz EthernetLite icin uretilir).
+    (re.compile(r"ETHERNETLITE|^EMACLITE|^XEMACLITE"), "eth", "pl", "XEmacLite"),
+    (re.compile(r"AXI_ETHERNET|^AXIETHERNET|^XAXIETHERNET"), "eth", "pl", "XAxiEthernet"),
     # MicroBlaze Debug Module UART. The MDM's UART is driven by the SAME
     # uartlite BSP driver - authoritative:
     #   .../drivers/uartlite_v3_9/data/uartlite.mdd

@@ -91,6 +91,16 @@ export default function BoardConnectionCard({ compact = false }: { compact?: boo
             <Label>Port</Label>
             <Input value={board.port} onChange={(e) => board.update({ port: e.target.value })} disabled={locked} />
           </div>
+          <div className="col-span-2">
+            <Label>Kaynak IP (opsiyonel)</Label>
+            <Input
+              value={board.sourceIp}
+              onChange={(e) => board.update({ sourceIp: e.target.value })}
+              disabled={locked}
+              placeholder="boş = OS seçer; aynı alt ağ birden fazla arayüzdeyse kart tarafındaki adaptörün IP'si"
+              spellCheck={false}
+            />
+          </div>
         </div>
       ) : isJtagTransport(board.transport) ? (
         <div className="space-y-2">

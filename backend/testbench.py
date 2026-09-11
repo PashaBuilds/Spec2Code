@@ -224,14 +224,17 @@ class _TestbenchTcpSession(_TrafficRing):
                 last_error=self.last_error,
             )
 
-    def connect(self, host: str, port: int, timeout_s: float) -> TestbenchSessionStatus:
+    def connect(self, host: str, port: int, timeout_s: float, source_ip: str = "") -> TestbenchSessionStatus:
         with self._lock:
             self.close()
             self.host = host
             self.port = int(port)
             self.timeout_s = max(0.2, float(timeout_s))
+            # source_ip: yerel arayuz secimi (bind); bos ise isletim sistemi yonlendirir.
+            source_address = (source_ip.strip(), 0) if source_ip.strip() else None
             try:
-                sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
+                sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s,
+                                                source_address=source_address)
                 sock.settimeout(self.timeout_s)
             except OSError as exc:
                 self.last_error = str(exc)
@@ -985,10 +988,11 @@ class TestbenchSessionManager:
         if old is not None:
             old.close()
 
-    def connect(self, session_id: str, host: str, port: int, timeout_s: float) -> TestbenchSessionStatus:
+    def connect(self, session_id: str, host: str, port: int, timeout_s: float,
+                source_ip: str = "") -> TestbenchSessionStatus:
         session = _TestbenchTcpSession(self._clean_session_id(session_id))
         self._replace_session(session_id, session)
-        return session.connect(host.strip(), int(port), timeout_s)
+        return session.connect(host.strip(), int(port), timeout_s, source_ip=source_ip)
 
     def connect_serial(
         self,

@@ -194,6 +194,18 @@ cikan her arayuz gercek pinlere baglanmali; Spec2Code pin uydurmaz).
   karisik-mod CIT ve QSPI'dan acilis uctan uca dogrulanmistir. `-tclargs mdm` ile
   ayni tasarim MDM UART acik uretilir; MDM transportu (JTAG, USB-UART kablosuz) bu
   tasarimla canli dogrulanmistir: baglanti ~7 sn, I2C/SPI op'lari, I2C tarama, CIT.
+- **PL Ethernet (AXI EthernetLite) uzerinden lwIP TCP ajani**: XSA'da `axi_ethernetlite`
+  (veya `axi_ethernet`) varsa `auto`/`eth` tasiyicisi MicroBlaze'de de lwIP RAW API ajanini
+  uretir. Gerekenler: **AXI INTC + AXI Timer** (lwIP TCP zamanlayicilari 50 ms timer
+  kesmesiyle isletilir, EMAC kesmesi INTC'ye bagli olmali), LMB **512 KB** (lwIP + ajan +
+  BSP ~%84 BRAM). FreeRTOS + MicroBlaze + eth desteklenmez (`S2C-CODEGEN-...`, `uart` sec).
+  Sabit adres: `18.2.75.121/24`, gw `18.2.75.1`, port 5000 (`spec2code_testbench_lwip.h`
+  makrolari `#ifndef` korumali). Vitis workspace uretimi lwIP BSP'sini MicroBlaze'e gore
+  boyutlandirir (mem 32 KB, pbuf 16, tcp_wnd/snd_buf 4096, tcp_seg 64) ve Xilinx lwip213'un
+  iki hatasini yamar: `xadapter.c` cift `status` bildirimi (derleme hatasi) ve
+  `xemacliteif.c` PHY reklam kaydinda eksik IEEE 802.3 secicisi (autoneg hic bitmiyor).
+  Referans tasarim: `scripts/make_nexys_a7_eth_design.tcl` + `scripts/hdl/rmii_adapter.v`
+  (LAN8720A RMII, 50 MHz REFCLK FPGA'dan; Xilinx `mii_to_rmii` IP'si 2023.x'te yok).
 
 ---
 
@@ -530,7 +542,7 @@ Akis, Bring-up, CIT ve Registers ayni oturumu kullanir.
 
 | Tip | Ne zaman | Alanlar |
 |---|---|---|
-| TCP | lwIP Ethernet ajani (ZynqMP PS Ethernet) | host, port (vars. 5000), timeout |
+| TCP | lwIP Ethernet ajani (ZynqMP PS Ethernet / MicroBlaze AXI EthernetLite) | host, port (vars. 5000), timeout, kaynak IP (opsiyonel: ayni alt ag birden fazla adaptordeyse kart tarafindaki adaptorun IP'si) |
 | Seri | UART ajani (PS UART / AXI UARTLite) | COM portu, baud (or. 115200) |
 | CoreSight | ZynqMP DCC, JTAG (xsdb jtagterminal) | Vitis yolu, cekirdek |
 | MDM | MicroBlaze Debug Module UART, JTAG | Vitis yolu |

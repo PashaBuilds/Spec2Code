@@ -29,4 +29,6 @@ void tcp_recved(struct tcp_pcb* spPcb, unsigned short usLength);
 err_t tcp_close(struct tcp_pcb* spPcb);
 void tcp_abort(struct tcp_pcb* spPcb);
 
+void tcp_fasttmr(void);
+void tcp_slowtmr(void);
 #endif /* LWIP_TCP_H */

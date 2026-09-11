@@ -589,6 +589,8 @@ export interface TestbenchSessionConnectRequest {
   transport?: "tcp" | "serial" | "coresight" | "mdm";
   host?: string;
   port?: number;
+  /** tcp: yerel kaynak IP (bind). Aynı alt ağ birden fazla arayüzdeyse kart tarafındaki adaptör. */
+  source_ip?: string;
   serial_port?: string;
   baud?: number;
   /** coresight/mdm: xsdb bu Vitis kurulumundan bulunur. */
