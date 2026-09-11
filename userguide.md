@@ -227,6 +227,12 @@ cikan her arayuz gercek pinlere baglanmali; Spec2Code pin uydurmaz).
 - **Kart verisi**: bazi donusumler kartta belirlenen bir degere ihtiyac duyar
   (LTC2945 akimi icin `sense_resistor_mohms`). Descriptor bunu ister; bos birakip
   op'u istersen Generate acik hata verir.
+- **Disa aktar** (kanvasin sag ustu): **draw.io** (`<proje>-schematic.drawio`; kart basina
+  bir sayfa: denetleyici -> mux -> cihaz katmanlari, kenar etiketi I2C adresi / SPI CS /
+  mux kanali, karttan cikan konnektorler port kutusu; birden fazla kartta ayrica "Sistem"
+  sayfasi) ve **Excel** (`<proje>-schematic.xlsx`; her sayfa bir kart: Cihazlar, Mux'lar,
+  kartin kullandigi Denetleyiciler, Konnektorler bloklari). Kart tanimlanmadiysa tek
+  sayfa/tek kart. Diyagram draw.io'da serbestce duzenlenebilir.
 - **Sanal cihaz**: kutudaki "gercek / sanal" anahtari cihazi `simulate: true` yapar
   (eflatun kutu). Test bench ajani o cihazi yazilim simulatorunden cevaplar; ayni
   hattaki gercek cihazlar gercek kalir (bolum 8, simulasyon). Yalniz I2C register

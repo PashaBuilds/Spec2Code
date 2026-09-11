@@ -39,14 +39,6 @@ _ROOT_RELS = (
     "</Relationships>"
 )
 
-_WORKBOOK_RELS = (
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-    "</Relationships>"
-)
-
 # Tüm hücreler metin (numFmtId 49 = "@"); başlık için ayrıca kalın font.
 _STYLES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -64,12 +56,44 @@ _STYLES = (
 )
 
 
-def _workbook_xml(sheet_name: str) -> str:
+def _workbook_xml(sheet_names: list[str]) -> str:
+    sheets = "".join(
+        '<sheet name="%s" sheetId="%d" r:id="rId%d"/>' % (escape(name), i, i)
+        for i, name in enumerate(sheet_names, start=1)
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<sheets><sheet name="' + escape(sheet_name) + '" sheetId="1" r:id="rId1"/></sheets></workbook>'
+        "<sheets>" + sheets + "</sheets></workbook>"
+    )
+
+
+def _content_types_xml(sheet_count: int) -> str:
+    overrides = "".join(
+        '<Override PartName="/xl/worksheets/sheet%d.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' % i
+        for i in range(1, sheet_count + 1)
+    )
+    return _CONTENT_TYPES.replace(
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+        overrides,
+    )
+
+
+def _workbook_rels_xml(sheet_count: int) -> str:
+    rels = "".join(
+        '<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet%d.xml"/>' % (i, i)
+        for i in range(1, sheet_count + 1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + rels
+        + '<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>' % (sheet_count + 1)
+        + "</Relationships>"
     )
 
 
@@ -114,17 +138,26 @@ def _sheet_xml(rows: list[list]) -> str:
     return "".join(out)
 
 
-def write_sheet(rows: list[list], sheet_name: str = "RegisterMap") -> bytes:
-    """Satır listesini (her satır hücre listesi) tek sayfalık bir .xlsx'e yazar."""
+def write_workbook(sheets: list[tuple[str, list[list]]]) -> bytes:
+    """Cok sayfali .xlsx: her eleman (sayfa adi, satirlar). Sayfa adlari Excel kuralina
+    (<= 31 karakter, []:*?/\\ yok, tekil) uygun olmali - cagiran temizler."""
+    if not sheets:
+        raise ValueError("xlsx workbook needs at least one sheet")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        z.writestr("[Content_Types].xml", _content_types_xml(len(sheets)))
         z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", _workbook_xml(sheet_name))
-        z.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS)
+        z.writestr("xl/workbook.xml", _workbook_xml([name for name, _rows in sheets]))
+        z.writestr("xl/_rels/workbook.xml.rels", _workbook_rels_xml(len(sheets)))
         z.writestr("xl/styles.xml", _STYLES)
-        z.writestr("xl/worksheets/sheet1.xml", _sheet_xml(rows))
+        for i, (_name, rows) in enumerate(sheets, start=1):
+            z.writestr("xl/worksheets/sheet%d.xml" % i, _sheet_xml(rows))
     return buf.getvalue()
+
+
+def write_sheet(rows: list[list], sheet_name: str = "RegisterMap") -> bytes:
+    """Satır listesini (her satır hücre listesi) tek sayfalık bir .xlsx'e yazar."""
+    return write_workbook([(sheet_name, rows)])
 
 
 def _parse_shared_strings(xml_bytes: bytes) -> list[str]:

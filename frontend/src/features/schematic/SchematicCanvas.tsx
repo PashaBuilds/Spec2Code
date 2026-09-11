@@ -33,6 +33,7 @@ import { busColor } from "@/lib/busColors";
 import { channelColor } from "./channelColors";
 import { boardNodeId, effectiveBoardId, mainBoardId } from "@/lib/boards";
 import { VisualBackdrop } from "@/components/visuals";
+import SchematicExportMenu from "./SchematicExportMenu";
 import { ltc2991NodeSummary } from "@/features/device-config/ltc2991Model";
 import type { Controller } from "@/lib/types";
 
@@ -401,6 +402,7 @@ export default function SchematicCanvas() {
         />
         <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
         <Controls showInteractive={false} className="!bg-elev !border-border" />
+        <SchematicExportMenu />
         <MiniMap
           pannable
           zoomable

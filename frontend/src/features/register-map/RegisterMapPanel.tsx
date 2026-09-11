@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { useBoardConnection } from "@/store/connection";
 import { cn } from "@/lib/utils";
+import { base64ToBytes, downloadBytes } from "@/lib/download";
 
 /** Register Map editörü (Spec2Code içi ikiz): sayısal ekipten gelen register
  * haritasını düzenle, self-contained HTML olarak paylaş, JSON olarak sakla,
@@ -28,15 +29,6 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf); let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
-}
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64); const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function downloadBytes(name: string, bytes: Uint8Array, mime: string) {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
-  const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
 }
 
 // --- Genişlik / tip çıkarımı (backend register_map.py ile birebir) --------- //

@@ -23,6 +23,24 @@ import type {
   VitisWorkspaceResult,
 } from "./types";
 
+async function reqBlob(path: string, body: unknown): Promise<Blob> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail: unknown = res.statusText;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return res.blob();
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -203,6 +221,10 @@ export const api = {
     req<{ document: unknown; valid: boolean; errors: string[] }>("/api/register-map/import-html", {
       method: "POST", body: JSON.stringify({ html }),
     }),
+
+  /** Schematic disa aktarimi: draw.io (.drawio) / Excel (kart basina sayfa). Blob doner. */
+  schematicExportDrawio: (spec: ProjectSpec) => reqBlob("/api/schematic/export/drawio", { spec }),
+  schematicExportXlsx: (spec: ProjectSpec) => reqBlob("/api/schematic/export/xlsx", { spec }),
 
   registerMapExportXlsx: (document: unknown) =>
     req<{ xlsx_base64: string }>("/api/register-map/export-xlsx", {

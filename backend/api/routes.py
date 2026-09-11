@@ -1109,6 +1109,36 @@ class RegisterMapXlsxRequest(BaseModel):
     xlsx_base64: str
 
 
+class SchematicExportRequest(BaseModel):
+    spec: dict
+
+
+@router.post("/schematic/export/drawio")
+def schematic_export_drawio(req: SchematicExportRequest) -> Response:
+    """Schematic'i draw.io (.drawio XML) olarak indirir: kart basina sayfa, cok kartta 'Sistem' sayfasi."""
+    from backend.schematic_export import drawio_xml
+
+    project = (req.spec.get("project") or {}).get("name") or "spec2code"
+    return Response(
+        content=drawio_xml(req.spec).encode("utf-8"),
+        media_type="application/xml; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_download_name(project)}-schematic.drawio"'},
+    )
+
+
+@router.post("/schematic/export/xlsx")
+def schematic_export_xlsx(req: SchematicExportRequest) -> Response:
+    """Schematic'i Excel olarak indirir: her sayfa bir kart (cihazlar, mux'lar, denetleyiciler, konnektorler)."""
+    from backend.schematic_export import xlsx_bytes
+
+    project = (req.spec.get("project") or {}).get("name") or "spec2code"
+    return Response(
+        content=xlsx_bytes(req.spec),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{_safe_download_name(project)}-schematic.xlsx"'},
+    )
+
+
 @router.post("/register-map/export-xlsx")
 def register_map_export_xlsx(req: RegisterMapRequest) -> dict:
     """Dokümanı KATI şablon .xlsx'e (base64) çevirir (Excel ile paylaşım)."""
