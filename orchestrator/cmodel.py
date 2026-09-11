@@ -25,6 +25,7 @@ from typing import Callable, Optional
 
 from orchestrator.device_profiles import registry as device_profiles
 from orchestrator import boards, tics
+from orchestrator.bsp_flow import is_sdt, lookup_arg
 
 _IND = "    "  # 4 spaces
 
@@ -500,7 +501,7 @@ def _spi_transfer(e: "Emit", htype: str, hvar: str, tx: str, rx: str, count: str
     return e
 
 
-def _spi_emit_init(e: "Emit", htype: str, hvar: str, instance: str) -> "Emit":
+def _spi_emit_init(e: "Emit", htype: str, hvar: str, instance: str, sdt: bool = False) -> "Emit":
     """Guarded SPI controller bring-up for all three SPI-ish drivers.
 
     The AXI arm follows the official polled flow verbatim
@@ -512,13 +513,14 @@ def _spi_emit_init(e: "Emit", htype: str, hvar: str, instance: str) -> "Emit":
     # Testbench'in başlattığı paylaşılan denetleyiciyi yeniden CfgInitialize
     # etme: XQspiPsu XST_DEVICE_IS_STARTED döndürür (sahada mt25qu02g
     # device_init status=5 olarak görüldü).
+    selector = lookup_arg(instance, sdt)
     e.open(f"if ({hvar}->IsReady != XIL_COMPONENT_IS_READY)")
     if _is_qspipsu(htype):
-        e.ln(f"spConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);")
+        e.ln(f"spConfig = XQspiPsu_LookupConfig({selector});")
     elif _is_axi_spi(htype):
-        e.ln(f"spConfig = XSpi_LookupConfig({instance}_DEVICE_ID);")
+        e.ln(f"spConfig = XSpi_LookupConfig({selector});")
     else:
-        e.ln(f"spConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);")
+        e.ln(f"spConfig = XSpiPs_LookupConfig({selector});")
     e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
     if _is_qspipsu(htype):
         e.ln(f"iStatus = XQspiPsu_CfgInitialize({hvar}, spConfig, spConfig->BaseAddress);").check_status()
@@ -631,7 +633,7 @@ class _I2cApi:
     def config_decl(self) -> Optional[str]:
         return f"{self.htype}_Config* spConfig;"
 
-    def emit_init(self, e: Emit, instance: str, sclk_def: str) -> Emit:
+    def emit_init(self, e: Emit, instance: str, sclk_def: str, sdt: bool = False) -> Emit:
         """Controller bring-up, guarded against re-initializing a live handle."""
         if self.is_axi:
             e.ln("/* AXI IIC ornegi (xiic.h) ilk kullanimda kurulur; veri-yolu cagrilari polled")
@@ -640,7 +642,7 @@ class _I2cApi:
             e.ln(" * XIic_Send tek baytlik STOP yaziminda bayti dusuruyor (SAHA: Nexys A7")
             e.ln(" * ADT7420). Ardindan hat gercekten bosta mi diye bakilir. */")
             e.open(f"if ({self.bus}->IsReady != XIL_COMPONENT_IS_READY)")
-            e.ln(f"spConfig = XIic_LookupConfig({instance}_DEVICE_ID);")
+            e.ln(f"spConfig = XIic_LookupConfig({lookup_arg(instance, sdt)});")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
             e.ln(f"iStatus = XIic_CfgInitialize({self.bus}, spConfig, spConfig->BaseAddress);").check_status()
             e.close()
@@ -651,7 +653,7 @@ class _I2cApi:
             # be re-initialized: CfgInitialize returns XST_DEVICE_IS_STARTED
             # on some drivers and resets live bus settings on others.
             e.open(f"if ({self.bus}->IsReady != XIL_COMPONENT_IS_READY)")
-            e.ln(f"spConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);")
+            e.ln(f"spConfig = XIicPs_LookupConfig({lookup_arg(instance, sdt)});")
             e.open("if (spConfig == NULL)").ln("return XST_FAILURE;").close()
             e.ln(f"iStatus = XIicPs_CfgInitialize({self.bus}, spConfig, spConfig->BaseAddress);").check_status()
             e.ln(f"iStatus = XIicPs_SetSClk({self.bus}, {sclk_def});").check_status()
@@ -1353,7 +1355,7 @@ def _check_convert_config(device: dict, op_name: str, op: dict) -> bool:
 
 def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
-                     module: Optional[str] = None) -> CUnit:
+                     module: Optional[str] = None, sdt: bool = False) -> CUnit:
     module = module or _module_of(device["part"])
     api = _i2c_device_api(module, controller)
     hvar = api.hvar
@@ -1458,7 +1460,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
             funcs.append(convert_fn)
 
         if is_init:
-            api.emit_init(e, instance, sclk_def)
+            api.emit_init(e, instance, sclk_def, sdt)
 
         inject_mux(e)
 
@@ -1563,7 +1565,7 @@ def _i2c_device_unit(device: dict, controller: dict, descriptor: dict,
 
 def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
                      mux_module: Optional[str], mux_channel: Optional[int],
-                     module: Optional[str] = None) -> CUnit:
+                     module: Optional[str] = None, sdt: bool = False) -> CUnit:
     module = module or _module_of(device["part"])
     api = _i2c_device_api(module, controller)
     hvar = api.hvar
@@ -1600,7 +1602,7 @@ def _i2c_eeprom_unit(device: dict, controller: dict, descriptor: dict,
         init.ln(config_decl)
     init.blank()
     # Paylaşılan/başlatılmış denetleyicide yeniden init yok (test bench).
-    api.emit_init(init, instance, sclk_def)
+    api.emit_init(init, instance, sclk_def, sdt)
     init.ln("return XST_SUCCESS;")
     funcs.append(CFunc(
         name=_func_name(module, "device_init"), ret="int", params=[api.param], body=init.out(),
@@ -1959,7 +1961,7 @@ def _delay_func(module: str) -> CFunc:
 
 
 def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
-                              module: Optional[str] = None) -> CUnit:
+                              module: Optional[str] = None, sdt: bool = False) -> CUnit:
     module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
@@ -2050,7 +2052,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
             e.open(f"if ({out_param} == NULL)").ln("return XST_FAILURE;").close()
 
         if is_init:
-            _spi_emit_init(e, htype, hvar, instance)
+            _spi_emit_init(e, htype, hvar, instance, sdt)
 
         if is_init and words and byte_config:
             e.open(f"for (uiIndex = 0U; uiIndex < {count_def}; uiIndex += 3U)")
@@ -2135,7 +2137,7 @@ def _spi_register_device_unit(device: dict, controller: dict, descriptor: dict,
 
 
 def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
-                     module: Optional[str] = None) -> CUnit:
+                     module: Optional[str] = None, sdt: bool = False) -> CUnit:
     module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
     MOD = module.upper()
@@ -2196,7 +2198,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
         e.blank()
 
         if is_init:
-            _spi_emit_init(e, htype, hvar, instance)
+            _spi_emit_init(e, htype, hvar, instance, sdt)
 
         for step in op["steps"]:
             sop = step["op"]
@@ -2325,7 +2327,7 @@ def _gpio_low_level(module: str, channel_def: str) -> list[CFunc]:
 
 
 def _gpio_device_unit(device: dict, controller: dict, descriptor: dict,
-                      module: Optional[str] = None) -> CUnit:
+                      module: Optional[str] = None, sdt: bool = False) -> CUnit:
     """Driver unit for a device wired to discrete AXI GPIO lines (XGpio)."""
     module = module or _module_of(device["part"])
     htype, hvar = _handle_for(controller)
@@ -2393,7 +2395,7 @@ def _gpio_device_unit(device: dict, controller: dict, descriptor: dict,
             e.ln("int iStatus;")
             e.blank()
         if op_name == "device_init":
-            e.ln(f"iStatus = XGpio_Initialize({hvar}, {instance}_DEVICE_ID);").check_status()
+            e.ln(f"iStatus = XGpio_Initialize({hvar}, {lookup_arg(instance, sdt)});").check_status()
             if channel == 2:
                 e.ln("/* Kanal 2 yalniz cift kanalli IP'de vardir; tek kanalli")
                 e.ln(" * cekirdekte 0x8/0xC yazmaclari yoktur (surucu Xil_Assert")
@@ -2689,6 +2691,7 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
     muxes = {m["id"]: m for m in spec.get("muxes", [])}
     runtime = spec["project"].get("runtime", "bare_metal")
     modules = device_module_map(spec)
+    sdt = is_sdt(spec)
     units: list[CUnit] = []
 
     built_mux: set[str] = set()
@@ -2741,20 +2744,20 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
                 device = _i2c_union_device(device, siblings, descriptor)
             if descriptor.get("memory"):
                 unit = _i2c_eeprom_unit(device, controller, descriptor, mux_module, mux_channel,
-                                        module=modules.get(device["id"]))
+                                        module=modules.get(device["id"]), sdt=sdt)
             else:
                 unit = _i2c_device_unit(device, controller, descriptor, mux_module, mux_channel,
-                                        module=modules.get(device["id"]))
+                                        module=modules.get(device["id"]), sdt=sdt)
         elif transport == "spi":
             if tics.has_tics_register_model(descriptor):
                 unit = _spi_register_device_unit(device, controller, descriptor,
-                                                 module=modules.get(device["id"]))
+                                                 module=modules.get(device["id"]), sdt=sdt)
             else:
                 unit = _spi_device_unit(device, controller, descriptor,
-                                        module=modules.get(device["id"]))
+                                        module=modules.get(device["id"]), sdt=sdt)
         elif transport == "gpio":
             unit = _gpio_device_unit(device, controller, descriptor,
-                                     module=modules.get(device["id"]))
+                                     module=modules.get(device["id"]), sdt=sdt)
         else:
             raise CodegenError(
                 f"device {device['id']}: transport '{transport}' not supported by codegen yet "

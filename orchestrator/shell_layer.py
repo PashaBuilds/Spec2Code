@@ -36,6 +36,7 @@ from pathlib import Path
 
 from hostplat import io as hio
 from orchestrator import banner_font, cit_layer, cmodel
+from orchestrator.bsp_flow import is_sdt, lookup_suffix
 
 SHELL_DIR = "shell"
 
@@ -660,8 +661,10 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln("#define SHELL_USER_MOD_INTR_ID 0U /* TODO: XPAR_INTC_0_<IP>_..._VEC_ID */")
     e.ln("#define SHELL_USER_MOD_INTR_ID_UNSET 1 /* ayarlanana kadar `mod test` uyarir */")
     e.ln("#endif")
-    e.ln("#if defined(XPAR_XINTC_NUM_INSTANCES) && !defined(SHELL_USER_MOD_INTC_DEVICE_ID)")
-    e.ln("#define SHELL_USER_MOD_INTC_DEVICE_ID XPAR_INTC_0_DEVICE_ID")
+    intc_suffix = lookup_suffix(is_sdt(spec))
+    intc_default = "XPAR_XINTC_0_BASEADDR" if is_sdt(spec) else "XPAR_INTC_0_DEVICE_ID"
+    e.ln(f"#if defined(XPAR_XINTC_NUM_INSTANCES) && !defined(SHELL_USER_MOD_INTC_{intc_suffix})")
+    e.ln(f"#define SHELL_USER_MOD_INTC_{intc_suffix} {intc_default}")
     e.ln("#endif")
     e.ln("#define SHELL_USER_MOD_REG_COUNT 8U")
     e.ln("#define SHELL_USER_MOD_CONNECTOR_COUNT 14U")
@@ -1103,7 +1106,8 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln("    }")
     e.ln("}")
     e.blank()
-    for line in _MOD_HANDLER.splitlines():
+    mod_handler = _MOD_HANDLER.replace("SHELL_USER_MOD_INTC_DEVICE_ID", f"SHELL_USER_MOD_INTC_{lookup_suffix(is_sdt(spec))}")
+    for line in mod_handler.splitlines():
         e.ln(line)
     e.blank()
     e.ln("/* KOMUT TABLOSU: konsol adi, isleyici, help satiri. Yeni komut = bir satir. */")

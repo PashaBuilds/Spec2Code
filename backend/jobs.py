@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from orchestrator import codegen
+from orchestrator.bsp_flow import is_sdt
 from orchestrator.qc import loop as qc_loop
 from backend.rulesets import DEFAULT_RULESET_REF, resolve_ruleset_ref
 from hostplat.paths import data_root
@@ -175,7 +176,8 @@ class JobManager:
         _copy_imported_sources(spec, out_dir, job.emit)
         ruleset = _load_ruleset(spec)
         fixer = _maybe_llm_fixer(spec, ruleset, emit=job.emit)
-        report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer)
+        report = qc_loop.run_qc(out_dir, ruleset, max_rounds=max_rounds, emit=job.emit, fixer=fixer,
+                                defines=["SDT"] if is_sdt(spec) else None)
         files = _collect_output_files(out_dir)
         job.result = {
             "out_dir": _relative_to_root(out_dir),

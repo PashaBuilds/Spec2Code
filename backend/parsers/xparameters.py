@@ -10,6 +10,13 @@ Each ``*_BASEADDR`` macro is a controller candidate. A candidate is treated as a
 *peripheral* (vs. a memory region like DDR/OCM, which also has BASEADDR) only if it has a
 companion ``*_DEVICE_ID`` macro - the discriminator Xilinx headers give us for free.
 
+Vitis Unified (2024.1+, System Device Tree) headers carry NO ``*_DEVICE_ID`` macro at all
+(the driver instance is selected by base address). Such a header is detected by the
+absence of any ``_DEVICE_ID`` define and parsed in *SDT mode*: every ``*_BASEADDR`` whose
+middle name matches a known driver rule is a peripheral, memory regions still fall out
+because no rule matches them. ``ParseResult.sdt`` tells the caller which mode applied so
+the project can switch ``project.bsp_flow`` to ``sdt``.
+
 The parser is pure (text in, dicts out). Zone assignment is delegated to the platform
 topology model (Brief 9.2) so the same parser serves all four platforms.
 """
@@ -168,6 +175,8 @@ class Controller:
 
 @dataclass
 class ParseResult:
+    #: True when the header had no ``*_DEVICE_ID`` macro (Vitis Unified / SDT BSP).
+    sdt: bool = False
     controllers: list[dict] = field(default_factory=list)
     unmatched: list[dict] = field(default_factory=list)
 
@@ -229,6 +238,8 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
     """
     defines: dict[str, str] = {m.group("name"): m.group("value") for m in _DEFINE_RE.finditer(text)}
     result = ParseResult()
+    # SDT (Vitis Unified) basligi: hicbir XPAR_*_DEVICE_ID yok -> BASEADDR tek secici.
+    result.sdt = bool(defines) and not any(name.endswith("_DEVICE_ID") for name in defines)
     candidates: list[_Candidate] = []
 
     for name, raw_value in defines.items():
@@ -242,7 +253,8 @@ def parse_xparameters(text: str, platform_model: Optional[dict] = None) -> Parse
 
         has_device_id = f"{base_key}_DEVICE_ID" in defines
         # Memory regions (DDR/OCM/RAM) have BASEADDR but no DEVICE_ID -> not a peripheral.
-        if not has_device_id:
+        # SDT modunda DEVICE_ID hic yoktur; ayrim asagida surucu kuralina kalir.
+        if not has_device_id and not result.sdt:
             continue
 
         addr_int = _resolve_int(raw_value, defines)

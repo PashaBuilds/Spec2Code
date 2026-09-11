@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from orchestrator import codegen
+from orchestrator.bsp_flow import is_sdt
 from orchestrator.qc import loop
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +28,8 @@ def main(argv: list[str]) -> int:
     out_dir = _ROOT / "outputs" / spec["project"]["name"]
 
     files = codegen.generate(spec, out_dir, emit=lambda e: print("  ", e))
-    report = loop.run_qc(out_dir, ruleset, max_rounds=spec.get("generation_options", {}).get("qc_max_rounds", 3))
+    report = loop.run_qc(out_dir, ruleset, max_rounds=spec.get("generation_options", {}).get("qc_max_rounds", 3),
+                         defines=["SDT"] if is_sdt(spec) else None)
     print(f"\nfiles: {len(files)} | qc.passed: {report['passed']} | "
           f"violations: {len(report['final_violations'])}")
     if report["warning"]:

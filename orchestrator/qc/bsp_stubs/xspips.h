@@ -19,7 +19,11 @@ typedef struct
     uint32_t IsReady;
 } XSpiPs;
 
+#ifdef SDT
+XSpiPs_Config *XSpiPs_LookupConfig(uintptr_t BaseAddress);
+#else
 XSpiPs_Config *XSpiPs_LookupConfig(uint16_t DeviceId);
+#endif
 int XSpiPs_CfgInitialize(XSpiPs *InstancePtr, XSpiPs_Config *ConfigPtr, uint32_t EffectiveAddr);
 int XSpiPs_SetOptions(XSpiPs *InstancePtr, uint32_t Options);
 int XSpiPs_SetClkPrescaler(XSpiPs *InstancePtr, uint8_t Prescaler);

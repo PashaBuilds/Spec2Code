@@ -230,7 +230,7 @@ _TIDY_RE = re.compile(
 )
 
 
-def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
+def run_clang_tidy(path: Path, include_dirs: list[Path], defines: list[str] | None = None) -> RunnerResult:
     tool = tools.resolve("clang-tidy", required=False)
     if tool is None:
         return RunnerResult("clang-tidy", False, [], "clang-tidy not found")
@@ -249,7 +249,7 @@ def run_clang_tidy(path: Path, include_dirs: list[Path]) -> RunnerResult:
            # Windows'ta VS-LLVM clang-tidy MSVC CRT basliklarini gorur; CRT'nin
            # `strncpy` -> `strncpy_s` "deprecated" uyarisi HOST gurultusudur
            # (hedef newlib'de yoktur), kapatilir.
-           "--", "-std=c11", "-D_CRT_SECURE_NO_WARNINGS", *includes]
+           "--", "-std=c11", "-D_CRT_SECURE_NO_WARNINGS", *[f"-D{d}" for d in (defines or [])], *includes]
     result = proc.run(cmd, timeout=120)
     violations: list[Violation] = []
     target = str(Path(path).resolve())
@@ -283,14 +283,14 @@ _CPPCHECK_IGNORE = {"missingInclude", "missingIncludeSystem", "unmatchedSuppress
                     "variableScope"}
 
 
-def run_cppcheck(path: Path, include_dirs: list[Path]) -> RunnerResult:
+def run_cppcheck(path: Path, include_dirs: list[Path], defines: list[str] | None = None) -> RunnerResult:
     tool = tools.resolve("cppcheck", required=False)
     if tool is None:
         return RunnerResult("cppcheck", False, [], "cppcheck not found")
     includes = [f"-I{BSP_STUBS}"] + [f"-I{d}" for d in include_dirs]
     cmd = [tool, "--enable=warning,style,performance,portability", "--quiet",
            "--inline-suppr", f"--template={_CPPCHECK_TEMPLATE}", "--language=c",
-           "--std=c11", *includes, str(path)]
+           "--std=c11", *[f"-D{d}" for d in (defines or [])], *includes, str(path)]
     result = proc.run(cmd, timeout=120)
     violations: list[Violation] = []
     for line in (result.stdout + "\n" + result.stderr).splitlines():

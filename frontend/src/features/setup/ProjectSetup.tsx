@@ -260,6 +260,22 @@ export default function ProjectSetup() {
               </SelectContent>
             </Select>
           </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>BSP akışı (Vitis sürümü)</Label>
+            <Select value={project.bsp_flow ?? "classic"} onValueChange={(v) => setProject({ bsp_flow: v as never })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="classic">Classic — Vitis ≤ 2023.2 (xsct, XPAR_*_DEVICE_ID)</SelectItem>
+                <SelectItem value="sdt">SDT — Vitis Unified ≥ 2024.1 (System Device Tree, XPAR_*_BASEADDR, vitis -s)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Üretilen C tek akışa göre çıkar: SDT'de LookupConfig/Initialize taban adresle çağrılır ve BSP DEVICE_ID
+              makrosu üretmez. xparameters.h yüklerken başlıkta DEVICE_ID yoksa bu alan kendiliğinden SDT olur.
+            </p>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

@@ -20,7 +20,11 @@ typedef struct
     u32 IsStarted;
 } XIic;
 
+#ifdef SDT
+XIic_Config* XIic_LookupConfig(UINTPTR BaseAddress);
+#else
 XIic_Config* XIic_LookupConfig(u16 DeviceId);
+#endif
 int XIic_CfgInitialize(XIic* InstancePtr, XIic_Config* Config, UINTPTR EffectiveAddr);
 int XIic_Start(XIic* InstancePtr);
 int XIic_Stop(XIic* InstancePtr);

@@ -21,6 +21,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from hostplat import io as hio
 from hostplat.paths import data_root
 from orchestrator import boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
+from orchestrator.bsp_flow import is_sdt, lookup_arg, lookup_suffix
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -4793,7 +4794,7 @@ def _testbench_board_handle_decls(entries: list[dict]) -> list[str]:
     return lines
 
 
-def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
+def _testbench_board_init_lines(entries: list[dict], sdt: bool = False) -> list[str]:
     lines = [
         "int spec2codeTestbenchBoardInit(void)",
         "{",
@@ -4826,12 +4827,12 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         return lines
 
     for entry in entries:
-        instance = entry["instance"]
+        instance = lookup_arg(entry["instance"], sdt)
         handle = entry["handle"]
         if entry["htype"] == "XIicPs":
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (I2C)");',
-                f"    spIicConfig = XIicPs_LookupConfig({instance}_DEVICE_ID);",
+                f"    spIicConfig = XIicPs_LookupConfig({instance});",
                 "    if (spIicConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code I2C config bulunamadi: {entry["id"]}\\r\\n");',
@@ -4853,7 +4854,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             ])
         elif entry["htype"] == "XSpiPs":
             lines.extend([
-                f"    spSpiConfig = XSpiPs_LookupConfig({instance}_DEVICE_ID);",
+                f"    spSpiConfig = XSpiPs_LookupConfig({instance});",
                 "    if (spSpiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code SPI config bulunamadi: {entry["id"]}\\r\\n");',
@@ -4878,7 +4879,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
         elif entry["htype"] == "XQspiPsu":
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (QSPI)");',
-                f"    spQspiConfig = XQspiPsu_LookupConfig({instance}_DEVICE_ID);",
+                f"    spQspiConfig = XQspiPsu_LookupConfig({instance});",
                 "    if (spQspiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code QSPI config bulunamadi: {entry["id"]}\\r\\n");',
@@ -4909,7 +4910,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # burada YUKSEK SESLE dusar.
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI IIC, dinamik mod)");',
-                f"    spAxiIicConfig = XIic_LookupConfig({instance}_DEVICE_ID);",
+                f"    spAxiIicConfig = XIic_LookupConfig({instance});",
                 "    if (spAxiIicConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI IIC config bulunamadi: {entry["id"]}\\r\\n");',
@@ -4941,7 +4942,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # LookupConfig -> CfgInitialize -> SetOptions -> Start -> kesme kapat.
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI SPI)");',
-                f"    spAxiSpiConfig = XSpi_LookupConfig({instance}_DEVICE_ID);",
+                f"    spAxiSpiConfig = XSpi_LookupConfig({instance});",
                 "    if (spAxiSpiConfig == NULL)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI SPI config bulunamadi: {entry["id"]}\\r\\n");',
@@ -4976,7 +4977,7 @@ def _testbench_board_init_lines(entries: list[dict]) -> list[str]:
             # hattini yanlislikla surerdi.
             lines.extend([
                 f'    dbg_printf(DEBUG_LEVEL_INFO, "controller init: {entry["id"]} (AXI GPIO)");',
-                f"    iStatus = XGpio_Initialize(&{handle}, {instance}_DEVICE_ID);",
+                f"    iStatus = XGpio_Initialize(&{handle}, {instance});",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 f'        xil_printf("Spec2Code AXI GPIO baslatilamadi: {entry["id"]}\\r\\n");',
@@ -5147,7 +5148,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        *_testbench_board_init_lines(entries),
+        *_testbench_board_init_lines(entries, is_sdt(spec)),
         *[
             line
             for htype, _header in _TESTBENCH_HANDLE_HEADERS
@@ -5379,6 +5380,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
     if eth is None:
         raise cmodel.CodegenError("lwIP test bench requested without an Ethernet controller (ZynqMP PS GEM or MicroBlaze AXI EthernetLite)")
     microblaze = _lwip_on_microblaze(spec)
+    if microblaze and is_sdt(spec):
+        raise cmodel.CodegenError(
+            "S2C-CODEGEN-SDT-001: MicroBlaze lwIP ajani (AXI INTC + AXI Timer platformu) SDT/Vitis Unified "
+            "akisinda henuz desteklenmiyor - kesme vektor makrolari (XPAR_INTC_0_*_VEC_ID) SDT basliginda "
+            "farkli adlanir. testbench_transport'u uart/mdm secin ya da bsp_flow'u classic yapin.")
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
     telnet = _telnet_log_enabled(spec)
@@ -5560,7 +5566,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    return ERR_OK;",
         "}",
         "",
-        *_testbench_board_init_lines(entries),
+        *_testbench_board_init_lines(entries, is_sdt(spec)),
         *[
             line
             for htype, _header in _TESTBENCH_HANDLE_HEADERS
@@ -6270,6 +6276,8 @@ def _testbench_uart_driver(spec: dict) -> str:
 def _testbench_uart_header(spec: dict) -> str:
     uart = _testbench_agent_uart_controller(spec)
     instance = uart.get("instance") if uart else "XPAR_XUARTPS_0"
+    sdt = is_sdt(spec)
+    suffix = lookup_suffix(sdt)
     driver = _testbench_uart_driver(spec)
     channel = (
         "MDM UART (MicroBlaze Debug Module)"
@@ -6287,8 +6295,8 @@ def _testbench_uart_header(spec: dict) -> str:
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_UART_H\n"
         "#define SPEC2CODE_TESTBENCH_UART_H\n\n"
-        "#ifndef SPEC2CODE_TESTBENCH_UART_DEVICE_ID\n"
-        f"#define SPEC2CODE_TESTBENCH_UART_DEVICE_ID {instance}_DEVICE_ID\n"
+        f"#ifndef SPEC2CODE_TESTBENCH_UART_{suffix}\n"
+        f"#define SPEC2CODE_TESTBENCH_UART_{suffix} {lookup_arg(instance, sdt)}\n"
         "#endif\n\n"
         "#ifndef SPEC2CODE_TESTBENCH_UART_BAUD\n"
         "#define SPEC2CODE_TESTBENCH_UART_BAUD 115200U\n"
@@ -6324,6 +6332,7 @@ def _testbench_uart_source(spec: dict) -> str:
     if telnet:
         headers.append('#include "spec2code_testbench_lwip_net.h"')
     uart_prefix = _testbench_uart_driver(spec)
+    uart_suffix = lookup_suffix(is_sdt(spec))
     for htype, header in _TESTBENCH_HANDLE_HEADERS:
         if any(entry["htype"] == htype for entry in entries):
             headers.append(f'#include "{header}"')
@@ -6365,7 +6374,7 @@ def _testbench_uart_source(spec: dict) -> str:
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        *_testbench_board_init_lines(entries),
+        *_testbench_board_init_lines(entries, is_sdt(spec)),
         *[
             line
             for htype, _header in _TESTBENCH_HANDLE_HEADERS
@@ -6379,7 +6388,7 @@ def _testbench_uart_source(spec: dict) -> str:
                 "{",
                 "    int iStatus;",
                 "",
-                "    iStatus = XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+                f"    iStatus = XUartLite_Initialize(&S_sTestbenchUart, SPEC2CODE_TESTBENCH_UART_{uart_suffix});",
                 "    if (iStatus != XST_SUCCESS)",
                 "    {",
                 '        xil_printf("Spec2Code UART init basarisiz\\r\\n");',
@@ -6395,7 +6404,7 @@ def _testbench_uart_source(spec: dict) -> str:
                 f"    {uart_prefix}_Config* spUartConfig;",
                 "    int iStatus;",
                 "",
-                f"    spUartConfig = {uart_prefix}_LookupConfig(SPEC2CODE_TESTBENCH_UART_DEVICE_ID);",
+                f"    spUartConfig = {uart_prefix}_LookupConfig(SPEC2CODE_TESTBENCH_UART_{uart_suffix});",
                 "    if (spUartConfig == NULL)",
                 "    {",
                 '        xil_printf("Spec2Code UART config bulunamadi\\r\\n");',
@@ -6630,7 +6639,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         "static unsigned int S_uiBoardReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        *_testbench_board_init_lines(entries),
+        *_testbench_board_init_lines(entries, is_sdt(spec)),
         *[
             line
             for htype, _header in _TESTBENCH_HANDLE_HEADERS

@@ -15,7 +15,11 @@ typedef struct
     uint32_t IsReady;
 } XIicPs;
 
+#ifdef SDT
+XIicPs_Config *XIicPs_LookupConfig(uintptr_t BaseAddress);
+#else
 XIicPs_Config *XIicPs_LookupConfig(uint16_t DeviceId);
+#endif
 int XIicPs_CfgInitialize(XIicPs *InstancePtr, XIicPs_Config *ConfigPtr, uint32_t EffectiveAddr);
 int XIicPs_SetSClk(XIicPs *InstancePtr, uint32_t FsclHz);
 int XIicPs_MasterSendPolled(XIicPs *InstancePtr, uint8_t *MsgPtr, int ByteCount, uint16_t SlaveAddr);

@@ -146,6 +146,12 @@ gorunumler:
 - **Test bench tasiyicisi**: `auto` (Ethernet varsa lwIP, yoksa UART), `eth`, `uart`,
   `coresight` (ZynqMP DCC, JTAG), `mdm` (MicroBlaze Debug Module UART, JTAG).
   JTAG tasiyicilari hicbir zaman otomatik secilmez.
+- **BSP akisi** (`project.bsp_flow`): `classic` (varsayilan; Vitis <= 2023.2, xsct,
+  `XPAR_*_DEVICE_ID` ile LookupConfig) ya da `sdt` (Vitis Unified >= 2024.1, System Device
+  Tree: BSP `DEVICE_ID` uretmez, surucu ornegi `XPAR_*_BASEADDR` ile secilir, kod `-DSDT`
+  ile derlenir). Uretilen C tek akisa gore cikar (iki akisi `#ifdef` ile tasiyan olu kod
+  yok). `xparameters.h` yuklerken baslikta hic `DEVICE_ID` yoksa alan kendiliginden `sdt`
+  olur. Vitis workspace uretimi spec akisi ile Vitis surumu uyusmazsa baslamadan hata verir.
 
 ### XSA yukleme: kopya mi, yol mu
 
@@ -662,7 +668,19 @@ Generate bittikten sonra **Vitis workspace** paneli: Vitis dizini
 (`C:\Xilinx\Vitis\2023.2`), `.xsa` dosya yolu, workspace ve temp/staging dizinleri,
 platform/system/application adlari, islemci (`psu_cortexa53_0`, `microblaze_0`...).
 
-Akis: XSCT bulunur -> `.xsa` ve uretilen kaynaklar staging'e kopyalanir (uretim
+**Vitis Unified (>= 2024.1, or. 2025.2)**: xsct Tcl akisi yerine `vitis -s <python>`
+betigi kosar (`spec2code_unified_workspace.py`, loglar `vitis_stdout.log`): platform
+bileseni (XSA, os, cpu) -> lwIP gerekiyorsa `lwip220` + MicroBlaze bellek parametreleri ->
+`platform.build()` -> `empty_application` bileseni -> kaynak import + `UserConfig.cmake`
+include yollari + MicroBlaze lscript yigin/heap -> `app.build()`; ELF
+`<workspace>/<app>/build/<app>.elf`. Bu akista spec `bsp_flow = sdt` olmali. Custom PL IP
+surucu politikasi (make.libs yamasi) Unified'da uygulanmaz: SDT surucusu uyumluluk dizgisiyle
+eslesir, eslesmeyen IP icin surucu uretilmez. Henuz Unified'da desteklenmeyen: MicroBlaze
+lwIP ajani (AXI INTC/Timer kesme vektor makrolari SDT'de farkli adlanir; UART/MDM secin).
+Bu akis Vitis 2025.2 kurulumu tamamlanmadan, AMD scripting belgesine gore yazildi;
+kurulum sonrasi ilk gercek kosuda dogrulanacak noktalar betikte `# DOGRULA:` ile isaretlidir.
+
+**Klasik akis (<= 2023.2)**: XSCT bulunur -> `.xsa` ve uretilen kaynaklar staging'e kopyalanir (uretim
 ciktisi diskte eksikse acik hata: once Generate'i yeniden calistir) -> custom PL IP
 adaylari `.hwh`'dan algilanir -> lwIP gerekiyorsa BSP kutuphanesi/API modu denenir ->
 `spec2code_create_workspace.tcl` yazilir -> platform/system/application kurulur ->

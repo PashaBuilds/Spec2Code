@@ -114,6 +114,9 @@ export interface ProjectMeta {
   /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART; coresight = JTAG DCC (ZynqMP);
    * mdm = MicroBlaze Debug Module UART (XUartLite, xsdb jtagterminal köprüsü). */
   testbench_transport?: "auto" | "eth" | "uart" | "coresight" | "mdm";
+  /** BSP akışı: classic = Vitis <= 2023.2 (xsct, XPAR_*_DEVICE_ID); sdt = Vitis Unified >= 2024.1
+   * System Device Tree (DEVICE_ID yok, XPAR_*_BASEADDR, -DSDT, `vitis -s` Python akışı). */
+  bsp_flow?: "classic" | "sdt";
 }
 export interface LlmConfig {
   enabled: boolean;
@@ -873,6 +876,8 @@ export interface ParseResult {
   cores: Core[];
   controllers: Controller[];
   unmatched: { instance: string; base_address: string; reason: string }[];
+  /** xparameters.h'ta hiç DEVICE_ID yoktu (Vitis Unified / SDT BSP); proje bsp_flow=sdt'ye alınır. */
+  sdt?: boolean;
   custom_ips?: CustomIp[];
 }
 

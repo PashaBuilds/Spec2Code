@@ -20,9 +20,17 @@ typedef struct
     u32 IsReady;
 } XUartLite;
 
+#ifdef SDT
+XUartLite_Config* XUartLite_LookupConfig(UINTPTR BaseAddress);
+#else
 XUartLite_Config* XUartLite_LookupConfig(u16 DeviceId);
+#endif
 int XUartLite_CfgInitialize(XUartLite* InstancePtr, XUartLite_Config* Config, UINTPTR EffectiveAddr);
+#ifdef SDT
+int XUartLite_Initialize(XUartLite* InstancePtr, UINTPTR BaseAddress);
+#else
 int XUartLite_Initialize(XUartLite* InstancePtr, u16 DeviceId);
+#endif
 unsigned int XUartLite_Send(XUartLite* InstancePtr, u8* DataBufferPtr, unsigned int NumBytes);
 unsigned int XUartLite_Recv(XUartLite* InstancePtr, u8* DataBufferPtr, unsigned int NumBytes);
 void XUartLite_ResetFifos(XUartLite* InstancePtr);

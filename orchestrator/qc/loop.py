@@ -45,7 +45,9 @@ def run_qc(
     max_rounds: int = 3,
     emit: Optional[Emit] = None,
     fixer: Optional[Fixer] = None,
+    defines: Optional[list[str]] = None,
 ) -> dict:
+    """``defines``: derleyici makrolari (or. ``["SDT"]`` - Vitis Unified BSP stub imzalari)."""
     emit = emit or (lambda _e: None)
     # Mutlak yol: format_file araci cwd=out_dir ile kosar; goreli hedef yolu orada cozulmezdi.
     out_dir = Path(out_dir).resolve()
@@ -68,7 +70,8 @@ def run_qc(
                     *runners.driver_include_dirs(cit_dir), shell_dir, qc_include_dir]
     try:
         return _run_qc_rounds(out_dir, ruleset, drivers_dir, tests_dir, [cit_dir, shell_dir], include_dirs,
-                              qc_include_dir, max_rounds=max_rounds, emit=emit, fixer=fixer)
+                              qc_include_dir, max_rounds=max_rounds, emit=emit, fixer=fixer,
+                              defines=list(defines or []))
     finally:
         shutil.rmtree(qc_include_dir, ignore_errors=True)
 
@@ -85,6 +88,7 @@ def _run_qc_rounds(
     max_rounds: int,
     emit: Emit,
     fixer: Optional[Fixer],
+    defines: Optional[list[str]] = None,
 ) -> dict:
 
     # Write the clang-format config derived from the ruleset, so `-style=file` finds it
@@ -139,8 +143,8 @@ def _run_qc_rounds(
         for f in c_files:
             nl = naming_linter.lint_file(f, ruleset, include_dirs)
             violations += nl
-            tidy = runners.run_clang_tidy(f, include_dirs)
-            cpp = runners.run_cppcheck(f, include_dirs)
+            tidy = runners.run_clang_tidy(f, include_dirs, defines)
+            cpp = runners.run_cppcheck(f, include_dirs, defines)
             tool_status["clang-tidy"] = tidy.available
             tool_status["cppcheck"] = cpp.available
             violations += tidy.violations + cpp.violations

@@ -99,6 +99,8 @@ interface StoreState {
     custom_ips?: CustomIp[];
     zones: Zone[];
     cores: Core[];
+    /** xparameters.h'ta DEVICE_ID yoktu (Vitis Unified / SDT): project.bsp_flow sdt olur. */
+    sdt?: boolean;
   }) => ApplyParseSummary;
   loadSpec: (spec: ProjectSpec, context?: { zones?: Zone[]; cores?: Core[] }) => void;
   setCatalog: (c: CatalogDevice[]) => void;
@@ -136,6 +138,7 @@ const DEFAULT_PROJECT: ProjectMeta = {
   runtime: "freertos",
   output_mode: "dropin",
   testbench_transport: "auto",
+  bsp_flow: "classic",
 };
 
 const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";
@@ -287,6 +290,8 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       ...s0.muxes.filter((m) => !keptMuxIds.has(m.id)).map((m) => `${m.id} (${m.controller_id})`),
     ];
     set({
+      // SDT başlığı (Vitis Unified) yüklendiyse BSP akışı da onunla gelir; klasik başlıkta dokunulmaz.
+      ...(r.sdt ? { project: { ...s0.project, bsp_flow: "sdt" as const } } : {}),
       controllers: r.controllers,
       unmatched: r.unmatched ?? [],
       customIps: r.custom_ips ?? [],

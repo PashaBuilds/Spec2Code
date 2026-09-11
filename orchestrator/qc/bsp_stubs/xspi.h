@@ -25,7 +25,11 @@ typedef struct
     u32 IsStarted;
 } XSpi;
 
+#ifdef SDT
+XSpi_Config* XSpi_LookupConfig(UINTPTR BaseAddress);
+#else
 XSpi_Config* XSpi_LookupConfig(u16 DeviceId);
+#endif
 int XSpi_CfgInitialize(XSpi* InstancePtr, XSpi_Config* Config, UINTPTR EffectiveAddr);
 int XSpi_SetOptions(XSpi* InstancePtr, u32 Options);
 int XSpi_Start(XSpi* InstancePtr);

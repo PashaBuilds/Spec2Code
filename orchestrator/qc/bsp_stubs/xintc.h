@@ -8,7 +8,11 @@
 typedef void (*XInterruptHandler)(void* CallBackRef);
 #endif
 typedef struct { u32 BaseAddress; u32 IsReady; } XIntc;
+#ifdef SDT
+int XIntc_Initialize(XIntc* InstancePtr, UINTPTR BaseAddress);
+#else
 int XIntc_Initialize(XIntc* InstancePtr, u16 DeviceId);
+#endif
 int XIntc_Connect(XIntc* InstancePtr, u8 Id, XInterruptHandler Handler, void* CallBackRef);
 int XIntc_Start(XIntc* InstancePtr, u8 Mode);
 void XIntc_Enable(XIntc* InstancePtr, u8 Id);

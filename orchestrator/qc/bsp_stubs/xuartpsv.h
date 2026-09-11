@@ -20,7 +20,11 @@ typedef struct
     u32 BaudRate;
 } XUartPsv;
 
+#ifdef SDT
+XUartPsv_Config* XUartPsv_LookupConfig(UINTPTR BaseAddress);
+#else
 XUartPsv_Config* XUartPsv_LookupConfig(u16 DeviceId);
+#endif
 int XUartPsv_CfgInitialize(XUartPsv* InstancePtr, XUartPsv_Config* Config, UINTPTR EffectiveAddr);
 int XUartPsv_SetBaudRate(XUartPsv* InstancePtr, u32 BaudRate);
 u32 XUartPsv_Send(XUartPsv* InstancePtr, u8* BufferPtr, u32 NumBytes);

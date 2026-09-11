@@ -23,6 +23,8 @@ from typing import Optional
 
 from backend.jobs import Job
 from backend.vitis_errors import map_vitis_errors
+from backend import vitis_unified
+from orchestrator.bsp_flow import is_unified_vitis
 from hostplat import io as hio
 from hostplat.paths import data_root
 
@@ -2884,6 +2886,20 @@ class VitisWorkspaceJobManager:
                     loop.call_soon_threadsafe(queue.put_nowait, None)
 
     def _blocking(self, job: VitisWorkspaceJob) -> None:
+        # Vitis >= 2024.1 (Unified): xsct Tcl akisi yerine `vitis -s` Python + SDT BSP.
+        job.emit({"event": "vitis.locate", "stage": "locate", "progress": 12, "message": "Vitis sürümü algılanıyor."})
+        xsct = detect_xsct(job.config.vitis_path)
+        if is_unified_vitis(xsct.version):
+            vitis_unified.run_unified_job(self, job, xsct)
+            return
+        flow_issue = vitis_unified.bsp_flow_preflight_issue(job.generate_job.spec, xsct.version)
+        if flow_issue is not None:
+            job.emit({
+                "event": "vitis.compile_errors", "stage": "stage_sources", "progress": 30,
+                "message": "Spec BSP akışı Vitis sürümüyle uyuşmuyor; XSCT başlatılmadı.",
+                "issues": [flow_issue], "error_codes": _issue_error_codes([flow_issue]),
+            })
+            raise RuntimeError(flow_issue["message"])
         if str(getattr(job.config, "mode", "full") or "full") == "update":
             self._blocking_update(job)
             return

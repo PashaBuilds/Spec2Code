@@ -491,6 +491,8 @@ def parse(req: ParseRequest) -> dict:
         "controllers": result.controllers,
         "unmatched": result.unmatched,
         "custom_ips": [],
+        # Vitis Unified (SDT) basligi: DEVICE_ID yok -> frontend project.bsp_flow'u sdt yapar.
+        "sdt": result.sdt,
     }
 
 

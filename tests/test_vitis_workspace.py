@@ -123,7 +123,7 @@ def _write_fake_xsct(path: Path, py_body: str, version: str) -> None:
     path.chmod(path.stat().st_mode | 0o111)
 
 
-def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
+def write_fake_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         'write_elf(app_name_from_script(sys.argv[1] if len(sys.argv) > 1 else ""))\n'
@@ -134,7 +134,7 @@ def write_fake_xsct(path: Path, version: str = "2024.2") -> None:
     )
 
 
-def write_fake_xsct_agent_build_fails(path: Path, version: str = "2024.2") -> None:
+def write_fake_xsct_agent_build_fails(path: Path, version: str = "2023.2") -> None:
     """Ajan link hatasi (or. BRAM'e sigmama): shell ELF yazilir, ajan ELF'i yok, exit 1."""
     _write_fake_xsct(
         path,
@@ -148,7 +148,7 @@ def write_fake_xsct_agent_build_fails(path: Path, version: str = "2024.2") -> No
     )
 
 
-def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
+def write_fake_xsct_without_elf(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         'print("fake xsct ran without elf " + " ".join(sys.argv[1:]))\n'
@@ -157,7 +157,7 @@ def write_fake_xsct_without_elf(path: Path, version: str = "2024.2") -> None:
     )
 
 
-def write_archive_only_failing_xsct(path: Path, version: str = "2024.2") -> None:
+def write_archive_only_failing_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         'print("[Spec2Code] building application")\n'
@@ -167,7 +167,7 @@ def write_archive_only_failing_xsct(path: Path, version: str = "2024.2") -> None
     )
 
 
-def write_failing_xsct(path: Path, version: str = "2024.2") -> None:
+def write_failing_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         'print(\'invalid command name "Spec2Code"\', file=sys.stderr)\n'
@@ -191,7 +191,7 @@ _FAKE_BSP_ROOT_PARTS = (
 )
 
 
-def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
+def write_self_healing_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         "count = bump_count()\n"
@@ -212,7 +212,7 @@ def write_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
     )
 
 
-def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
+def write_synthetic_self_healing_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         "count = bump_count()\n"
@@ -234,7 +234,7 @@ def write_synthetic_self_healing_xsct(path: Path, version: str = "2024.2") -> No
     )
 
 
-def write_hsi_noise_xsct(path: Path, version: str = "2024.2") -> None:
+def write_hsi_noise_xsct(path: Path, version: str = "2023.2") -> None:
     """XSCT that emits a caught-and-recovered hsi ERROR line but builds the ELF.
 
     Mirrors `bsp setdriver` probing an instance that is not part of the BSP:
@@ -252,7 +252,7 @@ def write_hsi_noise_xsct(path: Path, version: str = "2024.2") -> None:
     )
 
 
-def write_false_green_self_healing_xsct(path: Path, version: str = "2024.2") -> None:
+def write_false_green_self_healing_xsct(path: Path, version: str = "2023.2") -> None:
     _write_fake_xsct(
         path,
         "count = bump_count()\n"
@@ -927,7 +927,7 @@ class VitisWorkspaceTests(unittest.TestCase):
 
                 self.assertIsNotNone(job.result)
                 result = job.result or {}
-                self.assertEqual(result["vitis_version"], "2024.2")
+                self.assertEqual(result["vitis_version"], "2023.2")
                 self.assertTrue((temp_root / "vitis_unit" / "src" / "drivers").is_dir())
                 self.assertEqual(result["source_xsa_path"], str(xsa))
                 self.assertEqual(result["xsa_path"], str(temp_root / "vitis_unit" / "hw" / "board.xsa"))

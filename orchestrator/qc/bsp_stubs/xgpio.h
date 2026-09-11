@@ -19,9 +19,17 @@ typedef struct
     int IsDual;
 } XGpio;
 
+#ifdef SDT
+XGpio_Config* XGpio_LookupConfig(UINTPTR BaseAddress);
+#else
 XGpio_Config* XGpio_LookupConfig(u16 DeviceId);
+#endif
 int XGpio_CfgInitialize(XGpio* InstancePtr, XGpio_Config* Config, UINTPTR EffectiveAddr);
+#ifdef SDT
+int XGpio_Initialize(XGpio* InstancePtr, UINTPTR BaseAddress);
+#else
 int XGpio_Initialize(XGpio* InstancePtr, u16 DeviceId);
+#endif
 void XGpio_SetDataDirection(XGpio* InstancePtr, unsigned Channel, u32 DirectionMask);
 u32 XGpio_GetDataDirection(XGpio* InstancePtr, unsigned Channel);
 u32 XGpio_DiscreteRead(XGpio* InstancePtr, unsigned Channel);
