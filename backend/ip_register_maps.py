@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import re
 
-KNOWN_IP_KEYS = ("jesd204c",)
+KNOWN_IP_KEYS = ("jesd204c", "regmap_test")
 
 #: VLNV/MODTYPE -> bilinen IP anahtari. VLNV `xilinx.com:ip:jesd204c:4.x` ya da modtype `jesd204c`.
 _VLNV_RULES: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"^xilinx\.com:ip:jesd204c(:|$)"), "jesd204c"),
+    (re.compile(r":spec2code_regmap_test(:|$)"), "regmap_test"),
 )
 _MODTYPE_RULES: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"^jesd204c(_\d+)?$"), "jesd204c"),
+    (re.compile(r"^spec2code_regmap_test$"), "regmap_test"),
 )
 
 
@@ -291,13 +293,26 @@ def jesd204c_document(*, name: str, base_address: str, parameters: dict | None =
     }
 
 
+def regmap_test_document(*, name: str, base_address: str) -> dict:
+    """Spec2Code Register Map Test IP (backend/data/spec2code_regmap_test.v): RTL ile birebir harita."""
+    from backend import register_map
+
+    doc = register_map.regmap_test_ip_document(base_address)
+    doc["maps"][0]["name"] = name
+    return doc
+
+
 def known_ip_document(key: str, *, name: str, base_address: str, parameters: dict | None = None) -> dict:
     if key == "jesd204c":
         return jesd204c_document(name=name, base_address=base_address, parameters=parameters)
+    if key == "regmap_test":
+        return regmap_test_document(name=name, base_address=base_address)
     raise KeyError(f"bilinmeyen IP register haritasi: {key}")
 
 
 def known_ip_parameters(key: str, raw: dict | None) -> dict[str, object]:
     if key == "jesd204c":
         return normalize_jesd204c_parameters(raw)
+    if key == "regmap_test":
+        return {}
     raise KeyError(f"bilinmeyen IP register haritasi: {key}")

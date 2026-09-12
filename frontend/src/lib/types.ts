@@ -880,7 +880,7 @@ export interface CustomIp {
   /** 4 baytlik register sayisi (XSA ADDR_WIDTH ya da adres araligindan). */
   register_count: number;
   /** Register haritası bilinen IP (jesd204c): drivers/ip + shell ip_<id> + Register Map otomatik. */
-  register_map?: "jesd204c";
+  register_map?: "jesd204c" | "regmap_test";
   /** Bilinen IP parametreleri (jesd204c: lanes, direction, link_layer, subclass). */
   ip_parameters?: Record<string, string | number>;
 }

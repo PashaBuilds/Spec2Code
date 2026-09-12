@@ -120,6 +120,7 @@ def render_unified_workspace_script(
     processor: str,
     os_name: str,
     enable_lwip: bool = False,
+    lwip_sys_timers: bool = False,
     lwip_api_mode: str = "RAW_API",
     lwip_params: dict[str, int] | None = None,
     source_include_dirs: list[str] | None = None,
@@ -157,6 +158,7 @@ def render_unified_workspace_script(
         f"OS = {_py(os_name)}\n"
         f"MICROBLAZE = {_py(microblaze)}\n"
         f"ENABLE_LWIP = {_py(bool(enable_lwip))}\n"
+        f"LWIP_SYS_TIMERS = {_py(bool(lwip_sys_timers))}\n"
         f"LWIP_LIB = {_py(UNIFIED_LWIP_LIB)}\n"
         f"LWIP_API_MODE = {_py(lwip_api_mode)}\n"
         f"LWIP_PARAMS = {_py(dict(lwip_params or {}))}\n"
@@ -283,6 +285,10 @@ def create_platform(client):
         log("lwIP kutuphanesi ekleniyor: " + LWIP_LIB + " (" + LWIP_API_MODE + ")")
         domain.set_lib(lib_name=LWIP_LIB)
         set_lib_param(domain, LWIP_LIB, "api_mode", LWIP_API_MODE)
+        if LWIP_SYS_TIMERS:
+            # lwip220 varsayilani NO_SYS_NO_TIMERS=1 -> sys_check_timeouts derlenmez (SAHA 2026-09-12, ZCU102
+            # telnet). Telnet log varsa zamanlayicilar acilir; sys_now() uretilen spec2code_lwip_time.c'den gelir.
+            set_lib_param(domain, LWIP_LIB, "no_sys_no_timers", "false")
         for key, value in LWIP_PARAMS.items():
             set_lib_param(domain, LWIP_LIB, key, value)
     # xiltimer (SDT MicroBlaze lwIP platformunun 50 ms tick'i) standalone BSP'de zaten vardir
@@ -453,6 +459,7 @@ def run_unified_job(manager, job: "VitisWorkspaceJob", xsct: "XsctInfo") -> None
                 "message": f"{len(removed)} eski staged kaynak workspace'ten silindi.", "removed": removed,
             })
     requires_lwip = any(path.startswith("tests/spec2code_testbench_lwip") for path in staged_files)
+    lwip_sys_timers = any(path.startswith("tests/spec2code_lwip_time") for path in staged_files)
     lwip_api_mode = vw.vitis_lwip_api_mode(os_name) if requires_lwip else None
 
     script_path = staging_root / "spec2code_unified_workspace.py"
@@ -477,7 +484,7 @@ def run_unified_job(manager, job: "VitisWorkspaceJob", xsct: "XsctInfo") -> None
         render_unified_workspace_script(
             mode=mode, workspace_path=workspace_path, xsa_path=staged_xsa_path, source_root=source_root,
             source_files=staged_files, platform_name=platform_name, domain_name=domain_name, app_name=app_name,
-            processor=processor, os_name=os_name, enable_lwip=requires_lwip,
+            processor=processor, os_name=os_name, enable_lwip=requires_lwip, lwip_sys_timers=lwip_sys_timers,
             lwip_api_mode=lwip_api_mode or "RAW_API",
             lwip_params=MICROBLAZE_LWIP_PARAMS if (requires_lwip and processor.lower().startswith("microblaze")) else None,
             source_include_dirs=vw.staged_header_dirs(staged_files),

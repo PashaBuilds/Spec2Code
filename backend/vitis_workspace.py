@@ -2052,6 +2052,7 @@ def render_xsct_script(
     processor: str,
     os_name: str,
     enable_lwip: bool = False,
+    lwip_sys_timers: bool = False,
     custom_ip_driver_policy: str = "auto_none",
     custom_ip_instances: list[str] | None = None,
     source_include_dirs: list[str] | None = None,
@@ -2240,6 +2241,15 @@ def render_xsct_script(
         "            if {$spec2code_lwip_api_mode_ok == 0} {\n"
         f"                {_tcl_put('WARNING: lwIP API mode could not be set automatically; check BSP api_mode manually before relying on this workspace.')}"
         "            }\n"
+        # Telnet log (sys_timeout) icin lwIP sys zamanlayicilari: no_sys_no_timers false; sys_now()
+        # uretilen spec2code_lwip_time.c'den gelir (Xilinx portu RAW modda vermez).
+        "            if {$spec2code_lwip_sys_timers == 1} {\n"
+        "                if {[catch {bsp config no_sys_no_timers false} spec2code_lwip_tmr_err]} {\n"
+        f"                    {_tcl_put('lwIP no_sys_no_timers ayarlanamadi: $spec2code_lwip_tmr_err')}"
+        "                } else {\n"
+        f"                    {_tcl_put('lwIP sys timers enabled (no_sys_no_timers false)')}"
+        "                }\n"
+        "            }\n"
         # MicroBlaze (LMB BRAM) icin lwIP havuzlari kucultulur: varsayilan mem_size 128K +
         # pbuf havuzu LMB'ye sigmaz. Parametre adi surumden suruma degisirse catch ile gecilir.
         "            if {[string match -nocase microblaze* $processor]} {\n"
@@ -2404,7 +2414,8 @@ def render_xsct_script(
         + shell_vars
         + f"set processor {{{processor}}}\n"
         f"set os_name {{{os_name}}}\n\n"
-        f"set spec2code_enable_lwip {lwip_flag}\n\n"
+        f"set spec2code_enable_lwip {lwip_flag}\n"
+        f"set spec2code_lwip_sys_timers {'1' if lwip_sys_timers else '0'}\n\n"
         f"set spec2code_lwip_api_mode {{{lwip_api_mode}}}\n\n"
         f"set spec2code_custom_ip_driver_policy {{{custom_ip_driver_policy}}}\n"
         f"set spec2code_custom_ip_instances [list {custom_ip_list}]\n\n"
@@ -3403,6 +3414,7 @@ class VitisWorkspaceJobManager:
                 processor=processor,
                 os_name=os_name,
                 enable_lwip=requires_lwip,
+                lwip_sys_timers=any(path.startswith("tests/spec2code_lwip_time") for path in staged_files),
                 custom_ip_driver_policy=custom_ip_driver_policy,
                 custom_ip_instances=[item.instance for item in custom_pl_ips],
                 source_include_dirs=staged_header_dirs(staged_files),

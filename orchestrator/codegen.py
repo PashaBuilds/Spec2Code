@@ -21,7 +21,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from hostplat import io as hio
 from hostplat.paths import data_root
 from orchestrator import boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
-from orchestrator.bsp_flow import is_sdt, lookup_arg, lookup_suffix
+from orchestrator.bsp_flow import is_sdt, lookup_arg, lookup_suffix, with_sdt_instances
 from orchestrator.device_profiles import registry as device_profiles
 
 _HERE = Path(__file__).resolve().parent
@@ -4806,6 +4806,47 @@ def _telnet_log_enabled(spec: dict) -> bool:
     return _zynqmp_lwip_eth_controller(spec) is not None
 
 
+def _lwip_sys_timers_needed(spec: dict) -> bool:
+    """lwIP sys zamanlayicilari (sys_timeout/sys_check_timeouts) gerekiyor mu.
+
+    Telnet log sunucusu sys_timeout kullanir; RAW/bare-metal'de lwIP portu sys_now() vermez
+    (sys_arch.c yalniz soket modunda derlenir) -> `spec2code_lwip_time.c` bizden cikar ve BSP'de
+    NO_SYS_NO_TIMERS kapatilir. FreeRTOS soket modunda sys_arch sys_now'i verir, dosya uretilmez.
+    MicroBlaze ajani TCP zamanlayicilarini kendisi surer; telnet PS Ethernet ister, MB'de yoktur.
+    """
+    return _telnet_log_enabled(spec) and not _testbench_runtime_is_freertos(spec)
+
+
+def _lwip_time_source(spec: dict) -> str:
+    """`sys_now()`: lwIP sys zamanlayicilari icin ms sayaci (PS islemci sayaci XTime_GetTime).
+
+    Klasik BSP: `xtime_l.h` (COUNTS_PER_SECOND orada). SDT/Unified BSP'de xtime_l.h yoktur;
+    XTime_GetTime `xiltimer.h`'ta, COUNTS_PER_SECOND `xtimer_config.h`'ta (SAHA 2026-09-12, ZCU102 2025.2).
+    `sys_now` adi lwIP'nin zorunlu dis sembolu (QC naming istisnasi).
+    """
+    includes = ('#include "xiltimer.h"\n#include "xtimer_config.h"\n' if is_sdt(spec) else '#include "xtime_l.h"\n')
+    return (
+        "/**\n"
+        " * @file spec2code_lwip_time.c\n"
+        " * @brief lwIP sys_now(): RAW/bare-metal modda portun vermedigi ms sayaci (XTime_GetTime).\n"
+        " *\n"
+        " * Telnet log sunucusu sys_timeout/sys_check_timeouts kullanir; Xilinx lwIP portu\n"
+        " * sys_now()'i yalniz soket (RTOS) modunda derler. COUNTS_PER_SECOND = islemci sayac\n"
+        " * frekansi; 32-bit ms sayaci ~49 gunde sarar, lwIP farklarla calistigi icin sorun degil.\n"
+        " */\n"
+        '#include "lwip/sys.h"\n'
+        + includes +
+        "\n"
+        "u32_t sys_now(void)\n"
+        "{\n"
+        "    unsigned long long ullNow;\n"
+        "\n"
+        "    XTime_GetTime((XTime*)&ullNow);\n"
+        "    return (u32_t)(ullNow / (COUNTS_PER_SECOND / 1000U));\n"
+        "}\n"
+    )
+
+
 def _telnet_needs_standalone_net(spec: dict) -> bool:
     """Telnet icin ayri (standalone) lwIP netif bring-up gerekir mi.
 
@@ -6204,6 +6245,10 @@ def _telnet_net_source(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
+        # IP/netmask/gateway: uart/coresight tasiyicisinda lwip basligi uretilmez, makrolar burada olmali
+        # (SAHA 2026-09-12: ZynqMP + uart + telnet derlemesi 'IP_ADDR0 undeclared' veriyordu).
+        _testbench_net_config_defines(spec).rstrip('\n'),
+        "",
         _testbench_mac_defines(spec).rstrip('\n'),
         "",
         "static struct netif S_sTelnetNetif;",
@@ -6950,6 +6995,7 @@ def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         paths.extend([
             tests_dir / "spec2code_telnet_log.h",
             tests_dir / "spec2code_telnet_log.c",
+            *([tests_dir / "spec2code_lwip_time.c"] if _lwip_sys_timers_needed(spec) else []),
         ])
         # UART/CoreSight transportunda lwIP agent'i yok; telnet kendi netif'ini
         # kurar. Eth transportunda agent netif'i zaten kurar, ikinci bring-up yok.
@@ -7008,6 +7054,7 @@ def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
         contents.extend([
             _apply_default_identifier_style(_telnet_log_header()),
             _apply_default_identifier_style(_telnet_log_source()),
+            *([_apply_default_identifier_style(_lwip_time_source(spec))] if _lwip_sys_timers_needed(spec) else []),
         ])
         if _telnet_needs_standalone_net(spec):
             contents.extend([
@@ -7136,7 +7183,8 @@ def generate(
     ``emit`` (optional) receives structured progress events for WebSocket streaming.
     """
     emit = emit or (lambda _e: None)
-    spec = {**spec, "coding_standard_ref": _DEFAULT_RULESET_REF}
+    # SDT: PS denetleyici ornek adlari kanonik (XPAR_XIICPS_0 ...), bkz. bsp_flow.with_sdt_instances.
+    spec = with_sdt_instances({**spec, "coding_standard_ref": _DEFAULT_RULESET_REF})
     _remove_retired_boardless_artifacts(out_dir, spec["project"]["name"])
     env = _env()
     get_descriptor = make_descriptor_loader(root)

@@ -87,6 +87,15 @@ class KnownIpDocumentTests(unittest.TestCase):
         self.assertIn("JESD204C_TX_BASE_ADDRESS", files["jesd204c_tx_regs.h"])
         self.assertIn("shellUserJesd204cTx", files["jesd204c_tx_shell.c"])
 
+    def test_regmap_test_ip_is_a_known_map(self) -> None:
+        self.assertEqual(ip_register_maps.known_ip_key("xilinx.com:module_ref:spec2code_regmap_test:1.0", "spec2code_regmap_test"), "regmap_test")
+        doc = ip_register_maps.known_ip_document("regmap_test", name="regmap_test_0", base_address="0x44A10000")
+        self.assertEqual(register_map.validate_register_document(doc), [])
+        self.assertEqual(doc["maps"][0]["name"], "regmap_test_0")
+        self.assertEqual(doc["maps"][0]["base_address"], "0x44A10000")
+        self.assertIn("SCRATCH", [r["name"] for r in doc["maps"][0]["registers"]])
+        self.assertEqual(ip_register_maps.known_ip_parameters("regmap_test", {"x": 1}), {})
+
     def test_known_ip_key_matching(self) -> None:
         self.assertEqual(ip_register_maps.known_ip_key("xilinx.com:ip:jesd204c:4.2", "jesd204c"), "jesd204c")
         self.assertEqual(ip_register_maps.known_ip_key("", "jesd204c_1"), "jesd204c")

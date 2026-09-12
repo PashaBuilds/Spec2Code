@@ -186,7 +186,8 @@ def lint_file(path: Path, ruleset: dict, include_dirs: Optional[list[Path]] = No
     func_re = re.compile(func_regex) if func_regex else None
     # Kullanici tarafindan istenen sabit API adlari (kodlama standardinin disinda):
     # dbg_printf(DEBUG_LEVEL_x, fmt, ...) - printf ailesi gibi okunsun diye alt cizgili.
-    exempt_functions = {"dbg_printf"}
+    # Disaridan dayatilan sembol adlari: dbg_printf (proje), sys_now (lwIP portunun bekledigi zaman kaynagi).
+    exempt_functions = {"dbg_printf", "sys_now"}
 
     for cursor in tu.cursor.walk_preorder():
         loc = cursor.location

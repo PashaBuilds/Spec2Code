@@ -8,8 +8,11 @@
 # Kullanim: vivado -mode batch -source scripts/make_nexys_a7_design.tcl [-tclargs mdm]
 #   `mdm` verilirse MDM UART acilir (`debug_module {Debug & UART}`): Test Bench MDM
 #   transportu (JTAG uzerinden, USB-UART kablosu gerekmez) icin. Ciktilar `_mdm` sonekli.
-set mdm_uart [expr {[llength $argv] > 0 && [lindex $argv 0] eq "mdm"}]
-set suffix   [expr {$mdm_uart ? "_mdm" : ""}]
+set mdm_uart  [expr {[lsearch -exact $argv "mdm"] >= 0}]
+# `regmap`: Spec2Code Register Map Test IP'si (backend/data/spec2code_regmap_test.v, AXI4-Lite) BD'ye
+# modul olarak eklenir -> bilinen IP haritasi (register_map=regmap_test) kartta dogrulanir.
+set regmap_ip [expr {[lsearch -exact $argv "regmap"] >= 0}]
+set suffix    [expr {$mdm_uart ? "_mdm" : ""}][expr {$regmap_ip ? "_regmap" : ""}]
 set root_dir   D:/Projects/claude/Spec2Code
 set proj_dir   $root_dir/test/0_temp_dbg/vivado_nexys_a7$suffix
 set out_dir    $root_dir/test/0_dosyalar
@@ -23,13 +26,17 @@ file delete -force $proj_dir
 file mkdir $proj_dir
 
 create_project -force nexys_a7 $proj_dir -part xc7a100tcsg324-1
+if {$regmap_ip} {
+    add_files -norecurse $root_dir/backend/data/spec2code_regmap_test.v
+    update_compile_order -fileset sources_1
+}
 
 puts "STEP: block design"
 create_bd_design "design_1"
 create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze microblaze_0
-apply_bd_automation -rule xilinx.com:bd_rule:microblaze -config { \
+apply_bd_automation -rule xilinx.com:bd_rule:microblaze -config [list \
     local_mem {128KB} ecc {None} cache {None} debug_module $debug_mod \
-    axi_periph {Enabled} axi_intc {0} clk {New External Port (100 MHz)} } \
+    axi_periph {Enabled} axi_intc {0} clk {New External Port (100 MHz)} ] \
     [get_bd_cells microblaze_0]
 
 # Reset: Nexys A7 CPU_RESETN AKTIF-DUSUK butondur.
@@ -54,6 +61,14 @@ foreach slave {axi_uartlite_0/S_AXI axi_iic_0/S_AXI axi_quad_spi_0/AXI_LITE} {
         ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}] \
         [get_bd_intf_pins $slave]
 }
+if {$regmap_ip} {
+    create_bd_cell -type module -reference spec2code_regmap_test regmap_test_0
+    apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config [list \
+        Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+        Master {/microblaze_0 (Periph)} Slave {/regmap_test_0/s_axi} \
+        ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}] \
+        [get_bd_intf_pins regmap_test_0/s_axi]
+}
 set spi_aclk_net [get_bd_nets -of_objects [get_bd_pins axi_quad_spi_0/s_axi_aclk]]
 connect_bd_net -net $spi_aclk_net [get_bd_pins axi_quad_spi_0/ext_spi_clk]
 
@@ -67,6 +82,10 @@ set_property NAME IIC   [get_bd_intf_ports IIC_0]
 set_property NAME SPI_0 [get_bd_intf_ports SPI_0_0]
 
 assign_bd_address
+if {$regmap_ip} {
+    # Otomatik atama IP'yi LMB ile cakisan 0x00020000'e koyar; AXI cevre birimi bolgesine tasi.
+    set_property offset 0x44A10000 [get_bd_addr_segs {microblaze_0/Data/SEG_regmap_test_0_reg0}]
+}
 # LMB 256K (blok otomasyonu tavani 128KB; segment range buyutulur)
 set_property range 256K [get_bd_addr_segs {microblaze_0/Data/SEG_dlmb_bram_if_cntlr_Mem}]
 set_property range 256K [get_bd_addr_segs {microblaze_0/Instruction/SEG_ilmb_bram_if_cntlr_Mem}]

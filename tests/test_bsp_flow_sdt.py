@@ -166,7 +166,7 @@ class UnifiedWorkspaceTests(unittest.TestCase):
             mode="full", workspace_path=Path("D:/ws"), xsa_path=Path("D:/hw/design.xsa"), source_root=Path("D:/stage/src"),
             source_files=["main.c", "drivers/x/x.c", "tests/spec2code_testbench_lwip.c"], platform_name="p_platform",
             domain_name="p_domain", app_name="p_app", processor="microblaze_0", os_name="standalone",
-            enable_lwip=True, lwip_api_mode="RAW_API", lwip_params=MICROBLAZE_LWIP_PARAMS,
+            enable_lwip=True, lwip_sys_timers=True, lwip_api_mode="RAW_API", lwip_params=MICROBLAZE_LWIP_PARAMS,
             source_include_dirs=["drivers/x", "tests"], shell_app_name="p_app_shell",
             shell_source_root=Path("D:/stage/src_shell"), shell_source_files=["main.c"], shell_include_dirs=["drivers/x"])
         compile(script, "unified.py", "exec")
@@ -176,6 +176,8 @@ class UnifiedWorkspaceTests(unittest.TestCase):
         self.assertIn("set_lib(lib_name=LWIP_LIB)", script)
         self.assertIn("LWIP_LIB = 'lwip220'", script)
         self.assertIn("'memp_n_tcp_seg': 64", script)
+        self.assertIn('set_lib_param(domain, LWIP_LIB, "no_sys_no_timers", "false")', script)
+        self.assertIn("LWIP_SYS_TIMERS = True", script)
         self.assertIn('set_app_config(key="USER_INCLUDE_DIRECTORIES"', script)
         self.assertIn("find_platform_in_repos(PLATFORM)", script)
         self.assertIn("patch_lwip_sources", script)

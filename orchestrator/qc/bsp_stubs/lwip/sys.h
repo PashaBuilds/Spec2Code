@@ -10,7 +10,11 @@ typedef struct
 } sys_thread_t;
 
 sys_thread_t sys_thread_new(const char* cpName, lwip_thread_fn fpThread, void* vpArg, int iStackSize, int iPriority);
-unsigned int sys_now(void);
+#ifndef LWIP_U32_T_DEFINED
+#define LWIP_U32_T_DEFINED
+typedef unsigned int u32_t;
+#endif
+u32_t sys_now(void);
 
 /* Kritik bolge makrolari (OS portunda kesme/mutex kilidi). */
 typedef unsigned int sys_prot_t;

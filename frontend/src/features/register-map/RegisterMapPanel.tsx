@@ -190,7 +190,10 @@ export default function RegisterMapPanel() {
       const r = await api.registerMapKnownIp({ key: ip.register_map ?? "", name: ip.id, base_address: ip.base_address, ip_parameters: ip.ip_parameters ?? {} });
       setDoc(r.document as RegDoc); setActiveMap(0);
       const p = r.parameters as Record<string, unknown>;
-      setNotice(`${ip.id} (${ip.register_map}) haritası yüklendi: ${String(p.lanes)} lane, ${String(p.direction).toUpperCase()}, ${String(p.link_layer).toUpperCase()}, alt sınıf ${String(p.subclass)}, base ${ip.base_address}.`);
+      const detail = p.lanes !== undefined
+        ? `${String(p.lanes)} lane, ${String(p.direction).toUpperCase()}, ${String(p.link_layer).toUpperCase()}, alt sınıf ${String(p.subclass)}, `
+        : "";
+      setNotice(`${ip.id} (${ip.register_map}) haritası yüklendi: ${detail}base ${ip.base_address}.`);
     } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
     finally { setBusy(false); }
   };

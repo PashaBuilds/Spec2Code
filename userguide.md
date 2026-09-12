@@ -678,7 +678,16 @@ cihazlari ilklendir" ya da Bring-up kos.
   tablosuna `ip_<id> rd|wr <REG>[.<FIELD>] [value] | dump | help` satirini kendisi ekler
   (generic `<id> dump|read|write` bu IP icin uretilmez). Link kurmak GT, SYSREF ve karsi cihaz
   (AFE7900) ister; kart olmadan reset dizisi, surum/yapilandirma okuma ve durum register'lari
-  dogrulanir. Parametreler `custom_ips[].ip_parameters` ile elle ezilebilir.
+  dogrulanir. Parametreler `custom_ips[].ip_parameters` ile elle ezilebilir. Ayni altyapi
+  Spec2Code **Register Map Test IP**'sini (`regmap_test`, `scripts/make_nexys_a7_design.tcl
+  -tclargs regmap` ile Nexys A7'ye eklenir) de bilir; Nexys'te ajan (Canli Izleme) ve shell
+  (`ip_regmap_test_0 rd ID`, `wr CONTROL.MODE 2`, `dump`) yollari kartta dogrulanmistir.
+  `scripts/make_zcu102_jesd204c_xsa.tcl` GT'siz (link'siz) JESD204C RX+TX iceren ZCU102 XSA'si
+  uretir: ayristirma, uretim ve Vitis derlemesi kart olmadan sinanir.
+- **SDT'de PS denetleyici adlari**: Vitis Unified `xparameters.h` PS cevre birimlerini yalniz
+  kanonik surucu adiyla verir (`XPAR_XIICPS_0_BASEADDR`; `XPAR_PSU_I2C_0_*` yoktur). Uretim
+  `bsp_flow = sdt` iken PS denetleyicilerini surucu + taban adres sirasina gore kanonik ada
+  cevirir (tek etkin GEM `psu_ethernet_3` -> `XPAR_XEMACPS_0`); PL IP'lerde etiket adi korunur.
 - **Arayuz/YATT**: S2C-MSG mesaj katalogu (ID, yon, govde sablonu, durum kodlari),
   manifest ile zenginlestirilmis; cok kartli projede Sistem Topolojisi; HTML/MD olarak
   paylasilabilir. Protokolun tek dogruluk kaynagi budur.
