@@ -184,6 +184,13 @@ export default function RegisterMapPanel() {
   // XSA'da register haritası bilinen IP'ler (jesd204c ...): tek tıkla harita gelir, canlı izleme
   // register/bit alanı adıyla çalışır; kod üretimi aynı haritadan drivers/ip + shell ip_<id> üretir.
   const knownIps = useStore((s) => s.customIps.filter((ip) => ip.register_map));
+  // Surucusu olan AXI denetleyiciler (PG haritasi): XIic -> axi_iic, XSpi -> axi_quad_spi, XUartLite -> axi_uartlite.
+  const DRIVER_MAP_KEYS: Record<string, string> = { XIic: "axi_iic", XSpi: "axi_quad_spi", XUartLite: "axi_uartlite" };
+  const controllerMaps = useStore((s) =>
+    s.controllers
+      .filter((c) => c.driver && DRIVER_MAP_KEYS[c.driver])
+      .map((c) => ({ id: c.id, register_map: DRIVER_MAP_KEYS[c.driver as string], base_address: c.base_address, ip_parameters: {} as Record<string, unknown> })),
+  );
   const loadKnownIp = async (ip: { id: string; register_map?: string; base_address: string; ip_parameters?: Record<string, unknown> }) => {
     setBusy(true); setErrors([]);
     try {
@@ -222,7 +229,7 @@ export default function RegisterMapPanel() {
           <Button size="sm" variant="outline" onClick={() => doc && download((doc.maps[0]?.name || "register_map") + ".json", JSON.stringify(doc, null, 2), "application/json")}><Download className="h-4 w-4" /> JSON dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => void downloadExampleHtml()} disabled={busy}><FilePlus2 className="h-4 w-4" /> Örnek editör indir</Button>
           <Button size="sm" variant="outline" onClick={() => void loadTestIp()} disabled={busy}><Cpu className="h-4 w-4" /> Test IP haritasını yükle</Button>
-          {knownIps.map((ip) => (
+          {[...knownIps, ...controllerMaps].map((ip) => (
             <Button key={ip.id} size="sm" variant="outline" onClick={() => void loadKnownIp(ip)} disabled={busy} title={`XSA'daki ${ip.register_map} IP'si (${ip.base_address}); PG register haritası otomatik`}>
               <Cpu className="h-4 w-4" /> {ip.id} ({ip.register_map}) haritası
             </Button>

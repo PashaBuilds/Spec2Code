@@ -776,6 +776,8 @@ export interface ProjectSpec {
     qc_max_rounds: number;
     include_doxygen: boolean;
     line_ending: string;
+    /** AXI IIC / Quad SPI / UARTLite denetleyicileri icin PG register haritasi surucusu + shell ip_<id> (ayiklama). */
+    controller_register_maps?: boolean;
   };
 }
 

@@ -684,6 +684,14 @@ cihazlari ilklendir" ya da Bring-up kos.
   (`ip_regmap_test_0 rd ID`, `wr CONTROL.MODE 2`, `dump`) yollari kartta dogrulanmistir.
   `scripts/make_zcu102_jesd204c_xsa.tcl` GT'siz (link'siz) JESD204C RX+TX iceren ZCU102 XSA'si
   uretir: ayristirma, uretim ve Vitis derlemesi kart olmadan sinanir.
+- **Surucusu olan AXI cevre birimlerinin haritalari** (AXI IIC PG090, AXI Quad SPI PG153,
+  AXI UARTLite PG142): bunlar `controllers[]` olarak kalir (BSP surucusu XIic/XSpi/XUartLite ile
+  kullanilir); Register Map ekraninda `<denetleyici id> (axi_iic|axi_quad_spi|axi_uartlite)
+  haritasi` dugmesi PG register/bit alanlarini yukler ve ajan uzerinden canli adli okuma/yazma
+  yapar (surucunun altina inen ayiklama gorunumu). Proje ayarlarindaki "PG register haritasi
+  surucusu de uret" kutucugu (`generation_options.controller_register_maps`) isaretliyse
+  `drivers/ip/<id>_regs.h/.c` ve shell `ip_<id> rd|wr|dump` komutu da uretilir; varsayilan kapali.
+  PS cevre birimleri (XIicPs/XSpiPs/XUartPs) icin PG haritasi tanimli degildir.
 - **SDT'de PS denetleyici adlari**: Vitis Unified `xparameters.h` PS cevre birimlerini yalniz
   kanonik surucu adiyla verir (`XPAR_XIICPS_0_BASEADDR`; `XPAR_PSU_I2C_0_*` yoktur). Uretim
   `bsp_flow = sdt` iken PS denetleyicilerini surucu + taban adres sirasina gore kanonik ada

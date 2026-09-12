@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 
-KNOWN_IP_KEYS = ("jesd204c", "regmap_test")
+KNOWN_IP_KEYS = ("jesd204c", "regmap_test", "axi_iic", "axi_quad_spi", "axi_uartlite")
 
 #: VLNV/MODTYPE -> bilinen IP anahtari. VLNV `xilinx.com:ip:jesd204c:4.x` ya da modtype `jesd204c`.
 _VLNV_RULES: tuple[tuple[re.Pattern, str], ...] = (
@@ -293,6 +293,111 @@ def jesd204c_document(*, name: str, base_address: str, parameters: dict | None =
     }
 
 
+
+# --- BSP surucusu olan AXI cevre birimleri (PG090 AXI IIC, PG153 AXI Quad SPI, PG142 AXI UARTLite) -----
+# Bunlar `controllers[]`dir (surucu uzerinden kullanilir); harita, surucunun altina inen ayiklama
+# gorunumu icindir: Register Map ekraninda adli canli okuma/yazma, istenirse (generation_options.
+# controller_register_maps) shell `ip_<controller_id>` komutu. Anahtar surucu adindan turetilir.
+
+DRIVER_MAP_KEYS: dict[str, str] = {"XIic": "axi_iic", "XSpi": "axi_quad_spi", "XUartLite": "axi_uartlite"}
+
+
+def driver_map_key(driver: str) -> str | None:
+    return DRIVER_MAP_KEYS.get(str(driver or "").strip())
+
+
+def _fill(regs: list[dict]) -> list[dict]:
+    return _with_reserved_fillers(regs)
+
+
+def axi_iic_document(*, name: str, base_address: str) -> dict:
+    """AXI IIC v2.1 (PG090) register haritasi."""
+    isr_bits = [("INT0_ARB_LOST", "0", "arbitrasyon kaybi"), ("INT1_TX_ERR_SLAVE_DONE", "1", "TX hatasi / slave islemi bitti"),
+                ("INT2_TX_FIFO_EMPTY", "2", "TX FIFO bos"), ("INT3_RX_FIFO_FULL", "3", "RX FIFO dolu (PIRQ esigi)"),
+                ("INT4_BUS_NOT_BUSY", "4", "hat bosta"), ("INT5_ADDRESSED_AS_SLAVE", "5", "slave olarak adreslendi"),
+                ("INT6_NOT_ADDRESSED", "6", "artik adresli degil"), ("INT7_TX_FIFO_HALF_EMPTY", "7", "TX FIFO yari bos")]
+    regs = [
+        _reg("GIE", 0x01C, "[RW] Global kesme etkinlestirme", [("GIE", "31", "1=kesmeler acik")]),
+        _reg("ISR", 0x020, "[RW, TOW] Kesme durumu (1 yazinca temizlenir)", isr_bits),
+        _reg("IER", 0x028, "[RW] Kesme etkinlestirme", isr_bits),
+        _reg("SOFTR", 0x040, "[WO] Yumusak reset: 0xA yaz", [("RKEY", "3:0", "0xA = reset")]),
+        _reg("CR", 0x100, "[RW] Kontrol", [("EN", "0", "cekirdek etkin"), ("TX_FIFO_RESET", "1", "TX FIFO sifirla"),
+                                          ("MSMS", "2", "master/slave (1=master baslat)"), ("TX", "3", "1=yaz, 0=oku"),
+                                          ("TXAK", "4", "ACK gonderme (1=NACK)"), ("RSTA", "5", "repeated start"),
+                                          ("GC_EN", "6", "genel cagri etkin")]),
+        _reg("SR", 0x104, "[RO] Durum", [("ABGC", "0", "genel cagriyla adreslendi"), ("AAS", "1", "slave olarak adreslendi"),
+                                        ("BB", "2", "hat mesgul"), ("SRW", "3", "slave okuma/yazma"),
+                                        ("TX_FIFO_FULL", "4", ""), ("RX_FIFO_FULL", "5", ""), ("RX_FIFO_EMPTY", "6", ""),
+                                        ("TX_FIFO_EMPTY", "7", "")], reset=0xC0),
+        _reg("TX_FIFO", 0x108, "[WO] TX FIFO (bit8 START, bit9 STOP)", [("DATA", "7:0", ""), ("START", "8", ""), ("STOP", "9", "")]),
+        _reg("RX_FIFO", 0x10C, "[RO] RX FIFO", [("DATA", "7:0", "")]),
+        _reg("ADR", 0x110, "[RW] Slave adresi (7 bit, bit7:1)", [("ADDRESS", "7:1", "")]),
+        _reg("TX_FIFO_OCY", 0x114, "[RO] TX FIFO doluluk", [("OCY", "3:0", "")]),
+        _reg("RX_FIFO_OCY", 0x118, "[RO] RX FIFO doluluk", [("OCY", "3:0", "")]),
+        _reg("TEN_ADR", 0x11C, "[RW] 10-bit slave adresi ust bitleri", [("ADDRESS_MSB", "2:0", "")]),
+        _reg("RX_FIFO_PIRQ", 0x120, "[RW] RX FIFO programlanabilir derinlik kesmesi", [("PIRQ", "3:0", "")]),
+        _reg("GPO", 0x124, "[RW] Genel amacli cikis", [("GPO", "7:0", "")]),
+        _reg("TSUSTA", 0x128, "[RW] Setup time START (saat sayisi)", [("VALUE", "31:0", "")]),
+        _reg("TSUSTO", 0x12C, "[RW] Setup time STOP", [("VALUE", "31:0", "")]),
+        _reg("THDSTA", 0x130, "[RW] Hold time START", [("VALUE", "31:0", "")]),
+        _reg("TSUDAT", 0x134, "[RW] Setup time DATA", [("VALUE", "31:0", "")]),
+        _reg("TBUF", 0x138, "[RW] Bus free time", [("VALUE", "31:0", "")]),
+        _reg("THIGH", 0x13C, "[RW] SCL high suresi", [("VALUE", "31:0", "")]),
+        _reg("TLOW", 0x140, "[RW] SCL low suresi", [("VALUE", "31:0", "")]),
+        _reg("THDDAT", 0x144, "[RW] Hold time DATA", [("VALUE", "31:0", "")]),
+    ]
+    return {"version": 1, "maps": [{"name": name, "base_address": base_address,
+                                    "description": "AMD AXI IIC v2.1 (PG090) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "registers": _fill(regs)}]}
+
+
+def axi_quad_spi_document(*, name: str, base_address: str) -> dict:
+    """AXI Quad SPI v3.2 (PG153) register haritasi."""
+    ipisr_bits = [("MODF", "0", "mode fault"), ("SLAVE_MODF", "1", ""), ("DTR_EMPTY", "2", "TX FIFO bos"),
+                  ("DTR_UNDERRUN", "3", ""), ("DRR_FULL", "4", "RX FIFO dolu"), ("DRR_OVERRUN", "5", ""),
+                  ("TX_FIFO_HALF_EMPTY", "6", ""), ("SLAVE_SELECT_MODE", "7", ""), ("DRR_NOT_EMPTY", "8", ""),
+                  ("CPOL_CPHA_ERR", "9", ""), ("SLAVE_MODE_ERR", "10", ""), ("MSB_ERR", "11", ""),
+                  ("LOOPBACK_ERR", "12", ""), ("CMD_ERR", "13", "")]
+    regs = [
+        _reg("DGIER", 0x01C, "[RW] Cihaz global kesme etkinlestirme", [("GIE", "31", "")]),
+        _reg("IPISR", 0x020, "[RW, TOW] IP kesme durumu", ipisr_bits),
+        _reg("IPIER", 0x028, "[RW] IP kesme etkinlestirme", ipisr_bits),
+        _reg("SRR", 0x040, "[WO] Yumusak reset: 0xA yaz", [("RESET", "3:0", "0xA = reset")]),
+        _reg("SPICR", 0x060, "[RW] SPI kontrol", [("LOOP", "0", "loopback"), ("SPE", "1", "SPI etkin"), ("MASTER", "2", ""),
+                                                 ("CPOL", "3", ""), ("CPHA", "4", ""), ("TX_FIFO_RESET", "5", ""),
+                                                 ("RX_FIFO_RESET", "6", ""), ("MANUAL_SS", "7", "slave select elle"),
+                                                 ("MASTER_TX_INHIBIT", "8", ""), ("LSB_FIRST", "9", "")], reset=0x180),
+        _reg("SPISR", 0x064, "[RO] SPI durum", [("RX_EMPTY", "0", ""), ("RX_FULL", "1", ""), ("TX_EMPTY", "2", ""),
+                                               ("TX_FULL", "3", ""), ("MODF", "4", ""), ("SLAVE_MODE_SELECT", "5", ""),
+                                               ("CPOL_CPHA_ERR", "6", ""), ("SLAVE_MODE_ERR", "7", ""), ("MSB_ERR", "8", ""),
+                                               ("LOOPBACK_ERR", "9", ""), ("CMD_ERR", "10", "")], reset=0x25),
+        _reg("SPIDTR", 0x068, "[WO] Veri gonderme (TX FIFO)", [("DATA", "31:0", "")]),
+        _reg("SPIDRR", 0x06C, "[RO] Veri alma (RX FIFO)", [("DATA", "31:0", "")]),
+        _reg("SPISSR", 0x070, "[RW] Slave select (aktif dusuk, bit basina)", [("SS", "31:0", "")], reset=0xFFFFFFFF),
+        _reg("TX_FIFO_OCY", 0x074, "[RO] TX FIFO doluluk - 1", [("OCY", "31:0", "")]),
+        _reg("RX_FIFO_OCY", 0x078, "[RO] RX FIFO doluluk - 1", [("OCY", "31:0", "")]),
+    ]
+    return {"version": 1, "maps": [{"name": name, "base_address": base_address,
+                                    "description": "AMD AXI Quad SPI v3.2 (PG153) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "registers": _fill(regs)}]}
+
+
+def axi_uartlite_document(*, name: str, base_address: str) -> dict:
+    """AXI UARTLite v2.0 (PG142) register haritasi."""
+    regs = [
+        _reg("RX_FIFO", 0x000, "[RO] Alinan bayt", [("DATA", "7:0", "")]),
+        _reg("TX_FIFO", 0x004, "[WO] Gonderilecek bayt", [("DATA", "7:0", "")]),
+        _reg("STAT_REG", 0x008, "[RO] Durum", [("RX_FIFO_VALID_DATA", "0", ""), ("RX_FIFO_FULL", "1", ""),
+                                              ("TX_FIFO_EMPTY", "2", ""), ("TX_FIFO_FULL", "3", ""),
+                                              ("INTR_ENABLED", "4", ""), ("OVERRUN_ERROR", "5", ""),
+                                              ("FRAME_ERROR", "6", ""), ("PARITY_ERROR", "7", "")], reset=0x4),
+        _reg("CTRL_REG", 0x00C, "[WO] Kontrol", [("RST_TX_FIFO", "0", ""), ("RST_RX_FIFO", "1", ""), ("ENABLE_INTR", "4", "")]),
+    ]
+    return {"version": 1, "maps": [{"name": name, "base_address": base_address,
+                                    "description": "AMD AXI UARTLite v2.0 (PG142) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "registers": _fill(regs)}]}
+
+
 def regmap_test_document(*, name: str, base_address: str) -> dict:
     """Spec2Code Register Map Test IP (backend/data/spec2code_regmap_test.v): RTL ile birebir harita."""
     from backend import register_map
@@ -307,12 +412,18 @@ def known_ip_document(key: str, *, name: str, base_address: str, parameters: dic
         return jesd204c_document(name=name, base_address=base_address, parameters=parameters)
     if key == "regmap_test":
         return regmap_test_document(name=name, base_address=base_address)
+    if key == "axi_iic":
+        return axi_iic_document(name=name, base_address=base_address)
+    if key == "axi_quad_spi":
+        return axi_quad_spi_document(name=name, base_address=base_address)
+    if key == "axi_uartlite":
+        return axi_uartlite_document(name=name, base_address=base_address)
     raise KeyError(f"bilinmeyen IP register haritasi: {key}")
 
 
 def known_ip_parameters(key: str, raw: dict | None) -> dict[str, object]:
     if key == "jesd204c":
         return normalize_jesd204c_parameters(raw)
-    if key == "regmap_test":
+    if key in ("regmap_test", "axi_iic", "axi_quad_spi", "axi_uartlite"):
         return {}
     raise KeyError(f"bilinmeyen IP register haritasi: {key}")

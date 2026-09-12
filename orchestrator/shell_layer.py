@@ -251,8 +251,22 @@ def _custom_ip_handler(cid: str) -> str:
 
 
 def known_ip_maps(spec: dict) -> list[dict]:
-    """Register haritasi bilinen custom IP'ler (register_map alani dolu): {id, base, key, params}."""
+    """Register haritasi bilinen custom IP'ler (register_map alani dolu) + istenirse surucusu olan AXI
+    denetleyiciler (generation_options.controller_register_maps: XIic/XSpi/XUartLite -> PG haritasi):
+    {id, base, key, params, ip_name}."""
+    from backend.ip_register_maps import driver_map_key
+
     out: list[dict] = []
+    if (spec.get("generation_options") or {}).get("controller_register_maps"):
+        for c in spec.get("controllers", []) or []:
+            key = driver_map_key(str(c.get("driver") or ""))
+            cid = re.sub(r"[^a-z0-9_]", "_", str(c.get("id", "")).lower())
+            try:
+                base = int(str(c.get("base_address")), 0)
+            except (TypeError, ValueError):
+                continue
+            if key and cid:
+                out.append({"id": cid, "base": base, "key": key, "params": {}, "ip_name": key})
     for item in spec.get("custom_ips", []) or []:
         key = str(item.get("register_map") or "").strip()
         if not key:

@@ -3,6 +3,117 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.218 - 2026-09-12
+
+- **AXI IIC / AXI Quad SPI / AXI UARTLite register haritalari** (PG090 / PG153 / PG142) bilinen
+  harita altyapisina eklendi (`backend/ip_register_maps.py`: `axi_iic`, `axi_quad_spi`,
+  `axi_uartlite`; surucu adi -> harita: XIic/XSpi/XUartLite). Denetleyici olarak kalirlar;
+  Register Map ekraninda denetleyici basina harita dugmesi (canli adli okuma/yazma), istege bagli
+  `generation_options.controller_register_maps` ile `drivers/ip/<id>_regs.h/.c` + shell `ip_<id>`
+  uretimi (Proje ayarlarinda kutucuk; varsayilan kapali, uretilen cikti degismez).
+
+## v0.1.217 - 2026-09-12
+
+- **Bilinen IP haritasi kartta dogrulandi**: Register Map Test IP (`regmap_test`) bilinen IP
+  kaydina girdi; Nexys A7 tasarimina `-tclargs regmap` ile eklenir (XSA'da `spec2code_regmap_test`
+  -> `custom_ips[].register_map=regmap_test`). Vitis 2025.2 ile derlenen ajan uzerinden register
+  adiyla mem_read/mem_write (ID 'SPEC', SCRATCH/MIRROR, TRIGGER->COUNTER, STATUS bit alanlari) ve
+  shell `ip_regmap_test_0 rd|wr <REG>[.<FIELD>]|dump` kartta calisti.
+- **JESD204C gercek XSA ile dogrulandi**: `scripts/make_zcu102_jesd204c_xsa.tcl` (GT'siz RX+TX,
+  bit'siz) -> ayristirici `C_LANES/C_NODE_IS_TRANSMIT/C_ENCODING`'i dogru okur (4 lane RX/TX,
+  64B66B), uretim QC 0 ihlal.
+- **SDT'de PS denetleyici adlari kanonik** (`XPAR_XIICPS_0`, `XPAR_XEMACPS_0` ...): SDT
+  xparameters.h etiket adlarini (XPAR_PSU_*) PS icin uretmiyor; `bsp_flow.with_sdt_instances`.
+- Duzeltme: uart/coresight tasiyicisinda telnet log (PS Ethernet) bring-up dosyasi IP/maske/gateway
+  makrolarini almiyordu (derleme hatasi); artik ayni tek kaynaktan yazilir.
+- Nexys tasarim scripti: `debug_module` degiskeni `[list ...]` ile gecirilir (kucuk Tcl hatasi).
+- lwIP sys zamanlayicilari (telnet log, RAW mod): Xilinx portu `sys_now()`u yalniz soket modunda verir ve
+  lwip220 varsayilani NO_SYS_NO_TIMERS=1 -> `sys_check_timeouts`/`sys_now` linklenmiyordu. Telnet + bare-metal'de
+  `tests/spec2code_lwip_time.c` (`sys_now` = XTime_GetTime ms) uretilir; klasik xsct ve Unified betigi
+  `no_sys_no_timers false` yapar. ZCU102 JESD + UART ajani + telnet 2025.2 ile derlendi.
+
+## v0.1.216 - 2026-09-12
+
+- **JESD204C (PG242 v4.x) bilinen IP register haritasi** (kullanici istegi, AFE7900 hazirligi):
+  XSA'da `xilinx.com:ip:jesd204c` taninir -> `custom_ips[].register_map = jesd204c` + `ip_parameters`
+  (lanes/direction/link_layer/subclass; varsayilan 4 lane RX 64B66B alt sinif 1). Register Map
+  ekraninda tek dugmeyle PG242 haritasi (ortak, RX/TX, 8B10B/64B66B, lane basina bloklar, bit
+  alanlari) yuklenir; canli izleme register/bit alani adiyla okur-yazar. Generate `drivers/ip/`
+  altina `<id>_regs.h/.c` + `<id>_shell.*` uretir, shell tablosuna `ip_<id>` satirini ekler.
+  Altyapi genel: `backend/ip_register_maps.py` yeni IP'ler icin genisletilebilir.
+- XSA parser: MODULE PARAMETER'lari bilinen IP'ler icin okunur; `register_map` spec semasina girdi.
+
+## v0.1.215 - 2026-09-12
+
+- **Test bench ag ayarlari arayuzden** (kullanici istegi): Proje Kurulumu'nda "Test bench agi" (IP,
+  alt ag maskesi, gateway, MAC, TCP port) -> spec `project.testbench_network`. Kod uretimi sabit
+  18.2.75.121 yerine bu degerleri kullanir (eth ajan basligi, telnet bring-up, manifest `network`);
+  bos alan varsayilanini alir; gecersiz deger S2C-CODEGEN-NET-00x ile reddedilir. Test bench sayfasi
+  lwIP manifestinden host/port'u on-doldurur. Nexys A7'de 169.254.112.1/16 ile dogrulandi.
+- Flash: Vitis 2025.2 ile updatemem + write_cfgmem + flash'tan acilis (UART ve Ethernet ajanlari)
+  kartta dogrulandi; JP1 JTAG konumundayken flash'tan acilis tetiklenemez (mode 101), QSPI (001) gerekir.
+
+## v0.1.214 - 2026-09-12
+
+- **Vitis 2025.2 (Unified / SDT) destegi tamam ve Nexys A7'de dogrulandi**: `vitis -s` betigi gercek
+  Python API imzalariyla (`find_platform_in_repos`, `set_app_config(USER_INCLUDE_DIRECTORIES)`,
+  `get_ld_script().set_stack_size/heap`, `vitis.dispose`); lwip220 libsrc yamalari (lwip213'teki
+  cift `status` + IEEE 802.3 secicisi 2025.2'de de var) platform derlemesi sonrasi otomatik;
+  MicroBlaze lwIP ajani SDT'de `xiltimer` tick platformu (S2C-CODEGEN-SDT-001 kapisi kalkti).
+  Nexys A7: generate + platform + ajan + shell 70 sn; UART ajaniyla ADT7420 op'lari, I2C tarama,
+  CIT kosusu; SDT `xparameters.h` adlari (XPAR_AXI_IIC_0 / XPAR_XIIC_0, DEVICE_ID yok) ayristirici
+  ile uyumlu.
+- QC stub'lari: `xiltimer.h`, `xinterrupt_wrap.h`.
+
+## v0.1.213 - 2026-09-12
+
+- **Schematic disa aktarimi** (kullanici istegi): kanvasin sag ustunde "Disa aktar" ->
+  **draw.io** (`.drawio` XML, kart basina sayfa: denetleyici -> mux -> cihaz katmanlari,
+  kenar etiketleri I2C adresi / SPI CS / mux kanali, konnektor port kutulari, cok kartta
+  "Sistem" sayfasi) ve **Excel** (`.xlsx`, her sayfa bir kart: Cihazlar / Mux'lar /
+  Denetleyiciler / Konnektorler). `backend/schematic_export.py`, `xlsx_min.write_workbook`
+  (cok sayfa), `POST /api/schematic/export/{drawio,xlsx}`.
+
+## v0.1.212 - 2026-09-12
+
+- **Vitis Unified / SDT hazirligi (Vitis 2025.2 kurulumu oncesi)**: spec `project.bsp_flow`
+  (`classic` | `sdt`). SDT'de uretilen kod butun `LookupConfig`/`XGpio_Initialize`/
+  `XUartLite_Initialize`/`XIntc_Initialize` cagrilarini `XPAR_*_BASEADDR` ile yapar
+  (`orchestrator/bsp_flow.py` tek kaynak; DEVICE_ID makrosu uretilmez), UART ajani makrosu
+  `SPEC2CODE_TESTBENCH_UART_BASEADDR`, shell mod testi `SHELL_USER_MOD_INTC_BASEADDR`.
+- `xparameters.h` ayristirici: hic `DEVICE_ID` olmayan (SDT/Lopper) basliklari taniyip surucu
+  kurallarina gore denetleyici cikarir; `sdt` bayragi ile Proje Kurulumu `bsp_flow`u sdt'ye alir.
+- QC: `-DSDT` ile BaseAddress imzali stub'lar (tum surucu basliklari `#ifdef SDT`).
+- Vitis workspace: surum >= 2024.1 ise `backend/vitis_unified.py` `vitis -s` Python betigi
+  (platform bileseni, lwip220, empty_application, import, UserConfig.cmake include, lscript
+  yamasi, build; full ve update modlari); spec akisi ile Vitis surumu uyusmazsa on kontrol hatasi.
+  Gercek kurulumla dogrulama bekliyor (betikte `# DOGRULA:` isaretleri).
+- Bilincli sinir: MicroBlaze lwIP ajani SDT'de `S2C-CODEGEN-SDT-001` ile reddedilir (INTC/Timer
+  kesme vektor makrolari dogrulanana kadar).
+
+## v0.1.211 - 2026-09-11
+
+- **PL Ethernet (AXI EthernetLite / AXI Ethernet) lwIP TCP ajani MicroBlaze'de**: XSA'daki
+  `axi_ethernetlite` artik `eth/pl/XEmacLite` denetleyicisi olarak taninir; `auto`/`eth`
+  tasiyicisi MicroBlaze'de RAW API lwIP ajanini AXI INTC + AXI Timer platformuyla uretir
+  (50 ms timer kesmesi -> tcp_fasttmr/slowtmr, EMAC kesmesi INTC'de; resmi lwip_echo_server
+  platform_mb deseni). FreeRTOS + MicroBlaze + eth acikca istenirse hata, auto UART'a duser.
+- Vitis workspace: MicroBlaze lwIP BSP parametreleri (mem_size 32768, pbuf_pool 16,
+  tcp_wnd/tcp_snd_buf 4096, memp_n_tcp_seg 64) ve Xilinx lwip213 yamalari
+  (`xadapter.c` cift `status` derleme hatasi, `xemacliteif.c` PHY ADVERTISE IEEE 802.3
+  secicisi - autoneg tamamlanmiyordu); yamalar `bsp regenerate` sonrasi ve app build oncesi
+  yeniden uygulanir.
+- XSA: `xilinx.com:ip:*` VLNV'li bloklar (axi_timer, axi_intc ...) custom IP sayilmaz.
+- QC stub'lari: `xtmrctr_l.h`, `mb_interface.h`, genisletilmis `xintc.h`, timer/INTC
+  vektor makrolari.
+- Referans tasarim `scripts/make_nexys_a7_eth_design.tcl` + `scripts/hdl/rmii_adapter.v`
+  (Nexys A7 LAN8720A RMII, TX dibitleri REFCLK dusen kenarinda surulur). Kartta uctan uca
+  dogrulandi: PC <-> lwIP ajani ping/ARP, TCP oturumu, ADT7420 op'lari, I2C tarama, CIT kosusu.
+- Baglanti karti (TCP): **Kaynak IP (opsiyonel)** - `source_ip` ile soket yerel adaptore
+  baglanir. Ayni alt ag birden fazla arayuzde gorunuyorsa (saha: APIPA 169.254/16 hem
+  Ethernet hem Tailscale'de, Windows dusuk metrikli Tailscale'i secti -> kart hic ARP gormedi)
+  paket yanlis arayuzden cikmasin diye.
+
 ## v0.1.210 - 2026-09-11
 
 - **`main.c` / `main.h` cikti kokune tasindi** (kullanici istegi): artik `shell/` icinde degil,

@@ -96,6 +96,23 @@ class KnownIpDocumentTests(unittest.TestCase):
         self.assertIn("SCRATCH", [r["name"] for r in doc["maps"][0]["registers"]])
         self.assertEqual(ip_register_maps.known_ip_parameters("regmap_test", {"x": 1}), {})
 
+    def test_axi_driver_maps_are_valid(self) -> None:
+        for driver, key, first in (("XIic", "axi_iic", "GIE"), ("XSpi", "axi_quad_spi", "DGIER"), ("XUartLite", "axi_uartlite", "RX_FIFO")):
+            self.assertEqual(ip_register_maps.driver_map_key(driver), key)
+            doc = ip_register_maps.known_ip_document(key, name="pl_x_0", base_address="0xA0000000")
+            self.assertEqual(register_map.validate_register_document(doc), [], key)
+            names = [r["name"] for r in doc["maps"][0]["registers"] if not r.get("reserved")]
+            self.assertEqual(names[0], first)
+            self.assertEqual(ip_register_maps.known_ip_parameters(key, None), {})
+        self.assertIsNone(ip_register_maps.driver_map_key("XIicPs"))   # PS I2C icin PG haritasi yok
+        iic = ip_register_maps.known_ip_document("axi_iic", name="i", base_address="0x0")["maps"][0]["registers"]
+        by_name = {r["name"]: r for r in iic}
+        self.assertEqual(int(by_name["CR"]["offset"], 16), 0x100)
+        self.assertIn("MSMS", [f["name"] for f in by_name["CR"]["fields"]])
+        spi = {r["name"]: r for r in ip_register_maps.known_ip_document("axi_quad_spi", name="s", base_address="0x0")["maps"][0]["registers"]}
+        self.assertEqual(int(spi["SPISSR"]["offset"], 16), 0x70)
+        self.assertEqual(int(spi["SPICR"]["reset"], 16), 0x180)
+
     def test_known_ip_key_matching(self) -> None:
         self.assertEqual(ip_register_maps.known_ip_key("xilinx.com:ip:jesd204c:4.2", "jesd204c"), "jesd204c")
         self.assertEqual(ip_register_maps.known_ip_key("", "jesd204c_1"), "jesd204c")
@@ -151,6 +168,25 @@ class KnownIpCodegenTests(unittest.TestCase):
             self.assertEqual(shell.count("shellUserJesd204cRx("), 0)  # tanimi drivers/ip'te, burada yalniz tablo satiri
             readme = (out / "README.md").read_text(encoding="utf-8")
             self.assertIn("ip_jesd204c_rx", readme)
+
+    def test_controller_register_maps_opt_in(self) -> None:
+        spec = load_sample_spec("axi_map_gen")
+        spec["project"]["testbench_transport"] = "uart"
+        add_zynqmp_ps_uart(spec)
+        spec["controllers"].append({"id": "pl_spi_0", "type": "spi", "instance": "XPAR_AXI_QUAD_SPI_0", "base_address": "0xA0000000",
+                                    "driver": "XSpi", "zone": "pl", "source": "xsa"})
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            codegen.generate(spec, out)
+            self.assertFalse((out / "drivers" / "ip" / "pl_spi_0_regs.h").exists())   # varsayilan: kapali
+        spec["generation_options"]["controller_register_maps"] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            codegen.generate(spec, out)
+            header = (out / "drivers" / "ip" / "pl_spi_0_regs.h").read_text(encoding="utf-8")
+            self.assertIn("PL_SPI_0_SPICR", header)
+            shell = (out / "shell" / "shell_user_commands.c").read_text(encoding="utf-8")
+            self.assertIn('{"ip_pl_spi_0", shellUserPlSpi0,', shell)
 
 
 if __name__ == "__main__":

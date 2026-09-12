@@ -505,6 +505,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "controller_register_maps": {
+          "type": "boolean",
+          "default": false,
+          "description": "AXI IIC / AXI Quad SPI / AXI UARTLite denetleyicileri icin PG register haritasi surucusu (drivers/ip/<id>_regs.h/.c) ve shell `ip_<id>` komutu da uretilsin (ayiklama)."
+        },
         "qc_max_rounds": {
           "type": "integer",
           "minimum": 1,
@@ -564,7 +569,8 @@
           "register_map": {
             "type": "string",
             "enum": [
-              "jesd204c"
+              "jesd204c",
+              "regmap_test"
             ],
             "description": "Register haritasi bilinen IP (PG belgesinden): drivers/ip/<id>_regs.h/.c + shell ip_<id> ve Register Map ekrani otomatik uretilir."
           },

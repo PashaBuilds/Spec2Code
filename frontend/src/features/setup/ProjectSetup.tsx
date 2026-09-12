@@ -73,6 +73,8 @@ export default function ProjectSetup() {
   const setLlm = useStore((s) => s.setLlm);
   const buildSpec = useStore((s) => s.buildSpec);
   const loadSpec = useStore((s) => s.loadSpec);
+  const controllerRegisterMaps = useStore((s) => s.controllerRegisterMaps);
+  const setControllerRegisterMaps = useStore((s) => s.setControllerRegisterMaps);
   const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
   const [tools, setTools] = useState<Record<string, string | null>>({});
   const [projectIoMessage, setProjectIoMessage] = useState<string | null>(null);
@@ -275,6 +277,23 @@ export default function ProjectSetup() {
               Üretilen C tek akışa göre çıkar: SDT'de LookupConfig/Initialize taban adresle çağrılır ve BSP DEVICE_ID
               makrosu üretmez. xparameters.h yüklerken başlıkta DEVICE_ID yoksa bu alan kendiliğinden SDT olur.
             </p>
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={controllerRegisterMaps}
+                onChange={(e) => setControllerRegisterMaps(e.target.checked)}
+              />
+              <span>
+                AXI IIC / Quad SPI / UARTLite denetleyicileri için PG register haritası sürücüsü de üret
+                <span className="block text-xs text-muted-foreground">
+                  drivers/ip/&lt;id&gt;_regs.h/.c ve shell <code>ip_&lt;id&gt; rd|wr|dump</code> (ayıklama; BSP sürücüsünün
+                  altına iner). Register Map ekranındaki canlı okuma/yazma bu seçenekten bağımsız her zaman vardır.
+                </span>
+              </span>
+            </label>
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Test bench ağı (Ethernet / lwIP ajanı)</Label>
