@@ -107,7 +107,7 @@ class RegisterMapCodegenTests(unittest.TestCase):
     def test_source_init_scalar_direct_bitfield_via_raw(self) -> None:
         c = rm.generate_source(self._doc()["maps"][0])
         self.assertIn("static SPlMixRegs* const S_spPlMix = (SPlMixRegs*)(PL_MIX_BASE_ADDRESS);", c)
-        self.assertIn("void pl_mixInit(void)", c)
+        self.assertIn("void plMixInit(void)", c)
         # Bitfield: ham genislik uyesinden (usValue). Skaler: dogrudan.
         self.assertIn("S_spPlMix->SCONFIG.usValue = PL_MIX_CONFIG_RESET;", c)
         self.assertIn("S_spPlMix->usAngle = PL_MIX_ANGLE_RESET;", c)
@@ -127,7 +127,7 @@ class RegisterMapCodegenTests(unittest.TestCase):
         self.assertIn('{"ip_pl_mix", shellUserPlMix, "rd|wr <REG>[.<FIELD>] [value] | dump | help"},', h)
         self.assertIn("void shellUserPlMix(unsigned int uiArgc, const char* cpArrArgv[])", c)
         # argv[1..] bosluklarla birlestirilip mevcut Serve protokolune verilir; base adres haritadan.
-        self.assertIn("pl_mixServe(cArrLine);", c)
+        self.assertIn("plMixServe(cArrLine);", c)
         self.assertIn('#include "pl_mix_regs.h"', c)
         self.assertIn("#define REGMAP_PRINTF xil_printf", c)
         self.assertIn("PL_MIX_BASE_ADDRESS", c)
@@ -135,28 +135,28 @@ class RegisterMapCodegenTests(unittest.TestCase):
     def test_serve_command_handler_read_write_dump(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
         c = rm.generate_source(self._doc()["maps"][0])
-        self.assertIn("void pl_mixServe(const char* cmd);", h)
-        self.assertIn("void pl_mixServe(const char* cmd)", c)
+        self.assertIn("void plMixServe(const char* cpCmd);", h)
+        self.assertIn("void plMixServe(const char* cpCmd)", c)
         self.assertIn("#ifndef REGMAP_NO_SERVE", c)
         # rd/wr/dump/help komutlari.
-        self.assertIn('strcmp(op, "dump")', c)
-        self.assertIn("pl_mixDump();", c)
-        self.assertIn('strcmp(op, "rd")', c)
-        self.assertIn('strcmp(op, "wr")', c)
+        self.assertIn('strcmp(cpOp, "dump")', c)
+        self.assertIn("plMixDump();", c)
+        self.assertIn('strcmp(cpOp, "rd")', c)
+        self.assertIn('strcmp(cpOp, "wr")', c)
         # Register + bitfield okuma/yazma (bitfield alan uyesinden).
-        self.assertIn('strcmp(target, "CONFIG")', c)
-        self.assertIn('strcmp(field, "EN")', c)
-        self.assertIn("S_spPlMix->SCONFIG.EN = (unsigned short)wv;", c)
-        self.assertIn("S_spPlMix->SCONFIG.usValue = (unsigned short)wv;", c)
+        self.assertIn('strcmp(cpTarget, "CONFIG")', c)
+        self.assertIn('strcmp(cpField, "EN")', c)
+        self.assertIn("S_spPlMix->SCONFIG.EN = (unsigned short)ullValue;", c)
+        self.assertIn("S_spPlMix->SCONFIG.usValue = (unsigned short)ullValue;", c)
         # Skaler yazma dogrudan degiskene.
-        self.assertIn("S_spPlMix->uiTemperature = (unsigned int)wv;", c)
+        self.assertIn("S_spPlMix->uiTemperature = (unsigned int)ullValue;", c)
 
     def test_dump_function_prints_registers_and_fields_by_name(self) -> None:
         h = rm.generate_header(self._doc()["maps"][0])
         c = rm.generate_source(self._doc()["maps"][0])
         # Prototip header'da, fonksiyon source'ta; REGMAP_PRINTF makrosu.
-        self.assertIn("void pl_mixDump(void);", h)
-        self.assertIn("void pl_mixDump(void)", c)
+        self.assertIn("void plMixDump(void);", h)
+        self.assertIn("void plMixDump(void)", c)
         self.assertIn("#define REGMAP_PRINTF printf", c)
         self.assertIn("#ifndef REGMAP_NO_DUMP", c)
         # Bitfield register: ham deger + her alan adiyla ([bit] etiketiyle).

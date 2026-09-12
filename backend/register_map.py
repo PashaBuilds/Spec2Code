@@ -218,6 +218,12 @@ def _pascal(identifier: str) -> str:
     return "".join(out) or "Map"
 
 
+def _camel(identifier: str) -> str:
+    """foo_bar -> fooBar: uretilen fonksiyon oneki (kodlama standardi: camelCase, alt cizgi yok)."""
+    pascal = _pascal(identifier)
+    return pascal[0].lower() + pascal[1:]
+
+
 def _sorted_registers(rmap: dict) -> list[dict]:
     return sorted(rmap["registers"], key=lambda r: _parse_int(r.get("offset")) or 0)
 
@@ -439,9 +445,9 @@ def generate_header(rmap: dict) -> str:
     lines.append("")
 
     # init + dump + serve prototipleri.
-    lines.append(f"void {map_name}Init(void);")
-    lines.append(f"void {map_name}Dump(void);")
-    lines.append(f"void {map_name}Serve(const char* cmd);")
+    lines.append(f"void {_camel(map_name)}Init(void);")
+    lines.append(f"void {_camel(map_name)}Dump(void);")
+    lines.append(f"void {_camel(map_name)}Serve(const char* cpCmd);")
     lines.append("")
     lines.append(f"#endif /* {guard} */")
     lines.append("")
@@ -464,7 +470,7 @@ def _dump_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[di
     out.append("#define REGMAP_PRINTF printf")
     out.append("#endif")
     out.append("")
-    out.append(f"void {map_name}Dump(void)")
+    out.append(f"void {_camel(map_name)}Dump(void)")
     out.append("{")
     out.append(f'    REGMAP_PRINTF("=== {map_name} @ 0x%08X ===\\r\\n", (unsigned int)({MOD}_BASE_ADDRESS));')
     out.append('    REGMAP_PRINTF("%-26s %-8s   %s\\r\\n", "NAME", "OFFS/BIT", "VALUE");')
@@ -519,34 +525,57 @@ def _serve_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[d
     out.append("#include <string.h>")
     out.append("#include <stdlib.h>")
     out.append("")
-    out.append(f"void {map_name}Serve(const char* cmd)")
+    out.append(f"void {_camel(map_name)}Serve(const char* cpCmd)")
     out.append("{")
-    out.append("    char buf[128];")
-    out.append("    size_t n = 0U;")
-    out.append("    while (cmd[n] != '\\0' && n < sizeof(buf) - 1U) { buf[n] = cmd[n]; n++; }")
-    out.append("    buf[n] = '\\0';")
-    out.append('    char* op = strtok(buf, " \\t\\r\\n");')
-    out.append("    if (op == NULL) { return; }")
-    out.append('    if (strcmp(op, "help") == 0)')
-    out.append('    {')
+    out.append("    char cArrBuf[128];")
+    out.append("    size_t uiLength = 0U;")
+    out.append("    char* cpOp;")
+    out.append("    char* cpTarget;")
+    out.append("    char* cpValStr;")
+    out.append("    char* cpField = NULL;")
+    out.append("    char* cpDot;")
+    out.append("    int iIsRd;")
+    out.append("    int iIsWr;")
+    out.append("    unsigned long long ullValue;")
+    out.append("")
+    out.append("    while ((cpCmd[uiLength] != '\\0') && (uiLength < (sizeof(cArrBuf) - 1U)))")
+    out.append("    {")
+    out.append("        cArrBuf[uiLength] = cpCmd[uiLength];")
+    out.append("        uiLength++;")
+    out.append("    }")
+    out.append("    cArrBuf[uiLength] = '\\0';")
+    out.append('    cpOp = strtok(cArrBuf, " \\t\\r\\n");')
+    out.append("    if (cpOp == NULL)")
+    out.append("    {")
+    out.append("        return;")
+    out.append("    }")
+    out.append('    if (strcmp(cpOp, "help") == 0)')
+    out.append("    {")
     out.append('        REGMAP_PRINTF("komut: rd|wr <REG>[.<ALAN>] [deger] | dump | help\\r\\n");')
     out.append("        return;")
     out.append("    }")
-    out.append(f'    if (strcmp(op, "dump") == 0) {{ {map_name}Dump(); return; }}')
-    out.append('    int isRd = (strcmp(op, "rd") == 0);')
-    out.append('    int isWr = (strcmp(op, "wr") == 0);')
-    out.append('    char* target = strtok(NULL, " \\t\\r\\n");')
-    out.append('    char* valStr = strtok(NULL, " \\t\\r\\n");')
-    out.append("    if ((isRd == 0 && isWr == 0) || target == NULL || (isWr != 0 && valStr == NULL))")
+    out.append('    if (strcmp(cpOp, "dump") == 0)')
+    out.append("    {")
+    out.append(f"        {_camel(map_name)}Dump();")
+    out.append("        return;")
+    out.append("    }")
+    out.append('    iIsRd = (strcmp(cpOp, "rd") == 0);')
+    out.append('    iIsWr = (strcmp(cpOp, "wr") == 0);')
+    out.append('    cpTarget = strtok(NULL, " \\t\\r\\n");')
+    out.append('    cpValStr = strtok(NULL, " \\t\\r\\n");')
+    out.append("    if (((iIsRd == 0) && (iIsWr == 0)) || (cpTarget == NULL) || ((iIsWr != 0) && (cpValStr == NULL)))")
     out.append("    {")
     out.append('        REGMAP_PRINTF("ERR kullanim: rd|wr <REG>[.<ALAN>] [deger] | dump | help\\r\\n");')
     out.append("        return;")
     out.append("    }")
-    out.append("    char* field = NULL;")
-    out.append("    char* dot = strchr(target, '.');")
-    out.append("    if (dot != NULL) { *dot = '\\0'; field = dot + 1; }")
-    out.append("    unsigned long long wv = (isWr != 0) ? strtoull(valStr, NULL, 0) : 0ULL;")
-    out.append("    (void)wv;")
+    out.append("    cpDot = strchr(cpTarget, '.');")
+    out.append("    if (cpDot != NULL)")
+    out.append("    {")
+    out.append("        *cpDot = '\\0';")
+    out.append("        cpField = cpDot + 1;")
+    out.append("    }")
+    out.append("    ullValue = (iIsWr != 0) ? strtoull(cpValStr, NULL, 0) : 0ULL;")
+    out.append("    (void)ullValue;")
     for item in layout:
         reg = item["reg"]
         if reg.get("reserved"):
@@ -561,32 +590,32 @@ def _serve_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[d
         else:
             continue  # standart olmayan genişlik (bayt dizisi): serve edilmez
         wcast = (_raw_type(width) or ("unsigned int", "ui"))[0]
-        out.append(f'    if (strcmp(target, "{name}") == 0)')
+        out.append(f'    if (strcmp(cpTarget, "{name}") == 0)')
         out.append("    {")
         if item["kind"] == "scalar":
-            out.append(f'        if (field != NULL) {{ REGMAP_PRINTF("ERR {name} skaler, alani yok\\r\\n"); return; }}')
-            out.append(f"        if (isWr != 0) {{ {ptr_name}->{member} = ({wcast})wv; }}")
+            out.append(f'        if (cpField != NULL) {{ REGMAP_PRINTF("ERR {name} skaler, alani yok\\r\\n"); return; }}')
+            out.append(f"        if (iIsWr != 0) {{ {ptr_name}->{member} = ({wcast})ullValue; }}")
             out.append(f'        REGMAP_PRINTF("{name}={rawfmt}\\r\\n", ({cast})({ptr_name}->{member}));')
             out.append("        return;")
         else:
-            out.append("        if (field == NULL)")
+            out.append("        if (cpField == NULL)")
             out.append("        {")
-            out.append(f"            if (isWr != 0) {{ {ptr_name}->{member}.{item['raw']}Value = ({wcast})wv; }}")
+            out.append(f"            if (iIsWr != 0) {{ {ptr_name}->{member}.{item['raw']}Value = ({wcast})ullValue; }}")
             out.append(f'            REGMAP_PRINTF("{name}={rawfmt}\\r\\n", ({cast})({ptr_name}->{member}.{item["raw"]}Value));')
             out.append("            return;")
             out.append("        }")
             for field_def in sorted(reg["fields"], key=lambda f: _bit_span(f["bits"])[1]):
                 fn = field_def["name"]
-                out.append(f'        if (strcmp(field, "{fn}") == 0)')
+                out.append(f'        if (strcmp(cpField, "{fn}") == 0)')
                 out.append("        {")
-                out.append(f"            if (isWr != 0) {{ {ptr_name}->{member}.{fn} = ({wcast})wv; }}")
+                out.append(f"            if (iIsWr != 0) {{ {ptr_name}->{member}.{fn} = ({wcast})ullValue; }}")
                 out.append(f'            REGMAP_PRINTF("{name}.{fn}={fieldfmt}\\r\\n", ({cast})({ptr_name}->{member}.{fn}));')
                 out.append("            return;")
                 out.append("        }")
-            out.append('        REGMAP_PRINTF("ERR bilinmeyen alan: %s\\r\\n", field);')
+            out.append('        REGMAP_PRINTF("ERR bilinmeyen alan: %s\\r\\n", cpField);')
             out.append("        return;")
         out.append("    }")
-    out.append('    REGMAP_PRINTF("ERR bilinmeyen register: %s\\r\\n", target);')
+    out.append('    REGMAP_PRINTF("ERR bilinmeyen register: %s\\r\\n", cpTarget);')
     out.append("}")
     out.append("#endif /* REGMAP_NO_SERVE */")
     return out
@@ -611,7 +640,7 @@ def generate_source(rmap: dict) -> str:
     lines.append(f"static {struct_t}* const {ptr_name} = "
                  f"({struct_t}*)({MOD}_BASE_ADDRESS);")
     lines.append("")
-    lines.append(f"void {map_name}Init(void)")
+    lines.append(f"void {_camel(map_name)}Init(void)")
     lines.append("{")
     lines.append("    /* Her register RESET degerine esitlenir (alan sifirlanmaz). */")
     for item in layout:
@@ -684,10 +713,10 @@ def generate_shell_command(rmap: dict) -> str:
         "            cArrLine[uiLength] = ' ';",
         "            uiLength++;",
         "        }",
-        "        (void)strcpy(&cArrLine[uiLength], cpArrArgv[uiIndex]);",
+        "        (void)memcpy(&cArrLine[uiLength], cpArrArgv[uiIndex], strlen(cpArrArgv[uiIndex]) + 1U);",
         "        uiLength += strlen(cpArrArgv[uiIndex]);",
         "    }",
-        f"    {map_name}Serve(cArrLine); /* rd/wr/dump/help: {map_name}.c icindeki tek satirlik sunucu */",
+        f"    {_camel(map_name)}Serve(cArrLine); /* rd/wr/dump/help: {map_name}.c icindeki tek satirlik sunucu */",
         "}",
         "",
     ]

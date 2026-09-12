@@ -668,6 +668,17 @@ cihazlari ilklendir" ya da Bring-up kos.
   verir: shell tablosuna tek satir (`{"ip_<map>", shellUser<Map>, ...}`) ekleyince konsoldan
   `ip_<map> rd CONTROL.ENABLE`, `ip_<map> wr STATUS 0x10`, `ip_<map> dump` calisir; base adres
   haritadaki `<MAP>_BASE_ADDRESS`'ten gelir, elle adres yazilmaz.
+- **Register haritasi bilinen IP'ler (JESD204C v4.x, PG242)**: XSA'da `xilinx.com:ip:jesd204c`
+  gorulunce custom IP kaydina `register_map: jesd204c` ve IP parametreleri (lane sayisi,
+  RX/TX, 64B66B/8B10B, alt sinif; XSA'dan okunamazsa 4 lane / RX / 64B66B / alt sinif 1)
+  yazilir. Register Map ekraninda `<id> (jesd204c) haritasi` dugmesi PG242 haritasini
+  (ortak + yon/kodlamaya ozgu + lane basina bloklar, bit alanlariyla) getirir: **Canli Izleme**
+  register ve bit alani ADIYLA okur/yazar (`mem_read/mem_write`, hangi transport olursa).
+  Generate ayni haritadan `drivers/ip/<id>_regs.h/.c` + `<id>_shell.h/.c` uretir ve shell
+  tablosuna `ip_<id> rd|wr <REG>[.<FIELD>] [value] | dump | help` satirini kendisi ekler
+  (generic `<id> dump|read|write` bu IP icin uretilmez). Link kurmak GT, SYSREF ve karsi cihaz
+  (AFE7900) ister; kart olmadan reset dizisi, surum/yapilandirma okuma ve durum register'lari
+  dogrulanir. Parametreler `custom_ips[].ip_parameters` ile elle ezilebilir.
 - **Arayuz/YATT**: S2C-MSG mesaj katalogu (ID, yon, govde sablonu, durum kodlari),
   manifest ile zenginlestirilmis; cok kartli projede Sistem Topolojisi; HTML/MD olarak
   paylasilabilir. Protokolun tek dogruluk kaynagi budur.

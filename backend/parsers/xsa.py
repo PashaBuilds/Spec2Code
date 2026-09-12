@@ -17,6 +17,8 @@ documented for XSA input.
 from __future__ import annotations
 
 import re
+
+from backend.ip_register_maps import known_ip_key, known_ip_parameters
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -212,6 +214,21 @@ def _register_ranges(element: ET.Element) -> list[tuple[int, int, str]]:
     return out
 
 
+def _module_parameters(element: ET.Element) -> dict[str, str]:
+    """MODULE altindaki PARAMETER NAME/VALUE ciftleri (bilinen IP parametreleri icin)."""
+    params: dict[str, str] = {}
+    for parameters in element:
+        if _local_name(parameters.tag).upper() != "PARAMETERS":
+            continue
+        for child in parameters:
+            if _local_name(child.tag).upper() != "PARAMETER":
+                continue
+            name = _attr(child, "NAME")
+            if name:
+                params[name] = _attr(child, "VALUE")
+    return params
+
+
 def _custom_ip_register_count(element: ET.Element, base: int, high: int, slave_if: str) -> int:
     """4 baytlik register sayisi: `C_<IF>_ADDR_WIDTH` (2^w bayt) varsa o, yoksa HIGH-BASE+1 / 4.
 
@@ -328,18 +345,25 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
                 # Standart Xilinx IP'leri (axi_timer, axi_intc ... VLNV xilinx.com:ip) custom IP degildir:
                 # surucusu BSP'de vardir, shell komutu uretilmez; yalniz kullanici/ucuncu parti VLNV.
                 vlnv = _attr(element, "VLNV").lower()
-                standard_xilinx = vlnv.startswith("xilinx.com:ip:")
+                # Register haritasi BILINEN Xilinx IP'leri (JESD204C ...): surucusu BSP'de yoktur,
+                # AXI-Lite register alani PG belgesinden bilinir -> custom_ips'e register_map ile girer.
+                known_key = known_ip_key(vlnv, modtype)
+                standard_xilinx = vlnv.startswith("xilinx.com:ip:") and known_key is None
                 ranges = [] if (standard_xilinx or "MEMORY" in _attr(element, "MODCLASS").upper()) else _register_ranges(element)
                 if ranges:
                     reg_base, reg_high, slave_if = min(ranges)
-                    result.custom_ips.append({
+                    entry = {
                         "id": re.sub(r"[^a-z0-9_]", "_", instance.lower()),
                         "instance": f"XPAR_{instance.upper()}",
                         "ip_name": modtype or instance,
                         "base_address": f"0x{reg_base:08X}",
                         "high_address": f"0x{reg_high:08X}",
                         "register_count": _custom_ip_register_count(element, reg_base, reg_high, slave_if),
-                    })
+                    }
+                    if known_key is not None:
+                        entry["register_map"] = known_key
+                        entry["ip_parameters"] = known_ip_parameters(known_key, _module_parameters(element))
+                    result.custom_ips.append(entry)
 
     if not result.platform and any(
         item["instance"].startswith("XPAR_PSV_") for item in raw_controllers

@@ -231,6 +231,8 @@ def custom_ips(spec: dict) -> list[dict]:
     """Spec'teki custom IP'ler (id, base_address, register_count); bozuk kayit atlanir."""
     out: list[dict] = []
     for item in spec.get("custom_ips", []) or []:
+        if str(item.get("register_map") or "").strip():
+            continue  # bilinen IP: register adli `ip_<id>` komutu var, generic dump/read/write uretilmez (ad cakisir)
         try:
             base = int(str(item.get("base_address")), 0)
             count = int(item.get("register_count") or 0)
@@ -246,6 +248,29 @@ def custom_ips(spec: dict) -> list[dict]:
 
 def _custom_ip_handler(cid: str) -> str:
     return "shellUser" + "".join(p.capitalize() for p in cid.split("_") if p)
+
+
+def known_ip_maps(spec: dict) -> list[dict]:
+    """Register haritasi bilinen custom IP'ler (register_map alani dolu): {id, base, key, params}."""
+    out: list[dict] = []
+    for item in spec.get("custom_ips", []) or []:
+        key = str(item.get("register_map") or "").strip()
+        if not key:
+            continue
+        cid = re.sub(r"[^a-z0-9_]", "_", str(item.get("id", "")).lower())
+        try:
+            base = int(str(item.get("base_address")), 0)
+        except (TypeError, ValueError):
+            continue
+        if cid:
+            out.append({"id": cid, "base": base, "key": key, "params": dict(item.get("ip_parameters") or {}),
+                        "ip_name": str(item.get("ip_name") or key)})
+    return out
+
+
+def _known_ip_handler(cid: str) -> str:
+    # register_map.generate_shell_command ile ayni ad: shellUser<Pascal(map)>
+    return "shellUser" + "".join(p[:1].upper() + p[1:] for p in cid.split("_") if p)
 
 
 def _mux_addresses(spec: dict) -> list[int]:
@@ -637,6 +662,8 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln("#endif")
     e.ln('#include "xil_printf.h"')
     e.ln('#include "xstatus.h"')
+    for ip in known_ip_maps(spec):
+        e.ln(f'#include "{ip["id"]}_shell.h" /* bilinen IP ({ip["ip_name"]}) register haritasi: drivers/ip */')
     if "XIic" in htypes:
         e.ln('#include "xiic.h"')
         e.ln('#include "xiic_l.h"')
@@ -1122,6 +1149,8 @@ def user_commands_source(spec: dict, plans: list) -> str:
     e.ln('    {"mem", shellUserMem, "<addr> [value]  read / write a 32-bit register (Xil_In32/Xil_Out32)"},')
     for ip in ips:
         e.ln(f'    {{"{ip["id"]}", {_custom_ip_handler(ip["id"])}, "dump | read <n> | write <n> <value>  custom IP @0x{ip["base"]:08X}, {ip["count"]} regs"}},')
+    for ip in known_ip_maps(spec):
+        e.ln(f'    {{"ip_{ip["id"]}", {_known_ip_handler(ip["id"])}, "rd|wr <REG>[.<FIELD>] [value] | dump | help  {ip["ip_name"]} @0x{ip["base"]:08X} (register adlariyla)"}},')
     e.ln('    {"sdl", shellUserSdl, "<level>  set debug level: error|warning|msg|info|trace (0..5)"},')
     e.ln('    {"help", shellUserHelp, "list commands"},')
     e.ln('    {"mod", shellUserMod, "<0..7> <open|close|test>  gpio loopback IP: open=pattern, close=0, test=open+irq wait+14 status+close"},')
@@ -1424,6 +1453,8 @@ def readme_section(spec: dict, plans: list) -> str:
         "| `mem <addr> [value]` | 32-bit register oku / yaz (`Xil_In32` / `Xil_Out32`), yazinca geri okur |",
         *[f"| `{ip['id']} dump\\|read <n>\\|write <n> <value>` | custom IP ({ip['ip_name'] or ip['instance']}) base 0x{ip['base']:08X}, {ip['count']} x 4 B register: n = register no (0..{ip['count'] - 1}), dump tum araligi okur |"
           for ip in custom_ips(spec)],
+        *[f"| `ip_{ip['id']} rd\\|wr <REG>[.<FIELD>] [value]\\|dump\\|help` | bilinen IP haritasi ({ip['ip_name']}, base 0x{ip['base']:08X}): register/bit alani ADIYLA oku-yaz (`drivers/ip/{ip['id']}_regs.h`) |"
+          for ip in known_ip_maps(spec)],
         "| `help` | komut listesi (tablodan) |",
         "| `mod <x> <y>` | GPIO loopback test IP'si: `open` reg x <= desen, `close` 0, `test` = open + AXI INTC kesmesini bekle (1 s) + 14 konnektor durumunu renkli bas (bit 0 yesil OK, 1 kirmizi HATA) + close; `SHELL_USER_MOD_BASEADDR` ve `SHELL_USER_MOD_INTR_ID` ayarlanmali |",
         "",

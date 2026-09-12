@@ -879,6 +879,10 @@ export interface CustomIp {
   high_address?: string;
   /** 4 baytlik register sayisi (XSA ADDR_WIDTH ya da adres araligindan). */
   register_count: number;
+  /** Register haritası bilinen IP (jesd204c): drivers/ip + shell ip_<id> + Register Map otomatik. */
+  register_map?: "jesd204c";
+  /** Bilinen IP parametreleri (jesd204c: lanes, direction, link_layer, subclass). */
+  ip_parameters?: Record<string, string | number>;
 }
 
 export interface ParseResult {

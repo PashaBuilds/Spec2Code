@@ -560,6 +560,18 @@
             "minimum": 1,
             "maximum": 1048576,
             "description": "4 baytlik register sayisi (ADDR_WIDTH ya da HIGH-BASE+1 / 4)."
+          },
+          "register_map": {
+            "type": "string",
+            "enum": [
+              "jesd204c"
+            ],
+            "description": "Register haritasi bilinen IP (PG belgesinden): drivers/ip/<id>_regs.h/.c + shell ip_<id> ve Register Map ekrani otomatik uretilir."
+          },
+          "ip_parameters": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Bilinen IP parametreleri (jesd204c: lanes 1..8, direction rx|tx, link_layer 64b66b|8b10b, subclass 0..2); XSA'dan gelir, elle ezilebilir."
           }
         }
       }

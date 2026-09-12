@@ -3,6 +3,7 @@ import { Cpu, Download, FileCode2, FileSpreadsheet, FileUp, FilePlus2, Loader2, 
 import { api } from "@/lib/api";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { useBoardConnection } from "@/store/connection";
+import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { base64ToBytes, downloadBytes } from "@/lib/download";
 
@@ -180,6 +181,20 @@ export default function RegisterMapPanel() {
     finally { setBusy(false); }
   };
 
+  // XSA'da register haritası bilinen IP'ler (jesd204c ...): tek tıkla harita gelir, canlı izleme
+  // register/bit alanı adıyla çalışır; kod üretimi aynı haritadan drivers/ip + shell ip_<id> üretir.
+  const knownIps = useStore((s) => s.customIps.filter((ip) => ip.register_map));
+  const loadKnownIp = async (ip: { id: string; register_map?: string; base_address: string; ip_parameters?: Record<string, unknown> }) => {
+    setBusy(true); setErrors([]);
+    try {
+      const r = await api.registerMapKnownIp({ key: ip.register_map ?? "", name: ip.id, base_address: ip.base_address, ip_parameters: ip.ip_parameters ?? {} });
+      setDoc(r.document as RegDoc); setActiveMap(0);
+      const p = r.parameters as Record<string, unknown>;
+      setNotice(`${ip.id} (${ip.register_map}) haritası yüklendi: ${String(p.lanes)} lane, ${String(p.direction).toUpperCase()}, ${String(p.link_layer).toUpperCase()}, alt sınıf ${String(p.subclass)}, base ${ip.base_address}.`);
+    } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
+    finally { setBusy(false); }
+  };
+
   if (!doc) return <div className="p-6 text-sm text-muted">Yükleniyor…</div>;
 
   return (
@@ -204,6 +219,11 @@ export default function RegisterMapPanel() {
           <Button size="sm" variant="outline" onClick={() => doc && download((doc.maps[0]?.name || "register_map") + ".json", JSON.stringify(doc, null, 2), "application/json")}><Download className="h-4 w-4" /> JSON dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => void downloadExampleHtml()} disabled={busy}><FilePlus2 className="h-4 w-4" /> Örnek editör indir</Button>
           <Button size="sm" variant="outline" onClick={() => void loadTestIp()} disabled={busy}><Cpu className="h-4 w-4" /> Test IP haritasını yükle</Button>
+          {knownIps.map((ip) => (
+            <Button key={ip.id} size="sm" variant="outline" onClick={() => void loadKnownIp(ip)} disabled={busy} title={`XSA'daki ${ip.register_map} IP'si (${ip.base_address}); PG register haritası otomatik`}>
+              <Cpu className="h-4 w-4" /> {ip.id} ({ip.register_map}) haritası
+            </Button>
+          ))}
           <Button size="sm" onClick={() => void generateC()} disabled={busy || localErrors.length > 0} className="ml-auto">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />} C kodu üret
           </Button>

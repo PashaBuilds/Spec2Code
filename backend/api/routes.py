@@ -1176,6 +1176,28 @@ def register_map_test_ip(base_address: str = regmap.REGMAP_TEST_IP_DEFAULT_BASE)
     return {"document": doc, "valid": not regmap.validate_register_document(doc)}
 
 
+class KnownIpMapRequest(BaseModel):
+    key: str
+    name: str
+    base_address: str
+    ip_parameters: dict = {}
+
+
+@router.post("/register-map/known-ip")
+def register_map_known_ip(req: KnownIpMapRequest) -> dict:
+    """Register haritasi bilinen IP'nin (jesd204c ...) dokumani: XSA'daki custom IP kaydindan
+    (id, base_address, ip_parameters) Register Map ekranina otomatik; canli okuma/yazma register adiyla."""
+    from backend import ip_register_maps
+
+    try:
+        doc = ip_register_maps.known_ip_document(req.key, name=req.name, base_address=req.base_address,
+                                                 parameters=req.ip_parameters)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"document": doc, "valid": not regmap.validate_register_document(doc),
+            "parameters": ip_register_maps.known_ip_parameters(req.key, req.ip_parameters)}
+
+
 @router.get("/register-map/example")
 def register_map_example() -> dict:
     """Boş/örnek register map + gömülü hâli (self-contained HTML editör)."""

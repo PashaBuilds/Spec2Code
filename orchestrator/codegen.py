@@ -7107,6 +7107,23 @@ def strip_doxygen_blocks(text: str) -> str:
     return re.sub(r"(\r?\n)[ \t]*(?:\r?\n[ \t]*){2,}", r"\1\1", out)
 
 
+def _write_known_ip_drivers(spec: dict, out_dir: Path) -> list[str]:
+    """custom_ips[].register_map dolu olanlar icin Register Map dokumanindan C uretir (drivers/ip/)."""
+    from backend import ip_register_maps, register_map
+
+    written: list[str] = []
+    ip_dir = out_dir / "drivers" / "ip"
+    for ip in shell_layer.known_ip_maps(spec):
+        doc = ip_register_maps.known_ip_document(ip["key"], name=ip["id"], base_address=f"0x{ip['base']:08X}",
+                                                 parameters=ip["params"])
+        errors = register_map.validate_register_document(doc)
+        if errors:
+            raise cmodel.CodegenError(f"S2C-CODEGEN-IP-001: {ip['id']} ({ip['key']}) register haritasi gecersiz: " + "; ".join(errors))
+        for filename, content in register_map.generate_files(doc).items():
+            written.append(str(hio.write_output(ip_dir / filename, _apply_default_identifier_style(content))))
+    return written
+
+
 def generate(
     spec: dict,
     out_dir: Path,
@@ -7215,6 +7232,12 @@ def generate(
             test = _apply_default_identifier_style(test)
             written.append(str(hio.write_output(tests_dir / f"{unit.module}_test.c", test)))
 
+    # Register haritasi bilinen PL IP'leri (JESD204C ...): drivers/ip/<id>_regs.h/.c + <id>_shell.h/.c
+    # (backend/register_map ureticisi; shell tablosuna `ip_<id>` shell_layer'da eklenir).
+    ip_written = _write_known_ip_drivers(spec, out_dir)
+    if ip_written:
+        emit({"event": "codegen.known_ip", "files": len(ip_written)})
+        written.extend(ip_written)
     # CIT entegre katmani (cit/): HAL + entegre CIT + sistem toplayici. Mevcut
     # drivers/ ve tests/ ciktilarina DOKUNMAZ, yalniz eklenir (tasarim:
     # docs/superpowers/specs/2026-09-05-cit-hal-layer-design.md).

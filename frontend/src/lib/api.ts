@@ -284,6 +284,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  registerMapKnownIp: (payload: { key: string; name: string; base_address: string; ip_parameters?: Record<string, unknown> }) =>
+    req<{ document: unknown; valid: boolean; parameters: Record<string, unknown> }>("/api/register-map/known-ip", {
+      method: "POST", body: JSON.stringify(payload),
+    }),
+
   registerMapTestIp: (baseAddress?: string) =>
     req<{ document: unknown; valid: boolean }>(
       "/api/register-map/test-ip" + (baseAddress ? `?base_address=${encodeURIComponent(baseAddress)}` : ""),
