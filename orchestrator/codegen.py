@@ -4362,7 +4362,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        }",
         "        for (uiWordIndex = 0U; uiWordIndex < uiWordCount; uiWordIndex++)",
         "        {",
-        "            uiWord = (unsigned int)Xil_In32((UINTPTR)(spRequest->uiAddress + (uiWordIndex * 4U)));",
+        "            uiWord = (unsigned int)Xil_In32(((UINTPTR)spRequest->uiAddress) + ((UINTPTR)uiWordIndex * 4U));",
         "            for (uiByteIndex = 0U; uiByteIndex < 4U; uiByteIndex++)",
         "            {",
         "                (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)((uiWord >> (uiByteIndex * 8U)) & 0xFFU));",

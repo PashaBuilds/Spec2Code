@@ -1090,7 +1090,7 @@ class TestbenchTests(unittest.TestCase):
         # mem_block: ardisik sozcuk blogu (yakalama BRAM'i -> Yakalama ekrani ham/FFT).
         self.assertIn('"mem_block"', ops_source)
         self.assertIn("uiWordCount = SPEC2CODE_TESTBENCH_DATA_MAX / 4U", ops_source)
-        self.assertIn("Xil_In32((UINTPTR)(spRequest->uiAddress + (uiWordIndex * 4U)))", ops_source)
+        self.assertIn("Xil_In32(((UINTPTR)spRequest->uiAddress) + ((UINTPTR)uiWordIndex * 4U))", ops_source)
 
         # Agent side: shared SPI helpers + wide (15-bit) resolver + packing.
         self.assertIn("spec2codeTestbenchSpiRegisterWrite", ops_source)
