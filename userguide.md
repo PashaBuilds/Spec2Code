@@ -677,14 +677,16 @@ platform/system/application adlari, islemci (`psu_cortexa53_0`, `microblaze_0`..
 **Vitis Unified (>= 2024.1, or. 2025.2)**: xsct Tcl akisi yerine `vitis -s <python>`
 betigi kosar (`spec2code_unified_workspace.py`, loglar `vitis_stdout.log`): platform
 bileseni (XSA, os, cpu) -> lwIP gerekiyorsa `lwip220` + MicroBlaze bellek parametreleri ->
-`platform.build()` -> `empty_application` bileseni -> kaynak import + `UserConfig.cmake`
-include yollari + MicroBlaze lscript yigin/heap -> `app.build()`; ELF
-`<workspace>/<app>/build/<app>.elf`. Bu akista spec `bsp_flow = sdt` olmali. Custom PL IP
-surucu politikasi (make.libs yamasi) Unified'da uygulanmaz: SDT surucusu uyumluluk dizgisiyle
-eslesir, eslesmeyen IP icin surucu uretilmez. Henuz Unified'da desteklenmeyen: MicroBlaze
-lwIP ajani (AXI INTC/Timer kesme vektor makrolari SDT'de farkli adlanir; UART/MDM secin).
-Bu akis Vitis 2025.2 kurulumu tamamlanmadan, AMD scripting belgesine gore yazildi;
-kurulum sonrasi ilk gercek kosuda dogrulanacak noktalar betikte `# DOGRULA:` ile isaretlidir.
+`platform.build()` -> lwip220 varsa libsrc yamasi (xadapter.c cift `status`, xemacliteif.c
+IEEE 802.3 secicisi; lwip213'teki hatalar 2025.2'de de duruyor) + yeniden derleme ->
+`empty_application` bileseni -> kaynak import + `USER_INCLUDE_DIRECTORIES` + MicroBlaze
+lscript yigin/heap (16 KB / 8 KB) -> `app.build()`; ELF `<workspace>/<app>/build/<app>.elf`
+(shell uygulamasi `<app>_shell` ayni sekilde). Bu akista spec `bsp_flow = sdt` olmali. Custom
+PL IP surucu politikasi (make.libs yamasi) Unified'da uygulanmaz: SDT surucusu uyumluluk
+dizgisiyle eslesir, eslesmeyen IP icin surucu uretilmez. MicroBlaze lwIP ajani SDT'de
+`xiltimer` (50 ms tick) kullanir; EMAC kesmesini lwIP portu kurar, uygulamada XIntc yoktur.
+Nexys A7 + Vitis 2025.2 ile uctan uca dogrulandi (UART ajani, shell, ADT7420, I2C tarama, CIT;
+Ethernet ajani). Tam kosu (platform + iki uygulama) ~70 sn.
 
 **Klasik akis (<= 2023.2)**: XSCT bulunur -> `.xsa` ve uretilen kaynaklar staging'e kopyalanir (uretim
 ciktisi diskte eksikse acik hata: once Generate'i yeniden calistir) -> custom PL IP

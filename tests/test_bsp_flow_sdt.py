@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 from backend.parsers.xparameters import parse_xparameters  # noqa: E402
 from backend.vitis_unified import (  # noqa: E402
     MICROBLAZE_LWIP_PARAMS, bsp_flow_preflight_issue, locate_vitis_cli, render_unified_workspace_script)
-from orchestrator import cmodel, codegen  # noqa: E402
+from orchestrator import codegen  # noqa: E402
 from orchestrator.bsp_flow import (  # noqa: E402
     bsp_flow, expected_bsp_flow_for_vitis, is_sdt, is_unified_vitis, lookup_arg, lookup_suffix)
 from tests.test_testbench import add_microblaze_ethernetlite, add_zynqmp_ps_uart, load_sample_spec  # noqa: E402
@@ -113,15 +113,31 @@ class SdtCodegenTests(unittest.TestCase):
         self.assertRegex(joined, r"_LookupConfig\(XPAR_[A-Z0-9_]+_DEVICE_ID\)")
         self.assertNotRegex(joined, r"_LookupConfig\(XPAR_[A-Z0-9_]+_BASEADDR\)")
 
-    def test_microblaze_lwip_agent_rejected_in_sdt_until_verified(self) -> None:
+    def test_microblaze_lwip_agent_in_sdt_uses_xiltimer_platform(self) -> None:
         spec = load_sample_spec("sdt_mb_eth")
         spec["project"].update({"platform": "microblaze_7series", "target_core": "microblaze_0",
                                 "runtime": "bare_metal", "testbench_transport": "eth", "bsp_flow": "sdt"})
         add_microblaze_ethernetlite(spec)
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(cmodel.CodegenError) as ctx:
-                codegen.generate(spec, Path(tmp))
-        self.assertIn("SDT", str(ctx.exception))
+        files = self._generate(spec)
+        lwip_c = files["tests/spec2code_testbench_lwip.c"]
+        self.assertIn('#include "xiltimer.h"', lwip_c)
+        self.assertIn("XTimer_SetInterval(50UL);", lwip_c)
+        self.assertIn("XTimer_SetHandler(spec2codeTestbenchTimerHandler, NULL, XINTERRUPT_DEFAULT_PRIORITY);", lwip_c)
+        self.assertIn("spec2codeTestbenchPlatformTimerSetup();", lwip_c)
+        # Klasik INTC/Timer kalibi SDT'de yok: vektor makrosu, XIntc, microblaze_enable_interrupts.
+        for token in ("XPAR_INTC_0_TMRCTR_0_VEC_ID", "XIntc_Initialize", "microblaze_enable_interrupts",
+                      "spec2codeTestbenchPlatformInterruptsEnable", '#include "xintc.h"'):
+            self.assertNotIn(token, lwip_c)
+        self.assertNotIn("_DEVICE_ID)", "\n".join(files.values()))
+
+    def test_microblaze_lwip_agent_in_classic_keeps_intc_platform(self) -> None:
+        spec = load_sample_spec("classic_mb_eth")
+        spec["project"].update({"platform": "microblaze_7series", "target_core": "microblaze_0",
+                                "runtime": "bare_metal", "testbench_transport": "eth"})
+        add_microblaze_ethernetlite(spec)
+        lwip_c = self._generate(spec)["tests/spec2code_testbench_lwip.c"]
+        self.assertIn("XIntc_Initialize(&S_sIntc, XPAR_INTC_0_DEVICE_ID);", lwip_c)
+        self.assertNotIn("xiltimer", lwip_c)
 
 
 class UnifiedWorkspaceTests(unittest.TestCase):
@@ -160,7 +176,12 @@ class UnifiedWorkspaceTests(unittest.TestCase):
         self.assertIn("set_lib(lib_name=LWIP_LIB)", script)
         self.assertIn("LWIP_LIB = 'lwip220'", script)
         self.assertIn("'memp_n_tcp_seg': 64", script)
-        self.assertIn("USER_INCLUDE_DIRECTORIES", script)
+        self.assertIn('set_app_config(key="USER_INCLUDE_DIRECTORIES"', script)
+        self.assertIn("find_platform_in_repos(PLATFORM)", script)
+        self.assertIn("patch_lwip_sources", script)
+        self.assertIn("emaclite_status_declared_twice", script)
+        self.assertNotIn('set_lib(lib_name="xiltimer")', script)
+        self.assertIn("vitis.dispose()", script)
         self.assertIn("MICROBLAZE = True", script)
         self.assertIn("XSA = 'D:/hw/design.xsa'", script)
 

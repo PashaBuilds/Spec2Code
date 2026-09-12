@@ -5380,11 +5380,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
     if eth is None:
         raise cmodel.CodegenError("lwIP test bench requested without an Ethernet controller (ZynqMP PS GEM or MicroBlaze AXI EthernetLite)")
     microblaze = _lwip_on_microblaze(spec)
-    if microblaze and is_sdt(spec):
-        raise cmodel.CodegenError(
-            "S2C-CODEGEN-SDT-001: MicroBlaze lwIP ajani (AXI INTC + AXI Timer platformu) SDT/Vitis Unified "
-            "akisinda henuz desteklenmiyor - kesme vektor makrolari (XPAR_INTC_0_*_VEC_ID) SDT basliginda "
-            "farkli adlanir. testbench_transport'u uart/mdm secin ya da bsp_flow'u classic yapin.")
+    sdt = is_sdt(spec)
     project_name = spec["project"]["name"]
     entries = _testbench_board_controller_entries(spec)
     telnet = _telnet_log_enabled(spec)
@@ -5405,7 +5401,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         '#include "netif/xadapter.h"',
         '#include <stddef.h>',
     ]
-    if microblaze:
+    if microblaze and sdt:
+        # SDT (Vitis Unified) lwip_echo_server platform.c kalibi: xiltimer 50 ms tick, EMAC kesmesini
+        # lwIP portu XSetupInterruptSystem ile kendisi kurar (INTC/Timer vektor makrosu gerekmez).
+        headers += ['#include "xiltimer.h"', '#include "xinterrupt_wrap.h"']
+    elif microblaze:
         # Resmi lwip_echo_server platform_mb.c kalibi: AXI INTC + AXI Timer (dusuk seviye API).
         headers += ['#include "xintc.h"', '#include "xtmrctr_l.h"', '#include "mb_interface.h"']
     if telnet:
@@ -5461,7 +5461,8 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "static unsigned int S_uiServerReady;",
         "",
         *_testbench_board_handle_decls(entries),
-        *(_testbench_lwip_microblaze_platform_lines() if microblaze else []),
+        *((_testbench_lwip_microblaze_sdt_platform_lines() if sdt else _testbench_lwip_microblaze_platform_lines())
+          if microblaze else []),
         "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb,",
         "                                            const unsigned char* ucpFrame,",
         "                                            unsigned int uiLength)",
@@ -5583,8 +5584,9 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    {",
         "        return XST_SUCCESS;",
         "    }",
-        *(["    spec2codeTestbenchPlatformInterruptsSetup(); /* INTC + timer (kesmeler henuz kapali) */"]
-          if microblaze else []),
+        *(["    spec2codeTestbenchPlatformTimerSetup(); /* xiltimer 50 ms tick (SDT) */"] if (microblaze and sdt) else
+          ["    spec2codeTestbenchPlatformInterruptsSetup(); /* INTC + timer (kesmeler henuz kapali) */"] if microblaze
+          else []),
         "    lwip_init();",
         "    IP4_ADDR(&sIpAddr,",
         "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
@@ -5615,7 +5617,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    netif_set_default(&S_sNetif);",
         "    netif_set_up(&S_sNetif);",
         *(["    spec2codeTestbenchPlatformInterruptsEnable(); /* xemac_add EMAC ISR'ini kaydetti; simdi ac */"]
-          if microblaze else []),
+          if (microblaze and not sdt) else []),
         "    S_uiNetworkReady = 1U;",
         *([
             "    /* netif up: telnet log sunucusunu (port 23) ayni netif uzerinde",
@@ -5703,6 +5705,44 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _testbench_lwip_microblaze_sdt_platform_lines() -> list[str]:
+    """SDT (Vitis Unified) MicroBlaze lwIP platformu (lwip_echo_server platform.c `#ifdef SDT` kalibi).
+
+    * xiltimer: XTimer_SetInterval(50) + XTimer_SetHandler -> her tick'te TCP hizli (250 ms) / yavas
+      (500 ms) bayraklari. Timer kesmesini xiltimer, EMAC kesmesini lwIP portu (XSetupInterruptSystem,
+      config->IntrId/IntrParent) kurar; uygulamada XIntc kodu ve vektor makrosu yoktur.
+    """
+    return [
+        "/* --- MicroBlaze platform (SDT): xiltimer 50 ms tick (lwip_echo_server platform.c kalibi) --- */",
+        "static volatile unsigned int S_uiTcpFastTimerFlag;",
+        "static volatile unsigned int S_uiTcpSlowTimerFlag;",
+        "",
+        "static void spec2codeTestbenchTimerHandler(void* vpCallBackRef, u32 uiStatusEvent)",
+        "{",
+        "    static unsigned int S_uiTick = 0U;",
+        "",
+        "    (void)vpCallBackRef;",
+        "    (void)uiStatusEvent;",
+        "    S_uiTick++;",
+        "    if ((S_uiTick % 5U) == 0U)",
+        "    {",
+        "        S_uiTcpFastTimerFlag = 1U;",
+        "    }",
+        "    if ((S_uiTick % 10U) == 0U)",
+        "    {",
+        "        S_uiTcpSlowTimerFlag = 1U;",
+        "    }",
+        "}",
+        "",
+        "static void spec2codeTestbenchPlatformTimerSetup(void)",
+        "{",
+        "    XTimer_SetInterval(50UL);",
+        "    XTimer_SetHandler(spec2codeTestbenchTimerHandler, NULL, XINTERRUPT_DEFAULT_PRIORITY);",
+        "}",
+        "",
+    ]
 
 
 def _testbench_lwip_microblaze_platform_lines() -> list[str]:

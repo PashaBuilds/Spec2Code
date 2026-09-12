@@ -14,10 +14,15 @@ app create) 2024.1'den itibaren yerini Python API'li Unified IDE'ye birakir:
 * Uygulama include yollari ``UserConfig.cmake`` (``USER_INCLUDE_DIRECTORIES``) ile verilir;
   Unified app CDT degil CMake ile derlenir.
 
-DURUM (2026-09-12): Bu modul Vitis 2025.2 kurulumu tamamlanmadan yazildi; Python API
-cagrilari AMD Vitis-Tutorials (Embedded_Software/Feature_Tutorials/04-vitis_scripting_flows,
-2025.2) ve UG1400 Unified belgesine gore. Kurulum sonrasi gercek XSA ile dogrulanacak
-noktalar betik icinde ``# DOGRULA:`` ile isaretli.
+Python API cagrilari Vitis 2025.2 kurulumundaki ``cli/vitis/*.py`` imzalari ve
+``cli/examples/embedded/*.py`` ornekleriyle dogrulandi: ``create_platform_component(name,
+hw_design, os, cpu, domain_name)``, ``platform.get_domain(name)``, ``domain.set_lib(lib_name)``,
+``domain.set_config(option, param, value, lib_name)``, ``client.find_platform_in_repos``,
+``create_app_component(name, platform, domain, template)``, ``app.import_files(from_loc, files,
+dest_dir_in_cmp)``, ``app.set_app_config/append_app_config(USER_INCLUDE_DIRECTORIES)``,
+``app.get_ld_script().set_stack_size/set_heap_size``, ``vitis.dispose()``. lwip220 (v1_0..v1_3)
+lwip213'teki iki hatayi (xadapter.c cift `status`, xemacliteif.c IEEE 802.3 secicisi) hala
+tasir; betik platform derlemesinden sonra libsrc'yi yamalayip yeniden derler.
 """
 
 from __future__ import annotations
@@ -161,114 +166,165 @@ def render_unified_workspace_script(
         f"SHELL_INCLUDE_DIRS = {_py(list(shell_include_dirs or []))}\n"
         "\n"
     )
-    body = '''
+    body = r'''
 def log(message):
     print("[Spec2Code] " + str(message), flush=True)
 
 
-def patch_linker_stack(path):
-    """MicroBlaze: Vitis varsayilan 1 KB yigin / 2 KB heap yetmez -> 16 KB / 8 KB (klasik akisla ayni)."""
-    if not os.path.isfile(path):
-        log("lscript.ld yok, yigin yamasi atlandi: " + path)
-        return
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        text = handle.read()
-    changed = False
-    for name, minimum in (("_STACK_SIZE", 0x4000), ("_HEAP_SIZE", 0x2000)):
-        pattern = r"^(%s = DEFINED\\(%s\\) \\? %s : 0x)([0-9A-Fa-f]+);" % (name, name, name)
-        match = re.search(pattern, text, re.M)
-        if match and int(match.group(2), 16) < minimum:
-            text = re.sub(pattern, lambda m: "%s%X;" % (m.group(1), minimum), text, count=1, flags=re.M)
-            changed = True
-    if changed:
-        with open(path, "w", encoding="utf-8", newline="\\n") as handle:
-            handle.write(text)
-        log("lscript.ld yigin/heap buyutuldu: " + path)
+def norm(path):
+    return str(path).replace("\\", "/")
 
 
-def cmake_list(values):
-    return " ".join('"' + str(v).replace("\\\\", "/") + '"' for v in values)
+def find_files(root, name):
+    hits = []
+    for dirpath, _dirs, files in os.walk(root):
+        if name in files:
+            hits.append(os.path.join(dirpath, name))
+    return hits
 
 
-def set_user_include_dirs(component_dir, include_dirs):
-    """UserConfig.cmake: USER_INCLUDE_DIRECTORIES (Unified app CMake ile derlenir; CDT include
-    ayarlari yoktur). DOGRULA: dosya adi/degisken adi Vitis surumunde ayni mi."""
-    path = os.path.join(component_dir, "UserConfig.cmake")
-    absolute = [os.path.join(component_dir, "src", d).replace("\\\\", "/") for d in include_dirs]
-    line = "set(USER_INCLUDE_DIRECTORIES " + cmake_list(absolute) + ")\\n"
-    text = ""
-    if os.path.isfile(path):
+def emaclite_status_declared_twice(text):
+    # lwip213: emaclite_link_status icinde `status` iki kez bildirilir (derleme hatasi); lwip220 v1_x'te
+    # tek bildirim vardir ve KALDIRILMAMALIDIR (SAHA 2026-09-12: yanlis yama 'status undeclared' verdi).
+    match = re.search(r"void emaclite_link_status\([^)]*\)\s*\{(.*?)\n\}", text, re.S)
+    if not match:
+        return False
+    body = match.group(1)
+    return len(re.findall(r"^\s*u32_t\s+[^;]*\bstatus\b[^;]*;", body, re.M)) >= 2
+
+
+def patch_lwip_sources(root):
+    # Xilinx lwIP portu (SAHA 2026-09-11/12):
+    #  1) lwip213 xadapter.c emaclite_link_status: `status` ayni kapsamda iki kez bildirilir -> derleme hatasi
+    #     (yalniz gercekten cift bildirim varsa dokunulur; lwip220'de tek bildirim var).
+    #  2) xemacliteif.c ADVERTISE_*: IEEE 802.3 secici biti (0x0001) yok -> LAN8720A autoneg hic bitmez
+    #     (lwip220 v1_3'te de var).
+    patched = []
+    for path in find_files(root, "xadapter.c"):
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             text = handle.read()
-    if re.search(r"^set\\(USER_INCLUDE_DIRECTORIES\\b", text, re.M):
-        text = re.sub(r"^set\\(USER_INCLUDE_DIRECTORIES[^\\n]*\\)[^\\n]*\\n", line, text, count=1, flags=re.M)
-    else:
-        text = text.rstrip("\\n") + ("\\n" if text else "") + line
-    with open(path, "w", encoding="utf-8", newline="\\n") as handle:
-        handle.write(text)
-    log("UserConfig.cmake include yollari: " + ", ".join(include_dirs) if include_dirs else "UserConfig.cmake include yolu yok")
+        fixed = text
+        if emaclite_status_declared_twice(text):
+            fixed = text.replace("u32_t phy_link_status, status, phy_autoneg_status;",
+                                 "u32_t phy_link_status, phy_autoneg_status; /* Spec2Code: duplicate status fixed */")
+        if fixed != text:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(fixed)
+            patched.append(path)
+    for path in find_files(root, "xemacliteif.c"):
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+        fixed = text
+        for macro in ("ADVERTISE_100_AND_10", "ADVERTISE_100", "ADVERTISE_10"):
+            fixed = re.sub(r"(#define %s\s*\()(?!0x0001)" % macro,
+                           r"\g<1>0x0001 /* Spec2Code: IEEE 802.3 selector */ | ", fixed, count=1)
+        if fixed != text:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(fixed)
+            patched.append(path)
+    for path in patched:
+        log("lwIP kaynagi yamalandi: " + norm(path))
+    return patched
 
 
-def import_sources(component, source_root, rel_files):
-    """Uretilen kaynaklari klasor yapisiyla (drivers/ tests/ cit/ shell/ + kok main.c) src/ altina kopyalar.
-    DOGRULA: import_files(from_loc, files, dest_dir_in_cmp) imzasi; alt klasorleri koruyor mu."""
+def set_include_dirs(app, component_dir, include_dirs):
+    absolute = [norm(os.path.join(component_dir, "src", d)) for d in include_dirs]
+    if not absolute:
+        return
+    # USER_INCLUDE_DIRECTORIES: UserConfig.cmake'e Vitis API'siyle yazilir (CDT yok, CMake var).
+    app.set_app_config(key="USER_INCLUDE_DIRECTORIES", values=absolute[0])
+    for extra in absolute[1:]:
+        app.append_app_config(key="USER_INCLUDE_DIRECTORIES", values=extra)
+    log("include yollari: " + ", ".join(absolute))
+
+
+def set_stack_heap(app):
+    # MicroBlaze: Vitis varsayilan 1 KB yigin / 2 KB heap yetmez -> 16 KB / 8 KB (klasik akisla ayni).
+    try:
+        ld = app.get_ld_script()
+        if int(str(ld.get_stack_size()), 0) < 0x4000:
+            ld.set_stack_size("0x4000")
+        if int(str(ld.get_heap_size()), 0) < 0x2000:
+            ld.set_heap_size("0x2000")
+        log("lscript yigin/heap: %s / %s" % (ld.get_stack_size(), ld.get_heap_size()))
+    except Exception as exc:
+        log("lscript yigin/heap ayarlanamadi: " + str(exc))
+
+
+def import_sources(app, source_root, rel_files):
+    # Kok dosyalar (main.c/main.h) ve alt klasorler (drivers/ tests/ cit/ shell/) src/ altina; klasor yapisi korunur.
     top_level = sorted({rel.split("/", 1)[0] for rel in rel_files})
-    component.import_files(from_loc=source_root, files=top_level, dest_dir_in_cmp="src")
+    app.import_files(from_loc=norm(source_root), files=top_level, dest_dir_in_cmp="src")
     log("import edildi: " + ", ".join(top_level))
 
 
-def find_domain(platform, name):
+def set_lib_param(domain, lib, param, value):
+    # lwip220 parametre adlari: <lib>_<param> (klasik `bsp config <param>` karsiligi). Ad tutmazsa
+    # tek basina <param> denenir; ikisi de tutmazsa list_params ciktisi loga dusulur.
+    for name in (lib + "_" + param, param):
+        try:
+            domain.set_config(option="lib", param=name, value=str(value), lib_name=lib)
+            log("%s.%s = %s" % (lib, name, value))
+            return True
+        except Exception as exc:
+            last = exc
+    log("UYARI: %s parametresi ayarlanamadi (%s): %s" % (param, lib, last))
     try:
-        return platform.get_domain(name=name)
-    except Exception as exc:  # DOGRULA: create_platform_component domain adini kabul etmezse varsayilan domain
-        log("get_domain(%s) basarisiz (%s); varsayilan domain deneniyor" % (name, exc))
-        domains = platform.list_domains()
-        if not domains:
-            raise
-        return platform.get_domain(name=domains[0] if isinstance(domains[0], str) else domains[0].get("name"))
+        domain.list_params("lib", lib)
+    except Exception:
+        pass
+    return False
 
 
 def create_platform(client):
-    try:
-        platform = client.create_platform_component(name=PLATFORM, hw_design=XSA, os=OS, cpu=CPU, domain_name=DOMAIN)
-    except TypeError:
-        platform = client.create_platform_component(name=PLATFORM, hw_design=XSA, os=OS, cpu=CPU)
-    domain = find_domain(platform, DOMAIN)
+    platform = client.create_platform_component(name=PLATFORM, hw_design=XSA, os=OS, cpu=CPU, domain_name=DOMAIN)
+    domain = platform.get_domain(name=DOMAIN)
     if ENABLE_LWIP:
         log("lwIP kutuphanesi ekleniyor: " + LWIP_LIB + " (" + LWIP_API_MODE + ")")
         domain.set_lib(lib_name=LWIP_LIB)
-        domain.set_config(option="lib", param=LWIP_LIB + "_api_mode", value=LWIP_API_MODE)
+        set_lib_param(domain, LWIP_LIB, "api_mode", LWIP_API_MODE)
         for key, value in LWIP_PARAMS.items():
-            domain.set_config(option="lib", param=LWIP_LIB + "_" + key, value=str(value))
+            set_lib_param(domain, LWIP_LIB, key, value)
+    # xiltimer (SDT MicroBlaze lwIP platformunun 50 ms tick'i) standalone BSP'de zaten vardir
+    # (-lxiltimer; set_lib INTERNAL hatasi verir), eklenmez.
+    platform_dir = os.path.join(WORKSPACE, PLATFORM)
     log("platform build: " + PLATFORM)
-    platform.build()
+    try:
+        platform.build()
+        build_ok = True
+    except Exception as exc:
+        build_ok = False
+        log("platform build ilk deneme basarisiz: " + str(exc))
+    if ENABLE_LWIP and patch_lwip_sources(platform_dir):
+        log("lwIP yamalari uygulandi; platform yeniden derleniyor")
+        platform.build()
+    elif not build_ok:
+        raise RuntimeError("platform build failed")
     return platform
-
-
-def xpfm_path():
-    return os.path.join(WORKSPACE, PLATFORM, "export", PLATFORM, PLATFORM + ".xpfm").replace("\\\\", "/")
 
 
 def create_or_get_app(client, name):
     if MODE == "update":
         return client.get_component(name=name)
-    return client.create_app_component(name=name, platform=xpfm_path(), domain=DOMAIN, template="empty_application")
+    xpfm = client.find_platform_in_repos(PLATFORM)
+    log("platform xpfm: " + str(xpfm))
+    return client.create_app_component(name=name, platform=xpfm, domain=DOMAIN, template="empty_application")
 
 
 def build_app(client, name, source_root, rel_files, include_dirs):
     app = create_or_get_app(client, name)
     component_dir = os.path.join(WORKSPACE, name)
     import_sources(app, source_root, rel_files)
-    set_user_include_dirs(component_dir, include_dirs)
-    if MICROBLAZE:
-        patch_linker_stack(os.path.join(component_dir, "src", "lscript.ld"))
+    set_include_dirs(app, component_dir, include_dirs)
+    if MICROBLAZE and MODE == "full":
+        set_stack_heap(app)
     log("application build: " + name)
     app.build()
     elf = os.path.join(component_dir, "build", name + ".elf")
     if os.path.isfile(elf):
-        log("application ELF present: " + elf)
+        log("application ELF present: " + norm(elf))
     else:
-        log("application ELF missing after build: " + elf)
+        log("application ELF missing after build: " + norm(elf))
     return os.path.isfile(elf)
 
 
@@ -282,7 +338,7 @@ if SHELL_APP and SHELL_SOURCE_ROOT:
         build_app(client, SHELL_APP, SHELL_SOURCE_ROOT, SHELL_SOURCE_FILES, SHELL_INCLUDE_DIRS)
     except Exception as exc:  # shell ikincil cikti: ajan akisini dusurmez
         log("shell application build failed: " + str(exc))
-client.close()
+vitis.dispose()
 if not ok:
     log("ERROR: application ELF missing: " + APP)
     sys.exit(1)
