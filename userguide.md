@@ -684,6 +684,13 @@ cihazlari ilklendir" ya da Bring-up kos.
   (`ip_regmap_test_0 rd ID`, `wr CONTROL.MODE 2`, `dump`) yollari kartta dogrulanmistir.
   `scripts/make_zcu102_jesd204c_xsa.tcl` GT'siz (link'siz) JESD204C RX+TX iceren ZCU102 XSA'si
   uretir: ayristirma, uretim ve Vitis derlemesi kart olmadan sinanir.
+  `scripts/make_kv260_jesd204c_xsa.tcl` ise Kria KV260 (K26 SOM) icin **bit dahil** XSA uretir:
+  TX cekirdeginin 64B/66B GT cikislari (gtN_txdata/txheader) PL icinde dogrudan RX cekirdegine
+  baglidir (transceiver yok), SYSREF her iki cekirdege AXI GPIO (0xA0020000, bit0) ile yazilimdan
+  verilir; RX 0xA0000000, TX 0xA0010000. Register haritasi ve link kurulum dizisi (reset, SYSREF,
+  STAT_STATUS) gercek kartta GT olmadan sinanir. Bit uretimi icin AMD "LogiCORE JESD204 Evaluation"
+  lisansi gerekir (jesd204c 4.2 anahtari `jesd204@2019.10`); Vivado `~/.Xilinx/Xilinx.lic`
+  dosyasini kendiliginden bulmayabilir, `XILINXD_LICENSE_FILE` ile yolu verin.
 - **Surucusu olan AXI cevre birimlerinin haritalari** (AXI IIC PG090, AXI Quad SPI PG153,
   AXI UARTLite PG142): bunlar `controllers[]` olarak kalir (BSP surucusu XIic/XSpi/XUartLite ile
   kullanilir); Register Map ekraninda `<denetleyici id> (axi_iic|axi_quad_spi|axi_uartlite)
