@@ -117,6 +117,15 @@ export interface ProjectMeta {
   /** BSP akışı: classic = Vitis <= 2023.2 (xsct, XPAR_*_DEVICE_ID); sdt = Vitis Unified >= 2024.1
    * System Device Tree (DEVICE_ID yok, XPAR_*_BASEADDR, -DSDT, `vitis -s` Python akışı). */
   bsp_flow?: "classic" | "sdt";
+  /** Ethernet (lwIP) ajanının statik ağ ayarları; boş alan varsayılanını alır (18.2.75.121/24, gw .1, port 5000). */
+  testbench_network?: TestbenchNetwork;
+}
+export interface TestbenchNetwork {
+  ip?: string;
+  netmask?: string;
+  gateway?: string;
+  mac?: string;
+  port?: number;
 }
 export interface LlmConfig {
   enabled: boolean;
@@ -409,6 +418,8 @@ export interface TestbenchManifest {
    * orchestrator/codegen.py `_telnet_log_enabled`). Host tarafi bu alandan
    * IP/port okuyup Akış ekranındaki Telnet log kartını önceden doldurur. */
   telnet_log?: { port: number; ip: string };
+  /** lwIP ajanının ağ ayarları (spec project.testbench_network'ten üretilir); Bağlantı kartı host/port'u önceden doldurur. */
+  network?: { ip: string; netmask: string; gateway: string; mac: string; port: number };
   /** AXI GPIO denetleyici op'ları: gpio_read/gpio_write DENETLEYİCİ-adreslidir
    * (hedef bir cihaz değil, AXI GPIO çekirdeğinin kendisi). `index` tel'de
    * uiCihazIndeks olarak gider — I2C denetleyicileri aynı tabloda ÖNEK olduğu

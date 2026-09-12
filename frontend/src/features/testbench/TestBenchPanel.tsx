@@ -261,6 +261,14 @@ export default function TestBenchPanel() {
     if (manifest?.transport_agent === "mdm") useBoardConnection.getState().update({ transport: "mdm" });
   }, [manifest]);
 
+  // lwIP ajanı: spec'teki ağ ayarı manifest.network'te gelir; kullanıcı host'u elle
+  // değiştirmediyse Bağlantı kartı host/port'u ajanın adresine çekilir.
+  useEffect(() => {
+    if (manifest?.transport_agent !== "lwip" || !manifest.network) return;
+    if (localStorage.getItem("spec2code.testbench.host")) return;
+    useBoardConnection.getState().update({ host: manifest.network.ip, port: String(manifest.network.port) });
+  }, [manifest]);
+
   function reconcileSessionAfterError(message: string) {
     // Yanıt zaman aşımı bağlantıyı düşürmemeli: gerçek durum backend'den sorulur.
     setError(message);

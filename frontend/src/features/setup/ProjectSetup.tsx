@@ -276,6 +276,51 @@ export default function ProjectSetup() {
               makrosu üretmez. xparameters.h yüklerken başlıkta DEVICE_ID yoksa bu alan kendiliğinden SDT olur.
             </p>
           </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Test bench ağı (Ethernet / lwIP ajanı)</Label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {(
+                [
+                  ["ip", "IP", "18.2.75.121"],
+                  ["netmask", "Alt ağ maskesi", "255.255.255.0"],
+                  ["gateway", "Gateway", "18.2.75.1"],
+                  ["mac", "MAC", "00:0A:35:00:01:02"],
+                ] as const
+              ).map(([key, label, placeholder]) => (
+                <div key={key} className="space-y-1">
+                  <span className="text-[11px] text-faint">{label}</span>
+                  <Input
+                    value={project.testbench_network?.[key] ?? ""}
+                    placeholder={placeholder}
+                    spellCheck={false}
+                    onChange={(e) =>
+                      setProject({ testbench_network: { ...(project.testbench_network ?? {}), [key]: e.target.value } })
+                    }
+                  />
+                </div>
+              ))}
+              <div className="space-y-1">
+                <span className="text-[11px] text-faint">TCP port</span>
+                <Input
+                  value={project.testbench_network?.port ?? ""}
+                  placeholder="5000"
+                  inputMode="numeric"
+                  onChange={(e) =>
+                    setProject({
+                      testbench_network: {
+                        ...(project.testbench_network ?? {}),
+                        port: e.target.value === "" ? undefined : Number.parseInt(e.target.value, 10) || 0,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Statik adres, DHCP yok. Ajan başlığındaki makrolara ve manifest'e yazılır; Bağlantı kartı host/port'u
+              buradan alır. Boş bırakılan alan varsayılanını kullanır. PC adaptörü aynı alt ağda olmalı.
+            </p>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

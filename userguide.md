@@ -146,6 +146,12 @@ gorunumler:
 - **Test bench tasiyicisi**: `auto` (Ethernet varsa lwIP, yoksa UART), `eth`, `uart`,
   `coresight` (ZynqMP DCC, JTAG), `mdm` (MicroBlaze Debug Module UART, JTAG).
   JTAG tasiyicilari hicbir zaman otomatik secilmez.
+- **Test bench agi** (`project.testbench_network`, Ethernet/lwIP ajani): IP, alt ag maskesi,
+  gateway, MAC ve TCP port. Statik, DHCP yok. Bos alan varsayilanini alir (18.2.75.121/24,
+  gw 18.2.75.1, MAC 00:0A:35:00:01:02, port 5000). Degerler ajan basliginin makrolarina
+  (`SPEC2CODE_TESTBENCH_IP_ADDR*`, `..._MAC*`, `..._TCP_DEFAULT_PORT`) ve manifest `network`
+  blogyna yazilir; Baglanti karti host/port'u host elle degistirilmediyse buradan on-dolar.
+  PC adaptoru ayni alt agda olmali (birden fazla adaptorde ayni alt ag varsa "Kaynak IP").
 - **BSP akisi** (`project.bsp_flow`): `classic` (varsayilan; Vitis <= 2023.2, xsct,
   `XPAR_*_DEVICE_ID` ile LookupConfig) ya da `sdt` (Vitis Unified >= 2024.1, System Device
   Tree: BSP `DEVICE_ID` uretmez, surucu ornegi `XPAR_*_BASEADDR` ile secilir, kod `-DSDT`

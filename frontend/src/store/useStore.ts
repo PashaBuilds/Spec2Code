@@ -139,6 +139,7 @@ const DEFAULT_PROJECT: ProjectMeta = {
   output_mode: "dropin",
   testbench_transport: "auto",
   bsp_flow: "classic",
+  testbench_network: { ip: "18.2.75.121", netmask: "255.255.255.0", gateway: "18.2.75.1", mac: "00:0A:35:00:01:02", port: 5000 },
 };
 
 const DEFAULT_CODING_STANDARD = "std/default.ruleset.json";

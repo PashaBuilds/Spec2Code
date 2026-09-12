@@ -2463,6 +2463,12 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "driver": _testbench_uart_driver(spec),
             "baud": 115200,
         }
+    if agent == "lwip":
+        net = _testbench_network(spec)
+        manifest["network"] = {
+            "ip": net["ip_str"], "netmask": net["netmask_str"], "gateway": net["gateway_str"],
+            "mac": net["mac_str"], "port": net["port"],
+        }
     if agent == "coresight":
         manifest["coresight"] = {
             "device": "psu_coresight_0",
@@ -2489,7 +2495,7 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
     if _telnet_log_enabled(spec):
         manifest["telnet_log"] = {
             "port": _TELNET_LOG_PORT,
-            "ip": _testbench_static_ip_string(),
+            "ip": _testbench_static_ip_string(spec),
         }
     manifest["devices"] = _testbench_manifest_devices(spec, get_descriptor)
     # Hardening (Task 4 bulgusu): _testbench_device_entries denetleyicisi
@@ -4654,35 +4660,94 @@ def _testbench_runtime_is_freertos(spec: dict) -> bool:
     return spec.get("project", {}).get("runtime") == "freertos"
 
 
-#: SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):
-#: IP 18.2.75.121, netmask 255.255.255.0 (/24), gateway 18.2.75.1.
+#: Statik ag konfigurasyonu VARSAYILANLARI (spec `project.testbench_network` ile ezilir):
+#: IP 18.2.75.121, netmask 255.255.255.0 (/24), gateway 18.2.75.1, MAC 00:0A:35:00:01:02, port 5000.
 #: Bu octet'ler HEM eth agent header'i HEM de (uart/coresight transportunda)
-#: telnet standalone bring-up'i tek kaynaktan uretir; literal cogaltilmaz.
-_TESTBENCH_STATIC_IP: tuple[int, int, int, int] = (18, 2, 75, 121)
-_TESTBENCH_STATIC_NETMASK: tuple[int, int, int, int] = (255, 255, 255, 0)
-_TESTBENCH_STATIC_GATEWAY: tuple[int, int, int, int] = (18, 2, 75, 1)
-_TESTBENCH_STATIC_MAC: tuple[int, int, int, int, int, int] = (0x00, 0x0A, 0x35, 0x00, 0x01, 0x02)
+#: telnet standalone bring-up'i HEM de manifest'i tek kaynaktan uretir; literal cogaltilmaz.
+_TESTBENCH_DEFAULT_NETWORK: dict[str, str] = {
+    "ip": "18.2.75.121",
+    "netmask": "255.255.255.0",
+    "gateway": "18.2.75.1",
+    "mac": "00:0A:35:00:01:02",
+    "port": "5000",
+}
 
 
-def _testbench_static_ip_string() -> str:
-    return ".".join(str(octet) for octet in _TESTBENCH_STATIC_IP)
+def _parse_ipv4(value: str, field: str) -> tuple[int, int, int, int]:
+    parts = str(value).strip().split(".")
+    try:
+        octets = tuple(int(p, 10) for p in parts)
+    except ValueError:
+        octets = ()
+    if len(octets) != 4 or any(o < 0 or o > 255 for o in octets):
+        raise cmodel.CodegenError(
+            f"S2C-CODEGEN-NET-001: project.testbench_network.{field} gecersiz IPv4 adresi: '{value}' "
+            "(beklenen a.b.c.d, her octet 0..255)")
+    return octets  # type: ignore[return-value]
 
 
-def _testbench_net_config_defines() -> str:
-    """Statik IP/netmask/gateway makro blogu (tek kaynak).
+def _parse_mac(value: str) -> tuple[int, int, int, int, int, int]:
+    parts = str(value).strip().replace("-", ":").split(":")
+    try:
+        octets = tuple(int(p, 16) for p in parts)
+    except ValueError:
+        octets = ()
+    if len(octets) != 6 or any(o < 0 or o > 255 for o in octets):
+        raise cmodel.CodegenError(
+            f"S2C-CODEGEN-NET-002: project.testbench_network.mac gecersiz MAC adresi: '{value}' "
+            "(beklenen 6 hex octet, or. 00:0A:35:00:01:02)")
+    if octets[0] & 0x01:
+        raise cmodel.CodegenError(
+            f"S2C-CODEGEN-NET-003: project.testbench_network.mac '{value}' multicast biti set (ilk octet tek); "
+            "unicast MAC verin")
+    return octets  # type: ignore[return-value]
+
+
+def _testbench_network(spec: dict) -> dict:
+    """Test bench ajaninin ag ayarlari (spec `project.testbench_network`, eksik alanlar varsayilan).
+
+    Donen sozluk: ip/netmask/gateway (4'lu), mac (6'li), port (int) ve metin halleri
+    (ip_str, netmask_str, gateway_str, mac_str). Tek kaynak: header makrolari, telnet bring-up,
+    manifest `network` blogu hepsi buradan cikar.
+    """
+    raw = {**_TESTBENCH_DEFAULT_NETWORK, **{k: str(v) for k, v in
+           ((spec.get("project") or {}).get("testbench_network") or {}).items() if str(v).strip()}}
+    ip = _parse_ipv4(raw["ip"], "ip")
+    netmask = _parse_ipv4(raw["netmask"], "netmask")
+    gateway = _parse_ipv4(raw["gateway"], "gateway")
+    mac = _parse_mac(raw["mac"])
+    try:
+        port = int(str(raw["port"]).strip(), 10)
+    except ValueError:
+        port = -1
+    if port < 1 or port > 65535:
+        raise cmodel.CodegenError(
+            f"S2C-CODEGEN-NET-004: project.testbench_network.port gecersiz: '{raw['port']}' (1..65535)")
+    return {
+        "ip": ip, "netmask": netmask, "gateway": gateway, "mac": mac, "port": port,
+        "ip_str": ".".join(str(o) for o in ip), "netmask_str": ".".join(str(o) for o in netmask),
+        "gateway_str": ".".join(str(o) for o in gateway), "mac_str": ":".join(f"{o:02X}" for o in mac),
+    }
+
+
+def _testbench_static_ip_string(spec: dict) -> str:
+    return _testbench_network(spec)["ip_str"]
+
+
+def _testbench_net_config_defines(spec: dict) -> str:
+    """Statik IP/netmask/gateway makro blogu (tek kaynak: _testbench_network).
 
     Eth agent header'inda ve telnet net bring-up dosyasinda AYNI octet'lerle
     uretilir; #ifndef ile korunur ki iki dosya ayni ceviri biriminde bulussa
     bile yeniden tanim hatasi olmaz.
     """
-    ip = _TESTBENCH_STATIC_IP
-    netmask = _TESTBENCH_STATIC_NETMASK
-    gateway = _TESTBENCH_STATIC_GATEWAY
+    net = _testbench_network(spec)
+    ip = net["ip"]
+    netmask = net["netmask"]
+    gateway = net["gateway"]
     return (
-        "/* SABIT statik ag konfigurasyonu (kullanici karari - esneklik yok):\n"
-        f" * IP {_testbench_static_ip_string()}, netmask "
-        f"{'.'.join(str(o) for o in netmask)} (/24), "
-        f"gateway {'.'.join(str(o) for o in gateway)}.\n"
+        "/* Statik ag konfigurasyonu (spec project.testbench_network; Proje Kurulumu ekrani):\n"
+        f" * IP {net['ip_str']}, netmask {net['netmask_str']}, gateway {net['gateway_str']}.\n"
         " * DHCP YOK; netif dogrudan bu adreslerle eklenir. */\n"
         "#ifndef SPEC2CODE_TESTBENCH_IP_ADDR0\n"
         f"#define SPEC2CODE_TESTBENCH_IP_ADDR0 {ip[0]}U\n"
@@ -4705,19 +4770,19 @@ def _testbench_net_config_defines() -> str:
     )
 
 
-def _testbench_mac_defines() -> str:
-    """Sabit MAC adresi makro blogu (tek kaynak).
+def _testbench_mac_defines(spec: dict) -> str:
+    """MAC adresi makro blogu (tek kaynak: _testbench_network).
 
     Eth agent header'inda (socket/raw), telnet net bring-up dosyasinda ve
     testbench lwip header'inda AYNI octet'lerle uretilir; #ifndef ile korunur
     ki birden cok dosya ayni ceviri biriminde bulussa bile yeniden tanim hatasi
-    olmaz. MAC: 00-0A-35-00-01-02 (00:0A:35 = Xilinx OUI).
+    olmaz. Varsayilan 00:0A:35:00:01:02 (00:0A:35 = Xilinx OUI).
     """
-    mac = _TESTBENCH_STATIC_MAC
-    mac_str = ":".join(f"{o:02X}" for o in mac)
+    net = _testbench_network(spec)
+    mac = net["mac"]
+    mac_str = net["mac_str"]
     return (
-        f"/* SABIT MAC adresi (kullanici karari - esneklik yok): {mac_str}\n"
-        " * (00:0A:35 = Xilinx OUI). Ayni MAC her zaman kullanilir. */\n"
+        f"/* MAC adresi (spec project.testbench_network.mac): {mac_str} */\n"
         "#ifndef SPEC2CODE_TESTBENCH_MAC0\n"
         f"#define SPEC2CODE_TESTBENCH_MAC0 0x{mac[0]:02X}U\n"
         f"#define SPEC2CODE_TESTBENCH_MAC1 0x{mac[1]:02X}U\n"
@@ -4777,9 +4842,9 @@ def _testbench_lwip_header(spec: dict) -> str:
         " */\n"
         "#ifndef SPEC2CODE_TESTBENCH_LWIP_H\n"
         "#define SPEC2CODE_TESTBENCH_LWIP_H\n\n"
-        "#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT 5000U\n\n"
-        + _testbench_net_config_defines()
-        + _testbench_mac_defines()
+        f"#define SPEC2CODE_TESTBENCH_TCP_DEFAULT_PORT {_testbench_network(spec)['port']}U\n\n"
+        + _testbench_net_config_defines(spec)
+        + _testbench_mac_defines(spec)
         + api_decls +
         "#endif /* SPEC2CODE_TESTBENCH_LWIP_H */\n"
     )
@@ -5132,7 +5197,7 @@ def _testbench_lwip_source_socket(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        _testbench_mac_defines().rstrip('\n'),
+        _testbench_mac_defines(spec).rstrip('\n'),
         "",
         "static struct netif S_sNetif;",
         "static SMesajParser S_sMesajParser;",
@@ -5441,7 +5506,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        _testbench_mac_defines().rstrip('\n'),
+        _testbench_mac_defines(spec).rstrip('\n'),
         "",
         "static struct netif S_sNetif;",
         "static struct tcp_pcb* S_spServerPcb;",
@@ -6139,7 +6204,7 @@ def _telnet_net_source(spec: dict) -> str:
         f"#define SPEC2CODE_TESTBENCH_ETH_BASEADDR {eth.get('instance')}_BASEADDR",
         "#endif",
         "",
-        _testbench_mac_defines().rstrip('\n'),
+        _testbench_mac_defines(spec).rstrip('\n'),
         "",
         "static struct netif S_sTelnetNetif;",
         "static unsigned char S_ucArrTelnetMac[6] =",
