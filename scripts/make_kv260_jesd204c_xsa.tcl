@@ -4,6 +4,8 @@
 # GT/PHY olmadan gercek kartta sinamak. TX cekirdeginin 64B/66B GT cikislari (txdata/txheader)
 # dogrudan RX cekirdeginin GT girislerine baglanir; block_sync=1, reset_done=1, 8B/10B girisleri 0.
 # SYSREF her iki cekirdege AXI GPIO (bit0) ile yazilimdan surulur (alt sinif 1 testi).
+# scripts/hdl/jesd_loopback_util.v (AXI-Lite, 0xA0030000): RX yakalama BRAM'i (1024 beat x 256 bit)
+# + TX sinus NCO; PS ajan `mem_block` ile okur -> Spec2Code Yakalama ekrani (ham cizim + FFT).
 # Bitstream uretilir (JESD204 Hardware Evaluation lisansi gerekir: XILINXD_LICENSE_FILE).
 #
 # Kullanim: vivado -mode batch -source scripts/make_kv260_jesd204c_xsa.tcl [-tclargs nobit]
@@ -16,6 +18,8 @@ file delete -force $proj_dir
 create_project -force kv260_jesd $proj_dir -part xck26-sfvc784-2LV-c
 set_property board_part xilinx.com:k26c:part0:1.4 [current_project]
 set_property board_connections {som240_1_connector xilinx.com:kv260_carrier:som240_1_connector:1.3} [current_project]
+add_files -norecurse $root_dir/scripts/hdl/jesd_loopback_util.v
+update_compile_order -fileset sources_1
 create_bd_design "design_1"
 puts "STEP: PS"
 set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e zynq_ultra_ps_e_0]
@@ -30,7 +34,8 @@ set tx [create_bd_cell -type ip -vlnv xilinx.com:ip:jesd204c:4.2 jesd204c_tx]
 set_property -dict [list CONFIG.C_LANES {4} CONFIG.C_NODE_IS_TRANSMIT {1} CONFIG.C_ENCODING {1}] $tx
 set gpio [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_sysref]
 set_property -dict [list CONFIG.C_GPIO_WIDTH {1} CONFIG.C_ALL_OUTPUTS {1} CONFIG.C_DOUT_DEFAULT {0x00000000}] $gpio
-foreach cell [list $rx $tx $gpio] {
+set util [create_bd_cell -type module -reference jesd_loopback_util jesd_loopback_util_0]
+foreach cell [list $rx $tx $gpio $util] {
     apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config [list \
         Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
         Master {/zynq_ultra_ps_e_0/M_AXI_HPM0_FPD} Slave "[get_property NAME $cell]/[expr {$cell eq $gpio ? "S_AXI" : "s_axi"}]" \
@@ -63,10 +68,13 @@ foreach pin [list $tx/tx_reset_done $rx/rx_reset_done $rx/rx_cmd_tready \
                   $rx/gt0_rxblock_sync $rx/gt1_rxblock_sync $rx/gt2_rxblock_sync $rx/gt3_rxblock_sync] {
     connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $pin]
 }
-# TX kullanici verisi: sabit desen (256 bit); alici tarafta rx_tdata dogrulanabilir (ILA yok, register testi yeterli)
-set pat [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant xlconstant_txpat]
-set_property -dict [list CONFIG.CONST_WIDTH 256 CONFIG.CONST_VAL {0xA5A5A5A55A5A5A5A0F0F0F0FF0F0F0F0123456789ABCDEF0CAFEBABEDEADBEEF}] $pat
-connect_bd_net [get_bd_pins $pat/dout] [get_bd_pins $tx/tx_tdata]
+# TX kullanici verisi: yardimci modulun sinus NCO'su; RX cikisi ayni modulun yakalama BRAM'ine.
+connect_bd_net [get_bd_pins $util/tx_tdata] [get_bd_pins $tx/tx_tdata]
+connect_bd_net [get_bd_pins $tx/tx_tready] [get_bd_pins $util/tx_tready]
+connect_bd_net [get_bd_pins $rx/rx_tdata]  [get_bd_pins $util/rx_tdata]
+connect_bd_net [get_bd_pins $rx/rx_tvalid] [get_bd_pins $util/rx_tvalid]
+connect_bd_net $pl_clk [get_bd_pins $util/core_clk]
+connect_bd_net [get_bd_pins $psr/peripheral_reset] [get_bd_pins $util/core_rst]
 # Kalan girisler sabit 0 (8B/10B durum girisleri, misalign, cmd akisi)
 set const_idx 0
 foreach cell [list $rx $tx] {

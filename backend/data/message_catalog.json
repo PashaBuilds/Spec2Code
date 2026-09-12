@@ -139,6 +139,14 @@
       "aciklama": "AXI GPIO kanal yazmasi. DENETLEYICI-adresli: uiCihazIndeks = denetleyici indeksi. uiAdres = kanal (1|2), uiDeger = yazilacak deger, uiUzunluk = pin maskesi (0 = tum pinler). Maskelenen pinler CIKIS yapilir (ayni kanaldaki diger pinlerin ve diger kanalin yonu degismez), sonra oku-degistir-yaz. Yanit uiDeger = yazma sonrasi kanal degeri."
     },
     {
+      "id": "0x5343020A",
+      "name": "MEM_BLOCK",
+      "op": "mem_block",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "Bellekten ardisik 32-bit sozcuk blogu oku: address = baslangic, length = sozcuk sayisi (en fazla SPEC2CODE_TESTBENCH_DATA_MAX/4 = 64); yanit data = little-endian baytlar, value = okunan sozcuk sayisi. Yakalama BRAM'i (Spec2Code Yakalama ekrani: ham/FFT) icin."
+    },
+    {
       "id": "0x53430301",
       "name": "CIT_RUN",
       "op": null,

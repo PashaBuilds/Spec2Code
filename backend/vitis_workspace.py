@@ -2172,7 +2172,7 @@ def render_xsct_script(
         "    return $patched\n"
         "}\n\n"
         "proc spec2codeConfigureBsp {} {\n"
-        "    global spec2code_enable_lwip spec2code_lwip_api_mode spec2code_custom_ip_driver_policy spec2code_custom_ip_instances processor\n"
+        "    global spec2code_enable_lwip spec2code_lwip_sys_timers spec2code_lwip_api_mode spec2code_custom_ip_driver_policy spec2code_custom_ip_instances processor\n"
         "    if {$spec2code_custom_ip_driver_policy eq \"auto_none\" && [llength $spec2code_custom_ip_instances] > 0} {\n"
         f"        {_tcl_put('custom PL IP candidates detected; setting BSP drivers to none where possible')}"
         "        set spec2code_custom_ip_driver_changed 0\n"

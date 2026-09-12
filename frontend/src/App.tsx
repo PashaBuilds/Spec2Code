@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket } from "lucide-react";
+import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket, Waves } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -24,11 +24,12 @@ import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
 import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
+import CapturePanel from "@/features/capture/CapturePanel";
 import CitPanel from "@/features/cit/CitPanel";
 import YattPanel from "@/features/yatt/YattPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt";
+type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt" | "capture";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -203,6 +204,7 @@ export default function App() {
           ["cit", HeartPulse, "CİT"],
           ["registers", Grid3X3, "Registers"],
           ["regmap", Cpu, "Register Map"],
+          ["capture", Waves, "Yakalama"],
           ["yatt", FileText, "Arayüz/YATT"],
           ["docs", BookOpenText, "Kılavuz"],
         ] as const).map(([id, Icon, label]) => (
@@ -287,6 +289,11 @@ export default function App() {
         {keepAlive("regmap", (
           <div className="h-full min-h-0 overflow-auto p-4">
             <RegisterMapPanel />
+          </div>
+        ))}
+        {keepAlive("capture", (
+          <div className="h-full min-h-0 overflow-auto p-4">
+            <CapturePanel />
           </div>
         ))}
         {keepAlive("cit", (

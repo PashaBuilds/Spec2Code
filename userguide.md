@@ -691,6 +691,14 @@ cihazlari ilklendir" ya da Bring-up kos.
   STAT_STATUS) gercek kartta GT olmadan sinanir. Bit uretimi icin AMD "LogiCORE JESD204 Evaluation"
   lisansi gerekir (jesd204c 4.2 anahtari `jesd204@2019.10`); Vivado `~/.Xilinx/Xilinx.lic`
   dosyasini kendiliginden bulmayabilir, `XILINXD_LICENSE_FILE` ile yolu verin.
+- **Yakalama / Spektrum ekrani** (ust sekme "Yakalama"): PL'deki `jesd_loopback_util` modulu
+  (`scripts/hdl/jesd_loopback_util.v`, AXI4-Lite, KV260 tasariminda 0xA0030000) JESD204C RX
+  cikisini (beat basina 16 x int16 ornek) 1024 beat'lik BRAM'e yazar; TX tarafina ayni modulun
+  sinus NCO'su (`TX_PHASE_INC`, ton = INC/65536 x fs) verilir. Ekran ajanin yeni `mem_block`
+  op'uyla (64 sozcuk/istek; UART, Ethernet, CoreSight fark etmez) veriyi ceker, ham ornekleri ve
+  Hann pencereli FFT'yi (dBFS, tepe frekansi) cizer; lane bazinda gorunum ve CSV disa aktarma var.
+  Register haritasi modulun basinda belgelidir (CTRL ARM/CLEAR, STATUS DONE/BUSY/RX_VALID_SEEN,
+  COUNT, TX_BEATS/RX_BEATS canlilik sayaclari, veri penceresi 0x8000).
 - **Surucusu olan AXI cevre birimlerinin haritalari** (AXI IIC PG090, AXI Quad SPI PG153,
   AXI UARTLite PG142): bunlar `controllers[]` olarak kalir (BSP surucusu XIic/XSpi/XUartLite ile
   kullanilir); Register Map ekraninda `<denetleyici id> (axi_iic|axi_quad_spi|axi_uartlite)

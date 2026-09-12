@@ -3,6 +3,25 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.220 - 2026-09-13
+
+- **Yakalama / Spektrum ekrani + PL yakalama modulu**: `scripts/hdl/jesd_loopback_util.v` (AXI4-Lite;
+  JESD204C RX 256-bit beat'lerini 1024 derinlikli BRAM'e yazar, TX'e 16-bit sinus NCO uretir; ID
+  "CAPT", CTRL/STATUS/COUNT/TX_PHASE_INC/TX_BEATS/RX_BEATS, veri penceresi 0x8000) KV260 loopback
+  tasarimina eklendi (0xA0030000). Ajan `mem_block` op'u (0x5343020A: address'ten length sozcuk,
+  <= 64) eklendi. Yeni "Yakalama" sekmesi: durum, ARM, blok okuma, ham cizim, FFT (Hann, dBFS, tepe),
+  lane gorunumu, CSV.
+- Duzeltme: klasik xsct betiginde `spec2code_lwip_sys_timers` proc icinde `global` bildirilmemisti
+  (KV260 ZynqMP + telnet: "no such variable"); KV260 uygulamasi Vitis 2023.2 ile derlendi.
+
+## v0.1.219 - 2026-09-13
+
+- **KV260 JESD204C loopback tasarimi**: `scripts/make_kv260_jesd204c_xsa.tcl` (Vivado 2023.2, K26 SOM
+  1.4 + KV260 tasiyici 1.3): JESD204C RX+TX 4 lane 64B/66B, TX GT cikislari PL icinde RX'e bagli,
+  SYSREF AXI GPIO'dan; JESD204 degerlendirme lisansiyla bit dahil XSA uretildi
+  (`test/0_dosyalar/kv260_jesd204c.xsa`). XSA ayristirma -> `register_map=jesd204c` (RX/TX, 4 lane,
+  64B66B) dogru; kart gelince register/link testi icin hazir.
+
 ## v0.1.218 - 2026-09-12
 
 - **AXI IIC / AXI Quad SPI / AXI UARTLite register haritalari** (PG090 / PG153 / PG142) bilinen

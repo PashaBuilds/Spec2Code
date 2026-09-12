@@ -1772,3 +1772,16 @@ class XsctStreamingRunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LwipSysTimersTclScopeTests(unittest.TestCase):
+    def test_sys_timers_flag_is_global_in_bsp_proc(self) -> None:
+        """SAHA 2026-09-13 KV260: proc icinde `global` bildirilmeyen spec2code_lwip_sys_timers 'no such variable' verdi."""
+        script = render_xsct_script(workspace_path=Path("D:/ws"), xsa_path=Path("D:/x.xsa"), source_root=Path("D:/src"),
+                                    platform_name="p", system_name="s", domain_name="d", app_name="a",
+                                    processor="psu_cortexa53_0", os_name="standalone", enable_lwip=True, lwip_sys_timers=True)
+        proc_start = script.index("proc spec2codeConfigureBsp {}")
+        global_start = script.index("global ", proc_start)
+        global_line = script[global_start:script.index("\n", global_start)]
+        self.assertIn("spec2code_lwip_sys_timers", global_line)
+        self.assertIn("set spec2code_lwip_sys_timers 1", script)
