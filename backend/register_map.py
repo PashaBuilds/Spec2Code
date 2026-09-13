@@ -538,7 +538,8 @@ def _serve_function_lines(map_name: str, MOD: str, ptr_name: str, layout: list[d
     out.append("    int iIsWr;")
     out.append("    unsigned long long ullValue;")
     out.append("")
-    out.append("    while ((cpCmd[uiLength] != '\\0') && (uiLength < (sizeof(cArrBuf) - 1U)))")
+    # Sinir kontrolu ONCE (cppcheck arrayIndexThenCheck): indeks kullanilmadan once uzunluk sinanir.
+    out.append("    while ((uiLength < (sizeof(cArrBuf) - 1U)) && (cpCmd[uiLength] != '\\0'))")
     out.append("    {")
     out.append("        cArrBuf[uiLength] = cpCmd[uiLength];")
     out.append("        uiLength++;")

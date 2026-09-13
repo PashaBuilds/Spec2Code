@@ -794,8 +794,13 @@ def sistem_source(plans: list[_ChipPlan], spec: Optional[dict] = None) -> str:
     e.ln("    {")
     e.ln(f"        return {STATUS_FAIL};")
     e.ln("    }")
-    for plan in plans:
+    for index, plan in enumerate(plans):
         e.ln(f"    iStatus = {plan.module}CitInit({plan.handle_arg});")
+        if index == 0:
+            # Ilk cihazda iIlkHata henuz OK'tir: kosul her zaman dogru olurdu (cppcheck
+            # knownConditionTrueFalse); ilk sonuc dogrudan alinir, sonrakiler ilk hatayi korur.
+            e.ln("    iIlkHata = iStatus;")
+            continue
         e.ln(f"    if ((iStatus != {STATUS_OK}) && (iIlkHata == {STATUS_OK}))")
         e.ln("    {")
         e.ln("        iIlkHata = iStatus;")

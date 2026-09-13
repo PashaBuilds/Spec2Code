@@ -280,7 +280,14 @@ _CPPCHECK_RE = re.compile(
 _CPPCHECK_IGNORE = {"missingInclude", "missingIncludeSystem", "unmatchedSuppression",
                     "toomanyconfigs", "normalCheckLevelMaxBranches", "checkersReport",
                     # variableScope conflicts with the embedded "declare at block top" convention.
-                    "variableScope"}
+                    "variableScope",
+                    # Surucu handle'lari (XIic*, XIicPs*, XSpi* ...) tek tip `T* spHandle` imzasiyla gecer
+                    # (KARAR v0.1.179): AXI IIC yolunda yalniz BaseAddress okunsa da PS suruculeri handle'i
+                    # degistirir; API yuzeyini handle tipine gore const'lamak tutarsizlik yaratir.
+                    "constParameterPointer", "constVariablePointer",
+                    # `uiIndeks >= SAYI_MAKROSU` sinir kontrolu: cihazsiz/op'suz spec'te makro 0 olunca
+                    # cppcheck "unsigned >= 0" der; kontrol genel durumda gereklidir.
+                    "unsignedPositive"}
 
 
 def run_cppcheck(path: Path, include_dirs: list[Path], defines: list[str] | None = None) -> RunnerResult:
