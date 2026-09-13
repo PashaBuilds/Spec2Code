@@ -3,6 +3,19 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.222 - 2026-09-13
+
+- **AXI GPIO kartta dogrulandi ve duzeltildi** (Nexys A7 `-tclargs gpio`: 16 LED, 16 anahtar, 5 buton,
+  RGB LED; `scripts/make_nexys_a7_design.tcl`): "All Outputs" kanalinda TRI yazmaci sabit
+  0xFFFFFFFF okunur, ajan/`gpiolines` surucusu bunu "All Inputs, salt-okunur" sanip yazmayi
+  reddediyordu. Dogrulama artik DATA geri okumasiyla (yazilan deger geri gelmiyorsa hata).
+
+## v0.1.221 - 2026-09-13
+
+- Duzeltme: ajan `mem_block` adres hesabinda clang-tidy `bugprone-misplaced-widening-cast` (KV260
+  uretiminde 1 QC uyarisi); UINTPTR'a once cevrilip toplanir. KV260 loopback tasarimi (yakalama modulu
+  dahil) bit'li XSA ile uretildi, QC 0, Vitis 2023.2 ELF derlendi.
+
 ## v0.1.220 - 2026-09-13
 
 - **Yakalama / Spektrum ekrani + PL yakalama modulu**: `scripts/hdl/jesd_loopback_util.v` (AXI4-Lite;

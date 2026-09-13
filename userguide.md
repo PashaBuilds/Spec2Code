@@ -691,6 +691,11 @@ cihazlari ilklendir" ya da Bring-up kos.
   STAT_STATUS) gercek kartta GT olmadan sinanir. Bit uretimi icin AMD "LogiCORE JESD204 Evaluation"
   lisansi gerekir (jesd204c 4.2 anahtari `jesd204@2019.10`); Vivado `~/.Xilinx/Xilinx.lic`
   dosyasini kendiliginden bulmayabilir, `XILINXD_LICENSE_FILE` ile yolu verin.
+- **AXI GPIO donanim dogrulamasi** (Nexys A7, `scripts/make_nexys_a7_design.tcl -tclargs gpio`):
+  axi_gpio_0 = 16 LED (CH1 cikis) + 16 anahtar (CH2 giris), axi_gpio_1 = 5 buton (CH1) + 6 RGB LED
+  (CH2). Test Bench GPIO karti ve ajan `gpio_read/gpio_write` kartta sinandi. Ders: "All Outputs"
+  kanalinda TRI yazmaci yoktur ve sabit 0xFFFFFFFF okunur; yazma dogrulamasi TRI ile degil DATA
+  geri okumasiyla yapilir (`test/0_temp_nexys/gpio_2025_test.py`).
 - **Yakalama / Spektrum ekrani** (ust sekme "Yakalama"): PL'deki `jesd_loopback_util` modulu
   (`scripts/hdl/jesd_loopback_util.v`, AXI4-Lite, KV260 tasariminda 0xA0030000) JESD204C RX
   cikisini (beat basina 16 x int16 ornek) 1024 beat'lik BRAM'e yazar; TX tarafina ayni modulun

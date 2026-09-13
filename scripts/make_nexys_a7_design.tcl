@@ -12,7 +12,10 @@ set mdm_uart  [expr {[lsearch -exact $argv "mdm"] >= 0}]
 # `regmap`: Spec2Code Register Map Test IP'si (backend/data/spec2code_regmap_test.v, AXI4-Lite) BD'ye
 # modul olarak eklenir -> bilinen IP haritasi (register_map=regmap_test) kartta dogrulanir.
 set regmap_ip [expr {[lsearch -exact $argv "regmap"] >= 0}]
-set suffix    [expr {$mdm_uart ? "_mdm" : ""}][expr {$regmap_ip ? "_regmap" : ""}]
+# `gpio`: AXI GPIO donanim testi - axi_gpio_0 (CH1: 16 LED cikis, CH2: 16 anahtar giris),
+# axi_gpio_1 (CH1: 5 buton giris, CH2: 6 RGB LED cikis). Ajan gpio_read/gpio_write + Test Bench GPIO karti.
+set gpio_ip   [expr {[lsearch -exact $argv "gpio"] >= 0}]
+set suffix    [expr {$mdm_uart ? "_mdm" : ""}][expr {$regmap_ip ? "_regmap" : ""}][expr {$gpio_ip ? "_gpio" : ""}]
 set root_dir   D:/Projects/claude/Spec2Code
 set proj_dir   $root_dir/test/0_temp_dbg/vivado_nexys_a7$suffix
 set out_dir    $root_dir/test/0_dosyalar
@@ -69,6 +72,29 @@ if {$regmap_ip} {
         ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}] \
         [get_bd_intf_pins regmap_test_0/s_axi]
 }
+if {$gpio_ip} {
+    create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_0
+    set_property -dict [list CONFIG.C_IS_DUAL {1} CONFIG.C_GPIO_WIDTH {16} CONFIG.C_ALL_OUTPUTS {1} \
+        CONFIG.C_GPIO2_WIDTH {16} CONFIG.C_ALL_INPUTS_2 {1} CONFIG.C_DOUT_DEFAULT {0x00000000}] [get_bd_cells axi_gpio_0]
+    create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_1
+    set_property -dict [list CONFIG.C_IS_DUAL {1} CONFIG.C_GPIO_WIDTH {5} CONFIG.C_ALL_INPUTS {1} \
+        CONFIG.C_GPIO2_WIDTH {6} CONFIG.C_ALL_OUTPUTS_2 {1} CONFIG.C_DOUT_DEFAULT_2 {0x00000000}] [get_bd_cells axi_gpio_1]
+    foreach slave {axi_gpio_0/S_AXI axi_gpio_1/S_AXI} {
+        apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config [list \
+            Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+            Master {/microblaze_0 (Periph)} Slave "/$slave" \
+            ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}] \
+            [get_bd_intf_pins $slave]
+    }
+    make_bd_intf_pins_external [get_bd_intf_pins axi_gpio_0/GPIO]
+    make_bd_intf_pins_external [get_bd_intf_pins axi_gpio_0/GPIO2]
+    make_bd_intf_pins_external [get_bd_intf_pins axi_gpio_1/GPIO]
+    make_bd_intf_pins_external [get_bd_intf_pins axi_gpio_1/GPIO2]
+    set_property NAME LED [get_bd_intf_ports GPIO_0]
+    set_property NAME SW  [get_bd_intf_ports GPIO2_0]
+    set_property NAME BTN [get_bd_intf_ports GPIO_1]
+    set_property NAME RGB [get_bd_intf_ports GPIO2_1]
+}
 set spi_aclk_net [get_bd_nets -of_objects [get_bd_pins axi_quad_spi_0/s_axi_aclk]]
 connect_bd_net -net $spi_aclk_net [get_bd_pins axi_quad_spi_0/ext_spi_clk]
 
@@ -120,6 +146,50 @@ set_property -dict { PACKAGE_PIN C15 IOSTANDARD LVCMOS33 } [get_ports IIC_sda_io
 set_property -dict { PACKAGE_PIN L13 IOSTANDARD LVCMOS33 } [get_ports SPI_0_ss_io]
 set_property -dict { PACKAGE_PIN K17 IOSTANDARD LVCMOS33 } [get_ports SPI_0_io0_io]
 set_property -dict { PACKAGE_PIN K18 IOSTANDARD LVCMOS33 } [get_ports SPI_0_io1_io]
+## AXI GPIO (gpio varyanti): LED[15:0], SW[15:0] (SW8/SW9 LVCMOS18), BTN[4:0] = C,U,L,R,D, RGB[5:0] = 16R,16G,16B,17R,17G,17B
+set_property -dict { PACKAGE_PIN H17 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[0]}]
+set_property -dict { PACKAGE_PIN K15 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[1]}]
+set_property -dict { PACKAGE_PIN J13 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[2]}]
+set_property -dict { PACKAGE_PIN N14 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[3]}]
+set_property -dict { PACKAGE_PIN R18 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[4]}]
+set_property -dict { PACKAGE_PIN V17 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[5]}]
+set_property -dict { PACKAGE_PIN U17 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[6]}]
+set_property -dict { PACKAGE_PIN U16 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[7]}]
+set_property -dict { PACKAGE_PIN V16 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[8]}]
+set_property -dict { PACKAGE_PIN T15 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[9]}]
+set_property -dict { PACKAGE_PIN U14 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[10]}]
+set_property -dict { PACKAGE_PIN T16 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[11]}]
+set_property -dict { PACKAGE_PIN V15 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[12]}]
+set_property -dict { PACKAGE_PIN V14 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[13]}]
+set_property -dict { PACKAGE_PIN V12 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[14]}]
+set_property -dict { PACKAGE_PIN V11 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[15]}]
+set_property -dict { PACKAGE_PIN J15 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[0]}]
+set_property -dict { PACKAGE_PIN L16 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[1]}]
+set_property -dict { PACKAGE_PIN M13 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[2]}]
+set_property -dict { PACKAGE_PIN R15 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[3]}]
+set_property -dict { PACKAGE_PIN R17 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[4]}]
+set_property -dict { PACKAGE_PIN T18 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[5]}]
+set_property -dict { PACKAGE_PIN U18 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[6]}]
+set_property -dict { PACKAGE_PIN R13 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[7]}]
+set_property -dict { PACKAGE_PIN T8  IOSTANDARD LVCMOS18 } [get_ports {SW_tri_i[8]}]
+set_property -dict { PACKAGE_PIN U8  IOSTANDARD LVCMOS18 } [get_ports {SW_tri_i[9]}]
+set_property -dict { PACKAGE_PIN R16 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[10]}]
+set_property -dict { PACKAGE_PIN T13 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[11]}]
+set_property -dict { PACKAGE_PIN H6  IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[12]}]
+set_property -dict { PACKAGE_PIN U12 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[13]}]
+set_property -dict { PACKAGE_PIN U11 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[14]}]
+set_property -dict { PACKAGE_PIN V10 IOSTANDARD LVCMOS33 } [get_ports {SW_tri_i[15]}]
+set_property -dict { PACKAGE_PIN N17 IOSTANDARD LVCMOS33 } [get_ports {BTN_tri_i[0]}]
+set_property -dict { PACKAGE_PIN M18 IOSTANDARD LVCMOS33 } [get_ports {BTN_tri_i[1]}]
+set_property -dict { PACKAGE_PIN P17 IOSTANDARD LVCMOS33 } [get_ports {BTN_tri_i[2]}]
+set_property -dict { PACKAGE_PIN M17 IOSTANDARD LVCMOS33 } [get_ports {BTN_tri_i[3]}]
+set_property -dict { PACKAGE_PIN P18 IOSTANDARD LVCMOS33 } [get_ports {BTN_tri_i[4]}]
+set_property -dict { PACKAGE_PIN N15 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[0]}]
+set_property -dict { PACKAGE_PIN M16 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[1]}]
+set_property -dict { PACKAGE_PIN R12 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[2]}]
+set_property -dict { PACKAGE_PIN N16 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[3]}]
+set_property -dict { PACKAGE_PIN R11 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[4]}]
+set_property -dict { PACKAGE_PIN G14 IOSTANDARD LVCMOS33 } [get_ports {RGB_tri_o[5]}]
 ## Konfigurasyon: QSPI'dan acilis icin
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]

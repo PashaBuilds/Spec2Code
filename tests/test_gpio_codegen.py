@@ -129,16 +129,18 @@ class GpioDeviceUnitTests(unittest.TestCase):
         self.assertIn("(uiCurrent & ~uiMask) | (uiValue & uiMask));", source)
 
     def test_write_fails_loudly_when_the_core_is_all_inputs(self) -> None:
-        # An "All Inputs" AXI GPIO has a READ-ONLY tri-state register: the
-        # direction write is silently swallowed and the data write does nothing.
-        # Without the read-back guard the op would report success forever.
+        # An "All Inputs" AXI GPIO swallows the data write; an "All Outputs"
+        # core has NO tri-state register and reads TRI back as 0xFFFFFFFF
+        # (SAHA 2026-09-13 Nexys A7 LED channel) - so the guard must compare
+        # the DATA read-back, never the direction read-back.
         spec = _microblaze_spec("unit_gpio_ro_guard")
         spec["devices"] = [_gpio_lines()]
 
         source = _generate(spec)["drivers/gpiolines.c"]
         write_body = source[source.index("gpiolinesPinsWrite"):source.index("gpiolinesPinsRead")]
 
-        self.assertIn("if ((uiDirection & uiMask) != 0U)", write_body)
+        self.assertNotIn("if ((uiDirection & uiMask) != 0U)", write_body)
+        self.assertIn("if (uiCurrent != (uiValue & uiMask))", write_body)
         self.assertIn("return XST_FAILURE;", write_body)
 
     def test_read_never_touches_the_direction_register(self) -> None:
@@ -249,6 +251,9 @@ class GpioControllerOpTests(unittest.TestCase):
         # Same direction contract as the device unit.
         self.assertIn("XGpio_SetDataDirection(spGpioTarget, uiChannel, uiDirection & ~uiMask);", ops)
         self.assertIn("if ((uiChannel == 2U) && (spGpioTarget->IsDual == 0))", ops)
+        # All-Outputs kanalinda TRI 0xFFFFFFFF okunur: dogrulama DATA geri okumasiyla.
+        self.assertNotIn("kanal salt-okunur (All Inputs)", ops)
+        self.assertIn("if (uiCurrent != (spRequest->uiValue & uiMask))", ops)
 
     def test_gpio_ops_are_absent_when_no_axi_gpio_controller_is_wired(self) -> None:
         spec = _microblaze_spec("unit_gpio_absent")
