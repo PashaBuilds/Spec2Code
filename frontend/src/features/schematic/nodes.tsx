@@ -237,7 +237,6 @@ export function DeviceNode({ id, data, selected }: NodeProps) {
     hasDescriptor: boolean;
     simulate?: boolean;
     configSummary?: Array<{ key: string; label: string; tone: Ltc2991ModeTone }>;
-    telemetry?: string;
   };
   const Icon = d.transport === "spi" || d.transport === "qspi" ? HardDrive : Box;
   const detailed = useDetailed();
@@ -317,14 +316,6 @@ export function DeviceNode({ id, data, selected }: NodeProps) {
           )}
         </>
       )}
-      {d.telemetry ? (
-        <div className="ml-2 mt-1.5 flex items-center gap-1.5 rounded border border-ok/25 bg-ok/10 px-1.5 py-0.5">
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse-soft rounded-full bg-ok" aria-hidden />
-          <span className="truncate font-mono text-[10px] font-semibold text-ok" title="canlı okuma">
-            {d.telemetry}
-          </span>
-        </div>
-      ) : null}
       <Handle type="target" position={Position.Left} style={{ background: busColor(d.transport) }} />
     </div>
   );

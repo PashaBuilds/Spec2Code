@@ -81,9 +81,6 @@ interface StoreState {
   counter: number;
 
   /** Canlı telemetri: şematikteki cihaz node'larında gösterilen son okumalar. */
-  telemetry: Record<string, { text: string; at: number }>;
-  setTelemetry: (deviceId: string, text: string) => void;
-  clearTelemetry: () => void;
 
   /** Host'tan gönderilen S2C işlemlerinin kronolojik kaydı (timeline). */
   busLog: BusLogEntry[];
@@ -263,10 +260,6 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   previousFiles: [],
   counter: 0,
 
-  telemetry: {},
-  setTelemetry: (deviceId, text) =>
-    set((s) => ({ telemetry: { ...s.telemetry, [deviceId]: { text, at: Date.now() } } })),
-  clearTelemetry: () => set({ telemetry: {} }),
 
   busLog: [],
   pushBusLog: (entry) => set((s) => ({ busLog: [...s.busLog, entry].slice(-200) })),

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, FileJson, Upload } from "lucide-react";
+import { CircleHelp, Download, FileJson, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
 import type { LlmConfig, PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
@@ -32,24 +32,39 @@ const PLATFORM_SUPPORT: Record<PlatformId, { tone: "ok" | "warn"; text: string }
     text: "I2C/SPI cihazları + UART ajanı + ps7_init ile Build&Run desteklenir. PS QSPI (XQspiPs) henüz desteklenmez — QSPI flash bağlanırsa üretim açık hatayla durur. lwIP ajanı 7000'de üretilmez.",
   },
   microblaze_7series: {
-    tone: "warn",
-    text: "Masa üstünde uçtan uca doğrulandı — Vivado'da üretilen gerçek XSA'dan AXI IIC (XIic, TCA9548A mux dahil), AXI Quad SPI (XSpi), AXI GPIO (XGpio) cihaz/denetleyici üretimi + MDM UART veya UARTLITE ajanı + Vitis platform/BSP/app ile gerçek MicroBlaze ELF'i alındı. HENÜZ YAPILMADI: gerçek kartta çalıştırma (elimizde MicroBlaze kartı yok) ve bitstream — bitstream kartın XDC'sini ZORUNLU kılar, XDC'siz üretim açık hatayla durur. Firmware yalnız LMB'den koşar: tam ajan + birkaç sürücü ~156KB'dir, bu yüzden Vivado Tasarımı'nda 256KB yerel bellek seçilmelidir (128KB'de link taşar). Kesme yolu ve DDR/MIG yok.",
+    tone: "ok",
+    text: "Nexys A7-100T ile kartta doğrulandı — AXI IIC (XIic, ADT7420), AXI Quad SPI (S25FL128S flash), AXI GPIO (LED/anahtar/buton), AXI UARTLite / MDM UART / AXI EthernetLite (lwIP) ajanları, Register Map Test IP, QSPI flash'tan açılış; Vitis 2023.2 (xsct) ve 2025.2 (Unified/SDT) akışları. Bitstream kartın XDC'sini zorunlu kılar; firmware LMB'den koşar (256KB yerel bellek seçin, 128KB'de link taşar). DDR/MIG yok.",
   },
 };
 
+/** Platform destek notu: varsayilan gizli; '?' simgesine gelince/tiklayinca baloncukta acilir (kullanici istegi 2026-09-13). */
 function PlatformSupportNote({ platform }: { platform: PlatformId }) {
   const note = PLATFORM_SUPPORT[platform];
+  const [open, setOpen] = useState(false);
   if (!note) return null;
   return (
-    <p
-      className={
-        note.tone === "ok"
-          ? "rounded-md border border-ok/25 bg-ok/10 px-2.5 py-1.5 text-xs leading-relaxed text-muted"
-          : "rounded-md border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-xs leading-relaxed text-warn"
-      }
-    >
-      {note.text}
-    </p>
+    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label="Platform destek notu"
+        title="Platform destek notu"
+        onClick={() => setOpen((v) => !v)}
+        className={note.tone === "ok" ? "text-ok hover:opacity-80" : "text-warn hover:opacity-80"}
+      >
+        <CircleHelp className="h-4 w-4" />
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className={
+            "absolute left-0 top-6 z-30 w-80 rounded-md border px-2.5 py-1.5 text-xs leading-relaxed shadow-lg " +
+            (note.tone === "ok" ? "border-ok/25 bg-inset text-muted" : "border-warn/30 bg-inset text-warn")
+          }
+        >
+          {note.text}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -194,7 +209,7 @@ export default function ProjectSetup() {
         </div>
 
         <div className="space-y-1.5">
-          <Label>Platform</Label>
+          <Label className="inline-flex items-center gap-1.5">Platform <PlatformSupportNote platform={project.platform} /></Label>
           <Select
             value={project.platform}
             onValueChange={(v) => {
@@ -214,7 +229,6 @@ export default function ProjectSetup() {
             </SelectContent>
           </Select>
           {current && <p className="text-xs text-faint">{current.summary}</p>}
-          <PlatformSupportNote platform={project.platform} />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

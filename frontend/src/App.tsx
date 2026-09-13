@@ -16,7 +16,6 @@ import DesignReviewPanel from "@/features/design-review/DesignReviewPanel";
 import KnowledgeAskPanel from "@/features/device-knowledge/KnowledgeAskPanel";
 import TestBenchPanel from "@/features/testbench/TestBenchPanel";
 import TransactionTimeline from "@/features/testbench/TransactionTimeline";
-import TelemetryControl from "@/features/schematic/TelemetryControl";
 import { useBoardConnection } from "@/store/connection";
 import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
@@ -176,8 +175,6 @@ export default function App() {
           <span className="hidden font-mono text-xs text-faint lg:inline">{project.name}</span>
           <Badge tone="neutral">{PLATFORM_LABELS[project.platform]}</Badge>
           <Badge tone={llm.enabled ? "accent" : "neutral"}>LLM {llm.enabled ? "on" : "off"}</Badge>
-          {/* Başlıkta: hangi ekranda olursanız olun telemetri çalışmaya devam eder. */}
-          <TelemetryControl />
           <Button
             variant="ghost"
             size="sm"

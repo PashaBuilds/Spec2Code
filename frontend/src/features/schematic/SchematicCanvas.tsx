@@ -74,7 +74,6 @@ export default function SchematicCanvas() {
   const descriptors = useStore((s) => s.descriptors);
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
-  const telemetry = useStore((s) => s.telemetry);
   const boards = useStore((s) => s.boards);
   const connectors = useStore((s) => s.connectors);
   const boardSizes = useStore((s) => s.boardSizes);
@@ -221,7 +220,6 @@ export default function SchematicCanvas() {
           hasDescriptor: hasDescriptor(d.part),
           simulate: Boolean(d.simulate),
           configSummary: d.part.toUpperCase() === "LTC2991" ? ltc2991NodeSummary(d.config) : [],
-          telemetry: telemetry[d.id]?.text ?? "",
         },
         selected: d.id === selectedId,
         draggable: boardsOn,
@@ -324,7 +322,7 @@ export default function SchematicCanvas() {
       });
     }
     return { nodes, edges, boardRects };
-  }, [zones, controllers, muxes, devices, descriptors, selectedId, telemetry, boards, connectors, boardSizes, draggingId]);
+  }, [zones, controllers, muxes, devices, descriptors, selectedId, boards, connectors, boardSizes, draggingId]);
 
   // Yerlesim TURETILMISTIR (store -> computeLayout). Surukleme yalnizca bir
   // JEST'tir: React Flow'un konum degisikligi gecici olarak uygulanir, birakinca
