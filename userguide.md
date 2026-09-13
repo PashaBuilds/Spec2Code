@@ -129,7 +129,7 @@ gorunumler:
 | Bring-up | Mission Control: guc -> sensor -> saat agaci -> bellek -> RF sirali acilis, dogum sertifikasi |
 | CIT | Cihaz ici test: her entegre kendi kutusunda, OK/NOK karari kartta |
 | Registers | Register anlik goruntusu, reset degeriyle/onceki goruntuyle diff, isi haritasi |
-| Register Map | Sayisal ekipten gelen register haritasi editoru; .h/.c, HTML, Excel |
+| Register Map | XSA'daki bloklarin register haritalari (salt okunur) + canli okuma/yazma |
 | Arayuz/YATT | S2C-MSG mesaj katalogu ve govde sablonlari (tek dogruluk kaynagi); HTML/MD disa aktarim |
 | Kilavuz | Bu kilavuzun uygulama ici surumu |
 
@@ -662,7 +662,13 @@ cihazlari ilklendir" ya da Bring-up kos.
 - **Akis**: karta giden/gelen cerceveler ve `S2C-LOG` satirlari canli; TRACE
   seviyesinde I2C/SPI baytlari komut kimligiyle eslestirilir. Telnet log sunucusu
   uretildiyse onun satirlari da burada.
-- **Register Map**: sayisal ekipten gelen memory-mapped PL IP register haritasini
+- **Register Map** (v0.1.224'ten itibaren SALT OKUNUR): haritalar yalnizca XSA'da taninan
+  bloklardan gelir (JESD204C, Register Map Test IP, AXI IIC/Quad SPI/UARTLite); ilk blok
+  kendiliginden yuklenir, dugmelerle digerine gecilir, Canli Izleme ile ajan uzerinden
+  okunur/yazilir. Elle harita/register ekleme, HTML/Excel/JSON ice-disa aktarma, ornek editor
+  ve ekran ici C uretimi arayuzden kaldirildi (altyapi duruyor, `REGMAP_EDITOR_ENABLED`
+  bayragiyla geri acilir). Asagidaki editor aciklamasi bayrak acilinca gecerlidir.
+- **Register Map (editor kipi)**: sayisal ekipten gelen memory-mapped PL IP register haritasini
   duzenle; self-contained HTML editor, Excel ve `.h/.c` (struct/union, bit alanli)
   uret. Register genisligi offset'lerden cikarilir. Uretim ayrica `<map>_shell.h/.c`
   verir: shell tablosuna tek satir (`{"ip_<map>", shellUser<Map>, ...}`) ekleyince konsoldan

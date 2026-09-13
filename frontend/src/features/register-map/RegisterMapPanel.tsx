@@ -71,18 +71,28 @@ function memberDesc(reg: Register, width: number): string {
   return `${width}B · bitfield · S${pascal(reg.name)}`;
 }
 
+/**
+ * Register Map ekrani su an SALT OKUNUR (kullanici karari 2026-09-13): haritalar yalnizca XSA'daki
+ * bloklardan (register_map bilinen IP'ler + PG haritali AXI denetleyiciler) uretilir; elle harita/
+ * register ekleme, ice/disa aktarma, ornek editor ve ekran ici C uretimi arayuzden KALDIRILDI.
+ * Altyapi (API, editor bileseni) duruyor; ileride bu bayrak acilarak yeniden devreye alinabilir.
+ */
+const REGMAP_EDITOR_ENABLED = false;
+
 export default function RegisterMapPanel() {
   const [doc, setDoc] = useState<RegDoc | null>(null);
   const [activeMap, setActiveMap] = useState(0);
-  const [mode, setMode] = useState<"edit" | "live">("edit");
+  const [mode, setMode] = useState<"edit" | "live">(REGMAP_EDITOR_ENABLED ? "edit" : "live");
   const [errors, setErrors] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Record<string, string> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // İlk açılışta backend örneğiyle başla (tek doğruluk kaynağı: aynı şema).
+  // Editor acikken backend ornegiyle baslanir (tek dogruluk kaynagi: ayni sema); salt okunur
+  // kipte bos baslanir, harita XSA'daki bloklardan yuklenir.
   useEffect(() => {
+    if (!REGMAP_EDITOR_ENABLED) { setDoc({ version: 1, maps: [] }); return; }
     api.registerMapExample().then((r) => setDoc(r.document as RegDoc)).catch(() => setDoc({ version: 1, maps: [] }));
   }, []);
 
@@ -209,7 +219,57 @@ export default function RegisterMapPanel() {
     finally { setBusy(false); }
   };
 
+  const xsaMaps = useMemo(() => [...knownIps, ...controllerMaps], [knownIps, controllerMaps]);
+  const [loadedMapId, setLoadedMapId] = useState("");
+  const loadXsaMap = async (ip: (typeof xsaMaps)[number]) => { await loadKnownIp(ip); setLoadedMapId(ip.id); };
+  // Salt okunur kip: XSA'da harita bilinen ilk blok kendiliginden yuklenir.
+  useEffect(() => {
+    if (REGMAP_EDITOR_ENABLED || !doc || doc.maps.length > 0 || xsaMaps.length === 0 || busy) return;
+    void loadXsaMap(xsaMaps[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, xsaMaps]);
+
   if (!doc) return <div className="p-6 text-sm text-muted">Yükleniyor…</div>;
+
+  if (!REGMAP_EDITOR_ENABLED) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-4">
+        <Card className="p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Cpu className="h-4 w-4 text-accent" aria-hidden />
+            <h3 className="text-sm font-semibold text-text">Register Map — XSA'daki bloklar</h3>
+            <span className="text-xs text-faint">harita tanımı XSA'dan sabit; register'lar ajan üzerinden okunur/yazılır</span>
+          </div>
+          <p className="mb-3 text-xs leading-relaxed text-muted">
+            Haritalar yalnızca XSA'dan tanınan bloklardan üretilir (JESD204C, Register Map Test IP, AXI IIC / Quad SPI /
+            UARTLite); register okuma/yazma serbesttir, harita tanımını düzenleme ve içe/dışa aktarma bu sürümde kapalıdır. Kod üretimi (drivers/ip, shell
+            <code>ip_&lt;id&gt;</code>) Generate adımında aynı haritalardan otomatik yapılır.
+          </p>
+          {xsaMaps.length === 0 ? (
+            <p className="rounded border border-border bg-inset px-2 py-1.5 text-[11px] text-muted">
+              XSA'da register haritası bilinen blok yok. Setup ekranında XSA yükleyince tanınan bloklar burada listelenir.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {xsaMaps.map((ip) => (
+                <Button key={ip.id} size="sm" variant={loadedMapId === ip.id ? "primary" : "outline"} onClick={() => void loadXsaMap(ip)} disabled={busy}
+                  title={`XSA'daki ${ip.register_map} bloğu (${ip.base_address}); PG register haritası otomatik`}>
+                  <Cpu className="h-4 w-4" /> {ip.id} ({ip.register_map})
+                </Button>
+              ))}
+            </div>
+          )}
+          {notice ? <p className="mt-2 rounded border border-ok/25 bg-ok/10 px-2 py-1.5 text-[11px] text-ok">{notice}</p> : null}
+          {errors.length > 0 ? (
+            <div className="mt-2 rounded border border-danger/30 bg-danger/10 px-2 py-1.5 text-[11px] text-danger">
+              {errors.slice(0, 6).map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          ) : null}
+        </Card>
+        {doc.maps.length > 0 ? <LiveMonitor doc={doc} activeMap={activeMap} setActiveMap={setActiveMap} /> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
