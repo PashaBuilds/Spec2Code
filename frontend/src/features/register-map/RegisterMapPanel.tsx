@@ -183,14 +183,18 @@ export default function RegisterMapPanel() {
 
   // XSA'da register haritası bilinen IP'ler (jesd204c ...): tek tıkla harita gelir, canlı izleme
   // register/bit alanı adıyla çalışır; kod üretimi aynı haritadan drivers/ip + shell ip_<id> üretir.
-  const knownIps = useStore((s) => s.customIps.filter((ip) => ip.register_map));
+  // Store secicileri KARARLI referans dondurmeli: filter/map ile her cagrida yeni dizi ureten secici
+  // useSyncExternalStore'u sonsuz render dongusune sokar (React #185, "siyah ekran" - SAHA 2026-09-13).
+  const customIps = useStore((s) => s.customIps);
+  const storeControllers = useStore((s) => s.controllers);
+  const knownIps = useMemo(() => customIps.filter((ip) => ip.register_map), [customIps]);
   // Surucusu olan AXI denetleyiciler (PG haritasi): XIic -> axi_iic, XSpi -> axi_quad_spi, XUartLite -> axi_uartlite.
-  const DRIVER_MAP_KEYS: Record<string, string> = { XIic: "axi_iic", XSpi: "axi_quad_spi", XUartLite: "axi_uartlite" };
-  const controllerMaps = useStore((s) =>
-    s.controllers
+  const controllerMaps = useMemo(() => {
+    const DRIVER_MAP_KEYS: Record<string, string> = { XIic: "axi_iic", XSpi: "axi_quad_spi", XUartLite: "axi_uartlite" };
+    return storeControllers
       .filter((c) => c.driver && DRIVER_MAP_KEYS[c.driver])
-      .map((c) => ({ id: c.id, register_map: DRIVER_MAP_KEYS[c.driver as string], base_address: c.base_address, ip_parameters: {} as Record<string, unknown> })),
-  );
+      .map((c) => ({ id: c.id, register_map: DRIVER_MAP_KEYS[c.driver as string], base_address: c.base_address, ip_parameters: {} as Record<string, unknown> }));
+  }, [storeControllers]);
   const loadKnownIp = async (ip: { id: string; register_map?: string; base_address: string; ip_parameters?: Record<string, unknown> }) => {
     setBusy(true); setErrors([]);
     try {
