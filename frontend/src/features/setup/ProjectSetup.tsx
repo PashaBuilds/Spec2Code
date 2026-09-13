@@ -68,6 +68,10 @@ export default function ProjectSetup() {
   const project = useStore((s) => s.project);
   const customIps = useStore((s) => s.customIps);
   const setProject = useStore((s) => s.setProject);
+  // "auto" transport secenegi arayuzden kaldirildi (2026-09-13); eski kayitli projelerde uart'a cekilir.
+  useEffect(() => {
+    if (!project.testbench_transport || project.testbench_transport === "auto") setProject({ testbench_transport: "uart" as never });
+  }, [project.testbench_transport, setProject]);
   const codingStandardRef = useStore((s) => s.codingStandardRef);
   const llm = useStore((s) => s.llm);
   const setLlm = useStore((s) => s.setLlm);
@@ -247,14 +251,13 @@ export default function ProjectSetup() {
           <div className="col-span-2 space-y-1.5">
             <Label>Test bench transport</Label>
             <Select
-              value={project.testbench_transport ?? "auto"}
+              value={!project.testbench_transport || project.testbench_transport === "auto" ? "uart" : project.testbench_transport}
               onValueChange={(v) => setProject({ testbench_transport: v as never })}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">Auto — ETH varsa lwIP TCP, yoksa PS UART</SelectItem>
                 <SelectItem value="eth">Ethernet (lwIP TCP agent)</SelectItem>
                 <SelectItem value="uart">UART (seri agent)</SelectItem>
                 <SelectItem value="coresight">CoreSight DCC — JTAG, psu_coresight_0 (ZynqMP)</SelectItem>
@@ -295,6 +298,7 @@ export default function ProjectSetup() {
               </span>
             </label>
           </div>
+          {project.testbench_transport === "eth" && (
           <div className="col-span-2 space-y-1.5">
             <Label>Test bench ağı (Ethernet / lwIP ajanı)</Label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -340,6 +344,7 @@ export default function ProjectSetup() {
               buradan alır. Boş bırakılan alan varsayılanını kullanır. PC adaptörü aynı alt ağda olmalı.
             </p>
           </div>
+          )}
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">

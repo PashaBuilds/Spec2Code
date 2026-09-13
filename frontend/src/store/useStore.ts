@@ -140,7 +140,7 @@ const DEFAULT_PROJECT: ProjectMeta = {
   target_core: "a53_0",
   runtime: "freertos",
   output_mode: "dropin",
-  testbench_transport: "auto",
+  testbench_transport: "uart",
   bsp_flow: "classic",
   testbench_network: { ip: "18.2.75.121", netmask: "255.255.255.0", gateway: "18.2.75.1", mac: "00:0A:35:00:01:02", port: 5000 },
 };
