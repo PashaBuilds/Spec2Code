@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleHelp, Download, FileJson, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
@@ -37,35 +37,32 @@ const PLATFORM_SUPPORT: Record<PlatformId, { tone: "ok" | "warn"; text: string }
   },
 };
 
-/** Platform destek notu: varsayilan gizli; '?' simgesine gelince/tiklayinca baloncukta acilir (kullanici istegi 2026-09-13). */
-function PlatformSupportNote({ platform }: { platform: PlatformId }) {
-  const note = PLATFORM_SUPPORT[platform];
+/** '?' yardim baloncugu: icerik varsayilan gizli, simgeye gelince/tiklayinca acilir (kullanici istegi 2026-09-13:
+ *  aciklama metinleri ekranda yer kaplamasin). */
+function HelpPopover({ label, tone = "neutral", width = "w-80", children }: {
+  label: string; tone?: "ok" | "warn" | "neutral"; width?: string; children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
-  if (!note) return null;
+  const icon = tone === "ok" ? "text-ok" : tone === "warn" ? "text-warn" : "text-muted";
+  const box = tone === "ok" ? "border-ok/25 text-muted" : tone === "warn" ? "border-warn/30 text-warn" : "border-border text-muted";
   return (
     <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button
-        type="button"
-        aria-label="Platform destek notu"
-        title="Platform destek notu"
-        onClick={() => setOpen((v) => !v)}
-        className={note.tone === "ok" ? "text-ok hover:opacity-80" : "text-warn hover:opacity-80"}
-      >
+      <button type="button" aria-label={label} title={label} onClick={() => setOpen((v) => !v)} className={icon + " hover:opacity-80"}>
         <CircleHelp className="h-4 w-4" />
       </button>
       {open ? (
-        <span
-          role="tooltip"
-          className={
-            "absolute left-0 top-6 z-30 w-80 rounded-md border px-2.5 py-1.5 text-xs leading-relaxed shadow-lg " +
-            (note.tone === "ok" ? "border-ok/25 bg-inset text-muted" : "border-warn/30 bg-inset text-warn")
-          }
-        >
-          {note.text}
+        <span role="tooltip" className={`absolute left-0 top-6 z-30 ${width} rounded-md border bg-inset px-2.5 py-1.5 text-xs leading-relaxed shadow-lg ${box}`}>
+          {children}
         </span>
       ) : null}
     </span>
   );
+}
+
+function PlatformSupportNote({ platform }: { platform: PlatformId }) {
+  const note = PLATFORM_SUPPORT[platform];
+  if (!note) return null;
+  return <HelpPopover label="Platform destek notu" tone={note.tone}>{note.text}</HelpPopover>;
 }
 
 const PREFIXES = [
@@ -362,35 +359,36 @@ export default function ProjectSetup() {
         </div>
 
         <div className="rounded-md border border-border bg-inset p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm text-text">
               <FileJson className="h-4 w-4 text-accent" />
               Sabit kodlama standardı
+              <HelpPopover label="Kodlama standardı özeti" width="w-96">
+                <span className="block space-y-2">
+                  <span className="block">
+                    Generate ve QC her zaman default ruleset ile çalışır; Word/JSON standard import akışı kullanılmaz.
+                  </span>
+                  <span className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {PREFIXES.map(([type, prefix]) => (
+                      <span key={type} className="flex items-center justify-between gap-2">
+                        <span className="truncate font-mono text-faint">{type}</span>
+                        <span className="font-mono text-text">{prefix}</span>
+                      </span>
+                    ))}
+                  </span>
+                  <span className="grid gap-0.5 font-mono text-[11px] text-faint">
+                    <span>camelCase identifiers, Allman braces, 4 spaces, CRLF</span>
+                    <span>function: tca9548aChannelSelect(...)</span>
+                    <span>pointer style: XIicPs* spIic; unsigned char* ucpValue</span>
+                    <span>types: unsigned char/short/int/long; no uint*_t</span>
+                    <span>typedef: SOrnekStruct; enum: EOrnekEnum</span>
+                    <span>struct variable: sMyStruct; pointer: spMyStruct</span>
+                    <span>array: prefix+Arr; global G_; static S_</span>
+                  </span>
+                </span>
+              </HelpPopover>
             </div>
             <Badge tone="neutral">{codingStandardRef}</Badge>
-          </div>
-          <div className="space-y-2 text-xs text-muted">
-            <p>
-              Generate ve QC her zaman default ruleset ile çalışır; Word/JSON standard import
-              akisi kullanılmaz.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {PREFIXES.map(([type, prefix]) => (
-                <div key={type} className="flex items-center justify-between gap-2">
-                  <span className="truncate font-mono text-faint">{type}</span>
-                  <span className="font-mono text-text">{prefix}</span>
-                </div>
-              ))}
-            </div>
-            <div className="grid gap-1 font-mono text-[11px] text-faint">
-              <span>camelCase identifiers, Allman braces, 4 spaces, CRLF</span>
-              <span>function: tca9548aChannelSelect(...)</span>
-              <span>pointer style: XIicPs* spIic; unsigned char* ucpValue</span>
-              <span>types: unsigned char/short/int/long; no uint*_t</span>
-              <span>typedef: SOrnekStruct; enum: EOrnekEnum</span>
-              <span>struct variable: sMyStruct; pointer: spMyStruct</span>
-              <span>array: prefix+Arr; global G_; static S_</span>
-            </div>
           </div>
         </div>
 
