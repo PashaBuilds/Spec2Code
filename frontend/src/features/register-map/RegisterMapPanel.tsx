@@ -487,6 +487,8 @@ function LiveMonitor({ doc, activeMap, setActiveMap }: { doc: RegDoc; activeMap:
   async function readAll() {
     if (!board.connected || !map) return;
     setBusy(true);
+    // Onceki degerler temizlenir; tablo ilk okumadaki gibi sirayla dolar (kullanici istegi 2026-09-13).
+    setValues({});
     try {
       for (let i = 0; i < sorted.length; i++) {
         const reg = sorted[i];
