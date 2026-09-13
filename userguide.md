@@ -13,7 +13,7 @@ Icindekiler:
 3. Yardimci araclar
 4. Uctan uca akis
 5. Ekranlar
-6. Setup: platform, `xparameters.h`, Vivado ile XSA
+6. Setup: platform, `xparameters.h`
 7. Schematic: entegreler, kartlar, kimlikler
 8. Generate: uretilen kod ve katmanlar
 9. Kodu kendi projene tasima
@@ -102,7 +102,7 @@ araclar icin gecerlidir.
 ## 4. Uctan uca akis
 
 1. **Setup**: proje adi, platform, cekirdek, runtime, test bench tasiyicisi.
-2. `xparameters.h` yukle (ya da Vivado ile XSA/bitstream uret).
+2. `xparameters.h` ya da `.xsa` yukle (XSA uretimi ayri xsa-studio projesinde).
 3. **Schematic**: entegreleri denetleyicilere bagla, config ve CIT limitlerini gir,
    gerekiyorsa kartlari ve konnektorleri tanimla, sanal cihazlari isaretle.
 4. **Generate**: kod uret; QC sonucunu ve dosya agacini incele.
@@ -179,15 +179,6 @@ kalip yalniz bitstream/PS ayari degisen XSA'larda semayi yeniden kurmak gerekmez
 Dosyayi yukle ya da icerigini yapistir; denetleyiciler (I2C, SPI/QSPI, GPIO, UART,
 Ethernet) cikarilir. Ayni denetleyici farkli makro takma adlariyla geliyorsa
 (`XPAR_PSU_I2C_0` / `XPAR_XIICPS_0`) tek denetleyici olarak birlestirilir.
-
-### Vivado ile XSA uret (Setup icinde)
-
-Kartin `.xsa` dosyasi yoksa Vivado kuruluysa Spec2Code onu uretebilir: PS
-yapilandirma formu (MIO, DDR, saat) -> arka planda batch Vivado -> iki asama:
-(1) sentezsiz `.xsa` dakikalar icinde hazir ve tek tusla Setup akisina baglanir,
-(2) istenirse sentez + implementasyon ile `.bit` (ZynqMP) / `.pdi` (Versal).
-MicroBlaze icin bitstream uretmek **XDC kisit dosyasi** ister (saat, reset ve disari
-cikan her arayuz gercek pinlere baglanmali; Spec2Code pin uydurmaz).
 
 ### MicroBlaze notlari
 

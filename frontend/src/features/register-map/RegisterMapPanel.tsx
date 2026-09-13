@@ -178,19 +178,6 @@ export default function RegisterMapPanel() {
     finally { setBusy(false); }
   };
 
-  // Vivado'da üretilen "Register Map Test IP"nin haritasını (adres + register +
-  // bitfield) getirir. Adres, Vivado üretimi atadıysa localStorage'dan gelir.
-  const loadTestIp = async () => {
-    setBusy(true); setErrors([]);
-    try {
-      const base = (localStorage.getItem("spec2code.regmap.testIpBase") || "").trim();
-      const r = await api.registerMapTestIp(base || undefined);
-      setDoc(r.document as RegDoc); setActiveMap(0);
-      setNotice(base ? `Test IP haritası yüklendi (Vivado'nun atadığı adres: ${base}).` : "Test IP haritası yüklendi (varsayılan adres — Vivado'da IP üretince gerçek adresle gelir).");
-    } catch (err) { setErrors([err instanceof Error ? err.message : String(err)]); }
-    finally { setBusy(false); }
-  };
-
   // XSA'da register haritası bilinen IP'ler (jesd204c ...): tek tıkla harita gelir, canlı izleme
   // register/bit alanı adıyla çalışır; kod üretimi aynı haritadan drivers/ip + shell ip_<id> üretir.
   // Store secicileri KARARLI referans dondurmeli: filter/map ile her cagrida yeni dizi ureten secici
@@ -292,7 +279,6 @@ export default function RegisterMapPanel() {
           <Button size="sm" variant="outline" onClick={() => void exportXlsx()} disabled={busy}><FileSpreadsheet className="h-4 w-4" /> Excel dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => doc && download((doc.maps[0]?.name || "register_map") + ".json", JSON.stringify(doc, null, 2), "application/json")}><Download className="h-4 w-4" /> JSON dışa aktar</Button>
           <Button size="sm" variant="outline" onClick={() => void downloadExampleHtml()} disabled={busy}><FilePlus2 className="h-4 w-4" /> Örnek editör indir</Button>
-          <Button size="sm" variant="outline" onClick={() => void loadTestIp()} disabled={busy}><Cpu className="h-4 w-4" /> Test IP haritasını yükle</Button>
           {[...knownIps, ...controllerMaps].map((ip) => (
             <Button key={ip.id} size="sm" variant="outline" onClick={() => void loadKnownIp(ip)} disabled={busy} title={`XSA'daki ${ip.register_map} IP'si (${ip.base_address}); PG register haritası otomatik`}>
               <Cpu className="h-4 w-4" /> {ip.id} ({ip.register_map}) haritası

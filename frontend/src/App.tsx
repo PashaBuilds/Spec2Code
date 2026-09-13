@@ -21,7 +21,6 @@ import TrafficPanel from "@/features/traffic/TrafficPanel";
 import BringupPanel from "@/features/bringup/BringupPanel";
 import RegistersPanel from "@/features/registers/RegistersPanel";
 import DocsPanel from "@/features/docs/DocsPanel";
-import VivadoDesignPanel from "@/features/vivado/VivadoDesignPanel";
 import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
 import CapturePanel from "@/features/capture/CapturePanel";
 import CitPanel from "@/features/cit/CitPanel";
@@ -51,10 +50,6 @@ export default function App() {
   const jobStatus = useStore((s) => s.job.status);
 
   const [view, setView] = useState<View>("flow");
-  // Setup adımının iki yüzü: ana sayfa (proje + donanım tasarımı) ve tam
-  // ekran "Vivado ile XSA üret" sayfası. Vivado işi backend'de koştuğundan
-  // sayfalar arası geçiş işi kesmez; panel dönüşte işe yeniden bağlanır.
-  const [setupVivado, setSetupVivado] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const boardConnected = useBoardConnection((s) => s.connected);
   // Ziyaret edilen ekranlar sökülmez, yalnızca gizlenir (keep-alive):
@@ -129,7 +124,6 @@ export default function App() {
     { id: "yatt", label: "Arayüz/YATT sayfası", hint: "görünüm", keywords: "yatt s2cmsg protokol mesaj katalog export html md interface", run: () => setView("yatt") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "regmap", label: "Register Map — struct/union header üret", hint: "görünüm", keywords: "register map struct union header bitfield memory mapped pl ip", run: () => setView("regmap") },
-    { id: "vivado", label: "Vivado ile XSA üret (Setup içinde)", hint: "adım", keywords: "vivado xsa bit pdi donanım tasarım ps mio ddr", run: () => { setStep("setup"); setView("flow"); setSetupVivado(true); } },
   ];
 
   return (
@@ -154,9 +148,6 @@ export default function App() {
               onClick={() => {
                 setStep(s.id);
                 setView("flow");
-                // Setup nav'ı her zaman ANA setup sayfasına götürür; Vivado
-                // sayfasına karttaki "XSA üret" bölümünden girilir.
-                setSetupVivado(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
@@ -311,16 +302,10 @@ export default function App() {
         ))}
         <div className={cn("h-full", view !== "flow" && "hidden")}>
           {step === "setup" ? (
-            setupVivado ? (
-              <div className="h-full min-h-0 overflow-auto p-4">
-                <VivadoDesignPanel onBack={() => setSetupVivado(false)} />
-              </div>
-            ) : (
-              <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
-                <ProjectSetup />
-                <DesignUpload onOpenVivado={() => setSetupVivado(true)} />
-              </div>
-            )
+            <div className="mx-auto grid max-w-5xl gap-5 p-6 md:grid-cols-2">
+              <ProjectSetup />
+              <DesignUpload />
+            </div>
           ) : step === "schematic" ? (
             <div className="flex h-full min-h-0">
               <div className="relative min-w-0 flex-1 border-r border-border">

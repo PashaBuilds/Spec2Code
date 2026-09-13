@@ -42,15 +42,6 @@ from backend.run_on_board import RunOnBoardConfig, normalize_hw_server_url, runb
 from backend.validators.wiring import validate_wiring
 from backend.vitis_errors import map_vitis_errors
 from backend.vitis_workspace import VitisWorkspaceConfig, default_vitis_processor, discover_custom_pl_ips, vitis_manager, vitis_os
-from backend.vivado_design import (
-    VivadoDesignConfig,
-    VivadoPeripheral,
-    list_parts as list_vivado_parts,
-    validate_design as validate_vivado_design,
-    vivado_manager,
-    zynqmp_ddr_parts,
-    zynqmp_mio_options,
-)
 from catalog.matcher import scan_folder
 from hostplat import io as hio
 from hostplat import tools
@@ -973,95 +964,6 @@ def vitis_workspace_result(vitis_job_id: str) -> dict:
     }
 
 
-class VivadoPeripheralRequest(BaseModel):
-    kind: str
-    mio: str = ""
-    qspi_mode: str = ""
-    qspi_data_mode: str = ""
-    qspi_fbclk: bool = False
-
-
-class VivadoDesignRequest(BaseModel):
-    vivado_path: str
-    platform: str
-    part: str
-    temp_path: str
-    design_name: str = "spec2code_hw"
-    peripherals: list[VivadoPeripheralRequest] = []
-    ref_clk_mhz: str = ""
-    ddr_mode: str = "none"
-    ddr_params: dict[str, str] = {}
-    ddr_model: str = ""
-    ddr_bus_width: str = ""
-    ddr_speed_bin: str = ""
-    add_regmap_test_ip: bool = False
-    make_bitstream: bool = False
-    timeout_s: int = 3600
-    # microblaze_7series alanlari (diger platformlarda kullanilmaz)
-    mb_clk_mhz: str = "100"
-    mb_local_mem: str = "128KB"
-    mb_axi_iic: int = 0
-    mb_axi_spi: int = 0
-    mb_axi_uartlite: int = 0
-    mb_axi_gpio: int = 0
-    constraints_path: str = ""
-
-
-def _vivado_config(req: VivadoDesignRequest) -> VivadoDesignConfig:
-    return VivadoDesignConfig(
-        vivado_path=req.vivado_path,
-        platform=req.platform,
-        part=req.part,
-        temp_path=req.temp_path,
-        design_name=re.sub(r"[^A-Za-z0-9_]+", "_", req.design_name).strip("_") or "spec2code_hw",
-        peripherals=[
-            VivadoPeripheral(kind=p.kind, mio=p.mio, qspi_mode=p.qspi_mode,
-                             qspi_data_mode=p.qspi_data_mode, qspi_fbclk=p.qspi_fbclk)
-            for p in req.peripherals
-        ],
-        ref_clk_mhz=req.ref_clk_mhz,
-        ddr_mode=req.ddr_mode,
-        ddr_params=req.ddr_params,
-        ddr_model=req.ddr_model,
-        ddr_bus_width=req.ddr_bus_width,
-        ddr_speed_bin=req.ddr_speed_bin,
-        add_regmap_test_ip=req.add_regmap_test_ip,
-        make_bitstream=req.make_bitstream,
-        timeout_s=max(300, min(req.timeout_s, 4 * 3600)),
-        mb_clk_mhz=req.mb_clk_mhz,
-        mb_local_mem=req.mb_local_mem,
-        mb_axi_iic=req.mb_axi_iic,
-        mb_axi_spi=req.mb_axi_spi,
-        mb_axi_uartlite=req.mb_axi_uartlite,
-        mb_axi_gpio=req.mb_axi_gpio,
-        constraints_path=req.constraints_path,
-    )
-
-
-class VivadoPartsRequest(BaseModel):
-    vivado_path: str
-    refresh: bool = False
-    cached_only: bool = False
-
-
-@router.post("/vivado/parts")
-def vivado_parts(req: VivadoPartsRequest) -> dict:
-    """Kurulu Vivado'nun tam parça listesi (get_parts) — platform -> cihaz ->
-    parça olarak gruplanmış. İlk üretim ~1 dk sürer ve önbelleğe yazılır;
-    cached_only=true yalnız önbelleğe bakar (Vivado açılmaz)."""
-    try:
-        return list_vivado_parts(
-            req.vivado_path,
-            _DATA_ROOT / "uploads" / "vivado_parts",
-            refresh=req.refresh,
-            cached_only=req.cached_only,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 - Vivado hatası kullanıcıya aynen gider
-        raise HTTPException(502, str(exc)) from exc
-
-
 class RegisterMapRequest(BaseModel):
     document: dict
 
@@ -1203,48 +1105,6 @@ def register_map_example() -> dict:
     """Boş/örnek register map + gömülü hâli (self-contained HTML editör)."""
     doc = regmap.blank_document()
     return {"document": doc, "html": regmap.build_html(doc)}
-
-
-@router.get("/vivado/ddr-parts")
-def vivado_ddr_parts() -> dict:
-    """DDR model havuzu (ZynqMP): geometri Xilinx memparts.csv'den,
-    zamanlamalar üretim anında PCW tarafından hesaplanır."""
-    return {"zynq_ultrascale": zynqmp_ddr_parts()}
-
-
-@router.get("/vivado/mio-options")
-def vivado_mio_options() -> dict:
-    """ZynqMP PS çevre birimleri için geçerli MIO konumları (Vivado
-    kabul-testi taramasından; part-bağımsız). UI dropdown'u bundan beslenir."""
-    return {"zynq_ultrascale": zynqmp_mio_options()}
-
-
-@router.post("/vivado/design/validate")
-def vivado_design_validate(req: VivadoDesignRequest) -> dict:
-    errors = validate_vivado_design(_vivado_config(req))
-    return {"valid": not errors, "errors": errors}
-
-
-@router.post("/vivado/design")
-async def vivado_design_start(req: VivadoDesignRequest) -> dict:
-    try:
-        vivado_job_id = await vivado_manager.start(_vivado_config(req))
-    except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(422, str(exc)) from exc
-    return {"vivado_job_id": vivado_job_id}
-
-
-@router.get("/vivado/jobs/{vivado_job_id}/result")
-def vivado_design_result(vivado_job_id: str) -> dict:
-    job = vivado_manager.get(vivado_job_id)
-    if job is None:
-        raise HTTPException(404, "unknown Vivado job")
-    return {
-        "vivado_job_id": vivado_job_id,
-        "status": job.status,
-        "error": job.error,
-        "result": job.result,
-    }
 
 
 @router.post("/vitis/compile-errors/map")

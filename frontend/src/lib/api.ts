@@ -239,75 +239,10 @@ export const api = {
   registerMapExample: () =>
     req<{ document: unknown; html: string }>("/api/register-map/example"),
 
-  vivadoDdrParts: () =>
-    req<{
-      zynq_ultrascale: Array<{
-        id: string; label: string; description: string;
-        device_capacity: string; dram_width: string;
-        speed_bins: string[]; default_speed_bin: string;
-        bus_widths: string[]; chip_gb: number;
-      }>;
-    }>("/api/vivado/ddr-parts"),
-
-  vivadoMioOptions: () =>
-    req<{ zynq_ultrascale: Record<string, { width: number; default: string; options: string[] }> }>(
-      "/api/vivado/mio-options",
-    ),
-
-  vivadoDesignStart: (payload: {
-    vivado_path: string;
-    platform: string;
-    part: string;
-    temp_path: string;
-    design_name: string;
-    peripherals: Array<{ kind: string; mio: string; qspi_mode?: string; qspi_data_mode?: string; qspi_fbclk?: boolean }>;
-    ref_clk_mhz: string;
-    ddr_mode: string;
-    ddr_params: Record<string, string>;
-    ddr_model: string;
-    ddr_bus_width: string;
-    ddr_speed_bin: string;
-    add_regmap_test_ip?: boolean;
-    make_bitstream: boolean;
-    timeout_s: number;
-    // microblaze_7series alanları (diğer platformlarda gönderilse de kullanılmaz)
-    mb_clk_mhz?: string;
-    mb_local_mem?: string;
-    mb_axi_iic?: number;
-    mb_axi_spi?: number;
-    mb_axi_uartlite?: number;
-    mb_axi_gpio?: number;
-    constraints_path?: string;
-  }) =>
-    req<{ vivado_job_id: string }>("/api/vivado/design", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
   registerMapKnownIp: (payload: { key: string; name: string; base_address: string; ip_parameters?: Record<string, unknown> }) =>
     req<{ document: unknown; valid: boolean; parameters: Record<string, unknown> }>("/api/register-map/known-ip", {
       method: "POST", body: JSON.stringify(payload),
     }),
-
-  registerMapTestIp: (baseAddress?: string) =>
-    req<{ document: unknown; valid: boolean }>(
-      "/api/register-map/test-ip" + (baseAddress ? `?base_address=${encodeURIComponent(baseAddress)}` : ""),
-    ),
-
-  vivadoParts: (payload: { vivado_path: string; refresh?: boolean; cached_only?: boolean }) =>
-    req<{
-      platforms: Record<string, Record<string, string[]>> | null;
-      total: number;
-      cached: boolean;
-    }>("/api/vivado/parts", { method: "POST", body: JSON.stringify(payload) }),
-
-  vivadoDesignResult: (vivadoJobId: string) =>
-    req<{
-      vivado_job_id: string;
-      status: string;
-      error: string | null;
-      result: { successful?: boolean; xsa_path?: string; image_path?: string; xsa_bit_path?: string; regmap_ip_base?: string } | null;
-    }>(`/api/vivado/jobs/${encodeURIComponent(vivadoJobId)}/result`),
 
   mapVitisCompileErrors: (log: string) =>
     req<{ issues: VitisCompileIssue[] }>("/api/vitis/compile-errors/map", {
@@ -562,26 +497,6 @@ export function openRunboardSocket(
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/runboard/${jobId}`);
-  ws.onmessage = (m) => {
-    const data = JSON.parse(m.data);
-    if (data.event === "__closed__") {
-      ws.close();
-      onClose?.();
-      return;
-    }
-    onEvent(data);
-  };
-  ws.onerror = () => onClose?.();
-  return () => ws.close();
-}
-
-export function openVivadoSocket(
-  vivadoJobId: string,
-  onEvent: (e: Record<string, unknown>) => void,
-  onClose?: () => void,
-): () => void {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws/vivado/${vivadoJobId}`);
   ws.onmessage = (m) => {
     const data = JSON.parse(m.data);
     if (data.event === "__closed__") {
