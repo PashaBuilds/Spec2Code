@@ -813,6 +813,40 @@ def job_result(job_id: str) -> dict:
             "result": job.result, "files": files}
 
 
+_PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+
+@router.get("/outputs/{project_name}/result")
+def outputs_result(project_name: str) -> dict:
+    """Son uretimin dosyalarini ve QC raporunu `outputs/<proje>` klasorunden yeniden kurar.
+
+    Arayuz sayfa yenilenince (ya da sunucu yeniden basladiktan sonra) Generate/Kod Gorunumu bos
+    kalmasin diye: is nesnesi bellekte olmasa da cikti diskte durur. Dosya yoksa 404.
+    """
+    if not _PROJECT_NAME_RE.match(project_name or ""):
+        raise HTTPException(400, "gecersiz proje adi")
+    from backend.jobs import _OUTPUTS, _collect_output_files, _relative_to_root
+
+    out_dir = _OUTPUTS / project_name
+    if not out_dir.is_dir():
+        raise HTTPException(404, f"outputs/{project_name} yok")
+
+    out_rel = _relative_to_root(out_dir)
+    files = []
+    for path in _collect_output_files(out_dir):
+        rel = _relative_to_root(path)
+        files.append({"path": rel, "relative_path": _archive_name(rel, out_rel), "name": path.name,
+                      "content": hio.read_text(path)})
+    qc = None
+    qc_path = out_dir / "qc_report.json"
+    if qc_path.is_file():
+        try:
+            qc = json.loads(hio.read_text(qc_path))
+        except ValueError:
+            qc = None
+    return {"project": project_name, "out_dir": out_rel, "files": files, "qc": qc}
+
+
 @router.get("/jobs/{job_id}/download")
 def download_job(job_id: str) -> Response:
     job = _job_with_result(job_id)

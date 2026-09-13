@@ -519,6 +519,9 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     connectors: s.connectors,
     boardSizes: s.boardSizes,
     counter: s.counter,
+    // Uretim sonucu: yalniz kimlik/durum/QC kalicidir (dosya icerikleri localStorage'a sigmaz);
+    // dosyalar acilista /api/outputs/<proje>/result ile diskten yeniden yuklenir (App.tsx).
+    job: { ...s.job, events: [], files: [], status: s.job.status === "running" ? "idle" : s.job.status },
   }),
 }));
 

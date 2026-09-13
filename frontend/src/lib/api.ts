@@ -186,6 +186,12 @@ export const api = {
       files: GeneratedFile[];
     }>(`/api/jobs/${jobId}/result`),
 
+  /** outputs/<proje> klasorundeki son uretim (sayfa yenilemesi / sunucu yeniden baslama sonrasi). */
+  outputsResult: (projectName: string) =>
+    req<{ project: string; out_dir: string; files: GeneratedFile[]; qc: import("./types").QcReport | null }>(
+      `/api/outputs/${encodeURIComponent(projectName)}/result`,
+    ),
+
   jobDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/download`,
 
   jobVitisDownloadUrl: (jobId: string) => `/api/jobs/${encodeURIComponent(jobId)}/vitis`,

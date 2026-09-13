@@ -60,6 +60,16 @@ export default function App() {
     setVisitedViews((current) => (current.includes(view) ? current : [...current, view]));
   }, [view]);
 
+  // Sayfa yenilendikten sonra: son uretimin dosyalari localStorage'da tutulmaz, outputs/<proje>
+  // klasorunden geri yuklenir (sunucu yeniden baslamis olsa da). Bulunamazsa sessizce bos kalir.
+  useEffect(() => {
+    const { job, project: proj, setJob: apply } = useStore.getState();
+    if (job.status !== "done" || job.files.length > 0 || !proj.name) return;
+    api.outputsResult(proj.name)
+      .then((res) => apply({ files: res.files, qc: res.qc ?? job.qc }))
+      .catch(() => apply({ status: "idle" }));
+  }, []);
+
   function keepAlive(id: View, node: ReactNode) {
     if (view !== id && !visitedViews.includes(id)) return null;
     return (
