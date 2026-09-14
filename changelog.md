@@ -3,6 +3,65 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.231 - 2026-09-13
+
+- Duzeltme: sayfa yenilenince Generate/Kod Gorunumu'ndeki uretilen dosyalar kayboluyordu (is sonucu
+  tarayici deposuna yazilmiyordu). Artik is kimligi/durumu/QC kalici; dosyalar acilista yeni
+  `GET /api/outputs/<proje>/result` ile `outputs/<proje>` klasorunden (sunucu yeniden baslasa bile)
+  geri yuklenir.
+
+## v0.1.230 - 2026-09-13
+
+- Register Map "Hepsini oku": onceki degerler once temizlenir, register'lar sirayla yeniden dolar
+  (ilk okumayla ayni davranis).
+
+## v0.1.229 - 2026-09-13
+
+- **Vivado ile XSA uretimi kaldirildi** (kullanici karari: XSA uretimi ayri `xsa-studio` projesinde).
+  Silinenler: Setup icindeki Vivado sayfasi ve "XSA uret" karti, komut paleti girisi, `/api/vivado/*`
+  rotalari, `backend/vivado_design.py`, ZynqMP DDR/MIO tablolari, ilgili testler ve kilavuz bolumu;
+  Register Map'teki "Test IP haritasini yukle" dugmesi (Vivado sayfasina bagliydi). Referans tasarim
+  Tcl scriptleri (`scripts/make_*.tcl`) test varligi olarak kaldi.
+
+## v0.1.228 - 2026-09-13
+
+- Setup: "Sabit kodlama standardı" karti tek satira indi; tip on eki tablosu ve stil notlari `?`
+  baloncugunda (ortak HelpPopover bileseni; platform notu da ayni bileseni kullanir).
+
+## v0.1.227 - 2026-09-13
+
+- Telemetri altyapisi arayuzden kaldirildi (baslik dugmesi, sema dugumlerindeki canli okuma rozeti,
+  store alani); ajan/Test Bench yolu degismedi.
+- Setup: platform destek notu varsayilan olarak gosterilmiyor; "Platform" etiketinin yanindaki `?`
+  simgesine gelince/tiklayinca baloncukta acilir. MicroBlaze notu Nexys A7 dogrulamalarina gore
+  guncellendi.
+
+## v0.1.226 - 2026-09-13
+
+- cppcheck kuruldu ve QC'ye girdi (2.21.0). Ilk kosudaki bulgular: `sistemCitInit` ilk cihazda her zaman
+  dogru kosul (knownConditionTrueFalse) giderildi; `constParameterPointer/constVariablePointer` surucu
+  handle imza karari (v0.1.179, tek tip `T* spHandle`) geregi cppcheck yok sayma listesine alindi;
+  register haritasi shell ayristiricisinda sinir kontrolu indeksten once (arrayIndexThenCheck);
+  `unsignedPositive` (sayi makrosu 0 olan spec'lerde sinir kontrolu) yok sayilir.
+
+## v0.1.225 - 2026-09-13
+
+- Setup: "Auto" test bench transport secenegi arayuzden kaldirildi (varsayilan UART; eski kayitli
+  "auto" projeler UART'a cekilir; spec/codegen `auto` cozumlemesi altyapida duruyor). "Test bench agi"
+  alanlari yalnizca transport Ethernet iken gosterilir.
+
+## v0.1.224 - 2026-09-13
+
+- **Register Map ekrani salt okunur**: haritalar yalnizca XSA'daki taninan bloklardan (bilinen IP +
+  PG haritali AXI denetleyiciler) uretilir, ilk blok kendiliginden yuklenir; elle harita/register
+  ekleme, ice/disa aktarma (HTML/Excel/JSON), ornek editor, Test IP yukleme ve ekran ici C uretimi
+  arayuzden kaldirildi (`REGMAP_EDITOR_ENABLED=false`; API ve editor kodu duruyor).
+
+## v0.1.223 - 2026-09-13
+
+- Duzeltme: Register Map sekmesi acilinca bos/siyah ekran (React #185 sonsuz render). v0.1.218'de eklenen
+  denetleyici haritasi secicisi her cagrida yeni dizi uretiyordu; secici ham diziyi alir, turetme useMemo'da.
+
 ## v0.1.222 - 2026-09-13
 
 - **AXI GPIO kartta dogrulandi ve duzeltildi** (Nexys A7 `-tclargs gpio`: 16 LED, 16 anahtar, 5 buton,
