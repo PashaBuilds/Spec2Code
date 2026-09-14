@@ -82,6 +82,7 @@ class Afe7900GenerationTests(unittest.TestCase):
         # bring-up sirasi: reset ver -> AFE init -> reset kaldir -> AFE JESD reset/senkron -> FPGA RX bekle
         order = [driver.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 1U)"), driver.index("afe7900DeviceInit(spSpi);\n"),
                  driver.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 0U)"), driver.index("afe7900JesdResetToggle(spSpi)"),
+                 driver.index("jesdLinkLinkReset(JESDLINK_RX_BASE)"),
                  driver.index("jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS)")]
         self.assertEqual(order, sorted(order))
         self.assertNotIn("sdtm", driver.lower())
@@ -110,6 +111,8 @@ class Afe7900GenerationTests(unittest.TestCase):
         # reset kaldirma: reset/GT mesgul bitleri timeout ile beklenir
         self.assertIn("JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE | JESDLINK_RESET_GT_BUSY", link)
         self.assertIn("JESDLINK_RESET_TIMEOUT_MS", link)
+        # link reset: RESET_TYPE=1 ile GT korunur, cikis kriteri tam resetle ayni
+        self.assertIn("JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT", link)
         # self-test HAL fonksiyonlarini cagirmaz
         test = files["tests/afe7900_test.c"]
         self.assertIn("afe7900TemperatureRead(spSpi, &iValue)", test)
@@ -122,7 +125,7 @@ class Afe7900GenerationTests(unittest.TestCase):
     def test_8b10b_uses_cgs_and_rx_err_register(self) -> None:
         files = self._generate(_spec(jesd="8b10b"))
         link = files["drivers/ip/jesdlink.c"]
-        self.assertIn("JESDLINK_STAT_CGS", link)
+        self.assertIn("JESDLINK_STAT_SYNC | JESDLINK_STAT_CGS | JESDLINK_STAT_RX_STARTED", link)
         self.assertIn("JESDLINK_STAT_ALIGN_ERROR", link)
         self.assertIn("JESDLINK_REG_STAT_RX_ERR", link)
         self.assertNotIn("JESDLINK_STAT_SH_LOCK", link)

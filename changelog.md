@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.233 - 2026-09-14
+
+- JESD204C baglanti modulu (`jesdlink`): AFE senkronundan sonra FPGA RX'e GT'siz **link reset**
+  (`RESET_TYPE=1`, yeni `jesdLinkLinkReset`) verilir; vericiler calisirken alici yeniden senkron arar.
+  8B/10B link kriterine `SYNC_STATUS` eklendi (SYNC~ kaldirildi + CGS + RX_STARTED, hizalama hatasi yok).
+
 ## v0.1.232 - 2026-09-14
 
 - **AFE7900 surucusu (TI AFE79xx C API v2.9)**: `AFE7900` parcasi sematige eklenince TI kutuphanesi

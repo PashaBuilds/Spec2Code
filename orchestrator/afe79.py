@@ -435,10 +435,13 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.open("if (iStatus != XST_SUCCESS)")
         e.ln("dbg_printf(DEBUG_LEVEL_ERROR, \"AFE: adcDacSync basarisiz (DAC-JESD-RX link kurulamadi)\");")
         e.close()
-        e.ln("/* 5) FPGA RX link (AFE ADC -> FPGA): timeout'lu durum kontrolu. */")
+        e.ln("/* 5) FPGA RX'e GT'siz link reset: vericiler (AFE ADC-JESD-TX) calisirken alici yeniden senkron arar")
+        e.ln(" *    (8B/10B: SYNC~ dusurulur -> CGS -> ILAS; 64B/66B: SH/EMB kilidi). GT resetlenmez. */")
+        e.ln("iStatus = jesdLinkLinkReset(JESDLINK_RX_BASE);").check_status()
+        e.ln("/* 6) FPGA RX link (AFE ADC -> FPGA): timeout'lu durum kontrolu. */")
         e.open("if (jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS) == XST_SUCCESS)").ln("usStatus |= 0x0001U;").close()
         e.open("if (jesdLinkTxCheck() == XST_SUCCESS)").ln("usStatus |= 0x0002U;").close()
-        e.ln("/* 6) AFE tarafi: DAC-JESD-RX link (FPGA TX -> AFE), alarmlar, PLL. */")
+        e.ln("/* 7) AFE tarafi: DAC-JESD-RX link (FPGA TX -> AFE), alarmlar, PLL. */")
         e.open(f"if (({_func_name(module, 'jesd_rx_link_status_read')}({hvar}, &usAfeLink) == XST_SUCCESS) && (usAfeLink == {MOD}_JESD_RX_LINKS_UP))")
         e.ln("usStatus |= 0x0004U;")
         e.close()
@@ -840,6 +843,7 @@ def _jesdlink_header(ips: dict[str, dict]) -> str:
         + "\n"
         "/* --- public API --- */\n"
         "int jesdLinkCoreReset(unsigned int uiBase, unsigned int uiAssert);\n"
+        "int jesdLinkLinkReset(unsigned int uiBase);\n"
         "int jesdLinkRxLinkCheck(void);\n"
         "int jesdLinkRxLinkWait(unsigned int uiTimeoutMs);\n"
         "int jesdLinkTxCheck(void);\n"
@@ -912,6 +916,17 @@ def _jesdlink_source(ips: dict[str, dict]) -> str:
     e.level = 0
     e.ln("}")
     e.blank()
+    e.ln("int jesdLinkLinkReset(unsigned int uiBase)")
+    e.ln("{")
+    e.level = 1
+    e.open("if (uiBase == 0U)").ln("return XST_SUCCESS; /* bu yonde cekirdek yok */").close()
+    e.ln("/* RESET_TYPE=1: yalniz link katmani (GT ve refclk yolu korunur); bit0 kendiliginden temizlenir. */")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT);")
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: link reset verildi (GT korunur)\", uiBase);")
+    e.ln("return jesdLinkCoreReset(uiBase, 0U);")
+    e.level = 0
+    e.ln("}")
+    e.blank()
     e.ln("unsigned int jesdLinkStatusRead(unsigned int uiBase)")
     e.ln("{")
     e.ln("    return (uiBase == 0U) ? 0U : jesdLinkRead(uiBase, JESDLINK_REG_STAT_STATUS);")
@@ -933,9 +948,10 @@ def _jesdlink_source(ips: dict[str, dict]) -> str:
         e.open("if ((uiStatus & (JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK | JESDLINK_STAT_RX_STARTED)) != "
                "(JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK | JESDLINK_STAT_RX_STARTED))")
     else:
-        e.ln("/* 8B/10B: CGS (kod grubu senkronu) tamam + hizalama hatasi yok + veri basladi (ILAS gecildi). */")
+        e.ln("/* 8B/10B: SYNC~ kaldirildi + CGS (kod grubu senkronu) tamam + hizalama hatasi yok + veri basladi (ILAS gecildi). */")
         e.open("if (((uiStatus & JESDLINK_STAT_ALIGN_ERROR) != 0U) || "
-               "((uiStatus & (JESDLINK_STAT_CGS | JESDLINK_STAT_RX_STARTED)) != (JESDLINK_STAT_CGS | JESDLINK_STAT_RX_STARTED)))")
+               "((uiStatus & (JESDLINK_STAT_SYNC | JESDLINK_STAT_CGS | JESDLINK_STAT_RX_STARTED)) != "
+               "(JESDLINK_STAT_SYNC | JESDLINK_STAT_CGS | JESDLINK_STAT_RX_STARTED)))")
     e.ln("return XST_FAILURE;")
     e.close()
     e.ln("return XST_SUCCESS;")
