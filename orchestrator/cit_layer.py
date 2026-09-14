@@ -229,7 +229,8 @@ def build_plans(spec: dict, get_descriptor: Callable[[str], dict],
         transport = str(descriptor.get("transport", {}).get("type", ""))
         if transport == "i2c" and descriptor.get("memory"):
             continue
-        if transport == "spi" and not tics.has_tics_register_model(descriptor):
+        vendor_api = bool(descriptor.get("vendor_api"))  # AFE7900: TI C API, register modeli yok
+        if transport == "spi" and not tics.has_tics_register_model(descriptor) and not vendor_api:
             continue
         if transport not in {"i2c", "spi"}:
             continue

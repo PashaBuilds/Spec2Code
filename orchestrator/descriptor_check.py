@@ -18,6 +18,8 @@ _ACCESS = {"ro", "rw", "wo", "reserved"}
 _I2C_STEPS = {"comment", "write_register", "read_register", "read_registers",
               "read_channels", "poll"}
 _FLASH_STEPS = {"comment", "send_command", "read_command_address", "write_command_address"}
+_VENDOR_STEPS = {"comment", "vendor_call"}
+_VENDOR_APIS = {"afe79xx"}
 _CONVERT_KEYS = {"mask", "rshift", "signed_bits", "scale_num", "scale_den",
                  "scale_den_config", "offset", "clamp_min", "unsigned", "unit", "format"}
 
@@ -108,7 +110,10 @@ def validate_descriptor(doc) -> list[str]:
 
     is_flash = bool(commands)
     is_memory = isinstance(doc.get("memory"), dict)
-    step_ops = _FLASH_STEPS if is_flash else _I2C_STEPS
+    vendor_api = doc.get("vendor_api")
+    if vendor_api is not None and str(vendor_api) not in _VENDOR_APIS:
+        errors.append(f"vendor_api: desteklenen: {sorted(_VENDOR_APIS)} (şu an: {vendor_api!r})")
+    step_ops = _VENDOR_STEPS if vendor_api else (_FLASH_STEPS if is_flash else _I2C_STEPS)
 
     operations = doc.get("operations", [])
     if not isinstance(operations, list):
@@ -127,6 +132,9 @@ def validate_descriptor(doc) -> list[str]:
             errors.append(f"{where}.name: '{name}' tekrar ediyor")
         else:
             op_names.add(name)
+        requires_ip = op.get("requires_ip")
+        if requires_ip is not None and not (isinstance(requires_ip, str) and _IDENT.match(requires_ip)):
+            errors.append(f"{where}.requires_ip: custom_ips[].register_map anahtarı (ör. jesd204c) olmalı")
         returns = op.get("returns")
         if returns is not None and not _RETURNS.match(str(returns)):
             errors.append(f"{where}.returns: uint8/uint16/uint32/int32 veya 'uint16[8]' biçiminde olmalı (şu an: {returns!r})")

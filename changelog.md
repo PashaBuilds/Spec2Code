@@ -3,6 +3,18 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.232 - 2026-09-14
+
+- **AFE7900 surucusu (TI AFE79xx C API v2.9)**: `AFE7900` parcasi sematige eklenince TI kutuphanesi
+  `drivers/vendor/afe79xx/` altina kopyalanir (QC disi), HAL koprusu (`tiAfe79_baseFunc.c` ->
+  `afe7900Hal*`: 24-bit SPI, usleep, dbg_printf) ve Latte hex config dizisi (`afe7900_config.c`,
+  `afeDeviceBringupFromMem`) uretilir. Ajan/CIT/shell op'lari: init, sicaklik, PLL kilit, saglik,
+  DAC-JESD-RX link/alarm, SYSREF, adcDacSync, JESD reset, SerDes durumu. Spec'te JESD204C IP'si varsa
+  `drivers/ip/jesdlink.c` (PG242 reset ver/kaldir + timeout'lu durum; 64B/66B ya da 8B/10B tek akis)
+  ve `jesd_link_bringup` / `jesd_link_status_read` op'lari da uretilir. Sematik cihaz ayarinda yeni
+  "AFE config (Latte hex)" editoru. Vendor kaynak ve kullanici HAL'i "sdtm" adi icermez. Vitis
+  workspace betigi TI kaynaklari sahnelenince `libm`'i (`app config -add libraries m`) ekler.
+
 ## v0.1.231 - 2026-09-13
 
 - Duzeltme: sayfa yenilenince Generate/Kod Gorunumu'ndeki uretilen dosyalar kayboluyordu (is sonucu

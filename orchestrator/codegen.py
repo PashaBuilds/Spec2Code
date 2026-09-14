@@ -20,7 +20,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
 from hostplat.paths import data_root
-from orchestrator import boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
+from orchestrator import afe79, boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
 from orchestrator.bsp_flow import is_sdt, lookup_arg, lookup_suffix, with_sdt_instances
 from orchestrator.device_profiles import registry as device_profiles
 
@@ -1189,7 +1189,7 @@ def _c_string_escape(value: str) -> str:
 
 def _testbench_risk(op_name: str) -> str:
     lowered = op_name.lower()
-    if any(token in lowered for token in ("erase", "program", "write", "init", "config", "reset")):
+    if any(token in lowered for token in ("erase", "program", "write", "init", "config", "reset", "bringup", "sync")):
         return "risky"
     return "safe"
 
@@ -7037,7 +7037,7 @@ def testbench_harness_paths(spec: dict, out_dir: Path, *, root: Path = _ROOT) ->
 
 
 def write_testbench_harness(spec: dict, out_dir: Path, *, root: Path = _ROOT) -> list[str]:
-    get_descriptor = make_descriptor_loader(root)
+    get_descriptor = afe79.filtered_descriptor_loader(spec, make_descriptor_loader(root))
     paths = testbench_harness_paths(spec, out_dir, root=root)
     contents = [
         _apply_default_identifier_style(_testbench_protocol_header()),
@@ -7216,7 +7216,7 @@ def generate(
     spec = with_sdt_instances({**spec, "coding_standard_ref": _DEFAULT_RULESET_REF})
     _remove_retired_boardless_artifacts(out_dir, spec["project"]["name"])
     env = _env()
-    get_descriptor = make_descriptor_loader(root)
+    get_descriptor = afe79.filtered_descriptor_loader(spec, make_descriptor_loader(root))
     units = cmodel.build_units(spec, get_descriptor)
 
     gen_opts = spec.get("generation_options", {})
@@ -7315,6 +7315,12 @@ def generate(
     if ip_written:
         emit({"event": "codegen.known_ip", "files": len(ip_written)})
         written.extend(ip_written)
+    # TI AFE79xx (AFE7900): vendor C API kopyasi + HAL koprusu + Latte config dizisi + jesdlink.
+    afe_written = afe79.write_support_files(spec, out_dir, get_descriptor, hio.write_output,
+                                            _apply_default_identifier_style)
+    if afe_written:
+        emit({"event": "codegen.afe79", "files": len(afe_written)})
+        written.extend(afe_written)
     # CIT entegre katmani (cit/): HAL + entegre CIT + sistem toplayici. Mevcut
     # drivers/ ve tests/ ciktilarina DOKUNMAZ, yalniz eklenir (tasarim:
     # docs/superpowers/specs/2026-09-05-cit-hal-layer-design.md).

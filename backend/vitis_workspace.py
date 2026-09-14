@@ -1187,6 +1187,16 @@ def staged_header_dirs(staged_files: list[str]) -> list[str]:
     return sorted(dirs)
 
 
+def staged_link_libraries(staged_files: list[str]) -> list[str]:
+    """Sahnelenen kaynaklarin gerektirdigi baglayici kutuphaneleri (`app config -add libraries`).
+
+    TI AFE79xx C API (drivers/vendor/afe79xx) ceil/log10/round kullanir -> libm.
+    """
+    if any(_posix_path(rel).startswith("drivers/vendor/afe79xx") for rel in staged_files):
+        return ["m"]
+    return []
+
+
 def _tcl_path(path: Path) -> str:
     text = str(path.resolve()).replace("\\", "/").replace("}", "\\}")
     return "{" + text + "}"
@@ -2006,6 +2016,9 @@ def _render_shell_app_create_tcl(*, with_system: bool) -> str:
         "                catch {app config -name $shell_app_name -add include-path $spec2code_inc_path}\n"
         "            }\n"
         "        }\n"
+        "        foreach spec2code_lib $shell_libraries {\n"
+        "            catch {app config -name $shell_app_name -add libraries $spec2code_lib}\n"
+        "        }\n"
         "        spec2codePatchLinkerStack [file join $workspace_path $shell_app_name src lscript.ld]\n"
         "    } spec2code_shell_err]} {\n"
         f"        {_tcl_put('WARNING: shell application sources could not be imported: $spec2code_shell_err')}"
@@ -2059,11 +2072,13 @@ def render_xsct_script(
     shell_app_name: str = "",
     shell_source_root: Path | None = None,
     shell_include_dirs: list[str] | None = None,
+    source_libraries: list[str] | None = None,
 ) -> str:
     shell_vars = (
         f"set shell_app_name {{{shell_app_name}}}\n"
         f"set shell_source_path {_tcl_path(shell_source_root) if shell_source_root is not None else '{}'}\n"
         f"set shell_include_dirs [list {_tcl_list(shell_include_dirs or [])}]\n"
+        f"set shell_libraries [list {_tcl_list(staged_link_libraries(shell_include_dirs or []))}]\n"
     )
     lwip_flag = "1" if enable_lwip else "0"
     lwip_api_mode = vitis_lwip_api_mode(os_name) if enable_lwip else ""
@@ -2071,6 +2086,7 @@ def render_xsct_script(
     custom_ip_instances = custom_ip_instances or []
     source_include_dirs = source_include_dirs or []
     include_dir_list = _tcl_list(source_include_dirs)
+    library_list = _tcl_list(source_libraries or [])
     custom_ip_list = _tcl_list(custom_ip_instances)
     bsp_config_script = (
         "proc spec2codeNormalizeCustomIpToken {value} {\n"
@@ -2473,6 +2489,15 @@ def render_xsct_script(
         f"        {_tcl_put('application include path added: $spec2code_inc_path')}"
         "    }\n"
         "}\n\n"
+        "# Baglayici kutuphaneleri (or. TI AFE79xx C API icin libm): idempotent, hata durdurmaz.\n"
+        f"set spec2code_source_libraries [list {library_list}]\n"
+        "foreach spec2code_lib $spec2code_source_libraries {\n"
+        "    if {[catch {app config -name $app_name -add libraries $spec2code_lib} spec2code_lib_err]} {\n"
+        f"        {_tcl_put('WARNING: library not added ($spec2code_lib): $spec2code_lib_err')}"
+        "    } else {\n"
+        f"        {_tcl_put('application link library added: $spec2code_lib')}"
+        "    }\n"
+        "}\n\n"
         "# Sanal cihaz altyapisi (tests/sim): Xilinx veri-yolu cagrilarini araya alan baslik\n"
         "# her ceviri birimine -include ile girer (yalniz test bench derlemesi).\n"
         "if {[lsearch -exact $spec2code_source_include_dirs {tests/sim}] >= 0} {\n"
@@ -2526,6 +2551,7 @@ def render_xsct_update_script(
     shell_app_name: str = "",
     shell_source_root: Path | None = None,
     shell_include_dirs: list[str] | None = None,
+    source_libraries: list[str] | None = None,
 ) -> str:
     """XSCT script for the sources-only update flow.
 
@@ -2535,6 +2561,7 @@ def render_xsct_update_script(
     removed host-side before this script runs (see _blocking_update).
     """
     include_dir_list = _tcl_list(source_include_dirs or [])
+    library_list = _tcl_list(source_libraries or [])
     return (
         "# Spec2Code generated Vitis source-update script.\n"
         "# Rebuilds the existing application with refreshed generated sources.\n"
@@ -2546,7 +2573,8 @@ def render_xsct_update_script(
         f"set app_name {{{app_name}}}\n"
         f"set shell_app_name {{{shell_app_name}}}\n"
         f"set shell_source_path {_tcl_path(shell_source_root) if shell_source_root is not None else '{}'}\n"
-        f"set shell_include_dirs [list {_tcl_list(shell_include_dirs or [])}]\n\n"
+        f"set shell_include_dirs [list {_tcl_list(shell_include_dirs or [])}]\n"
+        f"set shell_libraries [list {_tcl_list(staged_link_libraries(shell_include_dirs or []))}]\n\n"
         "proc spec2codeEnsureApplicationElf {} {\n"
         "    global workspace_path app_name\n"
         "    set spec2code_expected_elf [file join $workspace_path $app_name Debug ${app_name}.elf]\n"
@@ -2595,6 +2623,15 @@ def render_xsct_update_script(
         f"        {_tcl_put('include path not added (probably already present): $spec2code_inc_path')}"
         "    } else {\n"
         f"        {_tcl_put('application include path added: $spec2code_inc_path')}"
+        "    }\n"
+        "}\n\n"
+        "# Baglayici kutuphaneleri (or. TI AFE79xx C API icin libm): idempotent, hata durdurmaz.\n"
+        f"set spec2code_source_libraries [list {library_list}]\n"
+        "foreach spec2code_lib $spec2code_source_libraries {\n"
+        "    if {[catch {app config -name $app_name -add libraries $spec2code_lib} spec2code_lib_err]} {\n"
+        f"        {_tcl_put('WARNING: library not added ($spec2code_lib): $spec2code_lib_err')}"
+        "    } else {\n"
+        f"        {_tcl_put('application link library added: $spec2code_lib')}"
         "    }\n"
         "}\n\n"
         "# Sanal cihaz altyapisi (tests/sim): Xilinx veri-yolu cagrilarini araya alan baslik\n"
@@ -3045,6 +3082,7 @@ class VitisWorkspaceJobManager:
                 shell_app_name=shell_app_name,
                 shell_source_root=shell_source_root if shell_app_name else None,
                 shell_include_dirs=staged_header_dirs(shell_staged_files),
+                source_libraries=staged_link_libraries(staged_files),
             ),
             encoding="utf-8",
         )
@@ -3421,6 +3459,7 @@ class VitisWorkspaceJobManager:
                 shell_app_name=shell_app_name,
                 shell_source_root=shell_source_root if shell_app_name else None,
                 shell_include_dirs=staged_header_dirs(shell_staged_files),
+                source_libraries=staged_link_libraries(staged_files),
             ),
             encoding="utf-8",
         )

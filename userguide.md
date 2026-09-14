@@ -709,6 +709,25 @@ cihazlari ilklendir" ya da Bring-up kos.
   surucusu de uret" kutucugu (`generation_options.controller_register_maps`) isaretliyse
   `drivers/ip/<id>_regs.h/.c` ve shell `ip_<id> rd|wr|dump` komutu da uretilir; varsayilan kapali.
   PS cevre birimleri (XIicPs/XSpiPs/XUartPs) icin PG haritasi tanimli degildir.
+- **AFE7900 (TI AFE79xx C API v2.9)**: sematige `AFE7900` parcasi (SPI, CS secimi) eklenince surucu
+  register/adim modeliyle degil TI'in C API'siyle uretilir (`orchestrator/afe79.py`). TI kaynaklari
+  (`backend/data/vendor/afe79xx`, TI Text File License) ciktida `drivers/vendor/afe79xx/` altina aynen
+  kopyalanir ve QC denetimi disinda tutulur; TI'in kullanici alani HAL dosyasi (`tiAfe79_baseFunc.c`)
+  Spec2Code tarafindan uretilip `afe7900Hal*` koprusune baglanir (24-bit SPI cerceve: bit23 R/W=1 okuma,
+  15-bit adres, 8-bit veri; `usleep` bekleme; `dbg_printf` log). Latte'nin urettigi hex (satir basina bir
+  `0x11223344,` sozcugu, 8-9k satir) cihaz ayarindaki "AFE config (Latte hex)" alanina yapistirilir,
+  `drivers/afe7900_config.c` dizisine gomulur ve `afe7900DeviceInit` bunu TI `afeDeviceBringupFromMem`
+  ile uygular (sozcuk yoksa `S2C-CODEGEN-AFE-001`). Ajan op'lari: `device_init`, `temperature_read`,
+  `pll_lock_read` (3 = kilitli), `health_read` (0 = tamam), `jesd_rx_link_status_read` (0xA = AB+CD up),
+  `jesd_rx_alarms_read/clear`, `sysref_send`, `adc_dac_sync`, `jesd_reset_toggle`,
+  `serdes_link_status_read`. Spec'te `register_map: jesd204c` IP'ler varsa ek olarak `drivers/ip/jesdlink.c`
+  (PG242: cekirdek reset 1 = ver, 0 = kaldir ve reset/GT mesgul bitlerinin dusmesini timeout ile bekle;
+  XSA `C_ENCODING`'e gore tek akis: 64B/66B'de SH+MB lock, 8B/10B'de CGS+SYNC; lane hata sayaclari) ve
+  `jesd_link_bringup` / `jesd_link_status_read` op'lari uretilir. Bring-up sirasi: FPGA resetleri
+  verilir -> AFE init -> resetler kaldirilir -> AFE JESD reset + adcDacSync -> FPGA RX link (timeout)
+  -> AFE DAC-JESD-RX link/alarm/PLL; durum sozcugu bit0 FPGA RX, bit1 FPGA TX, bit2 AFE RX link,
+  bit3 alarm yok, bit4 PLL, bit7 hepsi tamam. Bu surumde tek AFE (`S2C-CODEGEN-AFE-002`); LMK/LMX
+  saat agaci kapsam disi; SPI cercevesi ve link sirasi gercek AFE7900 kartinda dogrulanacaktir.
 - **SDT'de PS denetleyici adlari**: Vitis Unified `xparameters.h` PS cevre birimlerini yalniz
   kanonik surucu adiyla verir (`XPAR_XIICPS_0_BASEADDR`; `XPAR_PSU_I2C_0_*` yoktur). Uretim
   `bsp_flow = sdt` iken PS denetleyicilerini surucu + taban adres sirasina gore kanonik ada

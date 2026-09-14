@@ -100,11 +100,15 @@ def _run_qc_rounds(
     # Kok dizindeki main.c/main.h (shell uygulamasinin ana programi) de kapidan gecer.
     root_c = [p for p in (out_dir / "main.c",) if p.is_file()]
     root_h = [p for p in (out_dir / "main.h",) if p.is_file()]
-    c_files = sorted([*drivers_dir.rglob("*.c"), *tests_dir.glob("*.c"),
+    # drivers/vendor/**: ucuncu parti kaynak (TI AFE79xx C API); kendi standardi, QC denetimi disi.
+    def _own(path: Path) -> bool:
+        return "vendor" not in path.relative_to(out_dir).parts
+
+    c_files = sorted([*filter(_own, drivers_dir.rglob("*.c")), *tests_dir.glob("*.c"),
                       *[f for d in layer_dirs for f in d.rglob("*.c")], *root_c])
     fmt_files = sorted([
-        *drivers_dir.rglob("*.c"),
-        *drivers_dir.rglob("*.h"),
+        *filter(_own, drivers_dir.rglob("*.c")),
+        *filter(_own, drivers_dir.rglob("*.h")),
         *tests_dir.glob("*.c"),
         *tests_dir.glob("*.h"),
         *[f for d in layer_dirs for f in d.rglob("*.c")],

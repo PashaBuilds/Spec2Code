@@ -1,0 +1,100 @@
+descriptor_version: "1.0"
+part: "AFE7900"
+manufacturer: "Texas Instruments"
+summary: "4T4R RF on uc (ADC/DAC + JESD204B/C); TI AFE79xx C API v2.9 ile Latte config'inden bring-up"
+# Bu descriptor register/adim modeliyle DEGIL, TI'in C API'siyle calisir: orchestrator/afe79.py
+# vendor kaynaklarini (backend/data/vendor/afe79xx) ciktiya kopyalar, HAL koprusunu ve
+# <mod>DeviceInit/<mod>TemperatureRead ... fonksiyonlarini uretir. `operations` yalniz ajan/CIT/shell
+# icin op adi + donus tipi sozlesmesidir (adimlar `vendor_call`).
+vendor_api: afe79xx
+transport:
+  type: spi
+  byte_order: big
+  register_model:
+    ticspro_words: false
+    frame_bits: 24
+    address_bits: 15
+    address_shift: 8
+    data_bits: 8
+    rw_bit: 23
+    write_value: 0
+    spi_mode: 0
+    max_sck_hz: 20000000
+config_schema:
+  afe_config_words:
+    kind: hex_words
+    description: "Latte cikisi: satir basina bir 32-bit sozcuk (0x11223344,), 8-9k satir; sirasi degistirilmez"
+  log_level:
+    kind: integer
+    default: 0
+    description: "TI AFE log seviyesi: 0 ERROR, 1 WARNING, 2 INFO, 3 SPILOG, 4 DEBUG"
+  tdd_override:
+    kind: boolean
+    default: true
+    description: "bring-up sonrasi overrideTdd(rx=15, fb=0, tx=15, enable=1)"
+registers: []
+operations:
+  - name: device_init
+    description: "SPI kur, TI API baglamini bagla, Latte config ile afeDeviceBringupFromMem (+ overrideTdd)."
+    steps:
+      - { op: vendor_call, function: afeDeviceBringupFromMem }
+  - name: temperature_read
+    returns: "int32"
+    description: "Cihaz sicakligi (derece C)."
+    steps:
+      - { op: vendor_call, function: getDeviceTemp }
+  - name: pll_lock_read
+    returns: "uint8"
+    description: "PLL kilit durumu (3 = kilitli ve kilit kaybi yok)."
+    steps:
+      - { op: vendor_call, function: checkPllLockStatus }
+  - name: health_read
+    returns: "uint16"
+    description: "Cihaz sagligi bit maskesi (0 = tamam)."
+    steps:
+      - { op: vendor_call, function: checkDeviceHealth }
+  - name: jesd_rx_link_status_read
+    returns: "uint16"
+    description: "AFE DAC-JESD-RX (FPGA TX -> AFE) link durumu; 0xA = AB ve CD up."
+    steps:
+      - { op: vendor_call, function: getJesdRxLinkStatus }
+  - name: jesd_rx_alarms_read
+    returns: "uint8"
+    description: "AFE DAC-JESD-RX alarm bitleri (0 = temiz)."
+    steps:
+      - { op: vendor_call, function: getJesdRxAlarms }
+  - name: jesd_rx_alarms_clear
+    description: "AFE DAC-JESD-RX alarmlarini temizle."
+    steps:
+      - { op: vendor_call, function: clearJesdRxAlarms }
+  - name: sysref_send
+    description: "AFE'ye yeni pin SYSREF kabulu."
+    steps:
+      - { op: vendor_call, function: sendSysref }
+  - name: adc_dac_sync
+    description: "AFE JESD bloklarini resetle, SYSREF ile yeniden senkronla, DAC-JESD-RX linkini dogrula."
+    steps:
+      - { op: vendor_call, function: adcDacSync }
+  - name: jesd_reset_toggle
+    description: "AFE DAC-JESD ve ADC-JESD bloklarina tam reset darbesi."
+    steps:
+      - { op: vendor_call, function: jesdRxFullResetToggle }
+  - name: serdes_link_status_read
+    returns: "uint8"
+    description: "SerDes RX lane kilit durumu (tum lane'ler)."
+    steps:
+      - { op: vendor_call, function: pollSerdesLinkStatusAllLanes }
+  - name: jesd_link_bringup
+    returns: "uint16"
+    requires_ip: jesd204c
+    description: "FPGA JESD204C cekirdekleri + AFE icin tam link bring-up (reset ver -> AFE init -> reset kaldir -> senkron -> durum)."
+    steps:
+      - { op: vendor_call, function: jesdLinkBringup }
+  - name: jesd_link_status_read
+    returns: "uint16"
+    requires_ip: jesd204c
+    description: "Anlik JESD link durumu: bit0 FPGA RX, bit1 FPGA TX, bit2 AFE RX link, bit3 alarm yok, bit4 PLL, bit7 hepsi."
+    steps:
+      - { op: vendor_call, function: jesdLinkStatusRead }
+test_hints:
+  self_test: { description: "AFE bring-up + sicaklik/PLL/saglik okumalari." }

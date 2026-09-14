@@ -337,6 +337,26 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("importsources -name $app_name -path $source_path", script)
         self.assertIn("app build -name $app_name", script)
 
+    def test_xsct_script_adds_link_libraries_for_ti_afe_vendor_sources(self) -> None:
+        from backend.vitis_workspace import staged_link_libraries
+        self.assertEqual(staged_link_libraries(["drivers/tmp101.c"]), [])
+        self.assertEqual(staged_link_libraries(["drivers/vendor/afe79xx/Src/tiAfe79_pap.c"]), ["m"])
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"), xsa_path=Path("/tmp/board.xsa"), source_root=Path("/tmp/src"),
+            platform_name="p", system_name="s", domain_name="d", app_name="my_app",
+            processor="psu_cortexa53_0", os_name="standalone", source_libraries=["m"],
+        )
+        self.assertIn("set spec2code_source_libraries [list {m}]", script)
+        self.assertIn("app config -name $app_name -add libraries $spec2code_lib", script)
+        shell = render_xsct_script(
+            workspace_path=Path("/tmp/ws"), xsa_path=Path("/tmp/board.xsa"), source_root=Path("/tmp/src"),
+            platform_name="p", system_name="s", domain_name="d", app_name="my_app",
+            processor="psu_cortexa53_0", os_name="standalone", shell_app_name="my_app_shell",
+            shell_source_root=Path("/tmp/shell"), shell_include_dirs=["drivers", "drivers/vendor/afe79xx/Include"],
+        )
+        self.assertIn("set shell_libraries [list {m}]", shell)
+        self.assertIn("app config -name $shell_app_name -add libraries $spec2code_lib", shell)
+
     def test_xsct_script_enables_lwip_library_when_requested(self) -> None:
         script = render_xsct_script(
             workspace_path=Path("/tmp/ws"),

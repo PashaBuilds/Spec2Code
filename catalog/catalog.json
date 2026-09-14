@@ -257,6 +257,19 @@
         "CLEAR_STATUS",
         "0x30"
       ]
+    },
+    {
+      "part": "AFE7900",
+      "transport": "spi",
+      "status": "builtin",
+      "descriptor": "descriptors/afe7900.yaml",
+      "summary": "TI 4T4R RF on uc (ADC/DAC + JESD204B/C); TI AFE79xx C API v2.9 + Latte config ile bring-up",
+      "match_tokens": [
+        "AFE7900",
+        "AFE79",
+        "AFE79xx",
+        "Latte"
+      ]
     }
   ]
 }

@@ -834,12 +834,16 @@ export interface DescriptorOperation {
   name: string;
   description?: string;
   returns?: string;
+  /** Op yalniz spec'te bu register_map'li custom IP varsa uretilir (AFE7900 jesd_link_bringup -> jesd204c). */
+  requires_ip?: string;
   /** Birim dönüşümü; `scale_den_config` kart verisi anahtarı (device.config) ister. */
   convert?: Record<string, unknown>;
   steps?: Array<Record<string, unknown>>;
 }
 export interface DeviceDescriptor {
   part: string;
+  /** Vendor C API tabanli surucu (afe79xx): register/adim modeli yok, orchestrator/afe79.py uretir. */
+  vendor_api?: string;
   transport: {
     type: string;
     address_width?: number;

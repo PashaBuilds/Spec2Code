@@ -2722,7 +2722,14 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
         descriptor = get_descriptor(device.get("descriptor_ref") or device["part"])
         transport = descriptor.get("transport", {}).get("type")
 
-        if transport == "i2c":
+        if str(descriptor.get("vendor_api", "")).lower() == "afe79xx":
+            # TI AFE79xx C API tabanli surucu (orchestrator/afe79.py); register/adim modeli yok.
+            from orchestrator import afe79
+            unit = afe79.device_unit(device, controller, descriptor, module=modules.get(device["id"]),
+                                     sdt=sdt, has_jesd=bool(afe79.jesd_ips(spec)))
+            if "self_test" in (device.get("tests_requested") or []):
+                unit.test = afe79.self_test_unit(unit, controller, runtime)
+        elif transport == "i2c":
             mux_module, mux_channel = spec_switch_module, None
             via = attach.get("via_mux")
             if via and muxes.get(via["mux_id"]) is None:
@@ -2766,7 +2773,7 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
 
         unit.board_id = boards.board_id_of(device)
         # tests/<mod>_test.* yalniz istenirse (tests_requested self_test); ajan `self_test` op'u da ayni kosula bagli.
-        if "self_test" in (device.get("tests_requested") or []):
+        if "self_test" in (device.get("tests_requested") or []) and unit.test is None:
             unit.test = _test_unit(unit, device, controller, runtime)
         units.append(unit)
 

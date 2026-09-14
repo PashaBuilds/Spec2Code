@@ -433,6 +433,94 @@
       "dir": "req",
       "body": "request_std",
       "aciklama": "4 KB subsector silme."
+    },
+    {
+      "id": "0x53430421",
+      "name": "PLL_LOCK_READ",
+      "op": "pll_lock_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE PLL kilit durumu (3 = kilitli)."
+    },
+    {
+      "id": "0x53430422",
+      "name": "HEALTH_READ",
+      "op": "health_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE cihaz sagligi bit maskesi (0 = tamam)."
+    },
+    {
+      "id": "0x53430423",
+      "name": "JESD_RX_LINK_STATUS_READ",
+      "op": "jesd_rx_link_status_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE DAC-JESD-RX link durumu (0xA = AB+CD up)."
+    },
+    {
+      "id": "0x53430424",
+      "name": "JESD_RX_ALARMS_READ",
+      "op": "jesd_rx_alarms_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE DAC-JESD-RX alarm bitleri."
+    },
+    {
+      "id": "0x53430425",
+      "name": "JESD_RX_ALARMS_CLEAR",
+      "op": "jesd_rx_alarms_clear",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE DAC-JESD-RX alarmlarini temizle."
+    },
+    {
+      "id": "0x53430426",
+      "name": "SYSREF_SEND",
+      "op": "sysref_send",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE'ye pin SYSREF kabulu."
+    },
+    {
+      "id": "0x53430427",
+      "name": "ADC_DAC_SYNC",
+      "op": "adc_dac_sync",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE JESD bloklari reset + SYSREF senkron."
+    },
+    {
+      "id": "0x53430428",
+      "name": "JESD_RESET_TOGGLE",
+      "op": "jesd_reset_toggle",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE JESD bloklarina tam reset darbesi."
+    },
+    {
+      "id": "0x53430429",
+      "name": "SERDES_LINK_STATUS_READ",
+      "op": "serdes_link_status_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "AFE SerDes lane kilit durumu."
+    },
+    {
+      "id": "0x5343042A",
+      "name": "JESD_LINK_BRINGUP",
+      "op": "jesd_link_bringup",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "FPGA JESD204C + AFE tam link bring-up."
+    },
+    {
+      "id": "0x5343042B",
+      "name": "JESD_LINK_STATUS_READ",
+      "op": "jesd_link_status_read",
+      "dir": "req",
+      "body": "request_std",
+      "aciklama": "Anlik JESD link durumu (FPGA + AFE)."
     }
   ]
 }

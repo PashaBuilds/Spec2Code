@@ -4,6 +4,7 @@ import GenericConfigEditor from "@/features/device-config/GenericConfigEditor";
 import Ltc2991Editor, { defaultLtc2991Config } from "@/features/device-config/Ltc2991Editor";
 import InitSequenceBuilder from "@/features/device-config/InitSequenceBuilder";
 import TicsProArrayEditor from "@/features/device-config/TicsProArrayEditor";
+import AfeConfigEditor from "@/features/device-config/AfeConfigEditor";
 import type { ComponentType } from "react";
 
 type EditorProps = {
@@ -14,6 +15,7 @@ type EditorProps = {
 
 const EDITORS: Record<string, ComponentType<EditorProps>> = {
   LTC2991: Ltc2991Editor,
+  AFE7900: AfeConfigEditor,
 };
 
 export function defaultDeviceConfig(part: string): Record<string, unknown> | undefined {
