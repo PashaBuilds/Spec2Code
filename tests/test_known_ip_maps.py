@@ -169,24 +169,26 @@ class KnownIpCodegenTests(unittest.TestCase):
             readme = (out / "README.md").read_text(encoding="utf-8")
             self.assertIn("ip_jesd204c_rx", readme)
 
-    def test_controller_register_maps_opt_in(self) -> None:
+    def test_controller_register_maps_always_on(self) -> None:
+        # Kullanici istegi 2026-09-16: PG haritasi surucusu kutucuksuz, her zaman uretilir; eski anahtar etkisiz.
         spec = load_sample_spec("axi_map_gen")
         spec["project"]["testbench_transport"] = "uart"
         add_zynqmp_ps_uart(spec)
         spec["controllers"].append({"id": "pl_spi_0", "type": "spi", "instance": "XPAR_AXI_QUAD_SPI_0", "base_address": "0xA0000000",
                                     "driver": "XSpi", "zone": "pl", "source": "xsa"})
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            codegen.generate(spec, out)
-            self.assertFalse((out / "drivers" / "ip" / "pl_spi_0_regs.h").exists())   # varsayilan: kapali
-        spec["generation_options"]["controller_register_maps"] = True
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            codegen.generate(spec, out)
-            header = (out / "drivers" / "ip" / "pl_spi_0_regs.h").read_text(encoding="utf-8")
-            self.assertIn("PL_SPI_0_SPICR", header)
-            shell = (out / "shell" / "shell_user_commands.c").read_text(encoding="utf-8")
-            self.assertIn('{"ip_pl_spi_0", shellUserPlSpi0,', shell)
+        for legacy in (None, False, True):
+            spec["generation_options"].pop("controller_register_maps", None)
+            if legacy is not None:
+                spec["generation_options"]["controller_register_maps"] = legacy
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                codegen.generate(spec, out)
+                header = (out / "drivers" / "ip" / "pl_spi_0_regs.h").read_text(encoding="utf-8")
+                self.assertIn("PL_SPI_0_SPICR", header)
+                shell = (out / "shell" / "shell_user_commands.c").read_text(encoding="utf-8")
+                self.assertIn('{"ip_pl_spi_0", shellUserPlSpi0,', shell)
+                # PS denetleyicisi (XUartPs) icin PG haritasi yok
+                self.assertFalse(any(p.name.endswith("_regs.h") and "uart" in p.name for p in (out / "drivers" / "ip").iterdir()))
 
 
 if __name__ == "__main__":

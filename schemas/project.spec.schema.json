@@ -508,7 +508,7 @@
         "controller_register_maps": {
           "type": "boolean",
           "default": false,
-          "description": "AXI IIC / AXI Quad SPI / AXI UARTLite denetleyicileri icin PG register haritasi surucusu (drivers/ip/<id>_regs.h/.c) ve shell `ip_<id>` komutu da uretilsin (ayiklama)."
+          "description": "Eski anahtar (v0.1.238 ve oncesi), etkisiz: AXI IIC / AXI Quad SPI / AXI UARTLite PG register haritasi surucusu (drivers/ip/<id>_regs.h/.c) ve shell `ip_<id>` komutu artik her zaman uretilir."
         },
         "qc_max_rounds": {
           "type": "integer",

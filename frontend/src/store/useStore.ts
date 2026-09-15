@@ -59,9 +59,6 @@ interface StoreState {
   unmatched: { instance: string; base_address: string; reason: string }[];
   /** XSA'dan gelen custom PL IP'ler; spec'e `custom_ips` olarak gider, shell komutu uretir. */
   customIps: CustomIp[];
-  /** generation_options.controller_register_maps: AXI IIC/SPI/UARTLite icin PG haritasi surucusu + shell komutu. */
-  controllerRegisterMaps: boolean;
-  setControllerRegisterMaps: (on: boolean) => void;
   muxes: Mux[];
   devices: Device[];
   /** Fiziksel kartlar. BOS = kart katmani kapali (kanvas ve uretilen cikti
@@ -244,8 +241,6 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   controllers: [],
   unmatched: [],
   customIps: [],
-  controllerRegisterMaps: false,
-  setControllerRegisterMaps: (on) => set({ controllerRegisterMaps: on }),
   muxes: [],
   devices: [],
   boards: [],
@@ -323,7 +318,6 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       boardSizes: {},
       unmatched: [],
       customIps: spec.custom_ips ?? [],
-      controllerRegisterMaps: !!spec.generation_options?.controller_register_maps,
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
       job: { id: null, status: "idle", events: [], files: [], qc: null },
@@ -483,7 +477,6 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
         qc_max_rounds: 3,
         include_doxygen: false,
         line_ending: "crlf",
-        ...(s.controllerRegisterMaps ? { controller_register_maps: true } : {}),
       },
     };
     if (s.customIps.length) spec.custom_ips = s.customIps;
@@ -512,7 +505,6 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     controllers: s.controllers,
     unmatched: s.unmatched,
     customIps: s.customIps,
-    controllerRegisterMaps: s.controllerRegisterMaps,
     muxes: s.muxes,
     devices: s.devices,
     boards: s.boards,

@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.239 - 2026-09-16
+
+- Shell komutlari islevine gore ayri dosyalarda: `shell_cmd_cit.c` (cit), `shell_cmd_i2c.c` (i2c_search/read/write/bus),
+  `shell_cmd_mem.c` (mem + custom IP dump/read/write), `shell_cmd_sys.c` (sdl, help), `shell_cmd_mod.c` (ornek mod),
+  `shell_cmd_args.c` (ortak `shellUserParseNumber`); her grubun `.h`'si isleyicileri bildirir.
+  `shell_user_commands.c` yalniz komut tablosunu tutar.
+- AXI IIC / Quad SPI / UARTLite PG register haritasi surucusu (`drivers/ip/<id>_regs.h/.c`) ve shell `ip_<id>`
+  komutu her zaman uretilir; Setup'taki kutucuk kaldirildi (`generation_options.controller_register_maps`
+  eski spec'lerde kabul edilir, etkisizdir).
+
 ## v0.1.238 - 2026-09-16
 
 - Setup: Test bench agi alanlari (IP, alt ag maskesi, gateway, MAC, TCP port) alt alta; yan yana dizilimde

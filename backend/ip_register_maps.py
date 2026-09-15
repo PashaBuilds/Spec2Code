@@ -290,7 +290,7 @@ def jesd204c_document(*, name: str, base_address: str, parameters: dict | None =
             "name": name,
             "base_address": base_address,
             "description": (f"AMD JESD204C v4.x (PG242) {direction.upper()} cekirdegi, {lanes} lane, {link_layer.upper()}, "
-                            f"alt sinif {params['subclass']} - Spec2Code bilinen IP haritasi (XSA'dan otomatik)."),
+                            f"alt sinif {params['subclass']} - bilinen IP haritasi (XSA'dan otomatik)."),
             "registers": _with_reserved_fillers(regs),
         }],
     }
@@ -350,7 +350,7 @@ def axi_iic_document(*, name: str, base_address: str) -> dict:
         _reg("THDDAT", 0x144, "[RW] Hold time DATA", [("VALUE", "31:0", "")]),
     ]
     return {"version": 1, "maps": [{"name": name, "base_address": base_address,
-                                    "description": "AMD AXI IIC v2.1 (PG090) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "description": "AMD AXI IIC v2.1 (PG090) - bilinen surucu haritasi (ayiklama).",
                                     "registers": _fill(regs)}]}
 
 
@@ -381,7 +381,7 @@ def axi_quad_spi_document(*, name: str, base_address: str) -> dict:
         _reg("RX_FIFO_OCY", 0x078, "[RO] RX FIFO doluluk - 1", [("OCY", "31:0", "")]),
     ]
     return {"version": 1, "maps": [{"name": name, "base_address": base_address,
-                                    "description": "AMD AXI Quad SPI v3.2 (PG153) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "description": "AMD AXI Quad SPI v3.2 (PG153) - bilinen surucu haritasi (ayiklama).",
                                     "registers": _fill(regs)}]}
 
 
@@ -397,7 +397,7 @@ def axi_uartlite_document(*, name: str, base_address: str) -> dict:
         _reg("CTRL_REG", 0x00C, "[WO] Kontrol", [("RST_TX_FIFO", "0", ""), ("RST_RX_FIFO", "1", ""), ("ENABLE_INTR", "4", "")]),
     ]
     return {"version": 1, "maps": [{"name": name, "base_address": base_address,
-                                    "description": "AMD AXI UARTLite v2.0 (PG142) - Spec2Code bilinen surucu haritasi (ayiklama).",
+                                    "description": "AMD AXI UARTLite v2.0 (PG142) - bilinen surucu haritasi (ayiklama).",
                                     "registers": _fill(regs)}]}
 
 

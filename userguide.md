@@ -483,7 +483,7 @@ XShell/PuTTY'de (BSP stdout/stdin UART'i, 115200) istem `> ` gelir. Komutlar:
 | `<custom_ip> dump` / `read <n>` / `write <n> <value>` | XSA'daki her custom IP icin OTOMATIK uretilir (komut adi = IP instance adi, or. `mem_pcie_intr_0`). `n` register numarasi (0'dan, her biri 4 bayt: adres = base + 4n); XSA adres araligiyla sinirlidir, disina cikan `out of range`. `dump` tum araligi 4'er bayt basar, `write` yazdiktan sonra geri okur |
 | `sdl <level>` | set debug level: `error` `warning` `msg` `info` `trace` (ya da 0..5); argümansiz mevcut seviye |
 | `help` | komut listesi (tablodan) |
-| `mod <x> <y>` | GPIO loopback test IP'si (14 Samtec konnektor): `open` reg x <= desen (`reg0` 0x01010101 ... `reg7` 0x08080808), `close` 0, **`test`** = open + AXI INTC kesmesini bekle (1 s, gelmezse TIMEOUT) + reg8..reg21'deki 14 konnektor durumunu bit bit renkli bas (0 yesil OK, 1 kirmizi HATA, satir sonunda hata sayisi, altta genel OK/NOK) + close. Kesme isleyicisi yalniz `volatile` bayrak kurar. `shell_user_commands.c` basinda `SHELL_USER_MOD_BASEADDR` (XPAR_<IP>_BASEADDR) ve `SHELL_USER_MOD_INTR_ID` (XPAR_INTC_0_<IP>_<PORT>_VEC_ID) ayarlanir; tasarimda AXI INTC yoksa `test` bunu soyler |
+| `mod <x> <y>` | GPIO loopback test IP'si (14 Samtec konnektor): `open` reg x <= desen (`reg0` 0x01010101 ... `reg7` 0x08080808), `close` 0, **`test`** = open + AXI INTC kesmesini bekle (1 s, gelmezse TIMEOUT) + reg8..reg21'deki 14 konnektor durumunu bit bit renkli bas (0 yesil OK, 1 kirmizi HATA, satir sonunda hata sayisi, altta genel OK/NOK) + close. Kesme isleyicisi yalniz `volatile` bayrak kurar. `shell_cmd_mod.c` basinda `SHELL_USER_MOD_BASEADDR` (XPAR_<IP>_BASEADDR) ve `SHELL_USER_MOD_INTR_ID` (XPAR_INTC_0_<IP>_<PORT>_VEC_ID) ayarlanir; tasarimda AXI INTC yoksa `test` bunu soyler |
 
 **Custom IP komutlari:** Setup'ta XSA okunurken taninmayan REGISTER tipli PL IP'ler
 (`user:user` VLNV'li kendi IP'lerin) spec'e `custom_ips` olarak yazilir: `id` (instance adi),
@@ -494,11 +494,16 @@ parametresinden gelir (AXI4-Lite sablonu: 4 bit -> 16 B -> 4 register); parametr
 LMB BRAM gibi MEMORY tipli araliklar custom IP sayilmaz.
 
 **Dosya rolleri:** `shell.c` cekirdektir ve KOMUT ICERMEZ (satir okuma, ok tusu gecmisi,
-tokenize, tablo dagitimi, `shellBus()/shellLimit()/shellCit()` erisimcileri). Komutlarin
-TAMAMI (`cit`, `i2c_search`, `sdl`, `help`, `mod`) `shell/shell_user_commands.c` icindeki tek
-tabloda `S_sArrUserCommands[]` durur; `main.c` bu tabloyu bir kez kaydeder.
+tokenize, tablo dagitimi, `shellBus()/shellLimit()/shellCit()` erisimcileri). Komut isleyicileri
+islevine gore ayri dosyalardadir: `shell_cmd_cit.c` (`cit`), `shell_cmd_i2c.c` (`i2c_search`,
+`i2c_read`, `i2c_write`, `i2c_bus`), `shell_cmd_mem.c` (`mem`, custom IP `dump|read|write`),
+`shell_cmd_sys.c` (`sdl`, `help`), `shell_cmd_mod.c` (ornek `mod`), `shell_cmd_args.c` (ortak
+`shellUserParseNumber`); bilinen IP `ip_<id>` komutlari `drivers/ip/<id>_shell.c`'dedir. Komut
+TABLOSU `S_sArrUserCommands[]` tek yerde, `shell/shell_user_commands.c`'de durur (isleyici icermez);
+`main.c` bu tabloyu bir kez kaydeder.
 
-**Yeni komut eklemek** (`shell/shell_user_commands.c`): komutlar bu TABLODAN dagitilir,
+**Yeni komut eklemek** (isleyici ilgili `shell_cmd_<grup>.c`'ye, prototip `.h`'ye, satir
+`shell/shell_user_commands.c` tablosuna): komutlar bu TABLODAN dagitilir,
 if-zinciri yoktur. Her satir `SShellCommand {ad, isleyici, yardim}`; isleyici imzasi
 `void f(unsigned int uiArgc, const char* cpArrArgv[])`, `cpArrArgv[0]` komut adi, sonrakiler
 STRING arguman (sayi gerekiyorsa `atoi`/`strtol`). Iki adim:
@@ -705,9 +710,9 @@ cihazlari ilklendir" ya da Bring-up kos.
   AXI UARTLite PG142): bunlar `controllers[]` olarak kalir (BSP surucusu XIic/XSpi/XUartLite ile
   kullanilir); Register Map ekraninda `<denetleyici id> (axi_iic|axi_quad_spi|axi_uartlite)
   haritasi` dugmesi PG register/bit alanlarini yukler ve ajan uzerinden canli adli okuma/yazma
-  yapar (surucunun altina inen ayiklama gorunumu). Proje ayarlarindaki "PG register haritasi
-  surucusu de uret" kutucugu (`generation_options.controller_register_maps`) isaretliyse
-  `drivers/ip/<id>_regs.h/.c` ve shell `ip_<id> rd|wr|dump` komutu da uretilir; varsayilan kapali.
+  yapar (surucunun altina inen ayiklama gorunumu). Bu denetleyiciler icin `drivers/ip/<id>_regs.h/.c`
+  ve shell `ip_<id> rd|wr|dump` komutu her zaman uretilir (v0.1.239'dan itibaren kutucuksuz; eski
+  `generation_options.controller_register_maps` anahtari kabul edilir, etkisizdir).
   PS cevre birimleri (XIicPs/XSpiPs/XUartPs) icin PG haritasi tanimli degildir.
 - **AFE7900 (TI AFE79xx C API v2.9)**: sematige `AFE7900` parcasi (SPI, CS secimi) eklenince surucu
   register/adim modeliyle degil TI'in C API'siyle uretilir (`orchestrator/afe79.py`). TI kaynaklari
