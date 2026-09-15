@@ -133,6 +133,7 @@ def jesd_ips(spec: dict) -> dict[str, dict]:
         out.setdefault(direction, {
             "id": ip.get("id", ""), "base": base,
             "link_layer": str(params.get("link_layer", "64b66b")).lower(),
+            "use_sync_pin": bool(params.get("use_sync_pin", False)),
             "lanes": int(params.get("lanes", 4) or 4),
             "subclass": int(params.get("subclass", 1) or 1),
         })
@@ -858,6 +859,9 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
            f"#define JESDLINK_LANE_ERROR_CNT0 0x{JESD_LANE_ERROR_CNT0:03X}U /* CRC[31:16] MB[15:8] SH[7:0] */\n")
         + "\n"
         "#define JESDLINK_REG_CTRL_ENABLE 0x024U\n"
+        "#define JESDLINK_REG_CTRL_TX_SYNC 0x028U /* yalniz TX, 8B/10B: bit0 tx_sync_force */\n"
+        f"#define JESDLINK_TX_SYNC_FORCE {'TRUE' if (not is_64 and not bool((tx or {}).get('use_sync_pin', False))) else 'FALSE'} "
+        "/* 8B/10B + SYNC~ pini yok (C_USE_SYNC_PIN=false): TX'e SYNC yazilimla zorlanir (loopback / pin'siz kart) */\n"
         "#define JESDLINK_CTRL_ENABLE_CMD_DATA 0x00000003U /* CTRL_ENABLE: bit0 komut, bit1 veri yolu acik */\n"
         "#define JESDLINK_RESET_BIT 0x00000001U           /* RESET[0]: SEVIYE biti - 1 yaz = reset ver, 0 yaz = kaldir (v4.2 RTL ctrl_reset RW) */\n"
         "#define JESDLINK_RESET_TYPE_LINK 0x00000002U     /* RESET_TYPE[1]: 1 = yalniz link reset */\n"
@@ -939,6 +943,11 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     e.close()
     e.ln("/* Reset kaldirma: veri/komut yolu acik (varsayilan kapali), sonra RESET[0]=0 (RESET_TYPE korunur). */")
     e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA);")
+    if not is_64:
+        e.ln("/* 8B/10B TX ve SYNC~ pini yok: SAHA KV260 - CGS/SYNC gelse de TX ILAS+veri gondermez, RX_STARTED 0 kalir. */")
+        e.open("if ((uiBase == JESDLINK_TX_BASE) && (JESDLINK_TX_SYNC_FORCE == TRUE))")
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_SYNC, 1U);")
+        e.close()
     e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, jesdLinkRead(uiBase, JESDLINK_REG_RESET) & JESDLINK_RESET_TYPE_LINK);")
     e.open("while (uiElapsedMs < JESDLINK_RESET_TIMEOUT_MS)")
     e.ln("uiReset = jesdLinkRead(uiBase, JESDLINK_REG_RESET);")

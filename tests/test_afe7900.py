@@ -135,6 +135,9 @@ class Afe7900GenerationTests(unittest.TestCase):
         self.assertIn("JESDLINK_REG_STAT_RX_ERR", link)
         self.assertNotIn("JESDLINK_STAT_SH_LOCK", link)
         self.assertIn("#define JESDLINK_ENCODING_64B66B FALSE", files["drivers/ip/jesdlink.h"])
+        # SAHA KV260: SYNC~ pini yoksa (C_USE_SYNC_PIN=false) TX'e sync force yazilir
+        self.assertIn("#define JESDLINK_TX_SYNC_FORCE TRUE", files["drivers/ip/jesdlink.h"])
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_SYNC, 1U);", link)
 
     def test_without_jesd_ip_no_link_ops_and_no_jesdlink(self) -> None:
         files = self._generate(_spec(jesd=None))

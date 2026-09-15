@@ -73,6 +73,9 @@ def normalize_jesd204c_parameters(raw: dict | None) -> dict[str, object]:
             _assign_normalized(params, "subclass", text)
         elif "64B66B" in key or "LINK_LAYER" in key or "ENCODING" in key or "LINECODE" in key:
             _assign_normalized(params, "link_layer", text)
+        elif "SYNC_PIN" in key or key == "USE_SYNC_PIN":
+            # 8B/10B TX: SYNC~ fiziksel pin (true) ya da yazilimla zorlama (false, CTRL_TX_SYNC 0x028 bit0)
+            params["use_sync_pin"] = text in ("1", "true", "yes")
     return params
 
 

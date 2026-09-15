@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.237 - 2026-09-16
+
+- **8B/10B (JESD204B) bring-up (SAHA, KV260)**: XSA `C_USE_SYNC_PIN` artik `ip_parameters.use_sync_pin` olarak okunur;
+  SYNC~ pini olmayan TX'te (loopback / pin'siz kart) reset kaldirilirken `CTRL_TX_SYNC` (0x028) bit0 zorlanir -
+  aksi halde CGS/SYNC gelse de TX ILAS+veri gondermiyor, RX_STARTED 0 kaliyordu. KV260'ta 8B/10B loopback dogrulandi
+  (CGS, SYNC, RX_STARTED, 128-bit beat yakalama + FFT arayuzde).
+
 ## v0.1.236 - 2026-09-15
 
 - **JESD204C AFE'siz bring-up**: `drivers/ip/jesdlink` artik spec'te jesd204c IP varsa AFE olmasa da uretilir;

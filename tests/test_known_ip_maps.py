@@ -45,8 +45,8 @@ class KnownIpDocumentTests(unittest.TestCase):
         self.assertEqual(ip_register_maps.normalize_jesd204c_parameters(None),
                          {"lanes": 4, "direction": "rx", "link_layer": "64b66b", "subclass": 1})
         params = ip_register_maps.normalize_jesd204c_parameters(
-            {"C_LANES": "2", "C_NODE_IS_TRANSMIT": "1", "C_SUBCLASS": "2", "C_LINK_LAYER": "8B10B"})
-        self.assertEqual(params, {"lanes": 2, "direction": "tx", "link_layer": "8b10b", "subclass": 2})
+            {"C_LANES": "2", "C_NODE_IS_TRANSMIT": "1", "C_SUBCLASS": "2", "C_LINK_LAYER": "8B10B", "C_USE_SYNC_PIN": "true"})
+        self.assertEqual(params, {"lanes": 2, "direction": "tx", "link_layer": "8b10b", "subclass": 2, "use_sync_pin": True})
         # gecersiz degerler varsayilani bozmaz
         params = ip_register_maps.normalize_jesd204c_parameters({"lanes": "99", "direction": "sideways", "subclass": "7"})
         self.assertEqual(params["lanes"], 4)
