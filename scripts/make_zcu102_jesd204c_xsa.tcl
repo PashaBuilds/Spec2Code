@@ -36,7 +36,8 @@ foreach cell [list $rx $tx] {
 set pl_clk [get_bd_pins zynq_ultra_ps_e_0/pl_clk0]
 set const_idx 0
 foreach cell [list $rx $tx] {
-    foreach pin [get_bd_pins -of_objects $cell -filter {DIR == I}] {
+    # arayuz pinleri (s_axi_*) atlanir: SAHA 2026-09-15, bkz. make_kv260_jesd204c_xsa.tcl
+    foreach pin [get_bd_pins -of_objects $cell -filter {DIR == I && INTF == FALSE}] {
         if {[get_bd_nets -quiet -of_objects $pin] ne ""} { continue }
         if {[get_property TYPE $pin] eq "clk"} {
             connect_bd_net $pl_clk $pin

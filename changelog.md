@@ -5,6 +5,11 @@ tek yerde tutar. En yeni surum her zaman en usttedir.
 
 ## v0.1.234 - 2026-09-15
 
+- KV260 JESD204C referans tasarimi (`scripts/make_kv260_jesd204c_xsa.tcl`, ZCU102 scripti de): "bagli olmayan
+  girisleri sabit 0'a bagla" dongusu `s_axi_*` arayuz pinlerini de sabitliyordu (arayuz baglantisi uretimden
+  once pin basina net vermez) -> sentez ARREADY'yi GND'ye indirdi, her JESD AXI-Lite erisimi PS interconnect'i
+  ve DAP'i kilitledi. Dongu artik `INTF == FALSE` pinlerle sinirli; KV260'ta JESD register okuma/yazma dogrulandi
+  (VERSION 0x04020D00).
 - **ZynqMP Ethernet ajani (klasik BSP) duzeltmesi (SAHA, KV260)**: lwIP RAW ajani ve telnet ag katmani GIC'i
   kurmuyor ve kesmeleri acmiyordu; GEM ARP isteklerini sayiyor ama lwIP hic islemiyordu (host ping/TCP
   timeout). Artik `XScuGic_DeviceInitialize` + IRQ istisnasi `xemac_add` oncesi, `Xil_ExceptionEnableMask`

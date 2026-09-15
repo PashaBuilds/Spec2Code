@@ -68,15 +68,10 @@ foreach pin [list $rx/rx_cmd_tready \
                   $rx/gt0_rxblock_sync $rx/gt1_rxblock_sync $rx/gt2_rxblock_sync $rx/gt3_rxblock_sync] {
     connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $pin]
 }
-# PHY reset el sikismasi emulasyonu (SAHA 2026-09-15, KV260): reset_done sabit 1 iken cekirdek reset
-# sirasini bitiremiyor ve AXI4-Lite yanit vermiyordu (AP transaction timeout). PHY gibi davran:
-# reset_done = NOT reset_gt (cekirdek GT resetini kaldirinca "done" yukselir).
-foreach {cell dir} [list $tx tx $rx rx] {
-    set inv [create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic ${dir}_reset_done_not]
-    set_property -dict [list CONFIG.C_SIZE 1 CONFIG.C_OPERATION {not}] $inv
-    connect_bd_net [get_bd_pins $cell/${dir}_reset_gt] [get_bd_pins $inv/Op1]
-    connect_bd_net [get_bd_pins $inv/Res] [get_bd_pins $cell/${dir}_reset_done]
-}
+# PHY yok: reset_done sabit 1 (PHY resetini "aninda tamam" say). NOT reset_gt denemesi (2026-09-15) cekirdegi
+# GT_BUSY'de bekletti: gercek PHY reset_done'i reset_gt yuksekken de yukseltir; ters baglanti kilitlenir.
+connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $tx/tx_reset_done]
+connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $rx/rx_reset_done]
 # TX kullanici verisi: yardimci modulun sinus NCO'su; RX cikisi ayni modulun yakalama BRAM'ine.
 connect_bd_net [get_bd_pins $util/tx_tdata] [get_bd_pins $tx/tx_tdata]
 connect_bd_net [get_bd_pins $tx/tx_tready] [get_bd_pins $util/tx_tready]
@@ -87,7 +82,11 @@ connect_bd_net [get_bd_pins $psr/peripheral_reset] [get_bd_pins $util/core_rst]
 # Kalan girisler sabit 0 (8B/10B durum girisleri, misalign, cmd akisi)
 set const_idx 0
 foreach cell [list $rx $tx] {
-    foreach pin [get_bd_pins -of_objects $cell -filter {DIR == I}] {
+    # SAHA 2026-09-15 (KV260): arayuz pinleri (s_axi_*, m_axis_*) BURADA ATLANMALI. Arayuz baglantisi
+    # (apply_bd_automation) uretimden once tek tek net olusturmaz; bu dongu s_axi_arvalid/awvalid/rready'yi
+    # sabit 0'a baglayip arayuz baglantisini EZIYORDU -> sentez ARREADY'yi GND'ye indirdi, her AXI-Lite
+    # erisimi sonsuza dek bekledi (PS interconnect + DAP kilitlendi).
+    foreach pin [get_bd_pins -of_objects $cell -filter {DIR == I && INTF == FALSE}] {
         if {[get_bd_nets -quiet -of_objects $pin] ne ""} { continue }
         if {[get_property TYPE $pin] eq "clk"} { connect_bd_net $pl_clk $pin; continue }
         set left [get_property LEFT $pin]
