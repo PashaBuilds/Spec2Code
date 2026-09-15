@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.238 - 2026-09-16
+
+- Setup: Test bench agi alanlari (IP, alt ag maskesi, gateway, MAC, TCP port) alt alta; yan yana dizilimde
+  degerler kesiliyordu.
+
 ## v0.1.237 - 2026-09-16
 
 - **8B/10B (JESD204B) bring-up (SAHA, KV260)**: XSA `C_USE_SYNC_PIN` artik `ip_parameters.use_sync_pin` olarak okunur;

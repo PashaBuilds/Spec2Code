@@ -312,7 +312,8 @@ export default function ProjectSetup() {
           {project.testbench_transport === "eth" && (
           <div className="col-span-2 space-y-1.5">
             <Label>Test bench ağı (Ethernet / lwIP ajanı)</Label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {/* Alanlar alt alta (kullanici istegi 2026-09-16): yan yana sigmiyor, degerler kesiliyordu. */}
+            <div className="space-y-1.5">
               {(
                 [
                   ["ip", "IP", "18.2.75.121"],
@@ -321,8 +322,8 @@ export default function ProjectSetup() {
                   ["mac", "MAC", "00:0A:35:00:01:02"],
                 ] as const
               ).map(([key, label, placeholder]) => (
-                <div key={key} className="space-y-1">
-                  <span className="text-[11px] text-faint">{label}</span>
+                <div key={key} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 text-[11px] text-faint">{label}</span>
                   <Input
                     value={project.testbench_network?.[key] ?? ""}
                     placeholder={placeholder}
@@ -333,9 +334,10 @@ export default function ProjectSetup() {
                   />
                 </div>
               ))}
-              <div className="space-y-1">
-                <span className="text-[11px] text-faint">TCP port</span>
+              <div className="flex items-center gap-3">
+                <span className="w-28 shrink-0 text-[11px] text-faint">TCP port</span>
                 <Input
+                  className="max-w-[10rem]"
                   value={project.testbench_network?.port ?? ""}
                   placeholder="5000"
                   inputMode="numeric"
