@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.240 - 2026-09-16
+
+- Shell `help`: komut adi sutunu en uzun ada gore hizalanir (`ip_jesd204c_rx`, custom IP adlari 12 karakteri
+  asinca aciklama kayiyordu). Bolunmus shell KV260'ta Vitis 2023.2 ile derlendi, `help` konsolda dogrulandi.
+- Setup: "BSP akisi" aciklamasi her zaman gorunen paragraf yerine `?` baloncugunda.
+
 ## v0.1.239 - 2026-09-16
 
 - Shell komutlari islevine gore ayri dosyalarda: `shell_cmd_cit.c` (cit), `shell_cmd_i2c.c` (i2c_search/read/write/bus),
