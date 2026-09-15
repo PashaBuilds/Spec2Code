@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.241 - 2026-09-16
+
+- Generate dugmesi sematikte cihaz olmayan ama XSA'dan custom IP gelen projede (AFE'siz JESD loopback) de aktif;
+  onceden yalniz API'den uretilebiliyordu.
+
 ## v0.1.240 - 2026-09-16
 
 - Shell `help`: komut adi sutunu en uzun ada gore hizalanir (`ip_jesd204c_rx`, custom IP adlari 12 karakteri

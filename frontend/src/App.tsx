@@ -41,6 +41,7 @@ export default function App() {
   const project = useStore((s) => s.project);
   const llm = useStore((s) => s.llm);
   const devices = useStore((s) => s.devices);
+  const customIps = useStore((s) => s.customIps);
   const buildSpec = useStore((s) => s.buildSpec);
   const setCatalog = useStore((s) => s.setCatalog);
   const setDescriptors = useStore((s) => s.setDescriptors);
@@ -184,7 +185,8 @@ export default function App() {
           >
             <Command className="h-4 w-4" /> K
           </Button>
-          <Button onClick={runGenerate} disabled={jobStatus === "running" || !devices.length}>
+          {/* Cihazsiz ama custom IP'li proje (AFE'siz JESD loopback, KV260) de uretilir (2026-09-16). */}
+          <Button onClick={runGenerate} disabled={jobStatus === "running" || (!devices.length && !customIps.length)}>
             {jobStatus === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             Generate
           </Button>
