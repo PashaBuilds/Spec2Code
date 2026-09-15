@@ -4843,7 +4843,9 @@ def _lwip_sys_timers_needed(spec: dict) -> bool:
     NO_SYS_NO_TIMERS kapatilir. FreeRTOS soket modunda sys_arch sys_now'i verir, dosya uretilmez.
     MicroBlaze ajani TCP zamanlayicilarini kendisi surer; telnet PS Ethernet ister, MB'de yoktur.
     """
-    return _telnet_log_enabled(spec) and not _testbench_runtime_is_freertos(spec)
+    zynqmp_raw_agent = (str(spec.get("project", {}).get("testbench_transport", "")) == "eth"
+                        and _zynqmp_lwip_eth_controller(spec) is not None)
+    return (_telnet_log_enabled(spec) or zynqmp_raw_agent) and not _testbench_runtime_is_freertos(spec)
 
 
 def _lwip_time_source(spec: dict) -> str:
@@ -5543,6 +5545,10 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
     elif microblaze:
         # Resmi lwip_echo_server platform_mb.c kalibi: AXI INTC + AXI Timer (dusuk seviye API).
         headers += ['#include "xintc.h"', '#include "xtmrctr_l.h"', '#include "mb_interface.h"']
+    elif not sdt:
+        # ZynqMP klasik BSP: lwIP portu GEM ISR'ini XScuGic_RegisterHandler ile kaydeder ama GIC'i
+        # kurmaz/kesmeleri acmaz (resmi lwip_echo_server platform_zynqmp.c uygulamada yapar).
+        headers += ['#include "xscugic.h"', '#include "xil_exception.h"']
     if telnet:
         headers.append('#include "spec2code_telnet_log.h"')
     if any(entry["htype"] == "XIicPs" for entry in entries):
@@ -5597,7 +5603,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "",
         *_testbench_board_handle_decls(entries),
         *((_testbench_lwip_microblaze_sdt_platform_lines() if sdt else _testbench_lwip_microblaze_platform_lines())
-          if microblaze else []),
+          if microblaze else ([] if sdt else _testbench_lwip_zynqmp_platform_lines())),
         "static err_t spec2codeTestbenchResponseSend(struct tcp_pcb* spTcpPcb,",
         "                                            const unsigned char* ucpFrame,",
         "                                            unsigned int uiLength)",
@@ -5721,7 +5727,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    }",
         *(["    spec2codeTestbenchPlatformTimerSetup(); /* xiltimer 50 ms tick (SDT) */"] if (microblaze and sdt) else
           ["    spec2codeTestbenchPlatformInterruptsSetup(); /* INTC + timer (kesmeler henuz kapali) */"] if microblaze
-          else []),
+          else ([] if sdt else ["    spec2codeTestbenchPlatformInterruptsSetup(); /* GIC: xemac_add GEM ISR'ini buraya kaydeder */"])),
         "    lwip_init();",
         "    IP4_ADDR(&sIpAddr,",
         "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
@@ -5752,7 +5758,7 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         "    netif_set_default(&S_sNetif);",
         "    netif_set_up(&S_sNetif);",
         *(["    spec2codeTestbenchPlatformInterruptsEnable(); /* xemac_add EMAC ISR'ini kaydetti; simdi ac */"]
-          if (microblaze and not sdt) else []),
+          if not sdt else []),
         "    S_uiNetworkReady = 1U;",
         *([
             "    /* netif up: telnet log sunucusunu (port 23) ayni netif uzerinde",
@@ -5829,12 +5835,11 @@ def _testbench_lwip_source_raw(spec: dict) -> str:
         ] if microblaze else []),
         "        xemacif_input(&S_sNetif);",
         *([
-            "        /* RAW/bare-metal: telnet zamanlayicilarini isle ve kuyrugu",
-            "         * bosalt. Tek is parcacigi oldugundan lwIP-core baglami budur;",
-            "         * kilit gerekmez. */",
+            "        /* RAW/bare-metal: lwIP sys zamanlayicilari (TCP tmr, telnet). Tek is parcacigi",
+            "         * oldugundan lwIP-core baglami budur; kilit gerekmez. */",
             "        sys_check_timeouts();",
-            "        spec2codeTelnetLogPompala();",
-        ] if telnet else []),
+        ] if (telnet or not microblaze) else []),
+        *(["        spec2codeTelnetLogPompala();"] if telnet else []),
         "    }",
         "}",
         "",
@@ -5875,6 +5880,33 @@ def _testbench_lwip_microblaze_sdt_platform_lines() -> list[str]:
         "{",
         "    XTimer_SetInterval(50UL);",
         "    XTimer_SetHandler(spec2codeTestbenchTimerHandler, NULL, XINTERRUPT_DEFAULT_PRIORITY);",
+        "}",
+        "",
+    ]
+
+
+def _testbench_lwip_zynqmp_platform_lines() -> list[str]:
+    """ZynqMP (klasik BSP) lwIP platform katmani: GIC + IRQ istisnasi (resmi platform_zynqmp.c kalibi).
+
+    * XScuGic_DeviceInitialize + IRQ istisna isleyicisi XScuGic_DeviceInterruptHandler: xemac_add icindeki
+      lwIP portu GEM ISR'ini XScuGic_RegisterHandler/EnableIntr ile bu GIC'e kaydeder.
+    * Kesmeler xemac_add SONRASI acilir (Xil_ExceptionEnableMask). TCP zamanlayicilari TTC yerine
+      sys_check_timeouts (sys_now = XTime_GetTime, spec2code_lwip_time.c) ile surulur.
+    SAHA 2026-09-15 (KV260): bu katman yokken GEM ARP isteklerini sayiyor ama lwIP hic islemiyordu.
+    """
+    return [
+        "/* --- ZynqMP platform: GIC + IRQ istisnasi (lwip_echo_server platform_zynqmp.c kalibi) --- */",
+        "static void spec2codeTestbenchPlatformInterruptsSetup(void)",
+        "{",
+        "    Xil_ExceptionInit();",
+        "    XScuGic_DeviceInitialize(XPAR_SCUGIC_SINGLE_DEVICE_ID);",
+        "    Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT, (Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,",
+        "                                 (void*)(UINTPTR)XPAR_SCUGIC_SINGLE_DEVICE_ID);",
+        "}",
+        "",
+        "static void spec2codeTestbenchPlatformInterruptsEnable(void)",
+        "{",
+        "    Xil_ExceptionEnableMask(XIL_EXCEPTION_IRQ);",
         "}",
         "",
     ]
@@ -6268,6 +6300,7 @@ def _telnet_net_source(spec: dict) -> str:
         '#include "lwip/tcp.h"',
         '#include "lwip/timeouts.h"',
         '#include "netif/xadapter.h"',
+        *([] if is_sdt(spec) else ['#include "xscugic.h"', '#include "xil_exception.h"']),
         '#include <stddef.h>',
         "",
         "#ifndef SPEC2CODE_TESTBENCH_ETH_BASEADDR",
@@ -6292,6 +6325,7 @@ def _telnet_net_source(spec: dict) -> str:
         "};",
         "static unsigned int S_uiTelnetNetReady;",
         "",
+        *([] if is_sdt(spec) else _testbench_lwip_zynqmp_platform_lines()),
         "int spec2codeTelnetNetBaslat(void)",
         "{",
         "    ip_addr_t sIpAddr;",
@@ -6302,6 +6336,7 @@ def _telnet_net_source(spec: dict) -> str:
         "    {",
         "        return XST_SUCCESS;",
         "    }",
+        *([] if is_sdt(spec) else ["    spec2codeTestbenchPlatformInterruptsSetup(); /* GIC: xemac_add GEM ISR'ini buraya kaydeder */"]),
         "    lwip_init();",
         "    IP4_ADDR(&sIpAddr,",
         "             SPEC2CODE_TESTBENCH_IP_ADDR0,",
@@ -6330,6 +6365,7 @@ def _telnet_net_source(spec: dict) -> str:
         "    }",
         "    netif_set_default(&S_sTelnetNetif);",
         "    netif_set_up(&S_sTelnetNetif);",
+        *([] if is_sdt(spec) else ["    spec2codeTestbenchPlatformInterruptsEnable(); /* xemac_add GEM ISR'ini kaydetti; simdi ac */"]),
         "    S_uiTelnetNetReady = 1U;",
         "    spec2codeTelnetLogBaslat();",
         "    return XST_SUCCESS;",

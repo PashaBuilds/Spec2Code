@@ -3,8 +3,11 @@
 #define XIL_EXCEPTION_H
 #include "xil_types.h"
 #define XIL_EXCEPTION_ID_INT 16U
+#define XIL_EXCEPTION_ID_IRQ_INT 16U
+#define XIL_EXCEPTION_IRQ 0x80U
 typedef void (*Xil_ExceptionHandler)(void* Data);
 void Xil_ExceptionInit(void);
 void Xil_ExceptionRegisterHandler(u32 Id, Xil_ExceptionHandler Handler, void* Data);
 void Xil_ExceptionEnable(void);
+void Xil_ExceptionEnableMask(u32 Mask);
 #endif /* XIL_EXCEPTION_H */

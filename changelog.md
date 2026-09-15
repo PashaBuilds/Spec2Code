@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.234 - 2026-09-15
+
+- **ZynqMP Ethernet ajani (klasik BSP) duzeltmesi (SAHA, KV260)**: lwIP RAW ajani ve telnet ag katmani GIC'i
+  kurmuyor ve kesmeleri acmiyordu; GEM ARP isteklerini sayiyor ama lwIP hic islemiyordu (host ping/TCP
+  timeout). Artik `XScuGic_DeviceInitialize` + IRQ istisnasi `xemac_add` oncesi, `Xil_ExceptionEnableMask`
+  sonrasi (resmi lwip_echo_server platform_zynqmp.c kalibi); TCP zamanlayicilari `sys_check_timeouts` ile
+  (`spec2code_lwip_time.c` ZynqMP eth ajaninda her zaman uretilir).
+- Vitis workspace: Xilinx lwIP `xemacpsif_physpeed.c` PHY autonegotiation beklemesi 5 s -> 30 s yamasi
+  (KV260 DP83867 + Intel I225-V'de gigabit autoneg 5 s'de bitmiyor, port GEM hizini ayarlamiyordu).
+
 ## v0.1.233 - 2026-09-14
 
 - JESD204C baglanti modulu (`jesdlink`): AFE senkronundan sonra FPGA RX'e GT'siz **link reset**

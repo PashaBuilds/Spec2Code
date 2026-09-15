@@ -357,6 +357,16 @@ class VitisWorkspaceTests(unittest.TestCase):
         self.assertIn("set shell_libraries [list {m}]", shell)
         self.assertIn("app config -name $shell_app_name -add libraries $spec2code_lib", shell)
 
+    def test_xsct_script_patches_lwip_phy_autoneg_timeout(self) -> None:
+        script = render_xsct_script(
+            workspace_path=Path("/tmp/ws"), xsa_path=Path("/tmp/board.xsa"), source_root=Path("/tmp/src"),
+            platform_name="p", system_name="s", domain_name="d", app_name="my_app",
+            processor="psu_cortexa53_0", os_name="standalone", enable_lwip=True,
+        )
+        self.assertIn("proc spec2codePatchLwipPhyAutonegTimeout", script)
+        self.assertIn('"timeout_counter == 5)" "timeout_counter == 30)', script)
+        self.assertIn("    spec2codePatchLwipPhyAutonegTimeout\n", script)
+
     def test_xsct_script_enables_lwip_library_when_requested(self) -> None:
         script = render_xsct_script(
             workspace_path=Path("/tmp/ws"),

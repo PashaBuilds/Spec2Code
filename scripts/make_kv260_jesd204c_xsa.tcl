@@ -64,9 +64,18 @@ connect_bd_net [get_bd_pins $psr/peripheral_reset] [get_bd_pins $rx/rx_core_rese
 # Sabit 1'ler: GT reset done, RX block sync (gearbox yok, veri zaten hizali), rx_cmd_tready
 set one [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant xlconstant_one]
 set_property -dict [list CONFIG.CONST_WIDTH 1 CONFIG.CONST_VAL 1] $one
-foreach pin [list $tx/tx_reset_done $rx/rx_reset_done $rx/rx_cmd_tready \
+foreach pin [list $rx/rx_cmd_tready \
                   $rx/gt0_rxblock_sync $rx/gt1_rxblock_sync $rx/gt2_rxblock_sync $rx/gt3_rxblock_sync] {
     connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $pin]
+}
+# PHY reset el sikismasi emulasyonu (SAHA 2026-09-15, KV260): reset_done sabit 1 iken cekirdek reset
+# sirasini bitiremiyor ve AXI4-Lite yanit vermiyordu (AP transaction timeout). PHY gibi davran:
+# reset_done = NOT reset_gt (cekirdek GT resetini kaldirinca "done" yukselir).
+foreach {cell dir} [list $tx tx $rx rx] {
+    set inv [create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic ${dir}_reset_done_not]
+    set_property -dict [list CONFIG.C_SIZE 1 CONFIG.C_OPERATION {not}] $inv
+    connect_bd_net [get_bd_pins $cell/${dir}_reset_gt] [get_bd_pins $inv/Op1]
+    connect_bd_net [get_bd_pins $inv/Res] [get_bd_pins $cell/${dir}_reset_done]
 }
 # TX kullanici verisi: yardimci modulun sinus NCO'su; RX cikisi ayni modulun yakalama BRAM'ine.
 connect_bd_net [get_bd_pins $util/tx_tdata] [get_bd_pins $tx/tx_tdata]

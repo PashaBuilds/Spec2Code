@@ -860,6 +860,11 @@ class TestbenchTests(unittest.TestCase):
         self.assertIn("tcp_bind(S_spServerPcb, IP_ADDR_ANY, usPort)", lwip_source)
         self.assertIn("xemacif_input(&S_sNetif)", lwip_source)
         self.assertNotIn("lwip_socket(", lwip_source)
+        # ZynqMP klasik BSP: GIC kurulumu xemac_add oncesi, kesme acma sonrasi; TCP zamanlayicilari sys_check_timeouts
+        self.assertIn("XScuGic_DeviceInitialize(XPAR_SCUGIC_SINGLE_DEVICE_ID)", lwip_source)
+        self.assertLess(lwip_source.index("spec2codeTestbenchPlatformInterruptsSetup();"), lwip_source.index("lwip_init();"))
+        self.assertLess(lwip_source.index("netif_set_up(&S_sNetif);"), lwip_source.index("spec2codeTestbenchPlatformInterruptsEnable();"))
+        self.assertIn("sys_check_timeouts();", lwip_source)
         self.assertNotIn("vTaskStartScheduler", main_source)
         self.assertIn("spec2codeTestbenchLwipInputPoll();", main_source)
 
