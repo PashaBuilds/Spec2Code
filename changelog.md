@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.235 - 2026-09-15
+
+- **JESD204C reset semantigi (SAHA, KV260 + v4.2 RTL)**: RESET[0] seviye bitidir, kendiliginden temizlenmez.
+  `jesdlink` reset kaldirma artik CTRL_ENABLE (cmd+data) yazip RESET[0]=0 yazar, sonra RESET/CORE_RESET_STATE/
+  GT_RESET_BUSY bitlerini timeout'la bekler (onceki surum 0 yazmadigi icin cekirdek reset'te kaliyordu).
+  Register Map aciklamasi duzeltildi. KV260 loopback'te SYSREF sonrasi RX SH+MB kilidi dogrulandi.
+
 ## v0.1.234 - 2026-09-15
 
 - KV260 JESD204C referans tasarimi (`scripts/make_kv260_jesd204c_xsa.tcl`, ZCU102 scripti de): "bagli olmayan

@@ -121,14 +121,14 @@ def _jesd204c_common_registers(direction: str, link_layer: str, lanes: int) -> l
         _reg("IP_CONFIG", 0x004, "[RO] Cekirdek yapilandirmasi (sentez zamani)", [
             ("FEC_INCLUDED", "18", "FEC var"), ("LINECODE_64B66B", "17", "1=64B/66B, 0=8B/10B"),
             ("CORE_IS_TX", "16", "1=TX cekirdegi, 0=RX"), ("NUM_LANES", "3:0", "lane sayisi")]),
-        _reg("RESET", 0x020, "[RW] Reset kontrol/durum: bit0 yaz=1 reset baslat; bit5 reset surerken 1", [
+        _reg("RESET", 0x020, "[RW] Reset kontrol/durum: bit0 SEVIYE (1 yaz = reset ver, 0 yaz = kaldir; kendiliginden temizlenmez); bit5 reset surerken 1", [
             ("GT_MST_RESET_BUSY", "31:24", "GT master reset mesgul (lane basina)"),
             ("GT_PMA_RESET_BUSY", "23:16", "GT PMA reset mesgul (lane basina)"),
             ("GT_RESET_BUSY", "7", "GT reset mesgul"), ("GT_POWERGOOD", "6", "GT guc iyi"),
             ("CORE_RESET_STATE", "5", "cekirdek reset durumu (1=reset'te)"),
             ("CORE_RESET_PIN", "4", "harici reset pini durumu"),
             ("RESET_TYPE", "1", "0=tam reset, 1=yalniz baglanti (link) reset"),
-            ("RESET", "0", "1 yaz: reset baslat (kendiliginden temizlenir)")]),
+            ("RESET", "0", "1 yaz: reset ver; 0 yaz: kaldir (v4.2 RTL ctrl_reset RW, kendiliginden temizlenmez)")]),
     ]
     if is_tx and is_64:
         regs.append(_reg("CTRL_ENABLE", 0x024, "[RW] TX arayuz etkinlestirme", [

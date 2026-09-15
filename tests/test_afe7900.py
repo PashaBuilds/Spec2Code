@@ -111,6 +111,9 @@ class Afe7900GenerationTests(unittest.TestCase):
         # reset kaldirma: reset/GT mesgul bitleri timeout ile beklenir
         self.assertIn("JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE | JESDLINK_RESET_GT_BUSY", link)
         self.assertIn("JESDLINK_RESET_TIMEOUT_MS", link)
+        # SAHA KV260: RESET[0] seviye biti -> kaldirma 0 yazar; veri/komut yolu acilir
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA);", link)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, jesdLinkRead(uiBase, JESDLINK_REG_RESET) & JESDLINK_RESET_TYPE_LINK);", link)
         # link reset: RESET_TYPE=1 ile GT korunur, cikis kriteri tam resetle ayni
         self.assertIn("JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT", link)
         # self-test HAL fonksiyonlarini cagirmaz
