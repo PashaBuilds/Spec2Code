@@ -6,6 +6,7 @@ import { useBoardConnection } from "@/store/connection";
 import { useStore } from "@/store/useStore";
 import { cn } from "@/lib/utils";
 import { base64ToBytes, downloadBytes } from "@/lib/download";
+import JesdLinkCard from "@/features/register-map/JesdLinkCard";
 
 /** Register Map editörü (Spec2Code içi ikiz): sayısal ekipten gelen register
  * haritasını düzenle, self-contained HTML olarak paylaş, JSON olarak sakla,
@@ -207,6 +208,7 @@ export default function RegisterMapPanel() {
   };
 
   const xsaMaps = useMemo(() => [...knownIps, ...controllerMaps], [knownIps, controllerMaps]);
+  const hasJesd = useMemo(() => knownIps.some((ip) => ip.register_map === "jesd204c"), [knownIps]);
   const [loadedMapId, setLoadedMapId] = useState("");
   const loadXsaMap = async (ip: (typeof xsaMaps)[number]) => { await loadKnownIp(ip); setLoadedMapId(ip.id); };
   // Salt okunur kip: XSA'da harita bilinen ilk blok kendiliginden yuklenir.
@@ -246,6 +248,7 @@ export default function RegisterMapPanel() {
               ))}
             </div>
           )}
+          {hasJesd ? <div className="mt-3"><JesdLinkCard /></div> : null}
           {notice ? <p className="mt-2 rounded border border-ok/25 bg-ok/10 px-2 py-1.5 text-[11px] text-ok">{notice}</p> : null}
           {errors.length > 0 ? (
             <div className="mt-2 rounded border border-danger/30 bg-danger/10 px-2 py-1.5 text-[11px] text-danger">

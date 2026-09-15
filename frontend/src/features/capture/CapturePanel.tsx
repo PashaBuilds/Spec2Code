@@ -18,10 +18,12 @@ import { downloadBytes } from "@/lib/download";
  * 0x8000.. veri (beat k, dilim j: 0x8000 + k*32 + j*4).
  */
 
-const REG = { ID: 0x00, CTRL: 0x08, STATUS: 0x0c, COUNT: 0x10, DEPTH: 0x14, PHASE_INC: 0x1c, TX_BEATS: 0x24, RX_BEATS: 0x28, DATA: 0x8000 } as const;
+const REG = { ID: 0x00, CTRL: 0x08, STATUS: 0x0c, COUNT: 0x10, DEPTH: 0x14, BEAT_BITS: 0x18, PHASE_INC: 0x1c, TX_BEATS: 0x24, RX_BEATS: 0x28, DATA: 0x8000 } as const;
 const ID_MAGIC = 0x43415054; // "CAPT"
 const WORDS_PER_REQ = 64;      // SPEC2CODE_TESTBENCH_DATA_MAX / 4
-const SAMPLES_PER_BEAT = 16;
+const WORDS_PER_BEAT = 8;      // veri penceresi beat basina 32 bayt (BEAT_BITS < 256 ise ust sozcukler 0)
+/** Beat basina 16-bit ornek: BEAT_BITS/16 (64B/66B 4 lane: 16; 8B/10B 4 lane: 8). Register okunamadiysa 16. */
+function samplesPerBeat(beatBits: number | undefined): number { const n = Math.floor((beatBits || 256) / 16); return n > 0 && n <= 16 ? n : 16; }
 
 function parseInt0(s: string): number {
   const t = s.trim();
@@ -97,6 +99,7 @@ export default function CapturePanel() {
   const [lane, setLane] = useState<"all" | "0" | "1" | "2" | "3">("all");
   const [status, setStatus] = useState<Record<string, number>>({});
   const [samples, setSamples] = useState<Int16Array>(new Int16Array(0));
+  const [spb, setSpb] = useState(16);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [log, setLog] = useState<string[]>([]);
@@ -129,7 +132,7 @@ export default function CapturePanel() {
   async function readStatus(): Promise<Record<string, number>> {
     const id = await rd32(REG.ID);
     if (id !== ID_MAGIC) pushLog(`UYARI: ID 0x${id.toString(16).toUpperCase()} ≠ CAPT — base adres yanlış olabilir`);
-    const s: Record<string, number> = { id, status: await rd32(REG.STATUS), count: await rd32(REG.COUNT), depth: await rd32(REG.DEPTH), phase_inc: await rd32(REG.PHASE_INC), tx_beats: await rd32(REG.TX_BEATS), rx_beats: await rd32(REG.RX_BEATS) };
+    const s: Record<string, number> = { id, status: await rd32(REG.STATUS), count: await rd32(REG.COUNT), depth: await rd32(REG.DEPTH), beat_bits: await rd32(REG.BEAT_BITS), phase_inc: await rd32(REG.PHASE_INC), tx_beats: await rd32(REG.TX_BEATS), rx_beats: await rd32(REG.RX_BEATS) };
     setStatus(s);
     pushLog(`durum: DONE=${s.status & 1} BUSY=${(s.status >> 1) & 1} RX_SEEN=${(s.status >> 2) & 1} COUNT=${s.count}/${s.depth} TX_BEATS=${s.tx_beats} RX_BEATS=${s.rx_beats}`);
     return s;
@@ -164,7 +167,8 @@ export default function CapturePanel() {
     const s = await readStatus();
     const beats = Math.max(0, Math.min(s.count, parseInt0(beatsText) || 0));
     if (!beats) { pushLog("okunacak beat yok (COUNT=0)"); return; }
-    const totalWords = beats * 8;
+    const spb = samplesPerBeat(s.beat_bits);
+    const totalWords = beats * WORDS_PER_BEAT;
     const bytes = new Uint8Array(totalWords * 4);
     for (let w = 0; w < totalWords; w += WORDS_PER_REQ) {
       const n = Math.min(WORDS_PER_REQ, totalWords - w);
@@ -172,9 +176,13 @@ export default function CapturePanel() {
       bytes.set(chunk, w * 4);
       setProgress(`oku ${Math.round(((w + n) / totalWords) * 100)}%`);
     }
-    const all = new Int16Array(bytes.buffer, 0, beats * SAMPLES_PER_BEAT);
-    setSamples(new Int16Array(all));
-    pushLog(`${beats} beat / ${beats * SAMPLES_PER_BEAT} örnek okundu (${Math.ceil(totalWords / WORDS_PER_REQ)} istek)`);
+    // her beat 32 baytlik pencere: ilk spb ornek gecerli (128-bit beat'te ust 16 bayt sifir)
+    const window = new Int16Array(bytes.buffer, 0, beats * WORDS_PER_BEAT * 2);
+    const all = new Int16Array(beats * spb);
+    for (let b = 0; b < beats; b++) for (let k = 0; k < spb; k++) all[b * spb + k] = window[b * WORDS_PER_BEAT * 2 + k];
+    setSamples(all);
+    setSpb(spb);
+    pushLog(`${beats} beat / ${beats * spb} örnek okundu (BEAT_BITS=${s.beat_bits || 256}, ${Math.ceil(totalWords / WORDS_PER_REQ)} istek)`);
   });
 
   const captureAndRead = async () => { await capture(); await readData(); };
@@ -184,9 +192,10 @@ export default function CapturePanel() {
     const l = parseInt(lane, 10);
     const out = new Int16Array(Math.floor(samples.length / 4));
     let k = 0;
-    for (let i = 0; i < samples.length; i++) if (Math.floor((i % SAMPLES_PER_BEAT) / 4) === l) out[k++] = samples[i];
+    const perLane = Math.max(1, spb / 4);
+    for (let i = 0; i < samples.length; i++) if (Math.floor((i % spb) / perLane) === l) out[k++] = samples[i];
     return out.subarray(0, k);
-  }, [samples, lane]);
+  }, [samples, lane, spb]);
   const viewFs = lane === "all" ? fs : fs / 4;
   const spec = useMemo(() => (view.length >= 16 ? spectrumDb(view) : null), [view]);
   const peak = useMemo(() => {

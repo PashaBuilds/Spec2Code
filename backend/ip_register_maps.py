@@ -173,7 +173,7 @@ def _jesd204c_common_registers(direction: str, link_layer: str, lanes: int) -> l
         ]
     regs += [
         _reg("STAT_STATUS", 0x060, "[RO] Baglanti durumu", [
-            ("ALIGN_ERROR_8B10B", "15", "hizalama hatasi (8B/10B)"), ("RX_STARTED", "14", "alici basladi"),
+            ("ALIGN_ERROR_8B10B", "15", "hizalama hatasi (8B/10B)"), ("RX_STARTED", "14", "alici veri cikarmaya basladi (yalniz 8B/10B RX; 64B/66B'de anlamsiz)"),
             ("CGS_STATUS", "13", "kod grubu senkron"), ("SYNC_STATUS", "12", "SYNC durumu"),
             ("BUFFER_OVERFLOW", "10", "tampon tasti"), ("MB_LOCK_64B66B", "5", "multiblok kilidi"),
             ("SYNC_HEADER_LOCK_64B66B", "4", "sync header kilidi"), ("SYSREF_ERROR", "2", "SYSREF hatasi"),

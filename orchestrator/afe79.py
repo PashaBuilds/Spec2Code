@@ -139,6 +139,36 @@ def jesd_ips(spec: dict) -> dict[str, dict]:
     return out
 
 
+def sysref_gpio_base(spec: dict) -> int:
+    """SYSREF darbesi icin AXI GPIO: id/instance'inda 'sysref' gecen ilk PL GPIO denetleyicisi (yoksa 0).
+
+    KV260 referans tasariminda axi_gpio_sysref (bit0 -> her iki cekirdegin *_sysref girisi). Gercek kartta
+    SYSREF saat agacindan geliyorsa GPIO yoktur; jesdLinkSysrefPulse o zaman yalniz log yazar.
+    """
+    for c in spec.get("controllers", []) or []:
+        if str(c.get("type", "")) != "gpio":
+            continue
+        text = f"{c.get('id', '')} {c.get('instance', '')}".lower()
+        if "sysref" in text:
+            try:
+                return int(str(c.get("base_address")), 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def write_jesdlink(spec: dict, out_dir: Path, write_output: Callable[[Path, str], Path],
+                   style: Callable[[str], str]) -> list[str]:
+    """drivers/ip/jesdlink.c/.h: spec'te register_map=jesd204c IP varsa (AFE olsun olmasin)."""
+    ips = jesd_ips(spec)
+    if not ips:
+        return []
+    sysref = sysref_gpio_base(spec)
+    ip_dir = out_dir / "drivers" / "ip"
+    return [str(write_output(ip_dir / "jesdlink.h", style(_jesdlink_header(ips, sysref)))),
+            str(write_output(ip_dir / "jesdlink.c", style(_jesdlink_source(ips, sysref))))]
+
+
 # --- surucu birimi (drivers/<mod>.c/.h) --------------------------------------------------------------
 
 def device_unit(device: dict, controller: dict, descriptor: dict, module: Optional[str],
@@ -259,7 +289,10 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
     e.ln("(void)pvHal;")
     e.ln("/* Tek atimlik pin SYSREF kancasi: saat agaci (LMK) ya da PL GPIO surer; surekli SYSREF")
     e.ln(" * modunda TI islem beklemez. Karta ozel surus gerekiyorsa bu fonksiyon override edilir. */")
-    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"AFE: SYSREF darbe kancasi (bos)\");")
+    if has_jesd:
+        e.ln("jesdLinkSysrefPulse(); /* spec'te SYSREF GPIO'su varsa darbe, yoksa yalniz log */")
+    else:
+        e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"AFE: SYSREF darbe kancasi (bos)\");")
     funcs.append(CFunc(_func_name(module, "hal_sysref_pulse"), "void", ["void* pvHal"], e.out(),
                        brief="TI HAL giveSingleSysrefPulse kancasi (varsayilan: yalniz log)."))
     public.append(_func_name(module, "hal_sysref_pulse"))
@@ -438,6 +471,7 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.ln("/* 5) FPGA RX'e GT'siz link reset: vericiler (AFE ADC-JESD-TX) calisirken alici yeniden senkron arar")
         e.ln(" *    (8B/10B: SYNC~ dusurulur -> CGS -> ILAS; 64B/66B: SH/EMB kilidi). GT resetlenmez. */")
         e.ln("iStatus = jesdLinkLinkReset(JESDLINK_RX_BASE);").check_status()
+        e.ln("jesdLinkSysrefPulse(); /* SYSREF GPIO varsa darbe (saat agacindan geliyorsa yalniz log) */")
         e.ln("/* 6) FPGA RX link (AFE ADC -> FPGA): timeout'lu durum kontrolu. */")
         e.open("if (jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS) == XST_SUCCESS)").ln("usStatus |= 0x0001U;").close()
         e.open("if (jesdLinkTxCheck() == XST_SUCCESS)").ln("usStatus |= 0x0002U;").close()
@@ -600,11 +634,7 @@ def write_support_files(spec: dict, out_dir: Path, get_descriptor: Callable[[str
     written.append(str(write_output(drivers_dir / f"{module}_config.h", style(_config_header(module, len(words))))))
     written.append(str(write_output(drivers_dir / f"{module}_config.c", style(_config_source(module, words)))))
 
-    # 4) JESD204C IP baglanti modulu
-    ips = jesd_ips(spec)
-    if ips:
-        written.append(str(write_output(drivers_dir / "ip" / "jesdlink.h", style(_jesdlink_header(ips)))))
-        written.append(str(write_output(drivers_dir / "ip" / "jesdlink.c", style(_jesdlink_source(ips)))))
+    # 4) JESD204C IP baglanti modulu: write_jesdlink (AFE'den bagimsiz, codegen.generate cagirir)
     return written
 
 
@@ -790,7 +820,7 @@ def _config_source(module: str, words: list[int]) -> str:
 
 # --- jesdlink (drivers/ip/jesdlink.c/.h) --------------------------------------------------------------
 
-def _jesdlink_header(ips: dict[str, dict]) -> str:
+def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     rx = ips.get("rx")
     tx = ips.get("tx")
     ref = rx or tx
@@ -815,6 +845,7 @@ def _jesdlink_header(ips: dict[str, dict]) -> str:
         "#define JESDLINK_RESET_TIMEOUT_MS 200U /* reset kaldirma: CORE_RESET_STATE ve GT_RESET_BUSY dusmeli */\n"
         "#define JESDLINK_LINK_TIMEOUT_MS 1000U /* link kurulumu bekleme */\n"
         "#define JESDLINK_POLL_STEP_MS 1U\n"
+        f"#define JESDLINK_SYSREF_GPIO_BASE 0x{sysref_gpio:08X}U /* AXI GPIO bit0 = SYSREF darbesi (0: GPIO yok, saat agaci) */\n"
         "\n"
         f"#define JESDLINK_REG_RESET 0x{JESD_REG_RESET:03X}U\n"
         f"#define JESDLINK_REG_CTRL_SYSREF 0x{JESD_REG_CTRL_SYSREF:03X}U\n"
@@ -835,7 +866,7 @@ def _jesdlink_header(ips: dict[str, dict]) -> str:
         "#define JESDLINK_RESET_GT_POWERGOOD 0x00000040U  /* GT_POWERGOOD[6] */\n"
         "#define JESDLINK_STAT_SYSREF_CAPTURED 0x00000002U\n"
         "#define JESDLINK_STAT_SYSREF_ERROR 0x00000004U\n"
-        "#define JESDLINK_STAT_RX_STARTED 0x00004000U\n"
+        "#define JESDLINK_STAT_RX_STARTED 0x00004000U      /* RX_STARTED[14]: yalniz 8B/10B RX */\n"
         + ("#define JESDLINK_STAT_SH_LOCK 0x00000010U        /* SYNC_HEADER_LOCK_64B66B[4] */\n"
            "#define JESDLINK_STAT_MB_LOCK 0x00000020U        /* MB_LOCK_64B66B[5] */\n"
            if is_64 else
@@ -852,12 +883,15 @@ def _jesdlink_header(ips: dict[str, dict]) -> str:
         "unsigned int jesdLinkStatusRead(unsigned int uiBase);\n"
         "int jesdLinkRxLaneErrorsRead(unsigned char ucLane, unsigned int* uipErrors);\n"
         "void jesdLinkErrorCountersClear(void);\n"
+        "void jesdLinkSysrefPulse(void);\n"
+        "int jesdLinkBringup(unsigned short* uspStatus);\n"
+        "int jesdLinkStatusWord(unsigned short* uspStatus);\n"
         "\n"
         "#endif /* JESDLINK_H */\n"
     )
 
 
-def _jesdlink_source(ips: dict[str, dict]) -> str:
+def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     rx = ips.get("rx")
     tx = ips.get("tx")
     ref = rx or tx
@@ -950,9 +984,9 @@ def _jesdlink_source(ips: dict[str, dict]) -> str:
         e.ln("/* Alt sinif 1: link ancak SYSREF yakalandiktan sonra deterministik. */")
         e.open("if ((uiStatus & JESDLINK_STAT_SYSREF_CAPTURED) == 0U)").ln("return XST_FAILURE;").close()
     if is_64:
-        e.ln("/* 64B/66B: sync header kilidi + (genisletilmis) multiblok kilidi + veri basladi. */")
-        e.open("if ((uiStatus & (JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK | JESDLINK_STAT_RX_STARTED)) != "
-               "(JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK | JESDLINK_STAT_RX_STARTED))")
+        e.ln("/* 64B/66B: sync header kilidi + (genisletilmis) multiblok kilidi. RX_STARTED (bit14) PG242'ye gore")
+        e.ln(" * YALNIZ 8B/10B alicida anlamlidir (SAHA 2026-09-15, KV260 loopback: SH+MB kilitli, veri akarken bit14 = 0). */")
+        e.open("if ((uiStatus & (JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK)) != (JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK))")
     else:
         e.ln("/* 8B/10B: SYNC~ kaldirildi + CGS (kod grubu senkronu) tamam + hizalama hatasi yok + veri basladi (ILAS gecildi). */")
         e.open("if (((uiStatus & JESDLINK_STAT_ALIGN_ERROR) != 0U) || "
@@ -1036,6 +1070,59 @@ def _jesdlink_source(ips: dict[str, dict]) -> str:
     e.open("if (JESDLINK_TX_BASE != 0U)")
     e.ln("jesdLinkWrite(JESDLINK_TX_BASE, JESDLINK_REG_STAT_IRQ, jesdLinkRead(JESDLINK_TX_BASE, JESDLINK_REG_STAT_IRQ));")
     e.close()
+    e.level = 0
+    e.ln("}")
+    e.blank()
+    e.ln("void jesdLinkSysrefPulse(void)")
+    e.ln("{")
+    e.level = 1
+    e.open("if (JESDLINK_SYSREF_GPIO_BASE == 0U)")
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF GPIO yok (SYSREF saat agacindan bekleniyor)\");")
+    e.ln("return;")
+    e.close()
+    e.ln("/* AXI GPIO kanal 1 DATA (0x0): bit0 1 -> 0 (yon: C_ALL_OUTPUTS ya da TRI onceden cikis). */")
+    e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 1U);")
+    e.ln("usleep(10U);")
+    e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 0U);")
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF darbesi (GPIO 0x%08X)\", JESDLINK_SYSREF_GPIO_BASE);")
+    e.level = 0
+    e.ln("}")
+    e.blank()
+    e.ln("int jesdLinkStatusWord(unsigned short* uspStatus)")
+    e.ln("{")
+    e.level = 1
+    e.ln("unsigned short usStatus = 0U;")
+    e.blank()
+    e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
+    e.ln("/* bit0 FPGA RX link, bit1 FPGA TX hazir, bit7 = ikisi de (AFE'li surumde bit2-4 AFE tarafi). */")
+    e.open("if (jesdLinkRxLinkCheck() == XST_SUCCESS)").ln("usStatus |= 0x0001U;").close()
+    e.open("if (jesdLinkTxCheck() == XST_SUCCESS)").ln("usStatus |= 0x0002U;").close()
+    e.open("if ((usStatus & 0x0003U) == 0x0003U)").ln("usStatus |= 0x0080U;").close()
+    e.ln("*uspStatus = usStatus;")
+    e.ln("return XST_SUCCESS;")
+    e.level = 0
+    e.ln("}")
+    e.blank()
+    e.ln("int jesdLinkBringup(unsigned short* uspStatus)")
+    e.ln("{")
+    e.level = 1
+    e.ln("int iStatus;")
+    e.blank()
+    e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
+    e.ln("*uspStatus = 0U;")
+    e.ln("/* FPGA-only dizi (AFE yok / AFE ayrica ilklendirildi): reset ver -> kaldir (cmd+data acik) -> RX link reset")
+    e.ln(" * -> SYSREF darbesi (GPIO varsa) -> RX link bekle -> TX kontrol -> sayaclari temizle. */")
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 0U);").check_status()
+    e.ln("iStatus = jesdLinkLinkReset(JESDLINK_RX_BASE);").check_status()
+    e.ln("jesdLinkSysrefPulse();")
+    e.ln("(void)jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS);")
+    e.ln("jesdLinkErrorCountersClear();")
+    e.ln("iStatus = jesdLinkStatusWord(uspStatus);").check_status()
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD FPGA link bring-up durumu: 0x%04X (bit7 = tamam)\", (unsigned int)*uspStatus);")
+    e.ln("return ((*uspStatus & 0x0080U) != 0U) ? XST_SUCCESS : XST_FAILURE;")
     e.level = 0
     e.ln("}")
     return "\n".join(e.lines) + "\n"

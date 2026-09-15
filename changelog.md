@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.236 - 2026-09-15
+
+- **JESD204C AFE'siz bring-up**: `drivers/ip/jesdlink` artik spec'te jesd204c IP varsa AFE olmasa da uretilir;
+  ajanin cihazdan bagimsiz `jesd` cihazi `jesd_link_bringup` / `jesd_link_status_read` op'larini alir
+  (manifest `jesd` bolumu), Register Map ekraninda "JESD204C link" karti (bring-up, durum bitleri).
+  SYSREF AXI GPIO (id/instance'da `sysref`) taninir: `jesdLinkSysrefPulse` darbe verir, AFE HAL SYSREF kancasi
+  da bunu kullanir. 64B/66B link kriterinden RX_STARTED cikarildi (PG242: bit14 yalniz 8B/10B RX).
+- Yakalama paneli ornek/beat sayisini BEAT_BITS (0x18) register'indan turetir (8B/10B 128-bit beat).
+- KV260 referans tasarimi: `-tclargs 8b10b` ile JESD204B (8B/10B) varyanti (charisk loopback, 128-bit beat);
+  `jesd_loopback_util` BEAT_BITS parametresi. Yeni kilavuz `docs/afe7900_saha_testi.md` (sirket AFE7900 testi).
+
 ## v0.1.235 - 2026-09-15
 
 - **JESD204C reset semantigi (SAHA, KV260 + v4.2 RTL)**: RESET[0] seviye bitidir, kendiliginden temizlenmez.

@@ -13,7 +13,11 @@ set root_dir D:/Projects/claude/Spec2Code
 set proj_dir $root_dir/test/0_temp_dbg/vivado_kv260_jesd
 set xsa_out  $root_dir/test/0_dosyalar/kv260_jesd204c.xsa
 set with_bit 1
-if {[llength $argv] > 0 && [lindex $argv 0] eq "nobit"} { set with_bit 0 }
+set encoding 1   ;# 1 = 64B/66B (JESD204C), 0 = 8B/10B (JESD204B modu)
+foreach a $argv {
+    if {$a eq "nobit"} { set with_bit 0 }
+    if {$a eq "8b10b"} { set encoding 0; set proj_dir ${proj_dir}_8b10b; set xsa_out $root_dir/test/0_dosyalar/kv260_jesd204b.xsa }
+}
 file delete -force $proj_dir
 create_project -force kv260_jesd $proj_dir -part xck26-sfvc784-2LV-c
 set_property board_part xilinx.com:k26c:part0:1.4 [current_project]
@@ -29,12 +33,13 @@ set_property -dict [list CONFIG.PSU__USE__M_AXI_GP0 {1} CONFIG.PSU__USE__M_AXI_G
 
 puts "STEP: JESD204C RX/TX + GPIO"
 set rx [create_bd_cell -type ip -vlnv xilinx.com:ip:jesd204c:4.2 jesd204c_rx]
-set_property -dict [list CONFIG.C_LANES {4} CONFIG.C_NODE_IS_TRANSMIT {0} CONFIG.C_ENCODING {1}] $rx
+set_property -dict [list CONFIG.C_LANES {4} CONFIG.C_NODE_IS_TRANSMIT {0} CONFIG.C_ENCODING $encoding] $rx
 set tx [create_bd_cell -type ip -vlnv xilinx.com:ip:jesd204c:4.2 jesd204c_tx]
-set_property -dict [list CONFIG.C_LANES {4} CONFIG.C_NODE_IS_TRANSMIT {1} CONFIG.C_ENCODING {1}] $tx
+set_property -dict [list CONFIG.C_LANES {4} CONFIG.C_NODE_IS_TRANSMIT {1} CONFIG.C_ENCODING $encoding] $tx
 set gpio [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_sysref]
 set_property -dict [list CONFIG.C_GPIO_WIDTH {1} CONFIG.C_ALL_OUTPUTS {1} CONFIG.C_DOUT_DEFAULT {0x00000000}] $gpio
 set util [create_bd_cell -type module -reference jesd_loopback_util jesd_loopback_util_0]
+set_property CONFIG.BEAT_BITS [expr {$encoding ? 256 : 128}] $util   ;# 4 lane x 64 bit / 4 lane x 32 bit
 foreach cell [list $rx $tx $gpio $util] {
     apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config [list \
         Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
@@ -48,7 +53,9 @@ set pl_clk [get_bd_pins zynq_ultra_ps_e_0/pl_clk0]
 # GT veri yolu: TX -> RX (64B/66B: data + 2-bit header)
 for {set i 0} {$i < 4} {incr i} {
     connect_bd_net [get_bd_pins $tx/gt${i}_txdata]   [get_bd_pins $rx/gt${i}_rxdata]
-    connect_bd_net [get_bd_pins $tx/gt${i}_txheader] [get_bd_pins $rx/gt${i}_rxheader]
+    if {[get_bd_pins -quiet $tx/gt${i}_txheader] ne ""} { connect_bd_net [get_bd_pins $tx/gt${i}_txheader] [get_bd_pins $rx/gt${i}_rxheader] }
+    # 8B/10B: K karakter isareti de PHY uzerinden gider (txcharisk -> rxcharisk); disperr/notintable 0 kalir
+    if {[get_bd_pins -quiet $tx/gt${i}_txcharisk] ne ""} { connect_bd_net [get_bd_pins $tx/gt${i}_txcharisk] [get_bd_pins $rx/gt${i}_rxcharisk] }
 }
 # SYSREF: GPIO bit0 -> her iki cekirdek
 connect_bd_net [get_bd_pins $gpio/gpio_io_o] [get_bd_pins $tx/tx_sysref]
@@ -66,7 +73,8 @@ set one [create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant xlconstant_one]
 set_property -dict [list CONFIG.CONST_WIDTH 1 CONFIG.CONST_VAL 1] $one
 foreach pin [list $rx/rx_cmd_tready \
                   $rx/gt0_rxblock_sync $rx/gt1_rxblock_sync $rx/gt2_rxblock_sync $rx/gt3_rxblock_sync] {
-    connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $pin]
+    # 8B/10B'de cmd arayuzu ve block_sync girisleri yok: olmayan pin atlanir
+    if {[get_bd_pins -quiet $pin] ne ""} { connect_bd_net [get_bd_pins $one/dout] [get_bd_pins $pin] }
 }
 # PHY yok: reset_done sabit 1 (PHY resetini "aninda tamam" say). NOT reset_gt denemesi (2026-09-15) cekirdegi
 # GT_BUSY'de bekletti: gercek PHY reset_done'i reset_gt yuksekken de yukseltir; ters baglanti kilitlenir.

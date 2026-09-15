@@ -2456,6 +2456,21 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
                 for c in gpio_controllers
             ],
         }
+    jesd = afe79.jesd_ips(spec)
+    if jesd:
+        ref = jesd.get("rx") or jesd.get("tx") or {}
+        sysref = afe79.sysref_gpio_base(spec)
+        manifest["jesd"] = {
+            "device": "jesd",
+            "ops": ["jesd_link_bringup", "jesd_link_status_read"],
+            "rx_base": f"0x{jesd['rx']['base']:08X}" if jesd.get("rx") else "",
+            "tx_base": f"0x{jesd['tx']['base']:08X}" if jesd.get("tx") else "",
+            "link_layer": ref.get("link_layer", ""), "lanes": ref.get("lanes", 0), "subclass": ref.get("subclass", 0),
+            "sysref_gpio": f"0x{sysref:08X}" if sysref else "",
+            "status_bits": {"0": "FPGA RX link (SH+MB kilit / CGS+SYNC)", "1": "FPGA TX hazir (reset kalkti, SYSREF)",
+                            "2": "AFE DAC-JESD-RX link (yalniz AFE op'u)", "3": "AFE alarm yok (yalniz AFE op'u)",
+                            "4": "AFE PLL kilitli (yalniz AFE op'u)", "7": "hepsi tamam"},
+        }
     if agent == "uart":
         uart = _testbench_uart_controller(spec) or {}
         manifest["uart"] = {
@@ -4120,6 +4135,36 @@ def _testbench_gpio_lines(handle_types: set[str]) -> list[str]:
     ]
 
 
+def _testbench_jesd_lines(spec: dict) -> list[str]:
+    """Cihazdan bagimsiz JESD op'lari (spec'te jesd204c IP varsa): FPGA cekirdekleri icin bring-up / durum.
+
+    AFE7900 varsa cihazin kendi jesd_link_bringup op'u AFE dizisini de icerir; buradaki `jesd` cihazi yalniz
+    FPGA tarafini kurar (loopback / AFE ayrica ilklendirilmisken). Durum sozcugu jesdlink.h'taki bit yerlesimi.
+    """
+    if not afe79.jesd_ips(spec):
+        return []
+    lines: list[str] = []
+    for op, func in (("jesd_link_bringup", "jesdLinkBringup"), ("jesd_link_status_read", "jesdLinkStatusWord")):
+        lines += [
+            # cihaz adi tel'de indeksle gider; sanal cihazlar (regmap/jesd) 0xFFFFFFFF -> cArrDevice bos kalir.
+            # Bos cihaz adi + op adi: AFE7900 cihazinin ayni adli op'u cihaz dalinda (adiyla) ayrilir.
+            f"    if ((spec2codeTestbenchStringEqual(spRequest->cArrOperation, \"{op}\") == TRUE) &&",
+            "        (spRequest->cArrDevice[0] == '\\0'))",
+            "    {",
+            "        unsigned short usJesdStatus = 0U;",
+            f"        int iJesdStatus = {func}(&usJesdStatus);",
+            "        spResponse->uiOk = (iJesdStatus == XST_SUCCESS) ? 1U : 0U;",
+            "        spResponse->iStatus = iJesdStatus;",
+            "        spResponse->uiValue = (unsigned int)usJesdStatus;",
+            "        (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)((usJesdStatus >> 8U) & 0xFFU));",
+            "        (void)spec2codeTestbenchDataPush(spResponse, (unsigned char)(usJesdStatus & 0xFFU));",
+            f"        spec2codeTestbenchMessageSet(spResponse, (iJesdStatus == XST_SUCCESS) ? \"{op} ok\" : \"{op}: link kurulamadi (durum sozcugune bak)\");",
+            "        return XST_SUCCESS;",
+            "    }",
+        ]
+    return lines
+
+
 def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> str:
     project_name = spec["project"]["name"]
     app_version = _app_version()
@@ -4134,6 +4179,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         # Adres-tabanli genel bellek oku/yaz (mem_read/mem_write) icin:
         # Xil_In32/Xil_Out32 + u8/u16/u32. Tum platformlarin standalone BSP'sinde var.
         '#include "xil_io.h"',
+        *(['#include "jesdlink.h"'] if afe79.jesd_ips(spec) else []),
         '#include <stddef.h>',
         "",
     ]
@@ -4377,6 +4423,7 @@ def _testbench_ops_source(spec: dict, get_descriptor: Callable[[str], dict]) -> 
         "        spec2codeTestbenchMessageSet(spResponse, \"mem block ok\");",
         "        return XST_SUCCESS;",
         "    }",
+        *_testbench_jesd_lines(spec),
         *_testbench_i2c_scan_lines(handle_types),
         *_testbench_gpio_lines(handle_types),
         "    dbg_printf(DEBUG_LEVEL_INFO, \"op basliyor: device=%s op=%s\",",
@@ -7352,6 +7399,12 @@ def generate(
         emit({"event": "codegen.known_ip", "files": len(ip_written)})
         written.extend(ip_written)
     # TI AFE79xx (AFE7900): vendor C API kopyasi + HAL koprusu + Latte config dizisi + jesdlink.
+    # JESD204C baglanti modulu (drivers/ip/jesdlink): register_map=jesd204c IP varsa, AFE olsun olmasin
+    # (ajan op'lari jesd_link_bringup / jesd_link_status_read bunu cagirir).
+    jesd_written = afe79.write_jesdlink(spec, out_dir, hio.write_output, _apply_default_identifier_style)
+    if jesd_written:
+        emit({"event": "codegen.jesdlink", "files": len(jesd_written)})
+        written.extend(jesd_written)
     afe_written = afe79.write_support_files(spec, out_dir, get_descriptor, hio.write_output,
                                             _apply_default_identifier_style)
     if afe_written:

@@ -103,6 +103,8 @@ class Afe7900GenerationTests(unittest.TestCase):
         link = files["drivers/ip/jesdlink.c"]
         self.assertIn("JESDLINK_STAT_SH_LOCK | JESDLINK_STAT_MB_LOCK", link)
         self.assertNotIn("JESDLINK_STAT_CGS", link)
+        # RX_STARTED yalniz 8B/10B: 64B/66B kriterinde kullanilmaz (SAHA KV260)
+        self.assertNotIn("JESDLINK_STAT_MB_LOCK | JESDLINK_STAT_RX_STARTED", link)
         self.assertNotIn("#ifdef", link)
         link_h = files["drivers/ip/jesdlink.h"]
         self.assertIn("#define JESDLINK_RX_BASE 0xA0000000U", link_h)
@@ -144,6 +146,28 @@ class Afe7900GenerationTests(unittest.TestCase):
         self.assertNotIn("jesd_link_bringup", ops)
         self.assertNotIn("jesd_link_status_read", ops)
         self.assertIn("jesd_rx_link_status_read", ops)
+
+    def test_jesd_only_spec_gets_jesdlink_agent_ops_and_manifest(self) -> None:
+        """AFE'siz jesd204c spec (KV260 loopback): jesdlink + `jesd` cihazi op'lari + manifest.jesd + SYSREF GPIO."""
+        spec = _spec(jesd="64b66b")
+        spec["devices"] = []
+        spec["controllers"].append({"id": "pl_gpio_0", "type": "gpio", "instance": "XPAR_AXI_GPIO_SYSREF",
+                                    "base_address": "0xA0020000", "driver": "XGpio", "source": "xparameters", "zone": "pl"})
+        files = self._generate(spec)
+        self.assertIn("drivers/ip/jesdlink.c", files)
+        self.assertNotIn("drivers/afe7900.c", files)
+        link = files["drivers/ip/jesdlink.c"]
+        self.assertIn("int jesdLinkBringup(unsigned short* uspStatus)", link)
+        self.assertIn("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 1U);", link)
+        self.assertIn("#define JESDLINK_SYSREF_GPIO_BASE 0xA0020000U", files["drivers/ip/jesdlink.h"])
+        ops = files["tests/unit_afe_testbench_ops.c"]
+        self.assertIn('#include "jesdlink.h"', ops)
+        self.assertIn('"jesd_link_bringup"', ops)
+        self.assertIn("(spRequest->cArrDevice[0] == '\\0')", ops)  # sanal cihaz: tel'de ad bos; AFE cihaz op'u ile cakismaz
+        manifest = json.loads(files["tests/spec2code_testbench_manifest.json"])
+        self.assertEqual(manifest["jesd"]["device"], "jesd")
+        self.assertEqual(manifest["jesd"]["rx_base"], "0xA0000000")
+        self.assertEqual(manifest["jesd"]["sysref_gpio"], "0xA0020000")
 
     def test_axi_quad_spi_controller_uses_xspi(self) -> None:
         files = self._generate(_spec(jesd=None, driver="XSpi"))

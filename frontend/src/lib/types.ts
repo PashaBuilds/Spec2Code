@@ -420,6 +420,9 @@ export interface TestbenchManifest {
   telnet_log?: { port: number; ip: string };
   /** lwIP ajanının ağ ayarları (spec project.testbench_network'ten üretilir); Bağlantı kartı host/port'u önceden doldurur. */
   network?: { ip: string; netmask: string; gateway: string; mac: string; port: number };
+  /** JESD204C IP'leri (drivers/ip/jesdlink): cihazdan bagimsiz `jesd` cihazi uzerinden FPGA link bring-up / durum. */
+  jesd?: { device: string; ops: string[]; rx_base: string; tx_base: string; link_layer: string; lanes: number; subclass: number;
+           sysref_gpio: string; status_bits: Record<string, string> };
   /** AXI GPIO denetleyici op'ları: gpio_read/gpio_write DENETLEYİCİ-adreslidir
    * (hedef bir cihaz değil, AXI GPIO çekirdeğinin kendisi). `index` tel'de
    * uiCihazIndeks olarak gider — I2C denetleyicileri aynı tabloda ÖNEK olduğu

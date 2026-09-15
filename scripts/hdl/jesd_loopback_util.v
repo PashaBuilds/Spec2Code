@@ -33,7 +33,8 @@ module jesd_loopback_util #
 (
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
-    parameter integer DEPTH = 1024
+    parameter integer DEPTH = 1024,
+    parameter integer BEAT_BITS = 256   // 64B/66B 4 lane: 256; 8B/10B 4 lane: 128 (ornek/beat = BEAT_BITS/16)
 )
 (
     input  wire                             s_axi_aclk,
@@ -60,9 +61,9 @@ module jesd_loopback_util #
     // JESD204C cekirdek tarafi (core_clk = s_axi_aclk = pl_clk0)
     input  wire                             core_clk,
     input  wire                             core_rst,        // aktif yuksek (proc_sys_reset peripheral_reset)
-    input  wire [255 : 0]                   rx_tdata,
+    input  wire [BEAT_BITS-1 : 0]           rx_tdata,
     input  wire                             rx_tvalid,
-    output reg  [255 : 0]                   tx_tdata,
+    output reg  [BEAT_BITS-1 : 0]           tx_tdata,
     input  wire                             tx_tready
 );
 
@@ -183,7 +184,7 @@ module jesd_loopback_util #
     end
 
     // ---------------- Yakalama BRAM (256 bit x DEPTH) ----------------
-    reg [255:0] mem [0:DEPTH-1];
+    reg [BEAT_BITS-1:0] mem [0:DEPTH-1];
     reg [255:0] mem_q;
 
     always @(posedge core_clk)
@@ -501,17 +502,17 @@ module jesd_loopback_util #
         if (core_rst)
         begin
             phase    <= 16'd0;
-            tx_tdata <= 256'd0;
+            tx_tdata <= 0;
             tx_beats <= 32'd0;
         end
         else
         begin
-            for (s = 0; s < 16; s = s + 1)
+            for (s = 0; s < BEAT_BITS/16; s = s + 1)
             begin
                 ph_i = phase + s * tx_phase_inc[15:0];
                 tx_tdata[16*s +: 16] <= sine_rom(ph_i[15:8]);
             end
-            phase    <= phase + 16 * tx_phase_inc[15:0];
+            phase    <= phase + (BEAT_BITS/16) * tx_phase_inc[15:0];
             tx_beats <= tx_beats + 32'd1;
         end
     end
@@ -551,7 +552,7 @@ module jesd_loopback_util #
             4'h3: read_value = {29'd0, rx_seen, armed, done};
             4'h4: read_value = {{(31-AW){1'b0}}, wr_ptr};
             4'h5: read_value = DEPTH;
-            4'h6: read_value = 32'd256;
+            4'h6: read_value = BEAT_BITS;
             4'h7: read_value = tx_phase_inc;
             4'h8: read_value = 32'h00008000;
             4'h9: read_value = tx_beats;
