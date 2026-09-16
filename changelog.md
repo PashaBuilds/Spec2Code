@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.249 - 2026-09-16
+
+- **Duzeltme (flash)**: `page_program`, `sector_erase`, `subsector_erase` artik islem bitene kadar STATUS WIP=0
+  bekler (`wait_status` descriptor adimi; MT25Q128/MT25QL128/MT25QU02G/S25FL128S). Onceden op hemen donuyor,
+  hizli transportta (TCP) bir sonraki WRITE_ENABLE mesgul flash tarafindan yutulabiliyordu.
+- **Duzeltme (JTAG koprusu)**: xsdb `jtagterminal` koprusu olunce (SmartLynq/hw_server baglantisi dustu) oturum
+  kopuk isaretlenir ve son hata xsdb ciktisiyla gorunur; tasiyici hat okuma hatasi da oturumu kapatir.
+  Onceden oturum acik gorunur, her komut zaman asimina duserdi ("stabil baglanti kurulamiyor" izlenimi).
+- Test Bench komut hatasi mesaji transporta ozgu "tcp session is not connected" yerine duruma gore.
+- Flash yazma: hata/kopma sonrasi **Kaldigi yerden devam et** (son basarili sayfa ofsetinden).
+
 ## v0.1.248 - 2026-09-16
 
 - **JESD bring-up sirasi sirket akisiyla esitlendi** (sirket AFE7900 InitDevicesAndInterfaces rutini): fiziksel reset darbesi ->

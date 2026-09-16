@@ -74,6 +74,8 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
   const [summary, setSummary] = useState("");
   const cancelRef = useRef(false);
   const commandIdRef = useRef(TRANSFER_COMMAND_ID_BASE);
+  /** Yarim kalan yazmanin dosya ofseti (bayt): baglanti kopunca "kaldigi yerden devam" icin. */
+  const [resumeOffset, setResumeOffset] = useState(0);
 
   if (!hasRead && !hasWrite) return null;
 
@@ -151,7 +153,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
     }
   }
 
-  async function runWrite() {
+  async function runWrite(startOffset = 0) {
     const address = parseNumber(writeAddress);
     if (address == null || !writeFile) {
       setError("Hedef adres ve .bin dosyası gerekli.");
@@ -162,7 +164,8 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
       return;
     }
     const confirmed = window.confirm(
-      `${writeFile.name} (${writeFile.size} bayt) → ${device.part} ${hexAddr(address)}..${hexAddr(address + writeFile.size - 1)} yazılacak.\n\n` +
+      `${writeFile.name} (${writeFile.size} bayt) → ${device.part} ${hexAddr(address)}..${hexAddr(address + writeFile.size - 1)} yazılacak` +
+      (startOffset > 0 ? ` (ofset ${startOffset} bayttan devam)` : "") + `.\n\n` +
       `DİKKAT: NOR flash programlama yalnız 1→0 çevirir; hedef alan önceden SİLİNMİŞ (0xFF) olmalıdır, yoksa veri bozuk yazılır ve doğrulama düşer. Devam edilsin mi?`,
     );
     if (!confirmed) return;
@@ -170,10 +173,10 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
     setError("");
     setSummary("");
     cancelRef.current = false;
+    let offset = startOffset;
     try {
       const bytes = new Uint8Array(await writeFile.arrayBuffer());
       const startedAt = performance.now();
-      let offset = 0;
       while (offset < bytes.length) {
         if (cancelRef.current) throw new Error(`iptal edildi (${offset}/${bytes.length} bayt yazılmıştı)`);
         // Sayfa hizalama: page_program sayfa sınırını aşamaz (256B sayfa).
@@ -186,6 +189,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
         offset += chunk;
         setProgress({ done: offset, total: bytes.length, startedAt, label: "yazılıyor" });
       }
+      setResumeOffset(0);
       const writeSeconds = (performance.now() - startedAt) / 1000;
       if (verifyAfterWrite) {
         const readBack = await readRange(address, bytes.length, "doğrulanıyor");
@@ -202,7 +206,10 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
         `${bytes.length} bayt yazıldı (${writeSeconds.toFixed(1)} sn)${verifyAfterWrite ? " ve geri okumayla birebir doğrulandı" : ""}.`,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Yarim kalan yazma: son basarili sayfa ofseti saklanir, "kaldigi yerden devam" ile surer
+      // (baglanti kopmasi / zaman asimi sonrasi bastan yazmak gerekmesin - SAHA 2026-09-16).
+      if (offset > 0 && writeFile && offset < writeFile.size) setResumeOffset(offset);
+      setError((err instanceof Error ? err.message : String(err)) + (offset > 0 ? ` · ${offset} bayt yazılmıştı` : ""));
     } finally {
       setBusy("");
       setProgress(null);
@@ -269,6 +276,12 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
             {busy === "write" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
             Dosyayı flash'a yaz
           </Button>
+          {resumeOffset > 0 && writeFile ? (
+            <Button variant="outline" onClick={() => void runWrite(resumeOffset)} disabled={busy !== "" || !isConnected}
+              title={`Yarım kalan yazma: dosya ofseti ${resumeOffset} bayttan (adres ${hexAddr((parseNumber(writeAddress) ?? 0) + resumeOffset)}) devam eder`}>
+              Kaldığı yerden devam et ({Math.round((resumeOffset / writeFile.size) * 100)}%)
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

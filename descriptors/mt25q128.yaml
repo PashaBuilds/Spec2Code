@@ -38,10 +38,12 @@ operations:
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
       - { op: write_command_address, cmd: PAGE_PROGRAM }
+      - { op: wait_status, cmd: READ_STATUS, bit: 0, until: 0, timeout_ms: 20 }
   - name: sector_erase
     description: "Erase the 64KB sector containing a 24-bit address."
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
       - { op: write_command_address, cmd: SECTOR_ERASE, length: 0 }
+      - { op: wait_status, cmd: READ_STATUS, bit: 0, until: 0, timeout_ms: 3000 }
 test_hints:
   self_test: { description: "Read JEDEC ID, verify non-zero / non-0xFF manufacturer byte." }

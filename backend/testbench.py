@@ -567,9 +567,16 @@ class _TestbenchSerialSession(_TrafficRing):
             try:
                 chunk = handle.read(256)
             except (OSError, ValueError) as exc:
+                lost = False
                 with self._lock:
                     if not self._stop.is_set():
-                        self.last_error = str(exc)
+                        # Tasiyici hat oldu (COM kablosu / xsdb jtagterminal soketi kapandi): oturum
+                        # ACIK gorunmeye devam ederse her komut 'yanit yok' ile duser ve kullanici
+                        # sebebi goremez (SAHA 2026-09-16, SmartLynq+MDM flash yazma). Kapat ve isaretle.
+                        self.last_error = f"tasiyici hat kapandi: {exc}"
+                        lost = True
+                if lost:
+                    self.close()
                 return
             if not chunk:
                 continue
@@ -791,8 +798,17 @@ class _TestbenchJtagBridgeSession(_TestbenchSerialSession):
         self.processor = self.DEFAULT_PROCESSOR
         self.dcc_port = 0
         self._xsdb_proc: subprocess.Popen | None = None
+        self._bridge_tail: collections.deque[str] = collections.deque(maxlen=15)
 
     def status(self) -> TestbenchSessionStatus:
+        proc = self._xsdb_proc
+        if proc is not None and proc.poll() is not None:
+            # xsdb koprusu kendiliginden cikti (hw_server/SmartLynq baglantisi dustu, hedef kayboldu):
+            # oturumu kopuk isaretle ve xsdb'nin son satirlarini sebep olarak tasi.
+            detail = "\n".join(self._bridge_tail)
+            self.close()
+            self.last_error = (f"xsdb jtagterminal koprusu kapandi (cikis kodu {proc.returncode})"
+                               + (f":\n{detail}" if detail else ""))
         status = super().status()
         status.transport = self.TRANSPORT
         status.processor = self.processor
@@ -866,6 +882,7 @@ class _TestbenchJtagBridgeSession(_TestbenchSerialSession):
         )
         port_queue: "queue.Queue[int]" = queue.Queue()
         tail: collections.deque[str] = collections.deque(maxlen=15)
+        self._bridge_tail = tail
 
         def _scan_stdout() -> None:
             stream = proc.stdout

@@ -55,15 +55,18 @@ operations:
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
       - { op: write_command_address, cmd: PAGE_PROGRAM }
+      - { op: wait_status, cmd: READ_STATUS, bit: 0, until: 0, timeout_ms: 20 }
   - name: sector_erase
     description: "24-bit adresi iceren 64 KB sektoru sil (tipik 150 ms; flag_status_read bit 7 = 1 bekle)."
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
       - { op: write_command_address, cmd: SECTOR_ERASE, length: 0 }
+      - { op: wait_status, cmd: READ_STATUS, bit: 0, until: 0, timeout_ms: 3000 }
   - name: subsector_erase
     description: "24-bit adresi iceren 4 KB subsector'u sil (tipik 50 ms; flag_status_read bit 7 = 1 bekle)."
     steps:
       - { op: send_command, cmd: WRITE_ENABLE }
       - { op: write_command_address, cmd: SUBSECTOR_ERASE, length: 0 }
+      - { op: wait_status, cmd: READ_STATUS, bit: 0, until: 0, timeout_ms: 1000 }
 test_hints:
   self_test: { description: "JEDEC ID oku; uretici 0x20 (Micron), tip 0xBA (3 V) ve yogunluk 0x18 (128 Mbit) dogrula." }

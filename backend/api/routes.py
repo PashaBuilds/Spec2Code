@@ -1213,9 +1213,11 @@ def testbench_command(req: TestbenchCommandRequest) -> dict:
         )
         result = testbench_sessions.send(req.session_id, command) if req.session_id else send_command(command)
     except TestbenchSessionError as exc:
-        raise HTTPException(409, {"message": "testbench tcp session is not connected", "error": str(exc)}) from exc
+        # Oturum turu ne olursa olsun (TCP/seri/CoreSight/MDM) ayni yol: mesaj transporta gore degil, duruma gore.
+        raise HTTPException(409, {"message": "test bench komutu basarisiz: oturum kopuk ya da karttan yanit yok",
+                                  "error": str(exc)}) from exc
     except OSError as exc:
-        raise HTTPException(502, {"message": "testbench tcp failed", "error": str(exc)}) from exc
+        raise HTTPException(502, {"message": "test bench tasiyici hata", "error": str(exc)}) from exc
     return {
         "request_line": result.request_line,
         "response_line": result.response_line,

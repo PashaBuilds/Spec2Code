@@ -2158,6 +2158,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
     ops_by_name = {op["name"]: op for op in descriptor["operations"]}
     requested = device.get("operations_requested") or list(ops_by_name)
 
+    uses_wait = False  # wait_status adimi varsa usleep icin sleep.h dahil edilir
     for op_name in requested:
         op = ops_by_name.get(op_name)
         if op is None:
@@ -2220,6 +2221,26 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
                     data_expr, length_expr = data_param, len_param
                 e.ln(f"iStatus = {_func_name(module, 'command_write')}({hvar}, {MOD}_CMD_{step['cmd']}, "
                      f"{addr_param}, {cmd['address_bytes']}U, {data_expr}, {length_expr});").check_status()
+            elif sop == "wait_status":
+                # Program/erase bitene kadar durum register'inin bitini bekle (SAHA 2026-09-16: page_program
+                # WIP beklemeden donuyordu; hizli transportta bir sonraki WRITE_ENABLE mesgul flash'ta yutulur).
+                cmd = cmds[step["cmd"]]
+                bit = int(step.get("bit", 0))
+                until = int(step.get("until", 0))
+                timeout_us = int(step.get("timeout_ms", 1000)) * 1000
+                uses_wait = True
+                e.open_scope()
+                e.ln("unsigned char ucStatus = 0U;")
+                e.ln(f"unsigned int uiWaitUs = 0U; /* {step['cmd']} bit{bit} == {until} olana kadar, en fazla {step.get('timeout_ms', 1000)} ms */")
+                e.open("do")
+                e.ln(f"iStatus = {_func_name(module, 'command_read')}({hvar}, {MOD}_CMD_{step['cmd']}, 0U, "
+                     f"{cmd['address_bytes']}U, &ucStatus, 1U);").check_status()
+                e.open(f"if (((ucStatus >> {bit}U) & 0x1U) == {until}U)").ln("break;").close()
+                e.open(f"if (uiWaitUs >= {timeout_us}U)").ln("return XST_FAILURE;").close()
+                e.ln("usleep(100U);")
+                e.ln("uiWaitUs += 100U;")
+                e.close(" while (1);")
+                e.close()
 
         e.ln("return XST_SUCCESS;")
 
@@ -2243,7 +2264,7 @@ def _spi_device_unit(device: dict, controller: dict, descriptor: dict,
     return CUnit(
         module=module, part=device["part"], summary=descriptor.get("summary", ""), transport="spi",
         header_includes=["xil_types.h", _spi_header_for(htype)],
-        driver_includes=[f"{module}.h", "dbg_printf.h", "xparameters.h", "xstatus.h"],
+        driver_includes=[f"{module}.h", "dbg_printf.h", "xparameters.h", "xstatus.h"] + (["sleep.h"] if uses_wait else []),
         defines=defines, funcs=_prune_unused_static_funcs(funcs), public_names=public)
 
 

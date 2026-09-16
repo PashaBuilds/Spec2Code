@@ -17,7 +17,7 @@ _RETURNS = re.compile(r"^(u?int(8|16|32))(\[\d+\])?$")
 _ACCESS = {"ro", "rw", "wo", "reserved"}
 _I2C_STEPS = {"comment", "write_register", "read_register", "read_registers",
               "read_channels", "poll"}
-_FLASH_STEPS = {"comment", "send_command", "read_command_address", "write_command_address"}
+_FLASH_STEPS = {"comment", "send_command", "read_command_address", "write_command_address", "wait_status"}
 _VENDOR_STEPS = {"comment", "vendor_call"}
 _VENDOR_APIS = {"afe79xx"}
 _CONVERT_KEYS = {"mask", "rshift", "signed_bits", "scale_num", "scale_den",
@@ -186,9 +186,18 @@ def validate_descriptor(doc) -> list[str]:
                     errors.append(f"{swhere}: read_registers skaler bir returns ister (uint32 gibi)")
             if sop == "read_channels" and (returns is None or "[" not in str(returns)):
                 errors.append(f"{swhere}: read_channels dizi returns ister ('uint16[8]' gibi)")
-            if sop in {"read_command_address", "write_command_address", "send_command"}:
+            if sop in {"read_command_address", "write_command_address", "send_command", "wait_status"}:
                 if step.get("cmd") not in commands:
                     errors.append(f"{swhere}.cmd: {step.get('cmd')!r} commands listesinde yok")
+            if sop == "wait_status":
+                bit = step.get("bit", 0)
+                if not _is_int(bit) or not 0 <= bit <= 7:
+                    errors.append(f"{swhere}.bit: 0..7 arasi tam sayi olmali")
+                if step.get("until", 0) not in (0, 1):
+                    errors.append(f"{swhere}.until: 0 ya da 1 olmali")
+                timeout_ms = step.get("timeout_ms", 1000)
+                if not _is_int(timeout_ms) or timeout_ms <= 0:
+                    errors.append(f"{swhere}.timeout_ms: pozitif tam sayi olmali")
         if returns is not None and "[" not in str(returns) and scalar_bytes > 4 and not is_flash and not is_memory:
             errors.append(f"{where}: skaler dönüş için okunan toplam bayt 4'ü aşamaz (şu an {scalar_bytes})")
 

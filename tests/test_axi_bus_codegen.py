@@ -123,6 +123,43 @@ def _generate(spec: dict) -> dict[str, str]:
         }
 
 
+class FlashWaitStatusTests(unittest.TestCase):
+    def test_page_program_and_erase_wait_for_wip_clear(self) -> None:
+        # SAHA 2026-09-16: page_program WIP beklemeden donuyordu -> hizli transportta sonraki komut yutulur.
+        spec = _microblaze_spec("unit_flash_wait")
+        spec["devices"] = [_mt25ql128("pl_spi_0")]
+        files = _generate(spec)
+        c = files["drivers/mt25ql128.c"]
+        self.assertIn('#include "sleep.h"', c)
+        page = c[c.index("int mt25ql128PageProgram("):]
+        page = page[:page.index("\n}\n")]
+        self.assertIn("MT25QL128_CMD_READ_STATUS, 0U, 0U, &ucStatus, 1U);", page)
+        self.assertIn("if (((ucStatus >> 0U) & 0x1U) == 0U)", page)
+        self.assertIn("if (uiWaitUs >= 20000U)", page)
+        self.assertLess(page.index("MT25QL128_CMD_PAGE_PROGRAM"), page.index("MT25QL128_CMD_READ_STATUS"))
+        erase = c[c.index("int mt25ql128SectorErase("):]
+        erase = erase[:erase.index("\n}\n")]
+        self.assertIn("if (uiWaitUs >= 3000000U)", erase)
+        # data_read beklemez
+        read = c[c.index("int mt25ql128DataRead("):]
+        read = read[:read.index("\n}\n")]
+        self.assertNotIn("ucStatus", read)
+
+    def test_wait_status_descriptor_validation(self) -> None:
+        from orchestrator import descriptor_check
+        import yaml
+        doc = yaml.safe_load((ROOT / "descriptors/mt25ql128.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(descriptor_check.validate_descriptor(doc), [])
+        bad = json.loads(json.dumps(doc))
+        for op in bad["operations"]:
+            if op["name"] == "page_program":
+                op["steps"][-1]["bit"] = 9
+                op["steps"][-1]["cmd"] = "YOK"
+        errors = descriptor_check.validate_descriptor(bad)
+        self.assertTrue(any("bit: 0..7" in e for e in errors), errors)
+        self.assertTrue(any("commands listesinde yok" in e for e in errors), errors)
+
+
 class AxiI2cCodegenTests(unittest.TestCase):
     def test_axi_iic_device_uses_base_address_low_level_api(self) -> None:
         spec = _microblaze_spec("unit_axi_iic_device")

@@ -924,6 +924,16 @@ context disi cevap; `/api/health` ile arac yollari.
 uyarisinda once Generate'i yeniden calistir (ayni proje adiyla baska bir uretim
 klasoru ezmis olabilir).
 
+**Flash yazma sirasinda baglanti kopuyor (SmartLynq/MDM ya da CoreSight)** - MDM/DCC yolu xsdb
+`jtagterminal` koprusu uzerinden gider; kopru (hw_server baglantisi, SmartLynq Ethernet, baska bir
+JTAG istemcisinin zinciri resetlemesi) kapaninca v0.1.249'dan itibaren oturum "kopuk" isaretlenir ve
+Baglanti kartindaki son hata `xsdb jtagterminal koprusu kapandi` / `tasiyici hat kapandi` ile xsdb'nin
+son satirlarini gosterir (onceden oturum acik gorunur, her komut 5 s zaman asimina duserdi). Flash
+kartinda **Kaldigi yerden devam et** son basarili sayfadan surdurur; yeniden baglanip bu dugmeye basmak
+yeter. Buyuk imajlar icin (komut basina 256 bayt, JTAG'da ~0.5 s) TCP transportu kullanin; 1 MiB MDM
+uzerinden ~35 dk surer. Not: page_program/sector_erase v0.1.249'dan itibaren WIP=0 bekler; onceki
+surumlerde hizli (TCP) transportta ardisik sayfalar mesgul flash'ta yutulabiliyordu.
+
 **Workspace "takiliyor", application projesinde yalniz lscript/README var
 (`S2C-VITIS-HANG-010`, `which sdscc`)** - Spec2Code surumunden bagimsiz bir makine
 sorunudur: Vitis 2023.2 `app create` sirasinda `which sdscc` cocuk sureci bazi
