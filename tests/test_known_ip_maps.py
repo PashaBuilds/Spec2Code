@@ -185,6 +185,11 @@ class KnownIpCodegenTests(unittest.TestCase):
                 codegen.generate(spec, out)
                 header = (out / "drivers" / "ip" / "pl_spi_0_regs.h").read_text(encoding="utf-8")
                 self.assertIn("PL_SPI_0_SPICR", header)
+                # ilk register DGIER 0x1C: struct basinda 28 baytlik dolgu, muhurler gercek offset'te (v0.1.243)
+                self.assertIn("unsigned char ucReserved0[28];  /* 0x000 reserved (28B) */", header)
+                self.assertIn("_Static_assert(offsetof(SPlSpi0Regs, ucReserved0) == 0x0,", header)
+                self.assertIn("_Static_assert(offsetof(SPlSpi0Regs, SDGIER) == 0x1C,", header)
+                self.assertIn("_Static_assert(offsetof(SPlSpi0Regs, SSRR) == 0x40,", header)
                 shell = (out / "shell" / "shell_user_commands.c").read_text(encoding="utf-8")
                 self.assertIn('{"ip_pl_spi_0", shellUserPlSpi0,', shell)
                 # PS denetleyicisi (XUartPs) icin PG haritasi yok

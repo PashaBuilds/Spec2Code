@@ -303,6 +303,13 @@ def _layout(rmap: dict) -> list[dict]:
     widths = _register_widths(regs)
     out: list[dict] = []
     reserved_idx = 0
+    # Ilk register 0x000'da degilse (AXI IIC GIE 0x1C, AXI Quad SPI SRR 0x40) struct'in basina opak dolgu:
+    # yoksa offsetof muhurleri duser (SAHA 2026-09-16: MicroBlaze Vitis derlemesinde yakalandi).
+    first = _parse_int(regs[0].get("offset")) if regs else 0
+    if first:
+        out.append({"reg": {"name": "RESERVED_000", "offset": "0x000", "reserved": True, "fields": []},
+                    "offset": 0, "width": first, "kind": "reserved", "member": "ucReserved0", "raw": None})
+        reserved_idx = 1
     for reg, width in zip(regs, widths):
         offset = _parse_int(reg.get("offset")) or 0
         raw = _raw_type(width)

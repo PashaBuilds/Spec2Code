@@ -8,6 +8,7 @@ is captured and re-written through hostplat.io so the CRLF guarantee stays centr
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -253,11 +254,24 @@ def run_clang_tidy(path: Path, include_dirs: list[Path], defines: list[str] | No
     result = proc.run(cmd, timeout=120)
     violations: list[Violation] = []
     target = str(Path(path).resolve())
+    # Kendi urettigimiz basliklar (include yollarindaki drivers/, tests/, cit/, shell/): oradaki DERLEME hatasi
+    # (or. _Static_assert offset muhru) TU'yu oldurur; hedef dosya degil diye atlanirsa QC "temiz" gorunur
+    # (SAHA 2026-09-16: AXI IIC _regs.h muhurleri Vitis'te dustu, QC gecmisti). BSP stub'lari haric.
+    own_dirs = [str(Path(d).resolve()) for d in include_dirs]
     for line in result.stdout.splitlines():
         m = _TIDY_RE.match(line.strip())
         if not m:
             continue
-        if str(Path(m.group("file")).resolve()) != target and "file not found" not in m.group("msg"):
+        reported = str(Path(m.group("file")).resolve())
+        own_header_error = (m.group("sev") == "error" and reported != target
+                            and any(reported.startswith(d + os.sep) for d in own_dirs))
+        if own_header_error:
+            violations.append(Violation(
+                file=reported, line=int(m.group("line")), column=int(m.group("col")),
+                rule=m.group("rule") or "clang-tidy", severity="error",
+                message=m.group("msg"), source="clang-tidy"))
+            continue
+        if reported != target and "file not found" not in m.group("msg"):
             # only our file, not stub-header noise. ISTISNA: bir include'un bulunamamasi
             # (or. surucu basliginin icindeki `xiic.h`) baska dosyada raporlanir ama TU'yu
             # oldurur; sessiz gecilirse dosya hic denetlenmemis olur (SAHA 2026-09-07:

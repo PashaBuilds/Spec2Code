@@ -745,6 +745,11 @@ flowchart TD
   ve shell `ip_<id> rd|wr|dump` komutu her zaman uretilir (v0.1.239'dan itibaren kutucuksuz; eski
   `generation_options.controller_register_maps` anahtari kabul edilir, etkisizdir).
   PS cevre birimleri (XIicPs/XSpiPs/XUartPs) icin PG haritasi tanimli degildir.
+- **AFE7900 ve MicroBlaze (bellek)**: AFE7900/JESD/kart kontrol kodu platformdan bagimsizdir (XSpi, `Xil_In32`,
+  `usleep`; workspace betigi `libm` ve 16 KB yigin ekler) ve Nexys A7 XSA'siyla MicroBlaze icin derlenir, ama TI
+  C API'si buyuktur: Debug (-O0) derlemede TI kodu ~600 KB, uretilen `afe7900`+`jesdlink`+`boardctl` ~240 KB, ajan
+  ~35 KB .text. 256 KB LMB BRAM'e SIGMAZ (`.text will not fit in region`, ~170 KB tasma); AFE'li MicroBlaze
+  tasarimi DDR (MIG) ya da en az 1 MB blok RAM ister (-O2/-Os ile kucultmek yetmez).
 - **AFE7900 (TI AFE79xx C API v2.9)**: sematige `AFE7900` parcasi (SPI, CS secimi) eklenince surucu
   register/adim modeliyle degil TI'in C API'siyle uretilir (`orchestrator/afe79.py`). TI kaynaklari
   (`backend/data/vendor/afe79xx`, TI Text File License) ciktida `drivers/vendor/afe79xx/` altina aynen

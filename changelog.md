@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.243 - 2026-09-16
+
+- **Duzeltme**: PG register haritasi struct'inda ilk register 0x000'da degilse (AXI IIC GIE 0x1C, AXI Quad SPI
+  SRR 0x40) basa opak dolgu konmuyordu; `_Static_assert` offset muhurleri Vitis derlemesinde dusuyordu
+  (MicroBlaze + AFE7900 deneme derlemesinde yakalandi). Ilk register 0'da olan haritalar (JESD204C, UARTLite,
+  Register Map Test IP) etkilenmiyordu.
+- QC: clang-tidy artik kendi urettigimiz basliklardaki derleme hatalarini da (offset muhru gibi) ihlal olarak
+  raporlar; onceden yalniz hedef .c dosyasindaki satirlar sayiliyor, TU'yu olduren baslik hatasi gizli kaliyordu.
+- MicroBlaze: AFE7900 + JESD204C + kart kontrol GPIO'su Nexys A7 XSA'siyla Vitis'te derlendi (bkz. kilavuz).
+
 ## v0.1.242 - 2026-09-16
 
 - **Kart kontrol GPIO'su (`board_control`)**: dual-channel AXI GPIO (kanal 1 cikis, kanal 2 giris) bit tablosu
