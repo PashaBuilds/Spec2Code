@@ -29,11 +29,13 @@ tek yerde toplar. KV260'ta dogrulanmis olanlar ve sahada ilk kez calisacak varsa
 4. Vitis: "Sifirdan kur" - workspace betigi TI kodu icin `libm`'i ve lwIP PHY autoneg 30 s yamasini
    kendisi ekler. Ajan ELF + shell ELF uretilir.
 5. **Kart kontrol GPIO'su** (Setup, "Kart kontrol GPIO" karti): XSA'daki dual-channel AXI GPIO'yu sec (kanal 1
-   cikis, kanal 2 giris) ve kartin sematigindeki bitleri tabloya gir: `afe1_reset_active_low` (afe_reset,
-   aktif-dusuk), `jesd_afe1_rx/tx_core_reset_active_high` (jesd_rx/tx_core_reset), `afe1_hsclk1_lcpll_lock_0`
-   gibi lock girisleri (pll_lock, hedef = AFE id + quad etiketi), varsa `sysref`. `hsclk_*_lcpll_reset` bitleri
-   `pll_reset` rolunde girilir: yalniz Versal'da JESD fiziksel reset darbesine katilir (PHY reset calisma cevresi),
-   ZCU102/KU060'ta pasif kalir. LMX/LMK bitleri `generic` olarak girilir, bu surumde dokunulmaz. Bit yerlesimi karttan karta degisir; tablo spec'te saklanir.
+   cikis, kanal 2 giris), AFE sayisini sec ve **Katalogdan doldur**: pin adlari SABIT katalogdan gelir (elle
+   yazilmaz), kanal/rol/aktif seviye kendiliginden dolar; sen yalniz bit numaralarini kartina gore duzeltirsin.
+   Katalog (AFE numarasi 1'den baslar): `afe{N}_reset_active_low`, `jesd_afe{N}_rx_core_reset_active_high`,
+   `jesd_afe{N}_tx_core_reset_active_high`; Versal'da ek olarak `hsclk_afe{N}_lcpll_reset` (cikis, PHY reset
+   darbesine katilir) ve `afe{N}_hsclk{x}_lcpll_lock_{y}` (x,y = 0/1, 4 giris); Versal disinda `afe{N}_qpll_lock`
+   (1 giris). LMX/LMK ve LED pinleri ilk asamada katalog disi ("ozel pin" satiri ile girilebilir, dokunulmaz).
+   Bit yerlesimi karttan karta degisir; tablo spec'te saklanir.
 
 ### 2.1 Bring-up akisi (AFE7900 `jesd_link_bringup` op'u)
 

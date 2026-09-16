@@ -697,8 +697,10 @@ cihazlari ilklendir" ya da Bring-up kos.
   kart kontrolunu tasir: kanal 1 cikis (AFE reset aktif-dusuk, JESD RX/TX cekirdek fiziksel resetleri
   aktif-yuksek, HSCLK/LCPLL resetleri, LMX/LMK kontrol), kanal 2 giris (GT PLL lock'lari: Versal'da
   quad basina HSCLK0/1 LCPLL, UltraScale+'ta QPLL0/1). Bit yerlesimi karttan karta degistigi icin
-  Setup'taki **Kart kontrol GPIO** kartinda tablo olarak girilir (ad, kanal, bit, rol, aktif seviye,
-  hedef) ve spec `board_control` altinda saklanir. Generate `drivers/ip/boardctl.h/.c` uretir
+  Setup'taki **Kart kontrol GPIO** kartinda tablo olarak girilir ve spec `board_control` altinda saklanir.
+  Pin adlari sabit katalogdan secilir (`afe{N}_reset_active_low`, `jesd_afe{N}_rx/tx_core_reset_active_high`,
+  Versal: `hsclk_afe{N}_lcpll_reset` + `afe{N}_hsclk{x}_lcpll_lock_{y}`, digerleri: `afe{N}_qpll_lock`; N 1'den
+  baslar); "Katalogdan doldur" AFE sayisina gore tabloyu kurar, kullanici yalniz bit numaralarini girer. Generate `drivers/ip/boardctl.h/.c` uretir
   (`boardCtlInit`: yonler + acilis seviyeleri, `boardCtlRoleWrite`, `boardCtlJesdCoreResetPulse`,
   `boardCtlPllLocksRead`, varsa `boardCtlSysrefPulse`); `jesdlink` bring-up'i once fiziksel reset darbesini
   (varsayilan 100 ms, `jesd_reset_ms`) verir, sonra register RESET akisini kosar; `pll_reset` (HSCLK/LCPLL reset)

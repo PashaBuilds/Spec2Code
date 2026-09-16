@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.247 - 2026-09-16
+
+- Kart kontrol GPIO'su: pin adlari sabit katalogdan (`afe{N}_reset_active_low`, `jesd_afe{N}_rx/tx_core_reset_active_high`,
+  Versal `hsclk_afe{N}_lcpll_reset` + `afe{N}_hsclk{x}_lcpll_lock_{y}`, diger platformlarda `afe{N}_qpll_lock`; N 1'den
+  baslar). Satirda pin secilince kanal/rol/aktif seviye/hedef kendiliginden dolar, yalniz bit numarasi girilir;
+  "Katalogdan doldur" AFE sayisina gore tabloyu kurar; ayni kanalda cift bit kirmizi isaretlenir. Katalog disi pin
+  icin "ozel pin" satiri kaldi.
+
 ## v0.1.246 - 2026-09-16
 
 - Kilavuz (Sorun giderme): `which.exe` stub'u uygulanirken dosya kilitliyse (takili which.exe surecleri) yeniden
