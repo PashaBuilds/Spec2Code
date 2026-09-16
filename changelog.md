@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.250 - 2026-09-16
+
+- Test bench: tasiyici hat (COM / xsdb jtagterminal soketi) komut beklenirken kapanirsa istek zaman asimini
+  beklemeden "baglanti koptu: <sebep>" ile duser; sebep timeout mesajiyla ezilmez.
+- Flash aktarimi: yanit zaman asimina dusen chunk komutu (page_program / data_read) en fazla 3 kez yinelenir,
+  ozet satiri yineleme sayisini gosterir; baglanti gercekten koptuysa yinelenmez.
+- **Bulgu (Nexys A7, USB JTAG + MDM, 5618 sayfalik 1.4 MB yazma)**: yaklasik her 600 sayfada bir yanit cercevesi
+  JTAG UART yolunda bozuk geliyor: 4. baytta (mesaj kimligi) tek bit dusuyor (0xD3 -> 0xD2 / 0xC3), cercevenin son
+  3 bayti ancak bir sonraki istekle geliyor. Ana bilgisayar cerceveyi tanimayip zaman asimina dusuyordu; ayni
+  komut yinelenince aninda basariyor. Bu, sahada SmartLynq+MDM ile gorulen "rastgele yerde kopma"nin kendisi:
+  Spec2Code mantik hatasi degil, JTAG UART (hw_server jtagterminal) yolunun ara sira bozdugu bir bayt. Yineleme +
+  yazim sonrasi geri okuma dogrulamasi bunu kapatir; buyuk imajlar icin TCP transportu onerilir.
+- Flash yazim sonrasi dogrulama chunk bazinda; uyusan olmayan chunk 2 kez daha okunur (ayni testte 5618 sayfanin 32'si
+  ILK okumada farkli, yeniden okumada birebir cikti: okuma yaniti da sessizce bozulabiliyor). Kararli fark hata verir.
+- Kart GPIO / bring-up degisikligi yok.
+
 ## v0.1.249 - 2026-09-16
 
 - **Duzeltme (flash)**: `page_program`, `sector_erase`, `subsector_erase` artik islem bitene kadar STATUS WIP=0

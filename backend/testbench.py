@@ -664,10 +664,12 @@ class _TestbenchSerialSession(_TrafficRing):
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     break
+                if self._serial is None:
+                    break  # tasiyici hat bu arada kapandi (reader kapatti): timeout'u beklemeden dus
                 try:
-                    candidate = self._responses.get(timeout=remaining)
+                    candidate = self._responses.get(timeout=min(remaining, 0.5))
                 except queue.Empty:
-                    break
+                    continue
                 cid, _counter, candidate_body = candidate
                 if cid != expected_command_id:
                     continue  # baska bir mesaj turunun (gec) yaniti — yedek de olamaz
@@ -686,6 +688,10 @@ class _TestbenchSerialSession(_TrafficRing):
                 response_frame = fallback_frame
             if response_frame is None:
                 with self._lock:
+                    if self._serial is None and self.last_error:
+                        # Oturum beklerken kapandi (kopru/hat oldu): asil sebebi koru, timeout'la ezme.
+                        lost = self.last_error
+                        raise TestbenchSessionError(f"baglanti koptu: {lost}")
                     self.last_error = f"no response within {self.timeout_s}s"
                 raise TestbenchSessionError(
                     f"testbench serial response timeout after {self.timeout_s}s")

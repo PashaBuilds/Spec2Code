@@ -8,6 +8,8 @@ import type { TestbenchManifestDevice } from "@/lib/types";
 
 /** Komut başına protokol data alanı sınırı (SPEC2CODE_TESTBENCH_DATA_MAX). */
 const CHUNK_BYTES = 256;
+/** Zaman asimina dusen chunk komutunun yineleme sayisi (bkz. sendChunkCommand). */
+const CHUNK_RETRIES = 3;
 /** Tek aktarım üst sınırı (UI): protokol sınırı değil, zaman sınırı — DCC
  * üzerinde 256 baytlık komut ~0.5 s sürer (1 MiB ≈ 4096 komut ≈ 35 dk); TCP/UART'ta
  * cok daha hizli. Kullanici istegi 2026-09-16: 100 MiB (buyuk BOOT.BIN / imaj dosyalari). */
@@ -76,23 +78,42 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
   const commandIdRef = useRef(TRANSFER_COMMAND_ID_BASE);
   /** Yarim kalan yazmanin dosya ofseti (bayt): baglanti kopunca "kaldigi yerden devam" icin. */
   const [resumeOffset, setResumeOffset] = useState(0);
+  /** Bu aktarimda yinelenen chunk komutu sayisi (bilgi: JTAG UART yolunun kalitesi). */
+  const [retries, setRetries] = useState(0);
 
   if (!hasRead && !hasWrite) return null;
 
+  /** Tek chunk komutu; yanit zaman asiminda ayni komut en fazla CHUNK_RETRIES kez yinelenir.
+   * SAHA 2026-09-16 (Nexys A7 USB JTAG + MDM, 5618 sayfa): ~600 sayfada bir yanit cercevesi JTAG UART
+   * yolunda bozuk/gec geliyor (kimlik baytinda tek bit, son 3 bayt bir sonraki istekte dusuyor); yineleme
+   * hemen basariyor. page_program/data_read yinelemeye dayanikli (NOR ayni veriyi yeniden programlamak zararsiz).
+   * Baglanti gercekten koptuysa ("baglanti koptu" / kopuk) yinelenmez, hata yukari cikar. */
   async function sendChunkCommand(operation: string, address: number, length: number | null, dataHex: string) {
-    commandIdRef.current += 1;
-    return api.testbenchCommand({
-      host: board.transport === "tcp" ? board.host.trim() : board.transport,
-      port: board.transport === "tcp" ? parseNumber(board.port) ?? 0 : 0,
-      device: device.id,
-      operation,
-      command_id: commandIdRef.current,
-      session_id: board.sessionId,
-      address,
-      length,
-      data_hex: dataHex,
-      timeout_s: board.timeoutSeconds(),
-    });
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt <= CHUNK_RETRIES; attempt++) {
+      commandIdRef.current += 1;
+      try {
+        return await api.testbenchCommand({
+          host: board.transport === "tcp" ? board.host.trim() : board.transport,
+          port: board.transport === "tcp" ? parseNumber(board.port) ?? 0 : 0,
+          device: device.id,
+          operation,
+          command_id: commandIdRef.current,
+          session_id: board.sessionId,
+          address,
+          length,
+          data_hex: dataHex,
+          timeout_s: board.timeoutSeconds(),
+        });
+      } catch (err) {
+        lastError = err;
+        const text = err instanceof Error ? err.message : String(err);
+        const retryable = /timeout|no response|yanit yok|yanıt yok/i.test(text) && !/koptu|kopuk|not connected/i.test(text);
+        if (!retryable || attempt === CHUNK_RETRIES || cancelRef.current) throw err;
+        setRetries((n) => n + 1);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
   /** Aralığı chunk chunk okur; her chunk'ın bayt sayısı doğrulanır. */
@@ -132,6 +153,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
     setBusy("read");
     setError("");
     setSummary("");
+    setRetries(0);
     cancelRef.current = false;
     try {
       const startedAt = performance.now();
@@ -172,6 +194,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
     setBusy("write");
     setError("");
     setSummary("");
+    setRetries(0);
     cancelRef.current = false;
     let offset = startOffset;
     try {
@@ -191,19 +214,44 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
       }
       setResumeOffset(0);
       const writeSeconds = (performance.now() - startedAt) / 1000;
+      let rereads = 0;
       if (verifyAfterWrite) {
-        const readBack = await readRange(address, bytes.length, "doğrulanıyor");
-        for (let i = 0; i < bytes.length; i++) {
-          if (readBack[i] !== bytes[i]) {
-            throw new Error(
-              `doğrulama düştü: ${hexAddr(address + i)} adresinde 0x${bytes[i].toString(16).toUpperCase().padStart(2, "0")} beklendi, ` +
-              `0x${readBack[i].toString(16).toUpperCase().padStart(2, "0")} okundu (alan silinmemiş olabilir)`,
-            );
+        // Chunk bazinda dogrulama; uyusmazlikta ayni chunk 2 kez daha okunur. SAHA 2026-09-16 (Nexys A7 USB JTAG +
+        // MDM, 5618 sayfa): 32 sayfa ILK okumada farkli cikti, yeniden okumada birebirdi - JTAG UART yolu yanit
+        // verisini sessizce bozabiliyor (cercevede CRC yok). Kararli fark = gercekten bozuk/silinmemis alan.
+        const verifyStart = performance.now();
+        let off = 0;
+        while (off < bytes.length) {
+          if (cancelRef.current) throw new Error(`iptal edildi (doğrulama ${off}/${bytes.length} bayt)`);
+          const chunk = Math.min(CHUNK_BYTES, bytes.length - off);
+          const expected = bytes.subarray(off, off + chunk);
+          let got: Uint8Array | null = null;
+          for (let attempt = 0; attempt < 3 && got === null; attempt++) {
+            const resp = await sendChunkCommand("data_read", address + off, chunk, "");
+            if (resp.parsed.ok !== "1") throw new Error(`${hexAddr(address + off)} okuması başarısız: ${resp.parsed.message ?? "yanıt yok"}`);
+            const read = bytesFromDataHex(resp.parsed.data ?? "");
+            if (read.length === chunk && read.every((v, i) => v === expected[i])) {
+              got = read;
+            } else {
+              rereads++;
+              if (attempt === 2) {
+                const i = read.findIndex((v, k) => v !== expected[k]);
+                const at = i < 0 ? 0 : i;
+                throw new Error(
+                  `doğrulama düştü: ${hexAddr(address + off + at)} adresinde 0x${expected[at].toString(16).toUpperCase().padStart(2, "0")} beklendi, ` +
+                  `0x${(read[at] ?? 0).toString(16).toUpperCase().padStart(2, "0")} okundu (3 okumada da farklı: alan silinmemiş ya da yazım bozuk)`,
+                );
+              }
+            }
           }
+          off += chunk;
+          setProgress({ done: off, total: bytes.length, startedAt: verifyStart, label: "doğrulanıyor" });
         }
       }
       setSummary(
-        `${bytes.length} bayt yazıldı (${writeSeconds.toFixed(1)} sn)${verifyAfterWrite ? " ve geri okumayla birebir doğrulandı" : ""}.`,
+        `${bytes.length} bayt yazıldı (${writeSeconds.toFixed(1)} sn)${verifyAfterWrite ? " ve geri okumayla birebir doğrulandı" : ""}` +
+        (retries > 0 ? ` · ${retries} komut yinelendi (yanıt zaman aşımı)` : "") +
+        (rereads > 0 ? ` · ${rereads} chunk yeniden okundu (ilk okuma bozuktu)` : "") + ".",
       );
     } catch (err) {
       // Yarim kalan yazma: son basarili sayfa ofseti saklanir, "kaldigi yerden devam" ile surer
