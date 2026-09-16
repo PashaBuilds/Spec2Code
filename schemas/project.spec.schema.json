@@ -537,6 +537,7 @@
       "properties": {
         "gpio_id": {"type": "string", "description": "controllers[] icindeki AXI GPIO denetleyicisinin id'si"},
         "jesd_reset_ms": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 100, "description": "JESD cekirdek fiziksel reset darbesi (ms)"},
+        "afe_count": {"type": "integer", "minimum": 1, "maximum": 8, "default": 1, "description": "karttaki AFE sayisi (pin katalogu afe1..afeN; kod uretimi bu surumde tek AFE'yi kapsar)"},
         "bits": {
           "type": "array",
           "items": {

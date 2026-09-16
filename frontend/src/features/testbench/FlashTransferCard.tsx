@@ -9,9 +9,9 @@ import type { TestbenchManifestDevice } from "@/lib/types";
 /** Komut başına protokol data alanı sınırı (SPEC2CODE_TESTBENCH_DATA_MAX). */
 const CHUNK_BYTES = 256;
 /** Tek aktarım üst sınırı (UI): protokol sınırı değil, zaman sınırı — DCC
- * üzerinde 256 baytlık komut ~0.5 s sürer; 1 MiB ≈ 4096 komut. Daha büyük
- * dump'lar için TCP/UART transportu önerilir. */
-const MAX_TRANSFER_BYTES = 1024 * 1024;
+ * üzerinde 256 baytlık komut ~0.5 s sürer (1 MiB ≈ 4096 komut ≈ 35 dk); TCP/UART'ta
+ * cok daha hizli. Kullanici istegi 2026-09-16: 100 MiB (buyuk BOOT.BIN / imaj dosyalari). */
+const MAX_TRANSFER_BYTES = 100 * 1024 * 1024;
 /** Komut id bandı: UI sayacı (1..) ve tarama bandıyla (7000+) çakışmasın. */
 const TRANSFER_COMMAND_ID_BASE = 9000;
 
@@ -124,7 +124,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
       return;
     }
     if (length > MAX_TRANSFER_BYTES) {
-      setError(`Tek aktarım üst sınırı ${MAX_TRANSFER_BYTES / 1024} KiB (protokol değil zaman sınırı: komut başına ${CHUNK_BYTES} bayt gider).`);
+      setError(`Tek aktarım üst sınırı ${MAX_TRANSFER_BYTES / (1024 * 1024)} MiB (protokol değil zaman sınırı: komut başına ${CHUNK_BYTES} bayt gider).`);
       return;
     }
     setBusy("read");
@@ -158,7 +158,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
       return;
     }
     if (writeFile.size === 0 || writeFile.size > MAX_TRANSFER_BYTES) {
-      setError(`Dosya 1 bayt ile ${MAX_TRANSFER_BYTES / 1024} KiB arasında olmalı.`);
+      setError(`Dosya 1 bayt ile ${MAX_TRANSFER_BYTES / (1024 * 1024)} MiB arasında olmalı.`);
       return;
     }
     const confirmed = window.confirm(
@@ -220,7 +220,7 @@ export default function FlashTransferCard({ device }: { device: TestbenchManifes
         <HardDrive className="h-4 w-4 text-accent" aria-hidden />
         <span className="text-xs font-semibold text-text">Binary dosya aktarımı</span>
         <Badge tone="neutral">komut başına {CHUNK_BYTES} bayt</Badge>
-        <Badge tone="neutral">tek aktarım ≤ {MAX_TRANSFER_BYTES / 1024} KiB</Badge>
+        <Badge tone="neutral">tek aktarım ≤ {MAX_TRANSFER_BYTES / (1024 * 1024)} MiB</Badge>
       </div>
       <p className="mb-3 text-xs leading-relaxed text-muted">
         Aktarım {CHUNK_BYTES} baytlık komutlara bölünür (protokol data alanı sınırı); üst sınır zaman

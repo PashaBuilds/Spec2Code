@@ -192,7 +192,8 @@ export function renderCitReportHtml(input: CitReportInput): string {
   .tag { font-size: 10px; border: 1px solid var(--err); color: var(--err); border-radius: 4px; padding: 0 5px; letter-spacing: 0.06em; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 6px 12px; text-align: left; border-bottom: 1px solid #eef0f0; vertical-align: top; }
-  td.name { min-width: 130px; overflow-wrap: break-word; } td.mono:not(.num) { white-space: nowrap; }
+  td.name { min-width: 110px; overflow-wrap: anywhere; } td.mono:not(.num) { white-space: nowrap; }
+  th:last-child, td:last-child { width: 1%; white-space: nowrap; padding-left: 10px; }
   th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); background: white; }
   tr:last-child td { border-bottom: 0; }
   tr.nok td { background: #fdf2f0; } tr.err td { background: #fef6e7; } tr.off td { color: var(--muted); }

@@ -711,21 +711,24 @@ cihazlari ilklendir" ya da Bring-up kos.
 
 ```mermaid
 flowchart TD
-    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe<br/>Versal: HSCLK/LCPLL reset de darbelenir - PHY reset]
-    B --> C[AFE reset kaldir<br/>bring-up'tan hemen once]
-    C --> D[AFE bring-up<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
-    D --> E[FPGA JESD register RESET akisi<br/>CTRL_ENABLE cmd+data, RESET=0, TX sync force]
-    E --> F[AFE JESD reset toggle + adcDacSync]
-    F --> G[FPGA RX link reset + SYSREF darbesi]
-    G --> H[Link bekleme: RX SH/MB lock ya da CGS+SYNC+RX_STARTED, TX hazir]
-    H --> I{GT PLL lock'lari<br/>kart GPIO giris kanali}
-    I -- hepsi 1 --> J[Durum sozcugu bit5 = 1]
-    I -- en az biri 0 --> K[Akis DURMAZ; bit5 = 0, sonuc HATA]
-    J --> L[AFE tarafi: DAC-JESD-RX link, alarm, PLL -> bit2-4]
-    K --> L
-    L --> M{Tum bitler 1?}
-    M -- evet --> N[bit7 = 1: bring-up tamam]
-    M -- hayir --> O[bit7 = 0: durum sozcugune bak]
+    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset darbesi<br/>kart GPIO, 100 ms<br/>Versal: HSCLK/LCPLL reset de darbelenir - PHY reset]
+    B --> C[Register RESET kaldir RX, TX<br/>datapath reset tipi, GT korunur]
+    C --> D[GT PLL lock'lari oku - log]
+    D --> E[Cekirdek yapilandirmasi jesdLinkCoreConfig<br/>alt sinif, lane, RX_BUF_ADV, SYSREF<br/>8B/10B: 8B10B_CFG + TX ILA - 64B/66B: CTRL_ENABLE]
+    E --> F[Register RESET ver RX, TX]
+    F --> G[TX kaldir - FPGA TX yayinda]
+    G --> H[GT PLL lock'lari oku - log]
+    H --> I[AFE reset kaldir<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
+    I --> J[RX kaldir - AFE ADC-JESD-TX gonderiyor<br/>SYSREF GPIO varsa darbe]
+    J --> K[Link bekleme<br/>8B/10B: CGS + SYNC + RX_STARTED, 3 x 200 ms<br/>64B/66B: SH lock + MB lock, 2 s]
+    K --> L[AFE JESD RX alarmlarini temizle<br/>AFE link, alarm, PLL oku -> bit2-4]
+    L --> M{GT PLL lock'lari<br/>kart GPIO giris kanali}
+    M -- hepsi 1 --> N[bit5 = 1]
+    M -- en az biri 0 --> O[Akis DURMAZ; bit5 = 0]
+    N --> P{Tum bitler 1?}
+    O --> P
+    P -- evet --> Q[bit7 = 1: bring-up tamam]
+    P -- hayir --> R[bit7 = 0: durum sozcugune bak]
 ```
 
 - **AXI GPIO donanim dogrulamasi** (Nexys A7, `scripts/make_nexys_a7_design.tcl -tclargs gpio`):

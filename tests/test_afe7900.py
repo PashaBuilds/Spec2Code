@@ -79,12 +79,18 @@ class Afe7900GenerationTests(unittest.TestCase):
         driver = files["drivers/afe7900.c"]
         self.assertIn("AFE79FNP(afeDeviceBringupFromMem)(spDevice, 0U, 0U)", driver)
         self.assertIn("int afe7900JesdLinkBringup(XSpiPs* spSpi, unsigned short* uspStatus)", driver)
-        # bring-up sirasi: reset ver -> AFE init -> reset kaldir -> AFE JESD reset/senkron -> FPGA RX bekle
-        order = [driver.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 1U)"), driver.index("afe7900DeviceInit(spSpi);\n"),
-                 driver.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 0U)"), driver.index("afe7900JesdResetToggle(spSpi)"),
-                 driver.index("jesdLinkLinkReset(JESDLINK_RX_BASE)"),
-                 driver.index("jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS)")]
+        # bring-up sirasi (SIRKET 2026-09-16): register kaldir -> yapilandir -> register ver -> TX kaldir -> AFE init
+        # -> RX kaldir -> RX bekle -> AFE alarm temizle. AFE JESD reset toggle / adcDacSync bring-up'ta YOK (ayri op).
+        op = driver[driver.index("int afe7900JesdLinkBringup("):]
+        op = op[:op.index("\n}\n")]
+        order = [op.index("jesdLinkCoreReset(JESDLINK_RX_BASE, 0U)"), op.index("jesdLinkCoreConfig(JESDLINK_RX_BASE)"),
+                 op.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 1U)"), op.rindex("jesdLinkCoreReset(JESDLINK_TX_BASE, 0U)"),
+                 op.index("afe7900DeviceInit(spSpi);\n"), op.rindex("jesdLinkCoreReset(JESDLINK_RX_BASE, 0U)"),
+                 op.index("jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS)"), op.index("afe7900JesdRxAlarmsClear(spSpi)")]
         self.assertEqual(order, sorted(order))
+        self.assertNotIn("afe7900JesdResetToggle(spSpi)", op)
+        self.assertNotIn("afe7900AdcDacSync(spSpi)", op)
+        self.assertNotIn("jesdLinkLinkReset", driver)
         self.assertNotIn("sdtm", driver.lower())
         self.assertNotIn("uint8_t", driver)
         # wrapper fonksiyon tablolarini tanimlayan sablon baslik yalniz TI init.c'de dahil edilebilir
@@ -110,14 +116,21 @@ class Afe7900GenerationTests(unittest.TestCase):
         self.assertIn("#define JESDLINK_RX_BASE 0xA0000000U", link_h)
         self.assertIn("#define JESDLINK_TX_BASE 0xA0010000U", link_h)
         self.assertIn("#define JESDLINK_ENCODING_64B66B TRUE", link_h)
-        # reset kaldirma: reset/GT mesgul bitleri timeout ile beklenir
-        self.assertIn("JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE | JESDLINK_RESET_GT_BUSY", link)
+        # reset: her zaman datapath (RESET_TYPE=1), GT register'dan resetlenmez; kaldirma RESET[0]/CORE_STATE dusmesini bekler
+        self.assertIn("JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE)) == 0U", link)
+        self.assertNotIn("JESDLINK_RESET_GT_BUSY)) == 0U", link)
         self.assertIn("JESDLINK_RESET_TIMEOUT_MS", link)
-        # SAHA KV260: RESET[0] seviye biti -> kaldirma 0 yazar; veri/komut yolu acilir
-        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA);", link)
-        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, jesdLinkRead(uiBase, JESDLINK_REG_RESET) & JESDLINK_RESET_TYPE_LINK);", link)
-        # link reset: RESET_TYPE=1 ile GT korunur, cikis kriteri tam resetle ayni
-        self.assertIn("JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT", link)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT);", link)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK);", link)
+        # yapilandirma (SetCore): 64B/66B'de CTRL_ENABLE + alt sinif + lane + sysref; 8B/10B register'lari yok
+        cfg = link[link.index("int jesdLinkCoreConfig("):link.index("int jesdLinkRxLinkCheck(")]
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA);", cfg)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_SUB_CLASS, JESDLINK_SUBCLASS);", cfg)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_LANE_ENA, JESDLINK_CFG_LANE_ENA);", cfg)
+        self.assertNotIn("JESDLINK_REG_CTRL_8B10B_CFG", cfg)
+        self.assertNotIn("JESDLINK_REG_CTRL_TX_ILA_CFG0", cfg)
+        self.assertIn("#define JESDLINK_CFG_LANE_ENA 0x0FU", link_h)
+        self.assertIn("#define JESDLINK_LINK_TIMEOUT_MS 2000U", link_h)
         # self-test HAL fonksiyonlarini cagirmaz
         test = files["tests/afe7900_test.c"]
         self.assertIn("afe7900TemperatureRead(spSpi, &iValue)", test)
@@ -138,6 +151,12 @@ class Afe7900GenerationTests(unittest.TestCase):
         # SAHA KV260: SYNC~ pini yoksa (C_USE_SYNC_PIN=false) TX'e sync force yazilir
         self.assertIn("#define JESDLINK_TX_SYNC_FORCE TRUE", files["drivers/ip/jesdlink.h"])
         self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_SYNC, 1U);", link)
+        # 8B/10B yapilandirmasi (sirket SetCore): 8B10B_CFG, ILA cfg0..2; CTRL_ENABLE 204B kipinde yazilmaz
+        cfg = link[link.index("int jesdLinkCoreConfig("):link.index("int jesdLinkRxLinkCheck(")]
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_8B10B_CFG, JESDLINK_CFG_8B10B);", cfg)
+        self.assertIn("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_ILA_CFG0 + 4U, JESDLINK_CFG_TX_ILA_CFG1);", cfg)
+        self.assertNotIn("JESDLINK_REG_CTRL_ENABLE", cfg)
+        self.assertIn("#define JESDLINK_LINK_TIMEOUT_MS 600U", files["drivers/ip/jesdlink.h"])
 
     def test_without_jesd_ip_no_link_ops_and_no_jesdlink(self) -> None:
         files = self._generate(_spec(jesd=None))

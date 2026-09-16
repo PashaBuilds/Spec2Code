@@ -6,6 +6,7 @@ import FlashTransferCard from "./FlashTransferCard";
 import GpioCard from "./GpioCard";
 import I2cScanCard from "./I2cScanCard";
 import InitAllCard from "./InitAllCard";
+import JesdBringupCard from "./JesdBringupCard";
 import VersionQueryCard from "./VersionQueryCard";
 import { api } from "@/lib/api";
 import { groupByBoardId, MAIN_BOARD_ID } from "@/lib/boards";
@@ -474,6 +475,8 @@ export default function TestBenchPanel() {
             sessionId={board.sessionId}
             timeoutSeconds={board.timeoutSeconds()}
           />
+          {/* JESD / AFE ilklendirme: Register Map / Yakalama'dan bagimsiz ayri bolum (kullanici istegi 2026-09-16). */}
+          {manifest.jesd ? <JesdBringupCard manifest={manifest} /> : null}
 
           <div className="space-y-1.5">
             <Label>Entegre</Label>

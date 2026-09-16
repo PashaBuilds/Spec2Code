@@ -423,6 +423,8 @@ export interface TestbenchManifest {
   /** JESD204C IP'leri (drivers/ip/jesdlink): cihazdan bagimsiz `jesd` cihazi uzerinden FPGA link bring-up / durum. */
   jesd?: { device: string; ops: string[]; rx_base: string; tx_base: string; link_layer: string; lanes: number; subclass: number;
            sysref_gpio: string; status_bits: Record<string, string> };
+  /** Kart kontrol GPIO'su (spec board_control): Test Bench JESD/AFE karti bilgi icin gosterir. */
+  board_control?: { gpio_id: string; base: string; jesd_reset_ms: number; bits: BoardControlBit[] };
   /** AXI GPIO denetleyici op'ları: gpio_read/gpio_write DENETLEYİCİ-adreslidir
    * (hedef bir cihaz değil, AXI GPIO çekirdeğinin kendisi). `index` tel'de
    * uiCihazIndeks olarak gider — I2C denetleyicileri aynı tabloda ÖNEK olduğu
@@ -898,6 +900,8 @@ export interface BoardControlBit {
 export interface BoardControl {
   gpio_id: string;
   jesd_reset_ms?: number;
+  /** karttaki AFE sayisi (katalog afe1..afeN); ileride 8'e kadar */
+  afe_count?: number;
   bits: BoardControlBit[];
 }
 export interface CustomIp {

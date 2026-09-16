@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Plus, Trash2, ListPlus } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import type { BoardControl, BoardControlBit, BoardControlRole } from "@/lib/types";
@@ -29,12 +28,13 @@ export default function BoardControlCard() {
   const platform = useStore((s) => s.project.platform);
   const boardControl = useStore((s) => s.boardControl);
   const setBoardControl = useStore((s) => s.setBoardControl);
-  const [afeCount, setAfeCount] = useState(1);
   const gpios = controllers.filter((c) => c.type === "gpio");
-  const bc: BoardControl = boardControl ?? { gpio_id: "", jesd_reset_ms: 100, bits: [] };
-  const catalog = catalogPins(platform, Math.max(afeCount, 2));
+  const bc: BoardControl = boardControl ?? { gpio_id: "", jesd_reset_ms: 100, afe_count: 1, bits: [] };
+  const afeCount = bc.afe_count ?? 1;
+  const catalog = catalogPins(platform, Math.max(afeCount, 1));
 
   const update = (patch: Partial<BoardControl>) => setBoardControl({ ...bc, ...patch });
+  const setAfeCount = (n: number) => update({ afe_count: Math.max(1, Math.min(8, n)) });
   const updateBit = (index: number, patch: Partial<BoardControlBit>) =>
     update({ bits: bc.bits.map((b, i) => (i === index ? { ...b, ...patch } : b)) });
   const removeBit = (index: number) => update({ bits: bc.bits.filter((_, i) => i !== index) });
@@ -50,7 +50,7 @@ export default function BoardControlCard() {
       updateBit(index, { name: "" });
       return;
     }
-    const pin = catalogPinByName(platform, Math.max(afeCount, 2), name);
+    const pin = catalogPinByName(platform, Math.max(afeCount, 1), name);
     if (!pin) return;
     const current = bc.bits[index];
     updateBit(index, {
@@ -100,8 +100,7 @@ export default function BoardControlCard() {
               <Select value={String(afeCount)} onValueChange={(v) => setAfeCount(Number(v) || 1)}>
                 <SelectTrigger className="h-7 w-16 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1</SelectItem>
-                  <SelectItem value="2">2</SelectItem>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={fillFromCatalog} title="Tabloyu platforma göre katalog pinleriyle doldurur (bitler sırayla 0..n; kartına göre düzelt)">

@@ -44,7 +44,13 @@ SPI_READ_BIT = 0x80
 
 # JESD204C register offsetleri (PG242 v4.x; backend/ip_register_maps.jesd204c_document ile birebir).
 JESD_REG_RESET = 0x020
+JESD_REG_CTRL_ENABLE = 0x024
+JESD_REG_CTRL_SUB_CLASS = 0x034
+JESD_REG_CTRL_8B10B_CFG = 0x03C
+JESD_REG_CTRL_LANE_ENA = 0x040
+JESD_REG_CTRL_RX_BUF_ADV = 0x044
 JESD_REG_CTRL_SYSREF = 0x050
+JESD_REG_CTRL_TX_ILA_CFG0 = 0x070
 JESD_REG_STAT_RX_ERR_8B10B = 0x058
 JESD_REG_STAT_STATUS = 0x060
 JESD_REG_STAT_IRQ = 0x068
@@ -465,31 +471,33 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.blank()
         e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
         e.ln("*uspStatus = 0U;")
+        e.ln("/* SIRKET AKISI (AFE7900 InitDevicesAndInterfaces, 2026-09-16), tek fark: fiziksel reset darbesi 100 ms. */")
         if boardctl.has_jesd_reset(board):
-            e.ln("/* 0) Kart GPIO: JESD cekirdeklerine FIZIKSEL reset darbesi (register RESET'ten bagimsiz, AFE bring-up'tan once). */")
+            e.ln("/* 1) Kart GPIO: AFE reset'te (acilistan beri), JESD RX/TX cekirdeklerine FIZIKSEL reset darbesi. */")
             e.ln("(void)boardCtlJesdCoreResetPulse();")
-        e.ln("/* 1) FPGA cekirdek resetleri VERILIR (AFE init boyunca link hurda veri kovalamaz). */")
-        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
-        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
-        e.ln("/* 2) AFE bring-up (Latte config: PLL, JESD, SerDes). */")
-        e.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
-        e.ln("/* 3) FPGA resetleri KALDIRILIR: reset/GT mesgul bitleri timeout icinde dusmeli (PG242). */")
-        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
+        e.ln("/* 2) Register RESET kaldirilir (datapath), cekirdekler yapilandirilir. */")
         e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 0U);").check_status()
-        e.ln("/* 4) AFE JESD bloklari reset + SYSREF ile yeniden senkron (AFE, FPGA TX'ten gelen linki dogrular). */")
-        e.ln(f"iStatus = {_func_name(module, 'jesd_reset_toggle')}({hvar});").check_status()
-        e.ln(f"iStatus = {_func_name(module, 'adc_dac_sync')}({hvar});")
-        e.open("if (iStatus != XST_SUCCESS)")
-        e.ln("dbg_printf(DEBUG_LEVEL_ERROR, \"AFE: adcDacSync basarisiz (DAC-JESD-RX link kurulamadi)\");")
-        e.close()
-        e.ln("/* 5) FPGA RX'e GT'siz link reset: vericiler (AFE ADC-JESD-TX) calisirken alici yeniden senkron arar")
-        e.ln(" *    (8B/10B: SYNC~ dusurulur -> CGS -> ILAS; 64B/66B: SH/EMB kilidi). GT resetlenmez. */")
-        e.ln("iStatus = jesdLinkLinkReset(JESDLINK_RX_BASE);").check_status()
-        e.ln("jesdLinkSysrefPulse(); /* SYSREF GPIO varsa darbe (saat agacindan geliyorsa yalniz log) */")
-        e.ln("/* 6) FPGA RX link (AFE ADC -> FPGA): timeout'lu durum kontrolu. */")
+        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
+        if board_locks:
+            e.ln("(void)boardCtlPllLocksRead(); /* GT PLL lock'lari (log; sonuc bit5'te) */")
+        e.ln("iStatus = jesdLinkCoreConfig(JESDLINK_RX_BASE);").check_status()
+        e.ln("iStatus = jesdLinkCoreConfig(JESDLINK_TX_BASE);").check_status()
+        e.ln("/* 3) Register RESET verilir; yalniz TX kaldirilir (FPGA TX, AFE gelmeden yayinda). */")
+        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
+        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
+        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
+        if board_locks:
+            e.ln("(void)boardCtlPllLocksRead();")
+        e.ln("/* 4) AFE reset kaldirilir (device_init icinde, Latte bring-up'tan hemen once) + AFE bring-up. */")
+        e.ln(f"iStatus = {_func_name(module, 'device_init')}({hvar});").check_status()
+        e.ln("/* 5) RX kaldirilir (AFE ADC-JESD-TX artik gonderiyor); SYSREF GPIO varsa darbe (saat agacindan geliyorsa yalniz log). */")
+        e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 0U);").check_status()
+        e.ln("jesdLinkSysrefPulse();")
+        e.ln("/* 6) FPGA RX link (AFE ADC -> FPGA): 8B/10B CGS+SYNC+RX_STARTED, 64B/66B SH+MB lock; TX kontrol. */")
         e.open("if (jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS) == XST_SUCCESS)").ln("usStatus |= 0x0001U;").close()
         e.open("if (jesdLinkTxCheck() == XST_SUCCESS)").ln("usStatus |= 0x0002U;").close()
-        e.ln("/* 7) AFE tarafi: DAC-JESD-RX link (FPGA TX -> AFE), alarmlar, PLL. */")
+        e.ln("/* 7) AFE tarafi: JESD RX alarmlari temizlenir, DAC-JESD-RX link (FPGA TX -> AFE), alarmlar, PLL okunur. */")
+        e.ln(f"(void){_func_name(module, 'jesd_rx_alarms_clear')}({hvar});")
         e.open(f"if (({_func_name(module, 'jesd_rx_link_status_read')}({hvar}, &usAfeLink) == XST_SUCCESS) && (usAfeLink == {MOD}_JESD_RX_LINKS_UP))")
         e.ln("usStatus |= 0x0004U;")
         e.close()
@@ -507,7 +515,8 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD link bring-up durumu: 0x%04X (bit7 = hepsi tamam)\", (unsigned int)usStatus);")
         e.ln("return ((usStatus & 0x0080U) != 0U) ? XST_SUCCESS : XST_FAILURE;")
         _wrap("jesd_link_bringup", ["unsigned short* uspStatus"], e.out(),
-              "FPGA JESD204C cekirdekleri + AFE7900 icin tam link bring-up dizisi; durum bitleri: "
+              "FPGA JESD204C cekirdekleri + AFE7900 icin tam link bring-up dizisi (sirket sirasi: fiziksel reset -> "
+              "register kaldir/yapilandir/ver -> TX kaldir -> AFE -> RX kaldir -> bekle); durum bitleri: "
               "0 FPGA RX up, 1 FPGA TX ok, 2 AFE DAC-JESD-RX up, 3 AFE alarm yok, 4 AFE PLL kilitli, "
               "5 kart GT PLL lock (board_control), 7 hepsi tamam.")
 
@@ -865,7 +874,7 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
         f"#define JESDLINK_SUBCLASS {subclass}U\n"
         f"#define JESDLINK_ENCODING_64B66B {'TRUE' if is_64 else 'FALSE'}\n"
         "#define JESDLINK_RESET_TIMEOUT_MS 200U /* reset kaldirma: CORE_RESET_STATE ve GT_RESET_BUSY dusmeli */\n"
-        "#define JESDLINK_LINK_TIMEOUT_MS 1000U /* link kurulumu bekleme */\n"
+        f"#define JESDLINK_LINK_TIMEOUT_MS {2000 if is_64 else 600}U /* link kurulumu bekleme (sirket: 64B/66B 2 s, 8B/10B 3 x 200 ms) */\n"
         "#define JESDLINK_POLL_STEP_MS 1U\n"
         f"#define JESDLINK_SYSREF_GPIO_BASE 0x{sysref_gpio:08X}U /* AXI GPIO bit0 = SYSREF darbesi (0: GPIO yok, saat agaci) */\n"
         f"#define JESDLINK_BOARDCTL {'TRUE' if board else 'FALSE'} /* kart kontrol GPIO'su (boardctl.h): fiziksel reset / SYSREF / PLL lock */\n"
@@ -882,8 +891,21 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
            f"#define JESDLINK_LANE_BLOCK 0x{JESD_LANE_BLOCK:03X}U\n"
            f"#define JESDLINK_LANE_ERROR_CNT0 0x{JESD_LANE_ERROR_CNT0:03X}U /* CRC[31:16] MB[15:8] SH[7:0] */\n")
         + "\n"
-        "#define JESDLINK_REG_CTRL_ENABLE 0x024U\n"
+        f"#define JESDLINK_REG_CTRL_ENABLE 0x{JESD_REG_CTRL_ENABLE:03X}U /* yalniz 64B/66B anlamli (sirket akisi) */\n"
         "#define JESDLINK_REG_CTRL_TX_SYNC 0x028U /* yalniz TX, 8B/10B: bit0 tx_sync_force */\n"
+        f"#define JESDLINK_REG_CTRL_SUB_CLASS 0x{JESD_REG_CTRL_SUB_CLASS:03X}U\n"
+        f"#define JESDLINK_REG_CTRL_8B10B_CFG 0x{JESD_REG_CTRL_8B10B_CFG:03X}U /* yalniz 8B/10B */\n"
+        f"#define JESDLINK_REG_CTRL_LANE_ENA 0x{JESD_REG_CTRL_LANE_ENA:03X}U\n"
+        f"#define JESDLINK_REG_CTRL_RX_BUF_ADV 0x{JESD_REG_CTRL_RX_BUF_ADV:03X}U\n"
+        f"#define JESDLINK_REG_CTRL_TX_ILA_CFG0 0x{JESD_REG_CTRL_TX_ILA_CFG0:03X}U /* +4 CFG1, +8 CFG2 (yalniz TX, 8B/10B) */\n"
+        "/* Cekirdek yapilandirmasi (jesdLinkCoreConfig): SIRKET AKISI 2026-09-16 (SetCore) degerleri; karta gore duzenlenebilir. */\n"
+        f"#define JESDLINK_CFG_LANE_ENA 0x{(1 << lanes) - 1:02X}U /* CTRL_LANE_ENA: lane basina bit ({lanes} lane) */\n"
+        "#define JESDLINK_CFG_8B10B 0x03030F03U       /* CTRL_8B10B_CFG (8B/10B) */\n"
+        "#define JESDLINK_CFG_RX_BUF_ADV 0x10U\n"
+        "#define JESDLINK_CFG_SYSREF 0x01U            /* CTRL_SYSREF: SYSREF isleme acik */\n"
+        "#define JESDLINK_CFG_TX_ILA_CFG0 0x00000000U /* BID/DID */\n"
+        "#define JESDLINK_CFG_TX_ILA_CFG1 0x000F0F07U /* CS/N'/N/M */\n"
+        "#define JESDLINK_CFG_TX_ILA_CFG2 0x00000000U /* CF/HD/S */\n"
         f"#define JESDLINK_TX_SYNC_FORCE {'TRUE' if (not is_64 and not bool((tx or {}).get('use_sync_pin', False))) else 'FALSE'} "
         "/* 8B/10B + SYNC~ pini yok (C_USE_SYNC_PIN=false): TX'e SYNC yazilimla zorlanir (loopback / pin'siz kart) */\n"
         "#define JESDLINK_CTRL_ENABLE_CMD_DATA 0x00000003U /* CTRL_ENABLE: bit0 komut, bit1 veri yolu acik */\n"
@@ -904,7 +926,7 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
         + "\n"
         "/* --- public API --- */\n"
         "int jesdLinkCoreReset(unsigned int uiBase, unsigned int uiAssert);\n"
-        "int jesdLinkLinkReset(unsigned int uiBase);\n"
+        "int jesdLinkCoreConfig(unsigned int uiBase);\n"
         "int jesdLinkRxLinkCheck(void);\n"
         "int jesdLinkRxLinkWait(unsigned int uiTimeoutMs);\n"
         "int jesdLinkTxCheck(void);\n"
@@ -935,9 +957,11 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
     e.ln(" * @brief JESD204C IP (PG242) baglanti yardimcilari. Generated by Spec2Code.")
     e.ln(" *")
     e.ln(" * Reset semantigi (SAHA 2026-09-15, KV260 + v4.2 RTL): RESET[0] SEVIYE bitidir, kendiliginden temizlenmez.")
-    e.ln(" * uiAssert=1 -> RESET[0]=1 yazilir, cekirdek reset'te kalir. uiAssert=0 -> once CTRL_ENABLE (cmd+data) yazilir")
-    e.ln(" * (ayarlar reset kalkinca alinir), sonra RESET[0]=0 yazilir ve RESET/CORE_RESET_STATE/GT_RESET_BUSY bitlerinin")
-    e.ln(" * dusmesi JESDLINK_RESET_TIMEOUT_MS icinde beklenir, dolarsa XST_FAILURE. Tum durum kontrolleri timeout'ludur.")
+    e.ln(" * Register RESET her zaman RESET_TYPE=1 (datapath) ile yazilir (sirket akisi 2026-09-16: GT register'dan hic")
+    e.ln(" * resetlenmez, GT/PHY reseti kart GPIO'sundaki fiziksel pinle verilir). uiAssert=1 -> RESET=0x3, uiAssert=0 ->")
+    e.ln(" * RESET=0x2 yazilir ve RESET[0]/CORE_RESET_STATE'in dusmesi JESDLINK_RESET_TIMEOUT_MS icinde beklenir.")
+    e.ln(" * Bring-up sirasi: fiziksel reset darbesi -> register kaldir -> jesdLinkCoreConfig -> register ver -> TX kaldir")
+    e.ln(" * -> (AFE bring-up) -> RX kaldir -> link bekle. Tum durum kontrolleri timeout'ludur.")
     e.ln(" */")
     e.ln('#include "jesdlink.h"')
     if board is not None:
@@ -966,21 +990,16 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
     e.blank()
     e.open("if (uiBase == 0U)").ln("return XST_SUCCESS; /* bu yonde cekirdek yok */").close()
     e.open("if (uiAssert != 0U)")
-    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_BIT);")
-    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: reset verildi\", uiBase);")
+    e.ln("/* datapath reset (RESET_TYPE=1) + RESET[0]=1: GT korunur, cekirdek reset'te tutulur. */")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT);")
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: reset verildi (datapath)\", uiBase);")
     e.ln("return XST_SUCCESS;")
     e.close()
-    e.ln("/* Reset kaldirma: veri/komut yolu acik (varsayilan kapali), sonra RESET[0]=0 (RESET_TYPE korunur). */")
-    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA);")
-    if not is_64:
-        e.ln("/* 8B/10B TX ve SYNC~ pini yok: SAHA KV260 - CGS/SYNC gelse de TX ILAS+veri gondermez, RX_STARTED 0 kalir. */")
-        e.open("if ((uiBase == JESDLINK_TX_BASE) && (JESDLINK_TX_SYNC_FORCE == TRUE))")
-        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_SYNC, 1U);")
-        e.close()
-    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, jesdLinkRead(uiBase, JESDLINK_REG_RESET) & JESDLINK_RESET_TYPE_LINK);")
+    e.ln("/* Reset kaldirma: RESET[0]=0 (RESET_TYPE=1 kalir), bitin dusmesi beklenir. */")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK);")
     e.open("while (uiElapsedMs < JESDLINK_RESET_TIMEOUT_MS)")
     e.ln("uiReset = jesdLinkRead(uiBase, JESDLINK_REG_RESET);")
-    e.open("if ((uiReset & (JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE | JESDLINK_RESET_GT_BUSY)) == 0U)")
+    e.open("if ((uiReset & (JESDLINK_RESET_BIT | JESDLINK_RESET_CORE_STATE)) == 0U)")
     e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: reset kalkti (%u ms, RESET=0x%08X)\", uiBase, uiElapsedMs, uiReset);")
     e.ln("return XST_SUCCESS;")
     e.close()
@@ -994,14 +1013,34 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
     e.level = 0
     e.ln("}")
     e.blank()
-    e.ln("int jesdLinkLinkReset(unsigned int uiBase)")
+    e.ln("int jesdLinkCoreConfig(unsigned int uiBase)")
     e.ln("{")
     e.level = 1
     e.open("if (uiBase == 0U)").ln("return XST_SUCCESS; /* bu yonde cekirdek yok */").close()
-    e.ln("/* RESET_TYPE=1: yalniz link katmani (GT ve refclk yolu korunur); RESET[0] seviye: kaldirma jesdLinkCoreReset(0). */")
-    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_RESET, JESDLINK_RESET_TYPE_LINK | JESDLINK_RESET_BIT);")
-    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: link reset verildi (GT korunur)\", uiBase);")
-    e.ln("return jesdLinkCoreReset(uiBase, 0U);")
+    e.ln("/* Cekirdek yapilandirmasi (sirket SetCore akisi): reset kaldirilmisken yazilir, ardindan reset verilip")
+    e.ln(f" * kaldirilinca gecerli olur. Kodlama: {'64B/66B' if is_64 else '8B/10B'} - PG242'de bu kip icin anlamli register'lar. */")
+    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD 0x%08X: IP_VERSION=0x%08X IP_CONFIG=0x%08X\", uiBase, jesdLinkRead(uiBase, 0x000U), jesdLinkRead(uiBase, 0x004U));")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_SUB_CLASS, JESDLINK_SUBCLASS);")
+    if is_64:
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_ENABLE, JESDLINK_CTRL_ENABLE_CMD_DATA); /* komut + veri yolu (64B/66B) */")
+    else:
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_8B10B_CFG, JESDLINK_CFG_8B10B);")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_LANE_ENA, JESDLINK_CFG_LANE_ENA);")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_RX_BUF_ADV, JESDLINK_CFG_RX_BUF_ADV);")
+    e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_SYSREF, JESDLINK_CFG_SYSREF);")
+    e.open("if (uiBase == JESDLINK_TX_BASE)")
+    if not is_64:
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_ILA_CFG0, JESDLINK_CFG_TX_ILA_CFG0);")
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_ILA_CFG0 + 4U, JESDLINK_CFG_TX_ILA_CFG1);")
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_ILA_CFG0 + 8U, JESDLINK_CFG_TX_ILA_CFG2);")
+        e.ln("/* SYNC~ pini yok (C_USE_SYNC_PIN=false): SAHA KV260 - CGS/SYNC gelse de TX ILAS+veri gondermez, RX_STARTED 0 kalir. */")
+        e.open("if (JESDLINK_TX_SYNC_FORCE == TRUE)")
+        e.ln("jesdLinkWrite(uiBase, JESDLINK_REG_CTRL_TX_SYNC, 1U);")
+        e.close()
+    else:
+        e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD TX: 64B/66B yapilandirmasi yazildi\");")
+    e.close()
+    e.ln("return XST_SUCCESS;")
     e.level = 0
     e.ln("}")
     e.blank()
@@ -1156,16 +1195,20 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional
     e.blank()
     e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
     e.ln("*uspStatus = 0U;")
-    e.ln("/* FPGA-only dizi (AFE yok / AFE ayrica ilklendirildi): reset ver -> kaldir (cmd+data acik) -> RX link reset")
-    e.ln(" * -> SYSREF darbesi (GPIO varsa) -> RX link bekle -> TX kontrol -> sayaclari temizle. */")
+    e.ln("/* FPGA-only dizi (AFE yok / AFE ayrica ilklendirildi), sirket sirasi: fiziksel reset -> register kaldir ->")
+    e.ln(" * yapilandir -> register ver -> TX kaldir -> RX kaldir -> SYSREF darbesi (GPIO varsa) -> RX link bekle -> sayaclari temizle. */")
     if board_reset:
-        e.ln("/* Kart GPIO: once FIZIKSEL cekirdek reset darbesi (pin), sonra register RESET akisi. */")
         e.ln("(void)boardCtlJesdCoreResetPulse();")
-    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 0U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
+    if board_locks:
+        e.ln("(void)boardCtlPllLocksRead(); /* log */")
+    e.ln("iStatus = jesdLinkCoreConfig(JESDLINK_RX_BASE);").check_status()
+    e.ln("iStatus = jesdLinkCoreConfig(JESDLINK_TX_BASE);").check_status()
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
+    e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 0U);").check_status()
-    e.ln("iStatus = jesdLinkLinkReset(JESDLINK_RX_BASE);").check_status()
     e.ln("jesdLinkSysrefPulse();")
     e.ln("(void)jesdLinkRxLinkWait(JESDLINK_LINK_TIMEOUT_MS);")
     e.ln("jesdLinkErrorCountersClear();")

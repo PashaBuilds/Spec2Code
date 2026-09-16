@@ -3,6 +3,22 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.248 - 2026-09-16
+
+- **JESD bring-up sirasi sirket akisiyla esitlendi** (sirket AFE7900 InitDevicesAndInterfaces rutini): fiziksel reset darbesi ->
+  register RESET kaldir (RX, TX) -> `jesdLinkCoreConfig` (alt sinif, lane etkinlestirme, RX_BUF_ADV, SYSREF; 8B/10B'de
+  CTRL_8B10B_CFG + TX ILA CFG0..2 + gerekirse sync force; 64B/66B'de CTRL_ENABLE) -> register RESET ver -> TX kaldir ->
+  AFE reset kaldir + Latte bring-up -> RX kaldir -> link bekleme (8B/10B 3 x 200 ms, 64B/66B 2 s) -> AFE JESD RX
+  alarmlarini temizle -> durum. Register RESET her zaman datapath tipi (RESET_TYPE=1; GT yalniz fiziksel pinle
+  resetlenir). AFE JESD reset toggle / adcDacSync bring-up'tan cikti (ayri op olarak duruyor); `jesdLinkLinkReset` kalkti.
+  GT PLL lock'lari register kaldirma ve TX kaldirma sonrasi loglanir, sonucta bit5.
+- Kart kontrol GPIO'su: `afe_count` (1..8) spec'te saklanir, katalog ona gore afe1..afeN uretir (kod uretimi bu
+  surumde tek AFE).
+- Test Bench: **JESD / AFE ilklendirme** karti (FPGA bring-up, AFE + FPGA bring-up, durum, bit tablosu); Register
+  Map'teki JESD karti kaldirildi.
+- CIT HTML raporu: Karar sutunu kaymaz (son sutun dar ve tek satir, olcum adi gerekirse kirilir).
+- Test Bench flash aktarimi: tek dosya ust siniri 1 MiB -> 100 MiB (zaman siniri; DCC'de 256 B/komut).
+
 ## v0.1.247 - 2026-09-16
 
 - Kart kontrol GPIO'su: pin adlari sabit katalogdan (`afe{N}_reset_active_low`, `jesd_afe{N}_rx/tx_core_reset_active_high`,

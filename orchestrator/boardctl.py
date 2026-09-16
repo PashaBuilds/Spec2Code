@@ -72,7 +72,11 @@ def board_control(spec: dict) -> dict | None:
     except (TypeError, ValueError):
         reset_ms = DEFAULT_JESD_RESET_MS
     platform = str((spec.get("project") or {}).get("platform", "")).lower()
-    return {"gpio_id": gpio_id, "base": base, "jesd_reset_ms": max(1, reset_ms), "bits": bits,
+    try:
+        afe_count = max(1, min(8, int(raw.get("afe_count", 1) or 1)))
+    except (TypeError, ValueError):
+        afe_count = 1
+    return {"gpio_id": gpio_id, "base": base, "jesd_reset_ms": max(1, reset_ms), "bits": bits, "afe_count": afe_count,
             # Versal: GT PHY resetlemek icin HSCLK/LCPLL reset pinleri de darbelenir (kullanici bilgisi 2026-09-16)
             "versal": platform == "versal"}
 

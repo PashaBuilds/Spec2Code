@@ -87,8 +87,9 @@ class BoardControlTests(unittest.TestCase):
         link = files["drivers/ip/jesdlink.c"]
         self.assertIn('#include "boardctl.h"', link)
         bring = link[link.index("int jesdLinkBringup("):]
-        # fiziksel reset darbesi register RESET'ten ONCE
-        self.assertLess(bring.index("boardCtlJesdCoreResetPulse();"), bring.index("jesdLinkCoreReset(JESDLINK_TX_BASE, 1U)"))
+        # fiziksel reset darbesi register RESET'ten ONCE; lock loglari register kaldirma sonrasi
+        self.assertLess(bring.index("boardCtlJesdCoreResetPulse();"), bring.index("jesdLinkCoreReset(JESDLINK_RX_BASE, 0U)"))
+        self.assertLess(bring.index("jesdLinkCoreReset(JESDLINK_RX_BASE, 0U)"), bring.index("boardCtlPllLocksRead(); /* log */"))
         status = link[link.index("int jesdLinkStatusWord("):link.index("int jesdLinkBringup(")]
         self.assertIn("if (boardCtlPllLocksRead() == TRUE)", status)
         self.assertIn("usStatus |= JESDLINK_STATUS_PLL_LOCK;", status)
@@ -98,6 +99,7 @@ class BoardControlTests(unittest.TestCase):
         self.assertIn("JESD: SYSREF GPIO yok", link)
         manifest = json.loads(files["tests/spec2code_testbench_manifest.json"])
         self.assertEqual(manifest["board_control"]["gpio_id"], "pl_gpio_ctrl")
+        self.assertEqual(boardctl.board_control(_board_spec(afe=False))["afe_count"], 1)
         self.assertEqual(len(manifest["board_control"]["bits"]), 6)
         self.assertIn("5", manifest["jesd"]["status_bits"])
 
