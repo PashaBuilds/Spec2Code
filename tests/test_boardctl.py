@@ -119,6 +119,23 @@ class BoardControlTests(unittest.TestCase):
         self.assertIn("if (boardCtlPllLocksRead() == TRUE)", op)
         self.assertIn("if ((usStatus & 0x003FU) == 0x003FU)", op)
 
+    def test_pll_reset_only_pulsed_on_versal(self) -> None:
+        # Versal: PHY ancak HSCLK/LCPLL reset pinleriyle resetleniyor -> JESD fiziksel darbeye katilir; ZynqMP'de pasif.
+        for platform, expect in (("zynq_ultrascale", False), ("versal", True)):
+            spec = _board_spec(afe=False)
+            spec["project"]["platform"] = platform
+            spec["project"]["target_core"] = "a72_0" if platform == "versal" else "a53_0"
+            spec["board_control"]["bits"].append({"name": "hsclk_afe1_lcpll_reset", "channel": 1, "bit": 10, "role": "pll_reset"})
+            files = self._generate(spec)
+            c = files["drivers/ip/boardctl.c"]
+            pulse = c[c.index("int boardCtlJesdCoreResetPulse(void)"):]
+            self.assertEqual("boardCtlRoleWrite(BOARDCTL_ROLE_PLL_RESET, NULL, TRUE);" in pulse, expect, platform)
+            self.assertEqual("boardCtlRoleWrite(BOARDCTL_ROLE_PLL_RESET, NULL, FALSE);" in pulse, expect, platform)
+            if expect:
+                self.assertLess(pulse.index("BOARDCTL_ROLE_PLL_RESET, NULL, TRUE"), pulse.index("BOARDCTL_ROLE_JESD_RX_CORE_RESET, NULL, TRUE"))
+            shutil.rmtree(self.tmp, ignore_errors=True)
+            self.tmp.mkdir()
+
     def test_sysref_role_replaces_named_gpio(self) -> None:
         spec = _board_spec(afe=False)
         spec["board_control"]["bits"].append({"name": "sysref_pulse", "channel": 1, "bit": 1, "role": "sysref"})

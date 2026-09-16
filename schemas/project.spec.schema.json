@@ -547,7 +547,7 @@
               "name": {"type": "string", "minLength": 1, "description": "sematikteki pin adi (uretilen kodda loglarda gorunur)"},
               "channel": {"type": "integer", "enum": [1, 2], "description": "1 = cikis kanali, 2 = giris kanali"},
               "bit": {"type": "integer", "minimum": 0, "maximum": 31},
-              "role": {"type": "string", "enum": ["afe_reset", "jesd_rx_core_reset", "jesd_tx_core_reset", "pll_reset", "pll_lock", "sysref", "generic"]},
+              "role": {"type": "string", "enum": ["afe_reset", "jesd_rx_core_reset", "jesd_tx_core_reset", "pll_reset", "pll_lock", "sysref", "generic"], "description": "pll_reset: GT HSCLK/LCPLL reset pini, yalniz Versal'da (PHY reset calisma cevresi) JESD fiziksel reset darbesine katilir; diger platformlarda pasif tutulur"},
               "active_low": {"type": "boolean", "default": false, "description": "true: 0 seviyesi aktif (reset verildi / lock var)"},
               "target": {"type": "string", "description": "hedef: AFE cihaz id'si, JESD IP id'si ya da lock etiketi (bos = hepsi)"}
             }

@@ -3,6 +3,12 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.244 - 2026-09-16
+
+- Kart kontrol GPIO'su: `pll_reset` (HSCLK/LCPLL reset) bitleri yalniz Versal'da JESD fiziksel reset darbesine
+  katilir (Versal'da GT PHY ancak bu pinlerle resetlenebiliyor); ZynqMP/UltraScale/MicroBlaze'de pasif tutulur.
+  Setup rol etiketi, sema aciklamasi ve akis semasi buna gore.
+
 ## v0.1.243 - 2026-09-16
 
 - **Duzeltme**: PG register haritasi struct'inda ilk register 0x000'da degilse (AXI IIC GIE 0x1C, AXI Quad SPI

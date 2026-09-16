@@ -13,7 +13,7 @@ const ROLES: Array<[BoardControlRole, string]> = [
   ["afe_reset", "AFE reset (açılışta aktif, bring-up öncesi kalkar)"],
   ["jesd_rx_core_reset", "JESD RX çekirdek fiziksel reset"],
   ["jesd_tx_core_reset", "JESD TX çekirdek fiziksel reset"],
-  ["pll_reset", "GT HSCLK/LCPLL reset (pasif tutulur)"],
+  ["pll_reset", "GT HSCLK/LCPLL reset (yalnız Versal: PHY reset, JESD darbesine katılır)"],
   ["pll_lock", "GT PLL lock girişi (1 beklenir)"],
   ["sysref", "SYSREF darbesi çıkışı"],
   ["generic", "genel (LMX/LMK vb., dokunulmaz)"],

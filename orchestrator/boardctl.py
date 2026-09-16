@@ -8,7 +8,8 @@ Roller (``role``):
   afe_reset            AFE reset pini (acilista reset'te tutulur, bring-up'tan hemen once kaldirilir)
   jesd_rx_core_reset   JESD204C RX cekirdeginin fiziksel reset pini (register RESET'ten bagimsiz)
   jesd_tx_core_reset   JESD204C TX cekirdeginin fiziksel reset pini
-  pll_reset            GT HSCLK/LCPLL reset pini (bu surumde yalniz pasif seviyeye yazilir)
+  pll_reset            GT HSCLK/LCPLL reset pini - YALNIZ Versal: PHY'yi resetlemek icin (Versal hatasi calisma
+                       cevresi) JESD fiziksel reset darbesine katilir; diger platformlarda pasif tutulur
   pll_lock             GT PLL lock girisi (LCPLL/QPLL); 1 beklenir, 0 ise akis durmaz, sonuc sozcugunde gorunur
   sysref               SYSREF darbesi cikisi (varsa jesdlink SYSREF'i buradan surer)
   generic              dokunulmaz (LMX/LMK vb.; ileride)
@@ -70,7 +71,10 @@ def board_control(spec: dict) -> dict | None:
         reset_ms = int(raw.get("jesd_reset_ms", DEFAULT_JESD_RESET_MS) or DEFAULT_JESD_RESET_MS)
     except (TypeError, ValueError):
         reset_ms = DEFAULT_JESD_RESET_MS
-    return {"gpio_id": gpio_id, "base": base, "jesd_reset_ms": max(1, reset_ms), "bits": bits}
+    platform = str((spec.get("project") or {}).get("platform", "")).lower()
+    return {"gpio_id": gpio_id, "base": base, "jesd_reset_ms": max(1, reset_ms), "bits": bits,
+            # Versal: GT PHY resetlemek icin HSCLK/LCPLL reset pinleri de darbelenir (kullanici bilgisi 2026-09-16)
+            "versal": platform == "versal"}
 
 
 def has_role(board: dict | None, role: str) -> bool:
@@ -79,6 +83,11 @@ def has_role(board: dict | None, role: str) -> bool:
 
 def has_jesd_reset(board: dict | None) -> bool:
     return has_role(board, "jesd_rx_core_reset") or has_role(board, "jesd_tx_core_reset")
+
+
+def pll_reset_in_pulse(board: dict | None) -> bool:
+    """Versal + pll_reset biti: JESD fiziksel reset darbesi PLL/PHY reset pinlerini de kapsar."""
+    return bool(board) and board.get("versal", False) and has_role(board, "pll_reset")
 
 
 def write_boardctl(spec: dict, out_dir: Path, write_output: Callable[[Path, str], Path],
@@ -148,7 +157,8 @@ def _header(board: dict) -> str:
         "int boardCtlRoleWrite(EBoardCtlRole eRole, const char* cpTarget, unsigned int uiAssert);",
     ]
     if has_jesd_reset(board):
-        lines.append("/* JESD RX+TX cekirdek fiziksel reset darbesi: ver -> BOARDCTL_JESD_RESET_MS -> kaldir. */")
+        lines.append("/* JESD RX+TX cekirdek fiziksel reset darbesi: ver -> BOARDCTL_JESD_RESET_MS -> kaldir"
+                     + (" (Versal: HSCLK/LCPLL reset pinleri de darbelenir, PHY reset)" if pll_reset_in_pulse(board) else "") + ". */")
         lines.append("int boardCtlJesdCoreResetPulse(void);")
     if has_role(board, "sysref"):
         lines.append("/* SYSREF cikis biti: 1 -> 10 us -> 0. */")
@@ -291,6 +301,9 @@ def _source(board: dict) -> str:
             "    int iTx;",
             "",
             "    boardCtlInit();",
+            *(["    /* Versal: GT PHY ancak HSCLK/LCPLL reset pinleriyle resetlenebiliyor (Versal hatasi calisma cevresi);",
+               "     * cekirdek resetleriyle birlikte verilir, birlikte kaldirilir. Diger platformlarda bu pinlere dokunulmaz. */",
+               "    (void)boardCtlRoleWrite(BOARDCTL_ROLE_PLL_RESET, NULL, TRUE);"] if pll_reset_in_pulse(board) else []),
             "    iRx = boardCtlRoleWrite(BOARDCTL_ROLE_JESD_RX_CORE_RESET, NULL, TRUE);",
             "    iTx = boardCtlRoleWrite(BOARDCTL_ROLE_JESD_TX_CORE_RESET, NULL, TRUE);",
             "    if ((iRx != XST_SUCCESS) && (iTx != XST_SUCCESS))",
@@ -298,6 +311,7 @@ def _source(board: dict) -> str:
             "        return XST_FAILURE;",
             "    }",
             "    usleep(BOARDCTL_JESD_RESET_MS * 1000U);",
+            *(["    (void)boardCtlRoleWrite(BOARDCTL_ROLE_PLL_RESET, NULL, FALSE);"] if pll_reset_in_pulse(board) else []),
             "    (void)boardCtlRoleWrite(BOARDCTL_ROLE_JESD_RX_CORE_RESET, NULL, FALSE);",
             "    (void)boardCtlRoleWrite(BOARDCTL_ROLE_JESD_TX_CORE_RESET, NULL, FALSE);",
             '    dbg_printf(DEBUG_LEVEL_INFO, "kart GPIO: JESD cekirdek fiziksel reset darbesi %u ms", (unsigned int)BOARDCTL_JESD_RESET_MS);',

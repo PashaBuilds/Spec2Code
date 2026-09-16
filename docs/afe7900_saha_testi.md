@@ -31,14 +31,15 @@ tek yerde toplar. KV260'ta dogrulanmis olanlar ve sahada ilk kez calisacak varsa
 5. **Kart kontrol GPIO'su** (Setup, "Kart kontrol GPIO" karti): XSA'daki dual-channel AXI GPIO'yu sec (kanal 1
    cikis, kanal 2 giris) ve kartin sematigindeki bitleri tabloya gir: `afe1_reset_active_low` (afe_reset,
    aktif-dusuk), `jesd_afe1_rx/tx_core_reset_active_high` (jesd_rx/tx_core_reset), `afe1_hsclk1_lcpll_lock_0`
-   gibi lock girisleri (pll_lock, hedef = AFE id + quad etiketi), varsa `sysref`. LMX/LMK bitleri `generic`
-   olarak girilir, bu surumde dokunulmaz. Bit yerlesimi karttan karta degisir; tablo spec'te saklanir.
+   gibi lock girisleri (pll_lock, hedef = AFE id + quad etiketi), varsa `sysref`. `hsclk_*_lcpll_reset` bitleri
+   `pll_reset` rolunde girilir: yalniz Versal'da JESD fiziksel reset darbesine katilir (PHY reset calisma cevresi),
+   ZCU102/KU060'ta pasif kalir. LMX/LMK bitleri `generic` olarak girilir, bu surumde dokunulmaz. Bit yerlesimi karttan karta degisir; tablo spec'te saklanir.
 
 ### 2.1 Bring-up akisi (AFE7900 `jesd_link_bringup` op'u)
 
 ```mermaid
 flowchart TD
-    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe]
+    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe<br/>Versal: HSCLK/LCPLL reset de darbelenir - PHY reset]
     B --> C[AFE reset kaldir<br/>bring-up'tan hemen once]
     C --> D[AFE bring-up<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
     D --> E[FPGA JESD register RESET akisi<br/>CTRL_ENABLE cmd+data, RESET=0, TX sync force]

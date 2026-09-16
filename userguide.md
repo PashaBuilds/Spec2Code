@@ -701,13 +701,15 @@ cihazlari ilklendir" ya da Bring-up kos.
   hedef) ve spec `board_control` altinda saklanir. Generate `drivers/ip/boardctl.h/.c` uretir
   (`boardCtlInit`: yonler + acilis seviyeleri, `boardCtlRoleWrite`, `boardCtlJesdCoreResetPulse`,
   `boardCtlPllLocksRead`, varsa `boardCtlSysrefPulse`); `jesdlink` bring-up'i once fiziksel reset darbesini
-  (varsayilan 100 ms, `jesd_reset_ms`) verir, sonra register RESET akisini kosar; AFE7900 surucusu AFE'yi
+  (varsayilan 100 ms, `jesd_reset_ms`) verir, sonra register RESET akisini kosar; `pll_reset` (HSCLK/LCPLL reset)
+  bitleri YALNIZ Versal'da bu darbeye katilir (GT PHY'yi resetlemek icin gereken Versal calisma cevresi), diger
+  platformlarda pasif tutulur; AFE7900 surucusu AFE'yi
   acilistan itibaren reset'te tutar ve `afeDeviceBringupFromMem`'den hemen once kaldirir. PLL lock'lari 1
   beklenir; 0 ise akis durmaz, durum sozcugunde bit5 = 0 kalir ve bit7 (hepsi tamam) dusmez. Akis:
 
 ```mermaid
 flowchart TD
-    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe]
+    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe<br/>Versal: HSCLK/LCPLL reset de darbelenir - PHY reset]
     B --> C[AFE reset kaldir<br/>bring-up'tan hemen once]
     C --> D[AFE bring-up<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
     D --> E[FPGA JESD register RESET akisi<br/>CTRL_ENABLE cmd+data, RESET=0, TX sync force]
