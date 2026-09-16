@@ -146,6 +146,44 @@ export function ControllerNode({ data, selected }: NodeProps) {
   );
 }
 
+/** Register haritasi bilinen PL IP'si (JESD204C RX/TX ...): salt-okunur, cihaz baglanmaz (handle yok);
+ *  Register Map ekranindaki harita ve shell ip_<id> komutu bu IP icindir. */
+export function IpCoreNode({ data, selected }: NodeProps) {
+  const d = data as unknown as { label: string; ip_name: string; base_address: string; detail: string; zone: string };
+  const zColor = zoneColor(d.zone);
+  const detailed = useDetailed();
+  return (
+    <div
+      className={cn(
+        "relative w-[200px] rounded-lg border bg-chip-body px-3 py-2.5 transition-shadow",
+        selected ? "border-accent shadow-copper-glow" : "border-chip-body-edge shadow-node",
+      )}
+      style={{ borderLeft: `3px solid ${zColor}` }}
+    >
+      <div className="flex items-center gap-2">
+        <Activity className="h-4 w-4 shrink-0" style={{ color: zColor }} />
+        <span className={cn("text-silk truncate font-mono text-text", detailed ? "text-sm" : "text-base")}>{d.label}</span>
+        {detailed && (
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] text-faint">
+            <Lock className="h-3 w-3" /> ip
+          </span>
+        )}
+      </div>
+      {detailed && (
+        <>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-muted">
+              {d.ip_name}
+            </span>
+            <span className="font-mono text-[11px] text-accent">{d.base_address}</span>
+          </div>
+          {d.detail && <div className="mt-1 truncate font-mono text-[10px] text-faint">{d.detail}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function MuxNode({ data, selected }: NodeProps) {
   const d = data as unknown as {
     part: string;
@@ -343,6 +381,7 @@ export const nodeTypes = {
   zone: ZoneNode,
   board: BoardNode,
   controller: ControllerNode,
+  ipcore: IpCoreNode,
   mux: MuxNode,
   device: DeviceNode,
 };

@@ -69,6 +69,7 @@ function pointerPoint(event: MouseEvent | TouchEvent): { x: number; y: number } 
 export default function SchematicCanvas() {
   const zones = useStore((s) => s.zones);
   const controllers = useStore((s) => s.controllers);
+  const customIps = useStore((s) => s.customIps);
   const muxes = useStore((s) => s.muxes);
   const devices = useStore((s) => s.devices);
   const descriptors = useStore((s) => s.descriptors);
@@ -88,12 +89,23 @@ export default function SchematicCanvas() {
     // Kart tanimli DEGILSE bu blok hic calismaz: dugumler, konumlar ve
     // ReactFlow ozellikleri bugunkuyle birebir ayni kalir (tasarim §5).
     const boardsOn = boards.length > 0;
+    // Register haritasi bilinen custom IP'ler (JESD204C RX/TX, Register Map Test IP) PL bolgesinde salt-okunur
+    // dugum olarak gorunur (kullanici istegi 2026-09-16: bir sey baglanmasa da JESD IP'leri sematikte gorulsun).
+    // Yerlesim icin denetleyici gibi ele alinir; cihaz baglanamaz (handle yok), store'a girmez.
+    const plZone = zones.find((z) => z.id === "pl")?.id ?? controllers.find((c) => c.zone !== "ps")?.zone ?? "pl";
+    const ipNodes: Controller[] = customIps
+      .filter((ip) => ip.register_map)
+      .map((ip) => ({
+        id: `ip-${ip.id}`, type: "ip", instance: ip.id, base_address: ip.base_address,
+        driver: ip.register_map, zone: plZone, source: "xsa",
+      }));
+    const layoutControllers = [...controllers, ...ipNodes];
     const boardLayout = boardsOn
-      ? computeBoardLayout(boards, controllers, muxes, devices, boardSizes)
+      ? computeBoardLayout(boards, layoutControllers, muxes, devices, boardSizes)
       : null;
     const pos: Map<string, Pos> = boardLayout
       ? boardLayout.pos
-      : computeLayout(controllers, muxes, devices);
+      : computeLayout(layoutControllers, muxes, devices);
     const boardRects: BoardRect[] = boardLayout?.rects ?? [];
     const rectById = new Map(boardRects.map((r) => [r.id, r]));
     const mainId = boardsOn ? mainBoardId(boards) : "";
@@ -104,7 +116,7 @@ export default function SchematicCanvas() {
       if (!rect) return { position: { x: p.x, y: p.y } };
       return { position: { x: p.x - rect.x, y: p.y - rect.y }, parentId: boardNodeId(rect.id) };
     };
-    const zoneRects = computeZoneRects(zones, controllers, pos);
+    const zoneRects = computeZoneRects(zones, layoutControllers, pos);
     const ctrlById = Object.fromEntries(controllers.map((c) => [c.id, c]));
     const hasDescriptor = (part: string) =>
       descriptors.some((d) => d.part === part) ||
@@ -163,6 +175,22 @@ export default function SchematicCanvas() {
         ...place(c.id, p),
         data: { label: c.instance, type: c.type, base_address: c.base_address, driver: c.driver, zone: c.zone },
         selected: c.id === selectedId,
+        draggable: false,
+        zIndex: 1,
+      });
+    }
+    for (const ip of customIps) {
+      const p = pos.get(`ip-${ip.id}`);
+      if (!p) continue;
+      const params = ip.ip_parameters ?? {};
+      const detail = [params.direction, params.link_layer, params.lanes ? `${params.lanes} lane` : "", params.subclass !== undefined ? `subclass ${params.subclass}` : ""]
+        .filter(Boolean).map(String).join(" · ");
+      nodes.push({
+        id: `ip-${ip.id}`,
+        type: "ipcore",
+        ...place(`ip-${ip.id}`, p),
+        data: { label: ip.id, ip_name: ip.ip_name ?? ip.register_map, base_address: ip.base_address, detail, zone: plZone },
+        selected: `ip-${ip.id}` === selectedId,
         draggable: false,
         zIndex: 1,
       });
@@ -322,7 +350,7 @@ export default function SchematicCanvas() {
       });
     }
     return { nodes, edges, boardRects };
-  }, [zones, controllers, muxes, devices, descriptors, selectedId, boards, connectors, boardSizes, draggingId]);
+  }, [zones, controllers, customIps, muxes, devices, descriptors, selectedId, boards, connectors, boardSizes, draggingId]);
 
   // Yerlesim TURETILMISTIR (store -> computeLayout). Surukleme yalnizca bir
   // JEST'tir: React Flow'un konum degisikligi gecici olarak uygulanir, birakinca
@@ -396,7 +424,7 @@ export default function SchematicCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <FitView
-          signature={`${controllers.length}-${muxes.length}-${devices.length}-${boards.length}-${connectors.length}`}
+          signature={`${controllers.length}-${customIps.length}-${muxes.length}-${devices.length}-${boards.length}-${connectors.length}`}
         />
         <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
         <Controls showInteractive={false} className="!bg-elev !border-border" />

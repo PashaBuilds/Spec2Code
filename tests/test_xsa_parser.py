@@ -38,6 +38,11 @@ _SYNTH_HWH = """<?xml version="1.0" encoding="UTF-8"?>
     <MODULE FULLNAME="/lmb_bram_2" INSTANCE="lmb_bram_2" MODTYPE="lmb_bram_if_cntlr" IPTYPE="PERIPHERAL" MODCLASS="MEMORY_CNTLR">
       <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x00000000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x0003FFFF"/></PARAMETERS>
     </MODULE>
+    <MODULE FULLNAME="/spi_afe" INSTANCE="spi_afe" MODTYPE="axi_quad_spi" IPTYPE="PERIPHERAL" VLNV="xilinx.com:ip:axi_quad_spi:3.2">
+      <PARAMETER NAME="C_BASEADDR" VALUE="0x44A10000"/>
+      <PARAMETER NAME="C_HIGHADDR" VALUE="0x44A1FFFF"/>
+      <PARAMETER NAME="C_SPI_MODE" VALUE="0"/>
+    </MODULE>
     <MODULE FULLNAME="/axi_timer_0" INSTANCE="axi_timer_0" MODTYPE="axi_timer" IPTYPE="PERIPHERAL" VLNV="xilinx.com:ip:axi_timer:2.0">
       <ADDRESSBLOCKS><ADDRESSBLOCK INTERFACE="S_AXI" NAME="Reg" RANGE="65536" USAGE="register"/></ADDRESSBLOCKS>
       <PARAMETERS><PARAMETER NAME="C_BASEADDR" VALUE="0x41C00000"/><PARAMETER NAME="C_HIGHADDR" VALUE="0x41C0FFFF"/></PARAMETERS>
@@ -69,7 +74,10 @@ class SyntheticXsaTests(unittest.TestCase):
         self.assertEqual(result.processors, ["psu_cortexa53_0"])
 
         by_type = {item["type"]: item for item in result.controllers}
-        self.assertEqual(set(by_type), {"i2c", "uart", "qspi"})
+        self.assertEqual(set(by_type), {"i2c", "uart", "qspi", "spi"})
+        # PL IP MODTYPE'tan taninir: `spi_afe` adli axi_quad_spi (standart mod) -> XSpi SPI denetleyicisi (v0.1.245)
+        self.assertEqual((by_type["spi"]["driver"], by_type["spi"]["instance"], by_type["spi"]["zone"], by_type["spi"]["base_address"]),
+                         ("XSpi", "XPAR_SPI_AFE", "pl", "0x44A10000"))
         self.assertEqual(by_type["i2c"]["driver"], "XIicPs")
         self.assertEqual(by_type["i2c"]["instance"], "XPAR_PSU_I2C_0")
         self.assertEqual(by_type["i2c"]["base_address"], "0xFF020000")
@@ -103,7 +111,7 @@ class SyntheticXsaTests(unittest.TestCase):
             result = parse_xsa(hdf, PLATFORM)
 
         self.assertEqual(result.platform, "zynq_ultrascale")
-        self.assertEqual({item["type"] for item in result.controllers}, {"i2c", "uart", "qspi"})
+        self.assertEqual({item["type"] for item in result.controllers}, {"i2c", "uart", "qspi", "spi"})
 
     def test_rejects_non_zip_and_hwhless_archives(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

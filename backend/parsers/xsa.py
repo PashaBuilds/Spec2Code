@@ -26,6 +26,19 @@ from pathlib import Path
 
 from backend.parsers.xparameters import _classify, _zone_for, is_mdm_instance
 
+#: PL soft IP MODTYPE -> (tip, aile, surucu). Ornek adi ne olursa olsun (or. `spi_afe`, `afe_ctrl`) IP turu
+#: hwh MODTYPE'indan bilinir; ad tabanli tablo (xparameters) yalniz yedek. AXI Quad SPI standart (tek hat)
+#: modda da ayni IP ve XSpi surucusudur - "normal SPI" AFE7900 baglantisi (kullanici istegi 2026-09-16).
+_PL_MODTYPES: dict[str, tuple[str, str, str]] = {
+    "axi_quad_spi": ("spi", "pl", "XSpi"),
+    "axi_iic": ("i2c", "pl", "XIic"),
+    "axi_gpio": ("gpio", "pl", "XGpio"),
+    "axi_uartlite": ("uart", "pl", "XUartLite"),
+    "axi_ethernetlite": ("eth", "pl", "XEmacLite"),
+    "axi_ethernet": ("eth", "pl", "XAxiEthernet"),
+    "axi_dma": ("dma", "pl", "XAxiDma"),
+}
+
 _MODULE_KINDS = {
     "PERIPHERAL", "PROCESSOR", "BUS", "MEMORY", "MEMORY_CNTLR",
     "INTERRUPT_CNTLR", "DEBUG", "CLOCK", "RESET",
@@ -267,9 +280,9 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
     seen_instances: set[str] = set()
     raw_controllers: list[dict] = []
 
-    def add_raw(instance: str, base: int) -> bool:
+    def add_raw(instance: str, base: int, modtype: str = "") -> bool:
         middle = instance.upper()
-        classified = _classify(middle)
+        classified = _PL_MODTYPES.get(modtype.lower()) or _classify(middle)
         if classified is None:
             return False
         ctype, family, driver = classified
@@ -333,7 +346,7 @@ def parse_xsa(xsa_path: Path, platform_model: dict | None = None) -> XsaParseRes
                 # Clock/reset helpers and interconnect internals: silent noise.
                 continue
             seen_instances.add(instance)
-            if not add_raw(instance, base) and kind == "PERIPHERAL":
+            if not add_raw(instance, base, modtype) and kind == "PERIPHERAL":
                 # Memory-mapped unknowns are worth reporting (custom PL IP).
                 result.unmatched.append({
                     "instance": f"XPAR_{instance.upper()}",

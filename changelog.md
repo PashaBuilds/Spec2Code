@@ -3,6 +3,15 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.245 - 2026-09-16
+
+- XSA ayristirma: PL denetleyicileri artik hwh MODTYPE'indan taninir (axi_quad_spi, axi_iic, axi_gpio, axi_uartlite,
+  axi_ethernetlite, axi_ethernet, axi_dma); ornek adi tabanli tablo yedek. Boylece `spi_afe` gibi adlandirilmis
+  standart (tek hat) modda AXI Quad SPI de `XSpi` SPI denetleyicisi olur ve AFE7900 ona baglanabilir; onceden
+  adinda QUAD_SPI/AXI_SPI gecmeyen ornek "taninmayan IP" olarak custom IP listesine dusuyordu.
+- Schematic: register haritasi bilinen PL IP'leri (JESD204C RX/TX, Register Map Test IP) PL bolgesinde salt-okunur
+  dugum olarak gorunur (id, IP adi, base adres, lane/yon/kodlama/alt sinif); cihaz baglanmaz.
+
 ## v0.1.244 - 2026-09-16
 
 - Kart kontrol GPIO'su: `pll_reset` (HSCLK/LCPLL reset) bitleri yalniz Versal'da JESD fiziksel reset darbesine
