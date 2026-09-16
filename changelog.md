@@ -3,6 +3,16 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.242 - 2026-09-16
+
+- **Kart kontrol GPIO'su (`board_control`)**: dual-channel AXI GPIO (kanal 1 cikis, kanal 2 giris) bit tablosu
+  Setup'ta girilir (ad, kanal, bit, rol, aktif seviye, hedef); Generate `drivers/ip/boardctl.h/.c` uretir.
+  Roller: afe_reset, jesd_rx/tx_core_reset, pll_reset, pll_lock, sysref, generic. JESD bring-up once
+  cekirdeklere fiziksel reset darbesi verir (100 ms, `jesd_reset_ms`), sonra register RESET akisi; AFE7900
+  acilistan itibaren reset'te tutulur ve Latte bring-up'tan hemen once kaldirilir; GT PLL lock'lari okunur
+  (0 akisi durdurmaz, durum sozcugu bit5 + bit7). Register Map JESD karti bit5'i gosterir, manifest
+  `board_control` tasir. Kilavuz ve saha dokumaninda bring-up akis semasi (mermaid).
+
 ## v0.1.241 - 2026-09-16
 
 - Generate dugmesi sematikte cihaz olmayan ama XSA'dan custom IP gelen projede (AFE'siz JESD loopback) de aktif;

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui";
 import { VisualBackdrop } from "@/components/visuals";
+import BoardControlCard from "./BoardControlCard";
 
 /** Dürüst platform destek matrisi: neyin doğrulandığı, neyin kapılı olduğu. */
 const PLATFORM_SUPPORT: Record<PlatformId, { tone: "ok" | "warn"; text: string }> = {
@@ -182,6 +183,7 @@ export default function ProjectSetup() {
             </ul>
           </div>
         )}
+        <BoardControlCard />
         {(projectIoMessage || projectIoError) && (
           <div
             className={

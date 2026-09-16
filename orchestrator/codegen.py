@@ -20,7 +20,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from hostplat import io as hio
 from hostplat.paths import data_root
-from orchestrator import afe79, boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
+from orchestrator import afe79, boardctl, boards, cit_layer, cit_sim, cmodel, shell_layer, sim_xilinx, tics
 from orchestrator.bsp_flow import is_sdt, lookup_arg, lookup_suffix, with_sdt_instances
 from orchestrator.device_profiles import registry as device_profiles
 
@@ -2469,7 +2469,16 @@ def _testbench_manifest(spec: dict, get_descriptor: Callable[[str], dict]) -> st
             "sysref_gpio": f"0x{sysref:08X}" if sysref else "",
             "status_bits": {"0": "FPGA RX link (SH+MB kilit / CGS+SYNC)", "1": "FPGA TX hazir (reset kalkti, SYSREF)",
                             "2": "AFE DAC-JESD-RX link (yalniz AFE op'u)", "3": "AFE alarm yok (yalniz AFE op'u)",
-                            "4": "AFE PLL kilitli (yalniz AFE op'u)", "7": "hepsi tamam"},
+                            "4": "AFE PLL kilitli (yalniz AFE op'u)",
+                            **({"5": "kart GT PLL lock (board_control pll_lock bitleri)"}
+                               if boardctl.has_role(boardctl.board_control(spec), "pll_lock") else {}),
+                            "7": "hepsi tamam"},
+        }
+    board = boardctl.board_control(spec)
+    if board:
+        manifest["board_control"] = {
+            "gpio_id": board["gpio_id"], "base": f"0x{board['base']:08X}", "jesd_reset_ms": board["jesd_reset_ms"],
+            "bits": [dict(b) for b in board["bits"]],
         }
     if agent == "uart":
         uart = _testbench_uart_controller(spec) or {}
@@ -7405,6 +7414,11 @@ def generate(
     if jesd_written:
         emit({"event": "codegen.jesdlink", "files": len(jesd_written)})
         written.extend(jesd_written)
+    # Kart kontrol GPIO'su (board_control): drivers/ip/boardctl - jesdlink ve AFE surucusu bunu cagirir.
+    board_written = boardctl.write_boardctl(spec, out_dir, hio.write_output, _apply_default_identifier_style)
+    if board_written:
+        emit({"event": "codegen.boardctl", "files": len(board_written)})
+        written.extend(board_written)
     afe_written = afe79.write_support_files(spec, out_dir, get_descriptor, hio.write_output,
                                             _apply_default_identifier_style)
     if afe_written:

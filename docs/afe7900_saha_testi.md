@@ -28,6 +28,35 @@ tek yerde toplar. KV260'ta dogrulanmis olanlar ve sahada ilk kez calisacak varsa
    - `tests/<proje>_testbench_ops.c` (ajan op'lari), `tests/spec2code_testbench_manifest.json`.
 4. Vitis: "Sifirdan kur" - workspace betigi TI kodu icin `libm`'i ve lwIP PHY autoneg 30 s yamasini
    kendisi ekler. Ajan ELF + shell ELF uretilir.
+5. **Kart kontrol GPIO'su** (Setup, "Kart kontrol GPIO" karti): XSA'daki dual-channel AXI GPIO'yu sec (kanal 1
+   cikis, kanal 2 giris) ve kartin sematigindeki bitleri tabloya gir: `afe1_reset_active_low` (afe_reset,
+   aktif-dusuk), `jesd_afe1_rx/tx_core_reset_active_high` (jesd_rx/tx_core_reset), `afe1_hsclk1_lcpll_lock_0`
+   gibi lock girisleri (pll_lock, hedef = AFE id + quad etiketi), varsa `sysref`. LMX/LMK bitleri `generic`
+   olarak girilir, bu surumde dokunulmaz. Bit yerlesimi karttan karta degisir; tablo spec'te saklanir.
+
+### 2.1 Bring-up akisi (AFE7900 `jesd_link_bringup` op'u)
+
+```mermaid
+flowchart TD
+    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe]
+    B --> C[AFE reset kaldir<br/>bring-up'tan hemen once]
+    C --> D[AFE bring-up<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
+    D --> E[FPGA JESD register RESET akisi<br/>CTRL_ENABLE cmd+data, RESET=0, TX sync force]
+    E --> F[AFE JESD reset toggle + adcDacSync]
+    F --> G[FPGA RX link reset + SYSREF darbesi]
+    G --> H[Link bekleme: RX SH/MB lock ya da CGS+SYNC+RX_STARTED, TX hazir]
+    H --> I{GT PLL lock'lari<br/>kart GPIO giris kanali}
+    I -- hepsi 1 --> J[Durum sozcugu bit5 = 1]
+    I -- en az biri 0 --> K[Akis DURMAZ; bit5 = 0, sonuc HATA]
+    J --> L[AFE tarafi: DAC-JESD-RX link, alarm, PLL -> bit2-4]
+    K --> L
+    L --> M{Tum bitler 1?}
+    M -- evet --> N[bit7 = 1: bring-up tamam]
+    M -- hayir --> O[bit7 = 0: durum sozcugune bak]
+```
+
+AFE'siz `jesd` cihazinin `jesd_link_bringup` op'u ayni akisin yalniz FPGA tarafini kosar: fiziksel reset ->
+register RESET -> RX link reset -> SYSREF -> link bekleme -> PLL lock -> bit0/1/5/7.
 
 ## 3. Karta yukleme
 
@@ -44,7 +73,7 @@ tek yerde toplar. KV260'ta dogrulanmis olanlar ve sahada ilk kez calisacak varsa
 | 2 | `pll_lock_read` | 3 (LOCK=1, LOCK_LOST yok) | hayir |
 | 3 | `health_read` | 0 (bit0 PLL, 1 DAC JESD, 2 ADC JESD, 3 SPI, 4 MCU, 5 PAP) | hayir |
 | 4 | `temperature_read` | makul derece C | hayir |
-| 5 | `jesd_link_bringup` | durum 0x9F: bit0 FPGA RX, bit1 FPGA TX, bit2 AFE DAC-JESD-RX (0xA), bit3 alarm yok, bit4 PLL, bit7 hepsi | FPGA tarafi evet (loopback), AFE hayir |
+| 5 | `jesd_link_bringup` | durum 0x9F (board_control lock bitleri varsa 0xBF): bit0 FPGA RX, bit1 FPGA TX, bit2 AFE DAC-JESD-RX (0xA), bit3 alarm yok, bit4 AFE PLL, bit5 kart GT PLL lock, bit7 hepsi | FPGA tarafi evet (loopback), AFE hayir |
 | 6 | `jesd_link_status_read` | ayni bit yerlesimi, bekleme yok | FPGA tarafi evet |
 | 7 | `jesd_rx_alarms_read` / `jesd_rx_alarms_clear` | 0 | hayir |
 | 8 | `serdes_link_status_read` | tum lane'ler kilitli | hayir |

@@ -529,6 +529,32 @@
         }
       }
     },
+    "board_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Kart kontrol GPIO'su (dual-channel AXI GPIO: kanal 1 cikis, kanal 2 giris): AFE reset, JESD cekirdek fiziksel resetleri, GT PLL lock girisleri. drivers/ip/boardctl uretir; jesdlink ve AFE bring-up bunu kullanir.",
+      "required": ["gpio_id", "bits"],
+      "properties": {
+        "gpio_id": {"type": "string", "description": "controllers[] icindeki AXI GPIO denetleyicisinin id'si"},
+        "jesd_reset_ms": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 100, "description": "JESD cekirdek fiziksel reset darbesi (ms)"},
+        "bits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "channel", "bit", "role"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "description": "sematikteki pin adi (uretilen kodda loglarda gorunur)"},
+              "channel": {"type": "integer", "enum": [1, 2], "description": "1 = cikis kanali, 2 = giris kanali"},
+              "bit": {"type": "integer", "minimum": 0, "maximum": 31},
+              "role": {"type": "string", "enum": ["afe_reset", "jesd_rx_core_reset", "jesd_tx_core_reset", "pll_reset", "pll_lock", "sysref", "generic"]},
+              "active_low": {"type": "boolean", "default": false, "description": "true: 0 seviyesi aktif (reset verildi / lock var)"},
+              "target": {"type": "string", "description": "hedef: AFE cihaz id'si, JESD IP id'si ya da lock etiketi (bos = hepsi)"}
+            }
+          }
+        }
+      }
+    },
     "custom_ips": {
       "type": "array",
       "description": "XSA'dan gelen taninmayan (custom) memory-mapped PL IP'ler; shell'e <id> dump|read|write komutlari uretir.",

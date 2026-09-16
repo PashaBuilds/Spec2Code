@@ -771,6 +771,8 @@ export interface ProjectSpec {
   muxes: Mux[];
   /** Custom PL IP'ler (XSA'dan). Yoksa anahtar yazilmaz. */
   custom_ips?: CustomIp[];
+  /** Kart kontrol GPIO'su (reset / lock bitleri). Yoksa anahtar yazilmaz. */
+  board_control?: BoardControl;
   /** Fiziksel kartlar. Kart tanimlanmamissa ANAHTAR HIC YAZILMAZ — uretilen
    *  cikti o zaman bugunkuyle bayt-bayt ayni kalir (tasarim §4.1). */
   boards?: Board[];
@@ -879,6 +881,25 @@ export interface PlatformInfo {
   zones: Zone[];
 }
 /** XSA'dan gelen taninmayan memory-mapped PL IP (custom IP): shell'e `<id> dump|read|write` komutu uretir. */
+export type BoardControlRole =
+  | "afe_reset" | "jesd_rx_core_reset" | "jesd_tx_core_reset" | "pll_reset" | "pll_lock" | "sysref" | "generic";
+export interface BoardControlBit {
+  /** sematikteki pin adi */
+  name: string;
+  /** 1 = cikis kanali, 2 = giris kanali (dual-channel AXI GPIO) */
+  channel: 1 | 2;
+  bit: number;
+  role: BoardControlRole;
+  active_low: boolean;
+  /** hedef: AFE cihaz id'si, JESD IP id'si ya da lock etiketi (bos = hepsi) */
+  target?: string;
+}
+/** Kart kontrol GPIO'su: drivers/ip/boardctl uretir; jesdlink fiziksel reset + PLL lock, AFE reset kaldirma. */
+export interface BoardControl {
+  gpio_id: string;
+  jesd_reset_ms?: number;
+  bits: BoardControlBit[];
+}
 export interface CustomIp {
   id: string;
   instance?: string;

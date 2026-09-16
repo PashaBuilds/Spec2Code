@@ -7,6 +7,7 @@ export interface ApplyParseSummary {
 }
 
 import type {
+  BoardControl,
   CustomIp,
   Board,
   CatalogDevice,
@@ -59,6 +60,9 @@ interface StoreState {
   unmatched: { instance: string; base_address: string; reason: string }[];
   /** XSA'dan gelen custom PL IP'ler; spec'e `custom_ips` olarak gider, shell komutu uretir. */
   customIps: CustomIp[];
+  /** Kart kontrol GPIO'su (board_control): Setup'taki bit tablosu; null = yok. */
+  boardControl: BoardControl | null;
+  setBoardControl: (bc: BoardControl | null) => void;
   muxes: Mux[];
   devices: Device[];
   /** Fiziksel kartlar. BOS = kart katmani kapali (kanvas ve uretilen cikti
@@ -241,6 +245,8 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   controllers: [],
   unmatched: [],
   customIps: [],
+  boardControl: null,
+  setBoardControl: (bc) => set({ boardControl: bc }),
   muxes: [],
   devices: [],
   boards: [],
@@ -318,6 +324,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       boardSizes: {},
       unmatched: [],
       customIps: spec.custom_ips ?? [],
+      boardControl: spec.board_control ?? null,
       selectedId: null,
       counter: inferCounter(spec.muxes ?? [], spec.devices ?? []),
       job: { id: null, status: "idle", events: [], files: [], qc: null },
@@ -480,6 +487,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       },
     };
     if (s.customIps.length) spec.custom_ips = s.customIps;
+    if (s.boardControl && s.boardControl.gpio_id && s.boardControl.bits.length) spec.board_control = s.boardControl;
     if (boardsOn) {
       spec.boards = s.boards.map(specBoard);
       if (s.connectors.length) spec.connectors = s.connectors.map(specConnector);
@@ -505,6 +513,7 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
     controllers: s.controllers,
     unmatched: s.unmatched,
     customIps: s.customIps,
+    boardControl: s.boardControl,
     muxes: s.muxes,
     devices: s.devices,
     boards: s.boards,

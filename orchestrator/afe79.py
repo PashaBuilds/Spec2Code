@@ -29,7 +29,7 @@ import shutil
 from pathlib import Path
 from typing import Callable, Optional
 
-from orchestrator import cmodel
+from orchestrator import boardctl, cmodel
 from orchestrator.cmodel import CFunc, CUnit, Emit, _func_name, _handle_for, _is_axi_spi
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -165,16 +165,21 @@ def write_jesdlink(spec: dict, out_dir: Path, write_output: Callable[[Path, str]
     if not ips:
         return []
     sysref = sysref_gpio_base(spec)
+    board = boardctl.board_control(spec)
     ip_dir = out_dir / "drivers" / "ip"
-    return [str(write_output(ip_dir / "jesdlink.h", style(_jesdlink_header(ips, sysref)))),
-            str(write_output(ip_dir / "jesdlink.c", style(_jesdlink_source(ips, sysref))))]
+    return [str(write_output(ip_dir / "jesdlink.h", style(_jesdlink_header(ips, sysref, board)))),
+            str(write_output(ip_dir / "jesdlink.c", style(_jesdlink_source(ips, sysref, board))))]
 
 
 # --- surucu birimi (drivers/<mod>.c/.h) --------------------------------------------------------------
 
 def device_unit(device: dict, controller: dict, descriptor: dict, module: Optional[str],
-                sdt: bool, has_jesd: bool) -> CUnit:
+                sdt: bool, has_jesd: bool, board: Optional[dict] = None) -> CUnit:
+    """``board``: boardctl.board_control(spec) - kart kontrol GPIO'su (AFE reset, JESD fiziksel reset, PLL lock)."""
     module = module or cmodel._module_of(device["part"])
+    board_locks = boardctl.has_role(board, "pll_lock")
+    # bring-up/durum sozcugu "hepsi tamam" maskesi: bit0-4 (+ bit5 kart PLL lock'lari varsa)
+    afe_all = "0x003FU" if board_locks else "0x001FU"
     htype, hvar = _handle_for(controller)
     if htype not in {"XSpi", "XSpiPs"}:
         raise cmodel.CodegenError(
@@ -342,6 +347,11 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
     e.ln("dbg_printf(DEBUG_LEVEL_ERROR, \"AFE: config sozcugu yok (Latte hex ice aktarilmamis)\");")
     e.ln("return XST_FAILURE;")
     e.close()
+    if boardctl.has_role(board, "afe_reset"):
+        e.ln("/* Kart GPIO: AFE acilistan beri reset'te tutulur, bring-up'tan HEMEN ONCE kaldirilir (kullanici istegi 2026-09-16). */")
+        e.ln("boardCtlInit();")
+        e.ln("usleep(BOARDCTL_AFE_RESET_HOLD_MS * 1000U);")
+        e.ln(f"(void)boardCtlRoleWrite(BOARDCTL_ROLE_AFE_RESET, \"{device.get('id', '')}\", FALSE);")
     e.ln(f"dbg_printf(DEBUG_LEVEL_INFO, \"AFE: bring-up basliyor (%u sozcuk)\", (unsigned int){MOD}_CONFIG_WORD_COUNT);")
     e.ln(f"iStatus = {_func_name(module, 'status')}(AFE79FNP(afeDeviceBringupFromMem)(spDevice, 0U, 0U));").check_status()
     e.open(f"if ({MOD}_TDD_OVERRIDE == TRUE)")
@@ -455,6 +465,9 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.blank()
         e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
         e.ln("*uspStatus = 0U;")
+        if boardctl.has_jesd_reset(board):
+            e.ln("/* 0) Kart GPIO: JESD cekirdeklerine FIZIKSEL reset darbesi (register RESET'ten bagimsiz, AFE bring-up'tan once). */")
+            e.ln("(void)boardCtlJesdCoreResetPulse();")
         e.ln("/* 1) FPGA cekirdek resetleri VERILIR (AFE init boyunca link hurda veri kovalamaz). */")
         e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
         e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
@@ -486,14 +499,17 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.open(f"if (({_func_name(module, 'pll_lock_read')}({hvar}, &ucPll) == XST_SUCCESS) && (ucPll == {MOD}_PLL_LOCK_GOOD))")
         e.ln("usStatus |= 0x0010U;")
         e.close()
-        e.open("if ((usStatus & 0x001FU) == 0x001FU)").ln("usStatus |= 0x0080U;").close()
+        if board_locks:
+            e.open("if (boardCtlPllLocksRead() == TRUE)").ln("usStatus |= 0x0020U;").close()
+        e.open(f"if ((usStatus & {afe_all}) == {afe_all})").ln("usStatus |= 0x0080U;").close()
         e.ln("jesdLinkErrorCountersClear();")
         e.ln("*uspStatus = usStatus;")
         e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD link bring-up durumu: 0x%04X (bit7 = hepsi tamam)\", (unsigned int)usStatus);")
         e.ln("return ((usStatus & 0x0080U) != 0U) ? XST_SUCCESS : XST_FAILURE;")
         _wrap("jesd_link_bringup", ["unsigned short* uspStatus"], e.out(),
               "FPGA JESD204C cekirdekleri + AFE7900 icin tam link bring-up dizisi; durum bitleri: "
-              "0 FPGA RX up, 1 FPGA TX ok, 2 AFE DAC-JESD-RX up, 3 AFE alarm yok, 4 AFE PLL kilitli, 7 hepsi tamam.")
+              "0 FPGA RX up, 1 FPGA TX ok, 2 AFE DAC-JESD-RX up, 3 AFE alarm yok, 4 AFE PLL kilitli, "
+              "5 kart GT PLL lock (board_control), 7 hepsi tamam.")
 
         e = Emit()
         e.ln("unsigned short usStatus = 0U;")
@@ -513,7 +529,9 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
         e.open(f"if (({_func_name(module, 'pll_lock_read')}({hvar}, &ucPll) == XST_SUCCESS) && (ucPll == {MOD}_PLL_LOCK_GOOD))")
         e.ln("usStatus |= 0x0010U;")
         e.close()
-        e.open("if ((usStatus & 0x001FU) == 0x001FU)").ln("usStatus |= 0x0080U;").close()
+        if board_locks:
+            e.open("if (boardCtlPllLocksRead() == TRUE)").ln("usStatus |= 0x0020U;").close()
+        e.open(f"if ((usStatus & {afe_all}) == {afe_all})").ln("usStatus |= 0x0080U;").close()
         e.ln("*uspStatus = usStatus;")
         e.ln("return XST_SUCCESS;")
         _wrap("jesd_link_status_read", ["unsigned short* uspStatus"], e.out(),
@@ -527,6 +545,8 @@ def device_unit(device: dict, controller: dict, descriptor: dict, module: Option
                        "tiAfe79_serDes.h", f"{module}_config.h"]
     if has_jesd:
         driver_includes.append("jesdlink.h")
+    if board is not None:
+        driver_includes.append("boardctl.h")
     return CUnit(
         module=module, part=device["part"],
         summary=str(descriptor.get("summary", "TI AFE7900 RF on uc (AFE79xx C API v2.9 uzerinden)")),
@@ -821,13 +841,14 @@ def _config_source(module: str, words: list[int]) -> str:
 
 # --- jesdlink (drivers/ip/jesdlink.c/.h) --------------------------------------------------------------
 
-def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
+def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional[dict] = None) -> str:
     rx = ips.get("rx")
     tx = ips.get("tx")
     ref = rx or tx
     is_64 = ref["link_layer"] == "64b66b"
     lanes = int(ref["lanes"])
     subclass = int(ref["subclass"])
+    locks = boardctl.has_role(board, "pll_lock")
     return (
         "/**\n"
         " * @file jesdlink.h\n"
@@ -847,6 +868,9 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
         "#define JESDLINK_LINK_TIMEOUT_MS 1000U /* link kurulumu bekleme */\n"
         "#define JESDLINK_POLL_STEP_MS 1U\n"
         f"#define JESDLINK_SYSREF_GPIO_BASE 0x{sysref_gpio:08X}U /* AXI GPIO bit0 = SYSREF darbesi (0: GPIO yok, saat agaci) */\n"
+        f"#define JESDLINK_BOARDCTL {'TRUE' if board else 'FALSE'} /* kart kontrol GPIO'su (boardctl.h): fiziksel reset / SYSREF / PLL lock */\n"
+        "#define JESDLINK_STATUS_PLL_LOCK 0x0020U /* bit5: kart GPIO GT PLL lock'lari (board_control pll_lock bitleri) */\n"
+        f"#define JESDLINK_STATUS_FPGA_ALL 0x{(0x0023 if locks else 0x0003):04X}U /* FPGA-only 'tamam' maskesi: RX+TX{' +PLL lock' if locks else ''} */\n"
         "\n"
         f"#define JESDLINK_REG_RESET 0x{JESD_REG_RESET:03X}U\n"
         f"#define JESDLINK_REG_CTRL_SYSREF 0x{JESD_REG_CTRL_SYSREF:03X}U\n"
@@ -895,12 +919,15 @@ def _jesdlink_header(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     )
 
 
-def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
+def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0, board: Optional[dict] = None) -> str:
     rx = ips.get("rx")
     tx = ips.get("tx")
     ref = rx or tx
     is_64 = ref["link_layer"] == "64b66b"
     subclass = int(ref["subclass"])
+    board_sysref = boardctl.has_role(board, "sysref")
+    board_locks = boardctl.has_role(board, "pll_lock")
+    board_reset = boardctl.has_jesd_reset(board)
     e = Emit()
     e.level = 0
     e.ln("/**")
@@ -913,6 +940,8 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     e.ln(" * dusmesi JESDLINK_RESET_TIMEOUT_MS icinde beklenir, dolarsa XST_FAILURE. Tum durum kontrolleri timeout'ludur.")
     e.ln(" */")
     e.ln('#include "jesdlink.h"')
+    if board is not None:
+        e.ln('#include "boardctl.h"')
     e.ln('#include "dbg_printf.h"')
     e.ln('#include "sleep.h"')
     e.ln('#include "xil_io.h"')
@@ -1085,15 +1114,20 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     e.ln("void jesdLinkSysrefPulse(void)")
     e.ln("{")
     e.level = 1
-    e.open("if (JESDLINK_SYSREF_GPIO_BASE == 0U)")
-    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF GPIO yok (SYSREF saat agacindan bekleniyor)\");")
-    e.ln("return;")
-    e.close()
-    e.ln("/* AXI GPIO kanal 1 DATA (0x0): bit0 1 -> 0 (yon: C_ALL_OUTPUTS ya da TRI onceden cikis). */")
-    e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 1U);")
-    e.ln("usleep(10U);")
-    e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 0U);")
-    e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF darbesi (GPIO 0x%08X)\", JESDLINK_SYSREF_GPIO_BASE);")
+    if board_sysref:
+        e.ln("/* Kart kontrol GPIO'sundaki sysref biti (board_control). */")
+        e.ln("boardCtlSysrefPulse();")
+        e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF darbesi (kart GPIO)\");")
+    else:
+        e.open("if (JESDLINK_SYSREF_GPIO_BASE == 0U)")
+        e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF GPIO yok (SYSREF saat agacindan bekleniyor)\");")
+        e.ln("return;")
+        e.close()
+        e.ln("/* AXI GPIO kanal 1 DATA (0x0): bit0 1 -> 0 (yon: C_ALL_OUTPUTS ya da TRI onceden cikis). */")
+        e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 1U);")
+        e.ln("usleep(10U);")
+        e.ln("Xil_Out32((UINTPTR)JESDLINK_SYSREF_GPIO_BASE, 0U);")
+        e.ln("dbg_printf(DEBUG_LEVEL_INFO, \"JESD: SYSREF darbesi (GPIO 0x%08X)\", JESDLINK_SYSREF_GPIO_BASE);")
     e.level = 0
     e.ln("}")
     e.blank()
@@ -1103,10 +1137,13 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     e.ln("unsigned short usStatus = 0U;")
     e.blank()
     e.open("if (uspStatus == NULL)").ln("return XST_FAILURE;").close()
-    e.ln("/* bit0 FPGA RX link, bit1 FPGA TX hazir, bit7 = ikisi de (AFE'li surumde bit2-4 AFE tarafi). */")
+    e.ln("/* bit0 FPGA RX link, bit1 FPGA TX hazir, bit5 kart PLL lock (board_control varsa), bit7 = FPGA tarafi tamam")
+    e.ln(" * (AFE'li surumde bit2-4 AFE tarafi). */")
     e.open("if (jesdLinkRxLinkCheck() == XST_SUCCESS)").ln("usStatus |= 0x0001U;").close()
     e.open("if (jesdLinkTxCheck() == XST_SUCCESS)").ln("usStatus |= 0x0002U;").close()
-    e.open("if ((usStatus & 0x0003U) == 0x0003U)").ln("usStatus |= 0x0080U;").close()
+    if board_locks:
+        e.open("if (boardCtlPllLocksRead() == TRUE)").ln("usStatus |= JESDLINK_STATUS_PLL_LOCK;").close()
+    e.open("if ((usStatus & JESDLINK_STATUS_FPGA_ALL) == JESDLINK_STATUS_FPGA_ALL)").ln("usStatus |= 0x0080U;").close()
     e.ln("*uspStatus = usStatus;")
     e.ln("return XST_SUCCESS;")
     e.level = 0
@@ -1121,6 +1158,9 @@ def _jesdlink_source(ips: dict[str, dict], sysref_gpio: int = 0) -> str:
     e.ln("*uspStatus = 0U;")
     e.ln("/* FPGA-only dizi (AFE yok / AFE ayrica ilklendirildi): reset ver -> kaldir (cmd+data acik) -> RX link reset")
     e.ln(" * -> SYSREF darbesi (GPIO varsa) -> RX link bekle -> TX kontrol -> sayaclari temizle. */")
+    if board_reset:
+        e.ln("/* Kart GPIO: once FIZIKSEL cekirdek reset darbesi (pin), sonra register RESET akisi. */")
+        e.ln("(void)boardCtlJesdCoreResetPulse();")
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 1U);").check_status()
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_RX_BASE, 1U);").check_status()
     e.ln("iStatus = jesdLinkCoreReset(JESDLINK_TX_BASE, 0U);").check_status()

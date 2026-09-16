@@ -693,6 +693,37 @@ cihazlari ilklendir" ya da Bring-up kos.
   STAT_STATUS) gercek kartta GT olmadan sinanir. Bit uretimi icin AMD "LogiCORE JESD204 Evaluation"
   lisansi gerekir (jesd204c 4.2 anahtari `jesd204@2019.10`); Vivado `~/.Xilinx/Xilinx.lic`
   dosyasini kendiliginden bulmayabilir, `XILINXD_LICENSE_FILE` ile yolu verin.
+- **Kart kontrol GPIO'su (`board_control`, v0.1.242)**: sirket kartlarinda tek bir dual-channel AXI GPIO
+  kart kontrolunu tasir: kanal 1 cikis (AFE reset aktif-dusuk, JESD RX/TX cekirdek fiziksel resetleri
+  aktif-yuksek, HSCLK/LCPLL resetleri, LMX/LMK kontrol), kanal 2 giris (GT PLL lock'lari: Versal'da
+  quad basina HSCLK0/1 LCPLL, UltraScale+'ta QPLL0/1). Bit yerlesimi karttan karta degistigi icin
+  Setup'taki **Kart kontrol GPIO** kartinda tablo olarak girilir (ad, kanal, bit, rol, aktif seviye,
+  hedef) ve spec `board_control` altinda saklanir. Generate `drivers/ip/boardctl.h/.c` uretir
+  (`boardCtlInit`: yonler + acilis seviyeleri, `boardCtlRoleWrite`, `boardCtlJesdCoreResetPulse`,
+  `boardCtlPllLocksRead`, varsa `boardCtlSysrefPulse`); `jesdlink` bring-up'i once fiziksel reset darbesini
+  (varsayilan 100 ms, `jesd_reset_ms`) verir, sonra register RESET akisini kosar; AFE7900 surucusu AFE'yi
+  acilistan itibaren reset'te tutar ve `afeDeviceBringupFromMem`'den hemen once kaldirir. PLL lock'lari 1
+  beklenir; 0 ise akis durmaz, durum sozcugunde bit5 = 0 kalir ve bit7 (hepsi tamam) dusmez. Akis:
+
+```mermaid
+flowchart TD
+    A[Acilis: boardCtlInit<br/>AFE reset AKTIF, JESD/PLL resetleri pasif] --> B[JESD RX+TX cekirdek FIZIKSEL reset<br/>kart GPIO, 100 ms darbe]
+    B --> C[AFE reset kaldir<br/>bring-up'tan hemen once]
+    C --> D[AFE bring-up<br/>afeDeviceBringupFromMem: Latte config, PLL, JESD, SerDes]
+    D --> E[FPGA JESD register RESET akisi<br/>CTRL_ENABLE cmd+data, RESET=0, TX sync force]
+    E --> F[AFE JESD reset toggle + adcDacSync]
+    F --> G[FPGA RX link reset + SYSREF darbesi]
+    G --> H[Link bekleme: RX SH/MB lock ya da CGS+SYNC+RX_STARTED, TX hazir]
+    H --> I{GT PLL lock'lari<br/>kart GPIO giris kanali}
+    I -- hepsi 1 --> J[Durum sozcugu bit5 = 1]
+    I -- en az biri 0 --> K[Akis DURMAZ; bit5 = 0, sonuc HATA]
+    J --> L[AFE tarafi: DAC-JESD-RX link, alarm, PLL -> bit2-4]
+    K --> L
+    L --> M{Tum bitler 1?}
+    M -- evet --> N[bit7 = 1: bring-up tamam]
+    M -- hayir --> O[bit7 = 0: durum sozcugune bak]
+```
+
 - **AXI GPIO donanim dogrulamasi** (Nexys A7, `scripts/make_nexys_a7_design.tcl -tclargs gpio`):
   axi_gpio_0 = 16 LED (CH1 cikis) + 16 anahtar (CH2 giris), axi_gpio_1 = 5 buton (CH1) + 6 RGB LED
   (CH2). Test Bench GPIO karti ve ajan `gpio_read/gpio_write` kartta sinandi. Ders: "All Outputs"

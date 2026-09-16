@@ -15,6 +15,7 @@ const BITS: Array<[number, string]> = [
   [2, "AFE DAC-JESD-RX link"],
   [3, "AFE alarm yok"],
   [4, "AFE PLL kilitli"],
+  [5, "kart GT PLL lock (board_control)"],
   [7, "hepsi tamam"],
 ];
 

@@ -2724,9 +2724,9 @@ def build_units(spec: dict, get_descriptor: Callable[[str], dict]) -> list[CUnit
 
         if str(descriptor.get("vendor_api", "")).lower() == "afe79xx":
             # TI AFE79xx C API tabanli surucu (orchestrator/afe79.py); register/adim modeli yok.
-            from orchestrator import afe79
+            from orchestrator import afe79, boardctl
             unit = afe79.device_unit(device, controller, descriptor, module=modules.get(device["id"]),
-                                     sdt=sdt, has_jesd=bool(afe79.jesd_ips(spec)))
+                                     sdt=sdt, has_jesd=bool(afe79.jesd_ips(spec)), board=boardctl.board_control(spec))
             if "self_test" in (device.get("tests_requested") or []):
                 unit.test = afe79.self_test_unit(unit, controller, runtime)
         elif transport == "i2c":
