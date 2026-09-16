@@ -3,6 +3,11 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.246 - 2026-09-16
+
+- Kilavuz (Sorun giderme): `which.exe` stub'u uygulanirken dosya kilitliyse (takili which.exe surecleri) yeniden
+  baslatmadan `Rename-Item` ile degistirme yolu.
+
 ## v0.1.245 - 2026-09-16
 
 - XSA ayristirma: PL denetleyicileri artik hwh MODTYPE'indan taninir (axi_quad_spi, axi_iic, axi_gpio, axi_uartlite,

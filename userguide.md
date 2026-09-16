@@ -928,7 +928,11 @@ kapaliyken yonetici PowerShell'de
 `scripts\windows\vitis_which_stub\apply.ps1 -VitisRoot C:\Xilinx\Vitis\2023.2`
 (orijinal `which.exe` `.s2cbackup` olarak yedeklenir, konsol acmayan stub yerine
 konur; `restore.ps1` geri alir; klasor release'in `spec2code-vX.Y.Z-source.zip` kaynak
-paketindedir). Onceki yarim workspace'i silip yeniden olustur.
+paketindedir). Onceki yarim workspace'i silip yeniden olustur. `apply.ps1` "process cannot
+access the file ... which.exe" derse takili kalan eski `which.exe` surecleri dosyayi kilitliyordur
+(Vitis/Spec2Code kapali olsa da; yalniz yeniden baslatmayla giderler). Yeniden baslatmadan:
+`Rename-Item <Vitis>\gnuwinin\which.exe which.exe.locked` sonra stub'u `which.exe` olarak kopyala
+(Windows calisan exe'nin adinin degismesine izin verir) - sirket makinesinde bu yolla cozuldu (2026-09-16).
 
 **Her dosyada `qc.format_failed` / "invalid boolean" (`.clang-format`)** - eski bir
 clang-format (10 oncesi) config'i reddediyor. v0.1.186'dan itibaren uygulama config'i
