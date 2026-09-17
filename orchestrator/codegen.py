@@ -6876,6 +6876,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         '#include "xparameters.h"',
         '#include "xstatus.h"',
         '#include "xcoresightpsdcc.h"',
+        '#include "xil_printf.h"',  # board init hata mesajlari (QC: implicit declaration - SAHA 2026-09-17)
         '#include <stddef.h>',
     ]
     if telnet:
@@ -6898,7 +6899,7 @@ def _testbench_coresight_source(spec: dict) -> str:
         *([
             " *",
             " * Telnet log sunucusu uretildiyse (PS Ethernet var) DCC alma yolu",
-            " * NON-BLOCKING'e cevrilir: XCoresightPs_DccGetStatus ile bayt",
+            " * NON-BLOCKING'e cevrilir: MDCCSR_EL0 RXfull biti ile bayt",
             " * bekliyor mu bakilir, yoksa telnet netif poll'u (xemacif_input +",
             " * sys_check_timeouts + telnet drain) calisir. Boylece bloke eden",
             " * RecvByte telnet feed'ini durdurmaz.",
@@ -6937,16 +6938,19 @@ def _testbench_coresight_source(spec: dict) -> str:
             "spec2codeTestbenchCoresightSendLine",
             "spec2codeTestbenchCoresightSendFrame(S_ucArrFrame, uiFrameLength)"),
         *([
-            "/* DCC alma-hazir mi (non-blocking): telnet feed'i bloke eden",
-            " * RecvByte'a takilmasin diye status bitine bakilir. DccGetStatus",
-            " * coresightps_dcc surucusunun public yardimcisidir; A53'te RX-full",
-            " * biti (1U<<30) veri hazir demektir. */",
+            "/* DCC alma-hazir mi (non-blocking): telnet feed'i bloke eden RecvByte'a takilmasin diye",
+            " * MDCCSR_EL0 (AArch64 DCC durum register'i) dogrudan okunur: bit30 RXfull = bayt hazir.",
+            " * coresightps_dcc surucusunun DccGetStatus yardimcisi static INLINE'dir (2023.2), disaridan",
+            " * baglanamaz (SAHA 2026-09-17, KV260 CoreSight + telnet: undefined reference). */",
             "#ifndef SPEC2CODE_CORESIGHT_DCC_RX_MASK",
-            "#define SPEC2CODE_CORESIGHT_DCC_RX_MASK (1U << 30)",
+            "#define SPEC2CODE_CORESIGHT_DCC_RX_MASK (1UL << 30)",
             "#endif",
             "static unsigned int spec2codeTestbenchCoresightRxHazir(void)",
             "{",
-            "    return ((XCoresightPs_DccGetStatus() & SPEC2CODE_CORESIGHT_DCC_RX_MASK) != 0U) ? 1U : 0U;",
+            "    unsigned long ulStatus = 0UL;",
+            "",
+            "    __asm__ volatile(\"mrs %0, mdccsr_el0\" : \"=r\"(ulStatus));",
+            "    return ((ulStatus & SPEC2CODE_CORESIGHT_DCC_RX_MASK) != 0UL) ? 1U : 0U;",
             "}",
             "",
         ] if telnet else []),

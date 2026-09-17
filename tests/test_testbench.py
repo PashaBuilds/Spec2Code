@@ -2477,7 +2477,8 @@ class TestbenchTests(unittest.TestCase):
         # alma yolu non-blocking'e cevrilir (status bit).
         self.assertIn("spec2codeTelnetNetBaslat", cs_source)
         self.assertIn("spec2codeTelnetNetPoll", cs_source)
-        self.assertIn("XCoresightPs_DccGetStatus", cs_source)
+        self.assertIn("mrs %0, mdccsr_el0", cs_source)  # DccGetStatus surucude static INLINE, disa acik degil
+        self.assertNotIn("XCoresightPs_DccGetStatus", cs_source)
         # Log tap: telnet uretildiyse log satiri telnet'e de gider.
         self.assertIn("spec2codeTelnetLogYaz", log_source)
         _ = cs_main  # main degismedi; run loop wiring source'ta

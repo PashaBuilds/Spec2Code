@@ -3,6 +3,17 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.251 - 2026-09-17
+
+- **Duzeltme (CoreSight ajani + telnet log)**: DCC alma-hazir kontrolu surucunun `XCoresightPs_DccGetStatus`'una
+  dayaniyordu; 2023.2'de bu fonksiyon surucu icinde static INLINE (disa acik degil) -> Vitis'te undefined reference.
+  Artik MDCCSR_EL0 (AArch64 DCC durum register'i, bit30 RXfull) dogrudan okunur. Ajan `xil_printf.h`'i dahil eder;
+  QC'ye `xcoresightpsdcc.h` stub'u eklendi (onceden bu kombinasyon QC'den gecmiyordu).
+- **Dogrulama (KV260, USB JTAG + CoreSight DCC, PS QSPI MT25QU512, yalniz okuma)**: 5618 sayfa (1.4 MB) iki kez
+  okundu, 0 zaman asimi, 0 uyusmazlik (~0.23 s/sayfa). Ayni hacimde Nexys MDM'de 8 zaman asimi + 32 bozuk okuma
+  vardi: bozulma MDM (MicroBlaze Debug Module UART) yoluna ozgu, DCC yolu temiz. MicroBlaze'de alternatif yok;
+  buyuk aktarimlarda TCP (AXI EthernetLite) ya da JTAG program_flash onerilir.
+
 ## v0.1.250 - 2026-09-16
 
 - Test bench: tasiyici hat (COM / xsdb jtagterminal soketi) komut beklenirken kapanirsa istek zaman asimini
