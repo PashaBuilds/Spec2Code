@@ -1,0 +1,102 @@
+descriptor_version: "1.0"
+part: "ADXL362"
+manufacturer: "Analog Devices"
+summary: "Micropower 3-axis MEMS accelerometer, 1 mg/LSB at +/-2 g, SPI mode 0 up to 8 MHz with 8-bit register space."
+transport:
+  type: spi
+  byte_order: little
+  register_model:
+    ticspro_words: false
+    frame_bits: 24
+    address_bits: 8
+    address_shift: 8
+    data_bits: 8
+    rw_bit: 16
+    write_value: 0
+    fixed_bits: 0x0A0000
+    default_order: exported
+    spi_mode: 0
+    max_sck_hz: 8000000
+    # 24-bit frame: [command byte][address byte][data byte(s)].
+    # write_value 0 -> write frame = 0x0A << 16 | addr << 8, read frame = 0x0B << 16 | addr << 8.
+access_primitives:
+  write_register_word: { pattern: spi_24bit_rw_addr_data }
+registers:
+  - { name: DEVID_AD, offset: 0x00, width: 8, access: ro, reset: 0xAD }
+  - { name: DEVID_MST, offset: 0x01, width: 8, access: ro, reset: 0x1D }
+  - { name: PARTID, offset: 0x02, width: 8, access: ro, reset: 0xF2 }
+  - { name: REVID, offset: 0x03, width: 8, access: ro, reset: 0x01 }
+  - { name: XDATA, offset: 0x08, width: 8, access: ro, reset: 0x00 }
+  - { name: YDATA, offset: 0x09, width: 8, access: ro, reset: 0x00 }
+  - { name: ZDATA, offset: 0x0A, width: 8, access: ro, reset: 0x00 }
+  - { name: STATUS, offset: 0x0B, width: 8, access: ro, reset: 0x40 }
+  - { name: FIFO_ENTRIES_L, offset: 0x0C, width: 8, access: ro, reset: 0x00 }
+  - { name: FIFO_ENTRIES_H, offset: 0x0D, width: 8, access: ro, reset: 0x00 }
+  - { name: XDATA_L, offset: 0x0E, width: 8, access: ro, reset: 0x00 }
+  - { name: XDATA_H, offset: 0x0F, width: 8, access: ro, reset: 0x00 }
+  - { name: YDATA_L, offset: 0x10, width: 8, access: ro, reset: 0x00 }
+  - { name: YDATA_H, offset: 0x11, width: 8, access: ro, reset: 0x00 }
+  - { name: ZDATA_L, offset: 0x12, width: 8, access: ro, reset: 0x00 }
+  - { name: ZDATA_H, offset: 0x13, width: 8, access: ro, reset: 0x00 }
+  - { name: TEMP_L, offset: 0x14, width: 8, access: ro, reset: 0x00 }
+  - { name: TEMP_H, offset: 0x15, width: 8, access: ro, reset: 0x00 }
+  - { name: SOFT_RESET, offset: 0x1F, width: 8, access: wo, reset: 0x00 }
+  - { name: THRESH_ACT_L, offset: 0x20, width: 8, access: rw, reset: 0x00 }
+  - { name: THRESH_ACT_H, offset: 0x21, width: 8, access: rw, reset: 0x00 }
+  - { name: TIME_ACT, offset: 0x22, width: 8, access: rw, reset: 0x00 }
+  - { name: THRESH_INACT_L, offset: 0x23, width: 8, access: rw, reset: 0x00 }
+  - { name: THRESH_INACT_H, offset: 0x24, width: 8, access: rw, reset: 0x00 }
+  - { name: TIME_INACT_L, offset: 0x25, width: 8, access: rw, reset: 0x00 }
+  - { name: TIME_INACT_H, offset: 0x26, width: 8, access: rw, reset: 0x00 }
+  - { name: ACT_INACT_CTL, offset: 0x27, width: 8, access: rw, reset: 0x00 }
+  - { name: FIFO_CONTROL, offset: 0x28, width: 8, access: rw, reset: 0x00 }
+  - { name: FIFO_SAMPLES, offset: 0x29, width: 8, access: rw, reset: 0x80 }
+  - { name: INTMAP1, offset: 0x2A, width: 8, access: rw, reset: 0x00 }
+  - { name: INTMAP2, offset: 0x2B, width: 8, access: rw, reset: 0x00 }
+  - { name: FILTER_CTL, offset: 0x2C, width: 8, access: rw, reset: 0x13 }
+  - { name: POWER_CTL, offset: 0x2D, width: 8, access: rw, reset: 0x00 }
+  - { name: SELF_TEST, offset: 0x2E, width: 8, access: rw, reset: 0x00 }
+operations:
+  - name: device_init
+    description: "Apply the configured ordered ADXL362 24-bit register-word array (SOFT_RESET 0x52, then FILTER_CTL/POWER_CTL measurement setup)."
+    steps:
+      - { op: comment, note: "config.register_words is emitted verbatim as 0x0A command-byte SPI writes." }
+  - name: id_read
+    returns: "uint32"
+    description: "Read the three Analog Devices identification registers as DEVID_AD<<16 | DEVID_MST<<8 | PARTID (expected 0xAD1DF2)."
+    steps:
+      - { op: read_register, reg: DEVID_AD, shift: 16 }
+      - { op: read_register, reg: DEVID_MST, shift: 8 }
+      - { op: read_register, reg: PARTID, shift: 0 }
+  - name: status_read
+    returns: "uint8"
+    description: "Read STATUS: bit7 ERR_USER_REGS, bit6 AWAKE, bit5 INACT, bit4 ACT, bit3 FIFO_OVERRUN, bit2 FIFO_WATERMARK, bit1 FIFO_READY, bit0 DATA_READY."
+    steps:
+      - { op: read_register, reg: STATUS }
+  - name: x_read
+    returns: "int16"
+    description: "Read the X axis 12-bit signed acceleration; LSB first (XDATA_L then XDATA_H)."
+    steps:
+      - { op: read_register, reg: XDATA_L, shift: 0 }
+      - { op: read_register, reg: XDATA_H, shift: 8 }
+  - name: y_read
+    returns: "int16"
+    description: "Read the Y axis 12-bit signed acceleration; LSB first (YDATA_L then YDATA_H)."
+    steps:
+      - { op: read_register, reg: YDATA_L, shift: 0 }
+      - { op: read_register, reg: YDATA_H, shift: 8 }
+  - name: z_read
+    returns: "int16"
+    description: "Read the Z axis 12-bit signed acceleration; LSB first (ZDATA_L then ZDATA_H)."
+    steps:
+      - { op: read_register, reg: ZDATA_L, shift: 0 }
+      - { op: read_register, reg: ZDATA_H, shift: 8 }
+  - name: temperature_read
+    returns: "int16"
+    description: "Read the 12-bit signed temperature; LSB first (TEMP_L then TEMP_H), 0.065 C/LSB."
+    steps:
+      - { op: read_register, reg: TEMP_L, shift: 0 }
+      - { op: read_register, reg: TEMP_H, shift: 8 }
+test_hints:
+  post_init_status: { reg: PARTID }
+  self_test: { description: "Read id_read over SPI mode 0 at <= 8 MHz and expect 0xAD1DF2 (DEVID_AD 0xAD, DEVID_MST 0x1D, PARTID 0xF2)." }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CircleHelp, Download, FileJson, Upload } from "lucide-react";
+import { CircleHelp, Download, FileJson, Sparkles, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { PLATFORM_LABELS, RUNTIMES, useStore } from "@/store/useStore";
 import type { LlmConfig, PlatformId, PlatformInfo, ProjectSpec } from "@/lib/types";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui";
 import { VisualBackdrop } from "@/components/visuals";
+import { cn } from "@/lib/utils";
 import BoardControlCard from "./BoardControlCard";
 
 /** Dürüst platform destek matrisi: neyin doğrulandığı, neyin kapılı olduğu. */
@@ -88,6 +89,12 @@ export default function ProjectSetup() {
   const codingStandardRef = useStore((s) => s.codingStandardRef);
   const llm = useStore((s) => s.llm);
   const setLlm = useStore((s) => s.setLlm);
+  const setGenerationMode = useStore((s) => s.setGenerationMode);
+  const generationMode = project.generation_mode ?? (llm.enabled ? "ai" : "static");
+  // Eski kayıtlı projelerde mod alanı yoktur: llm.enabled'a göre bir kez yazılır (varsayılan statik).
+  useEffect(() => {
+    if (!project.generation_mode) setGenerationMode(llm.enabled ? "ai" : "static");
+  }, [project.generation_mode, llm.enabled, setGenerationMode]);
   const buildSpec = useStore((s) => s.buildSpec);
   const loadSpec = useStore((s) => s.loadSpec);
   const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
@@ -380,25 +387,60 @@ export default function ProjectSetup() {
           </div>
         </div>
 
-        <div className="rounded-md border border-border bg-inset p-3">
-          <label className="flex cursor-pointer items-center justify-between">
-            <span className="flex items-center gap-2 text-sm text-text">
-              LLM assist
-              <Badge tone={llm.enabled ? "accent" : "neutral"}>{llm.enabled ? "on" : "off"}</Badge>
-            </span>
-            <input
-              type="checkbox"
-              checked={llm.enabled}
-              onChange={(e) => setLlm({ enabled: e.target.checked })}
-              className="h-4 w-4 accent-[var(--accent)]"
-            />
-          </label>
-          <p className="mt-1 text-xs text-faint">
-            Deterministic by default. When on, an OpenAI-compatible endpoint can assist QC fixes
-            (QC still gates every accepted change).
-          </p>
-          {llm.enabled && (
+        <div className="rounded-md border border-border bg-inset p-3" data-testid="generation-mode">
+          <div className="mb-2 flex items-center gap-2 text-sm text-text">
+            <Sparkles className="h-4 w-4 text-accent" aria-hidden />
+            Üretim modu
+            <Badge tone={generationMode === "ai" ? "accent" : "neutral"}>
+              {generationMode === "ai" ? "yapay zeka" : "statik"}
+            </Badge>
+            <HelpPopover label="Üretim modu açıklaması" width="w-96">
+              <span className="block space-y-1">
+                <span className="block">
+                  <b>Statik</b> (varsayılan): descriptor + şablondan deterministik C üretimi ve QC. LLM hiçbir
+                  noktada devreye girmez; bugüne kadarki akışın kendisidir.
+                </span>
+                <span className="block">
+                  <b>Yapay zeka ile üretim</b>: aynı statik akış korunur, üstüne OpenAI-uyumlu bir model
+                  şu işlerde kullanılır: (1) referans metninden descriptor üretimi (doğrulayıcı döngüsü,
+                  "Yapay zeka" sekmesi), (2) QC düzeltme yardımcısı (aday dosya deterministik QC'den
+                  geçmeden kabul edilmez), (3) Bilgi soru merkezi.
+                </span>
+                <span className="block text-warn">
+                  Bulut endpoint'e (DeepSeek, OpenAI...) gönderdiğin referans metni ve kod parçaları
+                  sağlayıcıya gider; şirket verisi için yerel/şirket içi OpenAI-uyumlu model kullan.
+                </span>
+              </span>
+            </HelpPopover>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ["static", "Statik", "Deterministik descriptor + şablon (varsayılan)"],
+              ["ai", "Yapay zeka ile üretim", "Statik akış + LLM özellikleri"],
+            ] as const).map(([id, label, hint]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setGenerationMode(id)}
+                data-testid={`generation-mode-${id}`}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left transition-colors",
+                  generationMode === id ? "border-accent bg-accent/10" : "border-border bg-bg hover:border-muted",
+                )}
+              >
+                <span className="block text-sm text-text">{label}</span>
+                <span className="block text-[11px] text-faint">{hint}</span>
+              </button>
+            ))}
+          </div>
+          {generationMode === "ai" && (
             <div className="mt-3 space-y-2">
+              <p className="text-xs text-faint">
+                OpenAI-uyumlu endpoint (yerel LM Studio/Ollama/vLLM ya da bulut: DeepSeek{" "}
+                <span className="font-mono">https://api.deepseek.com/v1</span>). Anahtarı buraya yazmak yerine
+                ortam değişkeninin adını ver: spec dosyasına sır girmez.
+              </p>
+
               <Input
                 value={llm.base_url ?? ""}
                 onChange={(e) => setLlm({ base_url: e.target.value })}
@@ -411,11 +453,18 @@ export default function ProjectSetup() {
               />
               <div className="grid grid-cols-2 gap-2">
                 <Input
+                  value={llm.api_key_env ?? ""}
+                  onChange={(e) => setLlm({ api_key_env: e.target.value })}
+                  placeholder="api key ortam değişkeni adı (ör. DEEPSEEK_API_KEY)"
+                />
+                <Input
                   value={llm.api_key ?? ""}
                   onChange={(e) => setLlm({ api_key: e.target.value })}
-                  placeholder="api_key (optional)"
+                  placeholder="api_key (doğrudan; isteğe bağlı)"
                   type="password"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="number"
                   min={1}
@@ -448,8 +497,21 @@ export default function ProjectSetup() {
                   placeholder="retries"
                 />
               </div>
+              <label className="flex cursor-pointer items-center justify-between rounded-md border border-border bg-bg px-3 py-2">
+                <span className="text-xs text-text">
+                  QC düzeltmelerinde LLM kullan
+                  <span className="block text-[11px] text-faint">Aday dosya deterministik QC'den geçmeden kabul edilmez.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={llm.qc_fix !== false}
+                  onChange={(e) => setLlm({ qc_fix: e.target.checked })}
+                  className="h-4 w-4 accent-[var(--accent)]"
+                />
+              </label>
               <p className="text-[11px] text-faint">
-                Enter the exact model id from the OpenAI-compatible server, e.g. a Kimi or Qwen model name.
+                Model adı sunucunun gösterdiği tam kimliktir (ör. <span className="font-mono">deepseek-flash</span>, Qwen, Kimi).
+                Descriptor üretimi üst çubuktaki "Yapay zeka" sekmesindedir.
               </p>
             </div>
           )}

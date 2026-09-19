@@ -15,7 +15,10 @@ set regmap_ip [expr {[lsearch -exact $argv "regmap"] >= 0}]
 # `gpio`: AXI GPIO donanim testi - axi_gpio_0 (CH1: 16 LED cikis, CH2: 16 anahtar giris),
 # axi_gpio_1 (CH1: 5 buton giris, CH2: 6 RGB LED cikis). Ajan gpio_read/gpio_write + Test Bench GPIO karti.
 set gpio_ip   [expr {[lsearch -exact $argv "gpio"] >= 0}]
-set suffix    [expr {$mdm_uart ? "_mdm" : ""}][expr {$regmap_ip ? "_regmap" : ""}][expr {$gpio_ip ? "_gpio" : ""}]
+# `acl`: karttaki ADXL362 ivmeolcer icin ikinci AXI Quad SPI (standart mod, ACL_* pinleri; 100 MHz/16 = 6.25 MHz,
+# ADXL362 <= 8 MHz). LLM'den uretilen descriptor'un gercek kartta dogrulanmasi (2026-09-19).
+set acl_spi   [expr {[lsearch -exact $argv "acl"] >= 0}]
+set suffix    [expr {$mdm_uart ? "_mdm" : ""}][expr {$regmap_ip ? "_regmap" : ""}][expr {$gpio_ip ? "_gpio" : ""}][expr {$acl_spi ? "_acl" : ""}]
 set root_dir   D:/Projects/claude/Spec2Code
 set proj_dir   $root_dir/test/0_temp_dbg/vivado_nexys_a7$suffix
 set out_dir    $root_dir/test/0_dosyalar
@@ -97,6 +100,15 @@ if {$gpio_ip} {
 }
 set spi_aclk_net [get_bd_nets -of_objects [get_bd_pins axi_quad_spi_0/s_axi_aclk]]
 connect_bd_net -net $spi_aclk_net [get_bd_pins axi_quad_spi_0/ext_spi_clk]
+if {$acl_spi} {
+    create_bd_cell -type ip -vlnv xilinx.com:ip:axi_quad_spi axi_quad_spi_1
+    # C_USE_STARTUP varsayilani 1: ikinci STARTUPE2 yok (DRC UTLZ-1); ACL SCK normal pin.
+    set_property -dict [list CONFIG.C_USE_STARTUP {0} CONFIG.C_USE_STARTUP_INT {0}         CONFIG.C_SPI_MODE {0} CONFIG.C_NUM_SS_BITS {1} CONFIG.C_SCK_RATIO {16}         CONFIG.C_FIFO_DEPTH {16}] [get_bd_cells axi_quad_spi_1]
+    apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config [list         Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto}         Master {/microblaze_0 (Periph)} Slave {/axi_quad_spi_1/AXI_LITE}         ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}]         [get_bd_intf_pins axi_quad_spi_1/AXI_LITE]
+    connect_bd_net -net $spi_aclk_net [get_bd_pins axi_quad_spi_1/ext_spi_clk]
+    make_bd_intf_pins_external [get_bd_intf_pins axi_quad_spi_1/SPI_0]
+    set_property NAME ACL [lindex [get_bd_intf_ports -filter {NAME =~ "SPI_0*"}] 0]
+}
 
 make_bd_intf_pins_external [get_bd_intf_pins axi_uartlite_0/UART]
 make_bd_intf_pins_external [get_bd_intf_pins axi_iic_0/IIC]
@@ -146,6 +158,11 @@ set_property -dict { PACKAGE_PIN C15 IOSTANDARD LVCMOS33 } [get_ports IIC_sda_io
 set_property -dict { PACKAGE_PIN L13 IOSTANDARD LVCMOS33 } [get_ports SPI_0_ss_io]
 set_property -dict { PACKAGE_PIN K17 IOSTANDARD LVCMOS33 } [get_ports SPI_0_io0_io]
 set_property -dict { PACKAGE_PIN K18 IOSTANDARD LVCMOS33 } [get_ports SPI_0_io1_io]
+## ADXL362 ivmeolcer (acl varyanti): ACL_SCLK F15, ACL_MOSI F14, ACL_MISO E15, ACL_CSN D15
+set_property -dict { PACKAGE_PIN F15 IOSTANDARD LVCMOS33 } [get_ports ACL_sck_io]
+set_property -dict { PACKAGE_PIN F14 IOSTANDARD LVCMOS33 } [get_ports ACL_io0_io]
+set_property -dict { PACKAGE_PIN E15 IOSTANDARD LVCMOS33 } [get_ports ACL_io1_io]
+set_property -dict { PACKAGE_PIN D15 IOSTANDARD LVCMOS33 } [get_ports ACL_ss_io]
 ## AXI GPIO (gpio varyanti): LED[15:0], SW[15:0] (SW8/SW9 LVCMOS18), BTN[4:0] = C,U,L,R,D, RGB[5:0] = 16R,16G,16B,17R,17G,17B
 set_property -dict { PACKAGE_PIN H17 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[0]}]
 set_property -dict { PACKAGE_PIN K15 IOSTANDARD LVCMOS33 } [get_ports {LED_tri_o[1]}]

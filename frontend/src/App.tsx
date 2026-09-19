@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket, Waves } from "lucide-react";
+import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket, Sparkles, Waves } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -25,9 +25,10 @@ import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
 import CapturePanel from "@/features/capture/CapturePanel";
 import CitPanel from "@/features/cit/CitPanel";
 import YattPanel from "@/features/yatt/YattPanel";
+import AiDescriptorPanel from "@/features/ai/AiDescriptorPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt" | "capture";
+type View = "flow" | "ai" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt" | "capture";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -56,6 +57,11 @@ export default function App() {
   // Ziyaret edilen ekranlar sökülmez, yalnızca gizlenir (keep-alive):
   // bağlantılar, canlı akışlar ve form durumu sekme geçişinde kaybolmaz.
   const [visitedViews, setVisitedViews] = useState<View[]>(["flow"]);
+  // "Yapay zeka" sekmesi yalnız yapay zeka modunda görünür; mod statiğe dönerse akışa düşülür.
+  const aiMode = project.generation_mode === "ai";
+  useEffect(() => {
+    if (!aiMode && view === "ai") setView("flow");
+  }, [aiMode, view]);
 
   useEffect(() => {
     setVisitedViews((current) => (current.includes(view) ? current : [...current, view]));
@@ -196,6 +202,7 @@ export default function App() {
       {/* görünüm sekmeleri: ayrı satır — dar ekranda sarar, taşmaz */}
       <nav className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-1">
         {([
+          ...(aiMode ? [["ai", Sparkles, "Yapay zeka"] as const] : []),
           ["knowledge", BookOpen, "Bilgi"],
           ["catalog", Library, "Katalog"],
           ["testbench", PlugZap, "Test Bench"],
@@ -232,6 +239,14 @@ export default function App() {
 
       {/* body — keep-alive: ziyaret edilen ekranlar gizlenir ama sökülmez */}
       <main className="min-h-0 flex-1">
+        {keepAlive("ai", (
+          <div className="mx-auto flex h-full max-w-5xl flex-col p-4">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold">Yapay zeka ile üretim — descriptor</h2>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <AiDescriptorPanel />
+            </div>
+          </div>
+        ))}
         {keepAlive("knowledge", (
           <div className="mx-auto flex h-full max-w-5xl flex-col p-4">
             <h2 className="mb-3 shrink-0 text-sm font-semibold">Bilgi soru merkezi</h2>

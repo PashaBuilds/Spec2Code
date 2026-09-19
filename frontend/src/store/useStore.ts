@@ -22,6 +22,7 @@ import type {
   Mux,
   PlatformId,
   ProjectMeta,
+  GenerationMode,
   ProjectSpec,
   QcReport,
   Runtime,
@@ -91,6 +92,8 @@ interface StoreState {
   setStep: (s: Step) => void;
   setProject: (p: Partial<ProjectMeta>) => void;
   setLlm: (p: Partial<LlmConfig>) => void;
+  /** Üretim modu; llm.enabled bu moddan türer (ai = açık, static = kapalı — statik akış LLM'e hiç dokunmaz). */
+  setGenerationMode: (mode: GenerationMode) => void;
   /** Yeni XSA/parse sonucunu uygular. Sema KORUNUR: denetleyicisi (ayni id + tip) yeni tasarimda
    *  da olan cihaz/switch/konnektor kalir, denetleyicisi kaybolanlar dusurulur (kullanici istegi
    *  2026-09-10: PL bloklari ayni kaldigi surece XSA degisince sema sifirlanmasin). Donus: ozet. */
@@ -138,6 +141,7 @@ const DEFAULT_PROJECT: ProjectMeta = {
   target_core: "a53_0",
   runtime: "freertos",
   output_mode: "dropin",
+  generation_mode: "static",
   testbench_transport: "uart",
   bsp_flow: "classic",
   testbench_network: { ip: "18.2.75.121", netmask: "255.255.255.0", gateway: "18.2.75.1", mac: "00:0A:35:00:01:02", port: 5000 },
@@ -268,6 +272,8 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   setStep: (step) => set({ step }),
   setProject: (p) => set((s) => ({ project: { ...s.project, ...p } })),
   setLlm: (p) => set((s) => ({ llm: { ...s.llm, ...p } })),
+  setGenerationMode: (mode) =>
+    set((s) => ({ project: { ...s.project, generation_mode: mode }, llm: { ...s.llm, enabled: mode === "ai" } })),
 
   applyParse: (r) => {
     const s0 = get();
@@ -309,7 +315,12 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
   loadSpec: (spec, context) =>
     set({
       step: spec.controllers?.length ? "schematic" : "setup",
-      project: { ...DEFAULT_PROJECT, ...spec.project },
+      // Mod alanı olmayan eski spec'lerde llm.enabled belirler (o güne kadar LLM'i açan tek anahtar oydu).
+      project: {
+        ...DEFAULT_PROJECT,
+        ...spec.project,
+        generation_mode: spec.project.generation_mode ?? (spec.llm?.enabled ? "ai" : "static"),
+      },
       codingStandardRef: DEFAULT_CODING_STANDARD,
       llm: spec.llm?.enabled
         ? { ...DEFAULT_LLM, ...spec.llm }
@@ -474,7 +485,8 @@ export const useStore = create<StoreState>()(persist((set, get) => ({
       schema_version: "1.0",
       project: s.project,
       coding_standard_ref: DEFAULT_CODING_STANDARD,
-      llm: s.llm.enabled
+      // Statik modda llm bloğu yalnızca {enabled:false}: üretilen çıktı bugünküyle bayt-bayt aynı.
+      llm: s.project.generation_mode === "ai" && s.llm.enabled
         ? s.llm
         : { enabled: false },
       controllers: s.controllers,

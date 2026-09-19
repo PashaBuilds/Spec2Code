@@ -18,6 +18,7 @@ from typing import Optional
 
 from orchestrator import codegen
 from orchestrator.bsp_flow import is_sdt
+from orchestrator.generation_mode import qc_fixer_active
 from orchestrator.qc import loop as qc_loop
 from backend.rulesets import DEFAULT_RULESET_REF, resolve_ruleset_ref
 from hostplat.paths import data_root
@@ -188,8 +189,8 @@ class JobManager:
 
 
 def _maybe_llm_fixer(spec: dict, ruleset: dict, emit=None):
-    """Return an LLM-backed QC fixer when llm.enabled, else None (deterministic path)."""
-    if not spec.get("llm", {}).get("enabled"):
+    """Return an LLM-backed QC fixer only in AI generation mode with llm.qc_fix on; else None (deterministic path)."""
+    if not qc_fixer_active(spec):
         return None
     try:
         from orchestrator.llm.tasks import make_qc_fixer

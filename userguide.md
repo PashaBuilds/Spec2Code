@@ -122,7 +122,8 @@ gorunumler:
 
 | Gorunum | Ne icin |
 |---|---|
-| Bilgi | Katalog bilgisi uzerinden lokal LLM'e soru (opsiyonel) |
+| Yapay zeka | Yalniz yapay zeka modunda: referans metninden descriptor uretimi + kullanici descriptor'lari |
+| Bilgi | Katalog bilgisi uzerinden lokal LLM'e soru (yapay zeka modu) |
 | Katalog | Desteklenen entegreler, register/komut haritalari, pin/waveform bilgisi |
 | Test Bench | Karta tek tek op gonderme, register oku/yaz, flash dosya transferi, I2C tarama |
 | Akis | Kart ile host arasindaki S2C-MSG cerceveleri ve ajan loglari canli |
@@ -143,6 +144,11 @@ gorunumler:
 
 - Zynq-7000, Zynq UltraScale+ MPSoC, Versal ACAP, MicroBlaze 7-series (Artix/Kintex/Spartan-7 PL).
 - Runtime: bare-metal ya da FreeRTOS (yalniz ajan main'i ve lwIP API modu degisir).
+- **Uretim modu** (`project.generation_mode`): **Statik** (varsayilan) = descriptor + sablondan
+  deterministik C uretimi ve QC; LLM hicbir noktada devreye girmez. **Yapay zeka ile uretim** = ayni
+  statik akis korunur, ustune OpenAI-uyumlu bir model su islerde kullanilir: referans metninden
+  descriptor uretimi ("Yapay zeka" sekmesi), QC duzeltme yardimcisi, Bilgi soru merkezi. Ayrintisi
+  16. bolumde.
 - **Test bench tasiyicisi**: `auto` (Ethernet varsa lwIP, yoksa UART), `eth`, `uart`,
   `coresight` (ZynqMP DCC, JTAG), `mdm` (MicroBlaze Debug Module UART, JTAG).
   JTAG tasiyicilari hicbir zaman otomatik secilmez.
@@ -880,14 +886,44 @@ Tam referans: `docs/kodlama_standardi.md`. Uretilen kod `clang-format` + `clang-
 
 ---
 
-## 16. LLM kullanimi
+## 16. Uretim modu ve yapay zeka
 
-Varsayilan kapali. OpenAI-uyumlu bir endpoint, model adi ve gerekirse API key
-girilir (GLM, Qwen, Kimi...). Generate icinde yardimci roldedir: aday dosya
-deterministik QC'den gecmeden kabul edilmez, reddedilirse mevcut cikti korunur;
-bos/uzun/timeout cevaplar net hata olarak gosterilir. Bilgi soru merkezi yalniz
-katalogdaki dogrulanmis context'i kullanir; context disi register/bit adlari
-reddedilir.
+Setup'taki **Uretim modu** secicisi iki secenek sunar:
+
+- **Statik** (varsayilan): descriptor + sablondan deterministik C uretimi, QC, test bench, CIT.
+  LLM hicbir noktada devreye girmez; spec'e yalniz `llm: {enabled: false}` yazilir ve cikti
+  bugune kadarki ile bayt-bayt aynidir.
+- **Yapay zeka ile uretim**: statik akis oldugu gibi korunur; ustune OpenAI-uyumlu bir endpoint
+  (yerel LM Studio/Ollama/vLLM ya da bulut, or. DeepSeek `https://api.deepseek.com/v1`, model
+  `deepseek-flash`) ile su ozellikler acilir:
+  1. **Referans metninden descriptor** ("Yapay zeka" sekmesi): datasheet'in register tablosunu
+     (adres, ad, reset, bit alanlari, SPI/I2C cerceve tarifi) ya da ureticinin surucu basligini
+     yapistir; model bir YAML adayi yazar, backend adayi descriptor dogrulayicisindan gecirir,
+     hata varsa hatalari ve onceki YAML'i modele geri verip yeniden ister (tur siniri 1-5, her
+     tur suresi ve dogrulayici sonucu tabloda). Kabul edilen aday KAYDEDILMEZ: onizle, gerekirse
+     duzelt, Dogrula, Kaydet (user_descriptors). Kaydedilen parca sematikte gorunur; Generate,
+     Test Bench ve CIT yerlesik entegrelerle ayni statik zincirden calisir. Ek yonerge alani ile
+     (or. "id_read uint32 = DEVID_AD<<16|DEVID_MST<<8|PARTID; x/y/z int16") modele yon verilir.
+     Operasyon adlari S2C katalogundan gelmek zorundadir (op id'ler kalici); model baska ad
+     uretirse dogrulayici reddeder.
+  2. **QC duzeltme yardimcisi** (`llm.qc_fix`, varsayilan acik): Generate icinde yardimci roldedir;
+     aday dosya deterministik QC'den gecmeden kabul edilmez, reddedilirse mevcut cikti korunur;
+     bos/uzun/timeout cevaplar net hata olarak gosterilir.
+  3. **Bilgi soru merkezi**: yalniz katalogdaki dogrulanmis context'i kullanir; context disi
+     register/bit adlari reddedilir.
+
+**API anahtari**: spec'e yazmak yerine ortam degiskeninin ADINI ver (`llm.api_key_env`, or.
+`DEEPSEEK_API_KEY`); dogrudan `api_key` de girilebilir. Oncelik: api_key -> api_key_env ->
+`SPEC2CODE_LLM_API_KEY`.
+
+**Gizlilik**: bulut endpoint'e gonderdigin referans metni ve (QC yardimcisinda) kod parcalari
+saglayiciya gider. Sirket ici belge/kod icin yerel ya da sirket ici OpenAI-uyumlu model kullan;
+statik modda disari hicbir sey gitmez.
+
+**Saha kaydi (2026-09-19)**: Nexys A7 kart ustu ADXL362 ivmeolcerinin descriptor'u DeepSeek
+`deepseek-flash` ile 1 turda (~10 s) dogrulayici-temiz uretildi; uretilen surucu kartta id
+0xAD1DF2, canli x/y/z ve sicaklik okudu. Basari orani referans metninin kalitesine (register
+tablosu eksiksiz, cerceve tarifi net) ve dogrulayicinin geri beslemesine baglidir.
 
 ---
 

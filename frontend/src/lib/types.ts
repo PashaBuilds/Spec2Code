@@ -105,12 +105,16 @@ export interface Connector {
   bus: ConnectorBus;
   notes?: string;
 }
+export type GenerationMode = "static" | "ai";
 export interface ProjectMeta {
   name: string;
   platform: PlatformId;
   target_core: string;
   runtime: Runtime;
   output_mode?: string;
+  /** Üretim modu: static = deterministik descriptor + şablon (varsayılan, LLM hiç devreye girmez);
+   * ai = aynı akış + LLM özellikleri (QC düzeltme yardımcısı, referans metninden descriptor, Bilgi). */
+  generation_mode?: GenerationMode;
   /** Test bench agent transport: auto = eth varsa lwIP, yoksa PS UART; coresight = JTAG DCC (ZynqMP);
    * mdm = MicroBlaze Debug Module UART (XUartLite, xsdb jtagterminal köprüsü). */
   testbench_transport?: "auto" | "eth" | "uart" | "coresight" | "mdm";
@@ -132,6 +136,10 @@ export interface LlmConfig {
   base_url?: string;
   model?: string;
   api_key?: string;
+  /** Anahtarı spec'e yazmak yerine okunacak ortam değişkeninin ADI (ör. DEEPSEEK_API_KEY). */
+  api_key_env?: string;
+  /** Yapay zeka modunda QC düzeltme yardımcısı (varsayılan açık). */
+  qc_fix?: boolean;
   timeout_s?: number;
   max_tokens?: number;
   max_response_chars?: number;
@@ -151,6 +159,24 @@ export interface KnowledgeAskResponse {
   answer: string;
   context_chars: number;
   grounded?: boolean;
+}
+export interface LlmDescriptorRequest {
+  part: string;
+  reference: string;
+  hints: string;
+  rounds: number;
+  llm: LlmConfig;
+}
+export interface LlmDescriptorRound {
+  round: number;
+  seconds: number;
+  errors: string[];
+}
+export interface LlmDescriptorResponse {
+  accepted: boolean;
+  yaml: string;
+  part: string;
+  rounds: LlmDescriptorRound[];
 }
 
 export interface VitisCompileIssue {

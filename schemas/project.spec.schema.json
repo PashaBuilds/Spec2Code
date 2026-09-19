@@ -57,6 +57,15 @@
           ],
           "default": "dropin"
         },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "static",
+            "ai"
+          ],
+          "default": "static",
+          "description": "Uretim modu: static = deterministik descriptor + sablon uretimi (varsayilan, LLM hic devreye girmez); ai = ayni akis + LLM ozellikleri (QC duzeltme yardimcisi, referans metninden descriptor uretimi, bilgi soru merkezi). Alan yoksa llm.enabled belirler."
+        },
         "testbench_transport": {
           "type": "string",
           "enum": [
@@ -111,6 +120,15 @@
         },
         "api_key": {
           "type": "string"
+        },
+        "api_key_env": {
+          "type": "string",
+          "description": "API anahtarini spec'e yazmak yerine okunacak ortam degiskeninin ADI (or. DEEPSEEK_API_KEY); api_key bos ise kullanilir."
+        },
+        "qc_fix": {
+          "type": "boolean",
+          "default": true,
+          "description": "Yapay zeka modunda QC duzeltme yardimcisi (aday dosya deterministik QC'den gecmeden kabul edilmez)."
         },
         "timeout_s": {
           "type": "number",

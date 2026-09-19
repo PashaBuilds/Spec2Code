@@ -39,8 +39,12 @@ class TicsRegisterWord:
 
 
 def has_tics_register_model(descriptor: dict[str, Any]) -> bool:
-    model = register_model(descriptor)
-    return bool(model.get("ticspro_words"))
+    """Register-adresli SPI cihazi (transport.register_model var) -> register-model ureteci.
+
+    Onceden yalniz ``ticspro_words: true`` sayiliyordu; register_model'i olan ama TICS Pro sozcugu olmayan
+    cihazlar (or. ADXL362, LLM descriptor deneyi 2026-09-19) flash/komut uretecine dusup bos op'lar uretiyordu.
+    """
+    return bool(register_model(descriptor))
 
 
 def register_model(descriptor: dict[str, Any]) -> dict[str, Any]:

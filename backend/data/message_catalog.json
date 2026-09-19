@@ -521,6 +521,30 @@
       "dir": "req",
       "body": "request_std",
       "aciklama": "Anlik JESD link durumu (FPGA + AFE)."
+    },
+    {
+          "id": "0x5343042C",
+          "name": "X_READ",
+          "op": "x_read",
+          "dir": "req",
+          "body": "request_std",
+          "aciklama": "X ekseni okumasi (ivmeolcer/manyetometre/jiroskop); 2026-09-19 LLM descriptor deneyi (ADXL362)."
+    },
+    {
+          "id": "0x5343042D",
+          "name": "Y_READ",
+          "op": "y_read",
+          "dir": "req",
+          "body": "request_std",
+          "aciklama": "Y ekseni okumasi."
+    },
+    {
+          "id": "0x5343042E",
+          "name": "Z_READ",
+          "op": "z_read",
+          "dir": "req",
+          "body": "request_std",
+          "aciklama": "Z ekseni okumasi."
     }
   ]
 }

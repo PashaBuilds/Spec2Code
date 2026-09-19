@@ -1455,6 +1455,8 @@ def _operation_fixed_read_length(op: dict) -> int:
         return array_count * 2
     if "uint16" in returns:
         return 2
+    if "int16" in returns:
+        return 2
     if "int32" in returns and "uint32" not in returns:
         return 4
     if "uint8" in returns:
@@ -3419,6 +3421,16 @@ def _testbench_call_lines(entry: dict, op: dict) -> list[str]:
         lines.append("}")
         void = out_name
         del void
+    elif "int16" in returns and "uint16" not in returns:
+        # Isaretli 16 bit skaler (returns int16): value iki'ye tumleyen, data 2 big-endian bayt.
+        lines.append(f"iStatus = {func}({hvar}, &sValue);")
+        lines.extend([
+            "if (iStatus == XST_SUCCESS)",
+            "{",
+            "    spResponse->uiValue = (unsigned int)(int)sValue;",
+        ])
+        lines.extend([f"    {line}" for line in _testbench_push_u16_lines("(unsigned short)sValue")])
+        lines.append("}")
     elif "uint32" in returns:
         # Ham 24/32-bit sayaç/akümülatör (DS1682 ETC/EVENT, LTC2945 POWER):
         # value alanına ham değer, data'ya 4 big-endian bayt. SAHA KÖK NEDENİ
@@ -3542,6 +3554,10 @@ def _testbench_device_branch(entry: dict) -> list[str]:
         op.get("name") == "device_init" for op in operations) else None
     needs_array = any(_array_return_count(str(op.get("returns", "")).lower()) for op in operations)
     needs_us_value = any("uint16" in str(op.get("returns", "")).lower() for op in operations)
+    needs_s_value = any(
+        "int16" in str(op.get("returns", "")).lower() and "uint16" not in str(op.get("returns", "")).lower()
+        for op in operations
+    )
     needs_i_value = any(
         "int32" in str(op.get("returns", "")).lower()
         and "uint32" not in str(op.get("returns", "")).lower()
@@ -3578,6 +3594,8 @@ def _testbench_device_branch(entry: dict) -> list[str]:
     ]
     if needs_us_value:
         lines.append("        unsigned short usValue;")
+    if needs_s_value:
+        lines.append("        short sValue;")
     if needs_i_value:
         lines.append("        int iValue;")
     if needs_ui_value32:

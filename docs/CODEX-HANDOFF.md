@@ -122,7 +122,9 @@ clang-tidy, cppcheck, libclang. Python deps in `.venv` (Python 3.14). Frontend d
 2. **Windows smoke-test (Brief §22)** — checklist in README; run on real air-gapped Win10. Code is
    portable-by-design and statically audited but NOT yet executed on Windows.
 3. **RAG (Brief §17)** — implement `rag/ingest.py` + `retriever.py` (Docling → structural chunk →
-   BGE-M3 → FAISS, two indices) and wire `orchestrator/llm/tasks.extract_descriptor`. Install
+   BGE-M3 → FAISS, two indices) to feed `orchestrator/llm/descriptor_gen.generate_descriptor`
+   (v0.1.252: descriptor generation from pasted reference text + validator loop already ships under
+   the AI generation mode; RAG would only automate the reference extraction). Install
    `requirements-rag.txt` under Python 3.11–3.12 (torch/faiss may lack 3.14 wheels).
 4. **More codegen transports** — `cmodel.py` covers i2c (+mux) and spi; add gpio / native qspi.
 5. **Coding standard is fixed** — do not reintroduce user ruleset import unless the product

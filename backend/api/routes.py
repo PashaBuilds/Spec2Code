@@ -49,6 +49,7 @@ from orchestrator.codegen import resolve_descriptor_path, user_descriptors_dir
 from orchestrator.descriptor_check import validate_descriptor
 from orchestrator.descriptor_example import EXAMPLE_FILE_NAME, EXAMPLE_USER_DESCRIPTOR
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
+from orchestrator.llm.descriptor_gen import generate_descriptor
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 # Yazilabilir veri koku (outputs/, uploads/, catalog/imported.json): paketli
@@ -94,6 +95,15 @@ class KnowledgeAskRequest(BaseModel):
     part: str
     question: str
     context: str
+    llm: dict = Field(default_factory=dict)
+
+
+class LlmDescriptorRequest(BaseModel):
+    """Yapay zeka modu: referans metninden descriptor adayi (kaydetmez; kullanici dogrulayip kaydeder)."""
+    part: str
+    reference: str
+    hints: str = ""
+    rounds: int = 3
     llm: dict = Field(default_factory=dict)
 
 
@@ -682,6 +692,31 @@ def delete_user_descriptor(file_name: str) -> dict:
 @router.get("/rulesets/default")
 def ruleset_default() -> dict:
     return {"ruleset": DEFAULT_RULESET, "schema": RULESET_SCHEMA}
+
+
+@router.post("/llm/descriptor")
+def llm_descriptor(req: LlmDescriptorRequest) -> dict:
+    """Yapay zeka modu: referans metni (datasheet register tablosu / surucu basligi) -> descriptor YAML adayi.
+
+    Model ciktisi `descriptor_check` dogrulayicisindan gecene kadar hatalar modele geri verilir (en fazla
+    `rounds` tur). Kabul edilen aday KAYDEDILMEZ: UI onizletir, Dogrula/Kaydet mevcut user-descriptors
+    uclarindan gecer. Statik mod bu ucu hic cagirmaz.
+    """
+    if not req.llm.get("enabled"):
+        raise HTTPException(400, {
+            "message": "llm disabled",
+            "errors": [{"severity": "error", "path": "llm/enabled",
+                        "message": "Yapay zeka modu kapali. Setup'ta uretim modunu 'Yapay zeka ile uretim' yap ve endpoint'i gir."}],
+        })
+    llm_errors = _validate_llm_config({"llm": req.llm})
+    if llm_errors:
+        raise HTTPException(400, {"message": "llm invalid", "errors": llm_errors[:10]})
+    try:
+        return generate_descriptor(req.llm, req.part, req.reference, hints=req.hints, rounds=req.rounds)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except LlmError as exc:
+        raise HTTPException(502, str(exc))
 
 
 @router.post("/knowledge/ask")

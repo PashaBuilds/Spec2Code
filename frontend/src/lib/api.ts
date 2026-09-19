@@ -9,6 +9,8 @@ import type {
   GeneratedFile,
   KnowledgeAskRequest,
   KnowledgeAskResponse,
+  LlmDescriptorRequest,
+  LlmDescriptorResponse,
   PlatformInfo,
   ProjectSpec,
   TestbenchCommandRequest,
@@ -158,6 +160,13 @@ export const api = {
 
   knowledgeAsk: (payload: KnowledgeAskRequest) =>
     req<KnowledgeAskResponse>("/api/knowledge/ask", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  /** Yapay zeka modu: referans metninden descriptor adayı (doğrulayıcı döngüsü; kaydetmez). */
+  llmDescriptor: (payload: LlmDescriptorRequest) =>
+    req<LlmDescriptorResponse>("/api/llm/descriptor", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

@@ -76,10 +76,12 @@ export function formatConvertedValue(
 
   const raw = parseHexish(parsed.value);
   if (raw === null) return null;
-  const value = returns.includes("int32") && !returns.includes("uint32") ? toSigned32(raw) : raw;
+  // Isaretli donusler (int16/int32): ajan 32-bit ikiye tumleyen olarak gonderir.
+  const signed = (returns.includes("int32") && !returns.includes("uint32")) || (returns.includes("int16") && !returns.includes("uint16"));
+  const value = signed ? toSigned32(raw) : raw;
   const formatted = formatScalar(value, unit);
   if (formatted) return formatted;
   // Birimsiz sayısal dönüşler (status/id gibi) için ondalık karşılık yeterli.
-  if (["uint8", "uint16", "uint32", "int32"].includes(returns)) return `${value}`;
+  if (["uint8", "uint16", "int16", "uint32", "int32"].includes(returns)) return `${value}`;
   return null;
 }

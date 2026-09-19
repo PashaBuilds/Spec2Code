@@ -294,8 +294,6 @@ def optimize_code(spec: dict, ruleset: dict, code: str, exemplar: str = "") -> s
 
 
 def extract_descriptor(spec: dict, ruleset: dict, part: str, datasheet_chunks: list[str]) -> dict:
-    """Build a descriptor from datasheet RAG chunks (Brief 14.2 + 17). RAG is deferred."""
-    raise NotImplementedError(
-        "Descriptor extraction depends on the RAG corpus (Brief 17), deferred this phase. "
-        "Use a hand-authored descriptor or the .c/.h import flow (Brief 12) instead."
-    )
+    """Referans metin parcalarindan descriptor adayi (dogrulayici dongusu; bkz. descriptor_gen)."""
+    from orchestrator.llm.descriptor_gen import generate_descriptor
+    return generate_descriptor(spec.get("llm") or {}, part, "\n\n".join(datasheet_chunks))

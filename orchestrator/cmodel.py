@@ -776,6 +776,8 @@ def _return_param(op_name: str, returns: str) -> tuple[str, str]:
         return "unsigned int", f"uip{_pascal_suffix(obj)}"
     if "int32" in ret:
         return "int", f"ip{_pascal_suffix(obj)}"
+    if "uint16" not in ret and "int16" in ret:
+        return "short", f"sp{_pascal_suffix(obj)}"  # isaretli 16 bit (or. ivmeolcer ekseni, sicaklik)
     return "unsigned short", f"usp{_pascal_suffix(obj)}"
 
 
@@ -1900,6 +1902,9 @@ def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
     write_value = int(model.get("write_value", 0) or 0)
     read_value = 0 if write_value else 1
     address_mask = (1 << address_bits) - 1
+    # fixed_bits: her cerceveye OR'lanan sabit bitler (or. ADXL362: komut bayti 0x0A/0x0B = 0x0A0000 | rw bit16).
+    fixed_bits = int(model.get("fixed_bits", 0) or 0)
+    fixed_expr = f" | {_hexu32(fixed_bits)}" if fixed_bits else ""
 
     rd = Emit()
     rd.ln(f"unsigned char ucArrTx[{frame_def}];")
@@ -1912,7 +1917,7 @@ def _spi_register_read_func(module: str, htype: str, hvar: str, sel_def: str,
     rd.open("if (ucpValue == NULL)").ln("return XST_FAILURE;").close()
     rd.ln(
         f"uiWord = ((unsigned int){read_value}U << {rw_bit}U) | "
-        f"(((unsigned int)uiReg & {_hexu32(address_mask)}) << {address_shift}U);"
+        f"(((unsigned int)uiReg & {_hexu32(address_mask)}) << {address_shift}U){fixed_expr};"
     )
     rd.ln("ucArrTx[0] = (unsigned char)((uiWord >> 16U) & 0xFFU);")
     rd.ln("ucArrTx[1] = (unsigned char)((uiWord >> 8U) & 0xFFU);")
@@ -2494,6 +2499,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             for param in funcs_by_name.get(name, CFunc("", "", [], [])).params
         )
 
+    def has_short_out(name: str) -> bool:
+        # Isaretli 16 bit skaler (returns int16: ivmeolcer ekseni, ham sicaklik).
+        return any(param.strip().startswith("short*") for param in funcs_by_name.get(name, CFunc("", "", [], [])).params)
+
     def has_ushort_out(name: str) -> bool:
         # Word-size scalar reads (e.g. PMBus STATUS_WORD / MFR_SPECIAL_ID).
         return any(
@@ -2544,7 +2553,7 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln("unsigned int uiTemperature;")
         if any(n.endswith("TemperatureRead") and has_int_out(n) for n in read_ops):
             st.ln("int iTemperature;")
-        if any(n.endswith("TemperatureRead") and not has_uint_out(n) and not has_int_out(n) for n in read_ops):
+        if any(n.endswith("TemperatureRead") and not has_uint_out(n) and not has_int_out(n) and not has_short_out(n) for n in read_ops):
             st.ln("unsigned short usTemperature;")
         if any(n.endswith("HumidityRead") and has_int_out(n) for n in read_ops):
             st.ln("int iHumidity;")
@@ -2576,13 +2585,21 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
         if any(n.endswith("LineRead") for n in read_ops):
             st.ln("unsigned int uiLines;")
     else:
-        if any(n.endswith("IdRead") for n in read_ops):
+        # SPI register cihazinda id_read `returns: uint32` (or. ADXL362 DEVID_AD<<16|DEVID_MST<<8|PARTID)
+        # `unsigned int*` alir; SPI flash'in 3 baytlik JEDEC id'si ise tampon.
+        if any(n.endswith("IdRead") and not has_uint_out(n) for n in read_ops):
             st.ln("unsigned char ucArrId[3];")
         # Flash status_read (RDSR, 1 bayt): SPI komut cihazinda da `ucpStatus` alir.
         if any(n.endswith("StatusRead") and not has_ushort_out(n) for n in read_ops):
             st.ln("unsigned char ucStatus;")
         if any(n.endswith("DataRead") for n in read_ops):
             st.ln("unsigned char ucArrBuffer[16];")
+    # Transporttan bagimsiz: `unsigned int*` id (uint32) ve isaretli 16 bit skalerler (returns int16).
+    if any(n.endswith("IdRead") and has_uint_out(n) for n in read_ops):
+        st.ln("unsigned int uiId;")
+    for n in read_ops:
+        if has_short_out(n):
+            st.ln(f"short s{n[len(module):-4]};")
     st.blank()
     # Only call device_init when it was actually generated: the user may
     # request read-only operations, and an unconditional init call would be
@@ -2624,6 +2641,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             else:
                 st.ln(f"iStatus = {name}({hvar}, &usCurrent);").check_status()
                 st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' current raw = %u", (unsigned int)usCurrent);')
+        elif has_short_out(name):
+            # Isaretli 16 bit skaler (int16): x/y/z ekseni, ham sicaklik.
+            st.ln(f"iStatus = {name}({hvar}, &s{name[len(module):-4]});").check_status()
+            st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + f' {name[len(module):-4].lower()} = %d", (int)s{name[len(module):-4]});')
         elif name.endswith("TemperatureRead"):
             if has_uint_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &uiTemperature);").check_status()
@@ -2675,7 +2696,10 @@ def _test_unit(unit: CUnit, device: dict, controller: dict, runtime: str) -> CTe
             st.ln(f"iStatus = {name}({hvar}, &uiEvent);").check_status()
             st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' events = %lu", (unsigned long)uiEvent);')
         elif name.endswith("IdRead"):
-            if has_ushort_out(name):
+            if has_uint_out(name):
+                st.ln(f"iStatus = {name}({hvar}, &uiId);").check_status()
+                st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' id = %06X", uiId);')
+            elif has_ushort_out(name):
                 st.ln(f"iStatus = {name}({hvar}, &usId);").check_status()
                 st.ln('dbg_printf(DEBUG_LEVEL_INFO, "' + part + ' id = %04X", (unsigned int)usId);')
             elif has_uchar_id_out(name):

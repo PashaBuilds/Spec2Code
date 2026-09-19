@@ -3,6 +3,32 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.252 - 2026-09-19
+
+- **Uretim modu (Setup)**: `project.generation_mode` = **Statik** (varsayilan) | **Yapay zeka ile uretim**.
+  Statik mod bugune kadarki deterministik akisin kendisidir ve LLM'e hicbir noktada dokunmaz (spec'e
+  yalniz `llm: {enabled: false}` yazilir; cikti bayt-bayt ayni). Yapay zeka modu ayni akisi korur, ustune
+  LLM ozelliklerini acar: (1) **referans metninden descriptor uretimi** (yeni "Yapay zeka" sekmesi, yalniz
+  bu modda gorunur), (2) QC duzeltme yardimcisi (`llm.qc_fix`, varsayilan acik; aday dosya deterministik
+  QC'den gecmeden kabul edilmez), (3) Bilgi soru merkezi. Eski "LLM assist" kutusu bu secicinin icine
+  tasindi; mod alani olmayan eski spec'lerde `llm.enabled` belirler.
+- **Descriptor uretimi (yapay zeka modu)**: datasheet register tablosu / surucu basligi yapistirilir;
+  model YAML adayi yazar, backend adayi descriptor dogrulayicisindan gecirir, hata varsa hatalari ve onceki
+  YAML'i modele geri verip yeniden ister (tur siniri 1-5). Kabul edilen aday KAYDEDILMEZ: onizleme/duzenleme,
+  Dogrula ve Kaydet mevcut user_descriptors uclarindan gecer; uretim, Test Bench ve CIT statik zincirden
+  calisir. Yeni uc `POST /api/llm/descriptor`; `orchestrator/llm/descriptor_gen.py`; katalog op adlari
+  (op id'ler kalici) prompt'a girer. `llm.api_key_env`: anahtar spec'e yazilmaz, ortam degiskeninin ADI
+  verilir (or. DEEPSEEK_API_KEY). Gizlilik notu arayuzde: bulut endpoint'e giden referans metni saglayiciya
+  gider, sirket verisi icin yerel/sirket ici OpenAI-uyumlu model.
+- **Saha (Nexys A7 + ADXL362, DeepSeek `deepseek-flash`)**: kart ustu ivmeolcerin descriptor'u modelden
+  1 turda (~10 s) dogrulayici-temiz cikti; uretilen surucu Vivado `-tclargs acl` varyantiyla (ikinci AXI
+  Quad SPI, ACL pinleri) UART ajaninda id 0xAD1DF2, canli x/y/z (mg) ve sicaklik okudu. Deneyin ortaya
+  cikardigi uretici bosluklari kapatildi: `returns: int16` (isaretli 16 bit; surucu `short*`, self-test ve
+  test bench ajani, UI isaretli gosterim), SPI register cihazinda `id_read uint32` (`unsigned int*`),
+  register_model `fixed_bits` (her cerceveye OR'lanan sabit komut bayti), `ticspro_words: false` olan
+  register-modelli SPI cihazi TICS yoluna gider, katalogda `x_read/y_read/z_read`.
+- **Yerlesik descriptor**: `adxl362.yaml` (ADI 3 eksen MEMS ivmeolcer, SPI 24-bit komut/adres/veri).
+
 ## v0.1.251 - 2026-09-17
 
 - **Duzeltme (CoreSight ajani + telnet log)**: DCC alma-hazir kontrolu surucunun `XCoresightPs_DccGetStatus`'una

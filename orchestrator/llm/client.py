@@ -8,6 +8,7 @@ guessed; users provide the exact model id exposed by their local server.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -16,6 +17,30 @@ import httpx
 
 class LlmError(RuntimeError):
     pass
+
+
+def env_secret(name: str) -> str:
+    """Adi verilen ortam degiskeninin degeri. Windows'ta degisken uygulama basladiktan SONRA
+    (Sistem Ozellikleri'nden) tanimlandiysa surec ortami onu gormez; kullanici ve sistem
+    kayit defteri ortami da denenir. Deger hicbir yere yazilmaz/loglanmaz."""
+    name = (name or "").strip()
+    if not name:
+        return ""
+    value = os.environ.get(name, "")
+    if value or sys.platform != "win32":
+        return value
+    import winreg
+
+    for hive, path in ((winreg.HKEY_CURRENT_USER, "Environment"),
+                       (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment")):
+        try:
+            with winreg.OpenKey(hive, path) as key:
+                raw, _kind = winreg.QueryValueEx(key, name)
+                if isinstance(raw, str) and raw.strip():
+                    return raw.strip()
+        except OSError:
+            continue
+    return ""
 
 
 def _float_config(spec_llm: dict, key: str, env: str, default: float) -> float:
@@ -58,7 +83,8 @@ class LlmConfig:
         spec_llm = spec_llm or {}
         base = (spec_llm.get("base_url") or os.environ.get("SPEC2CODE_LLM_BASE_URL", "")).rstrip("/")
         model = (spec_llm.get("model") or os.environ.get("SPEC2CODE_LLM_MODEL", "")).strip()
-        key = spec_llm.get("api_key") or os.environ.get("SPEC2CODE_LLM_API_KEY", "")
+        # Anahtar oncelik sirasi: spec api_key -> spec'te ADI verilen ortam degiskeni (api_key_env) -> SPEC2CODE_LLM_API_KEY.
+        key = spec_llm.get("api_key") or env_secret(str(spec_llm.get("api_key_env") or "")) or os.environ.get("SPEC2CODE_LLM_API_KEY", "")
         timeout_s = max(1.0, _float_config(spec_llm, "timeout_s", "SPEC2CODE_LLM_TIMEOUT_S", 120.0))
         max_tokens = max(128, _int_config(spec_llm, "max_tokens", "SPEC2CODE_LLM_MAX_TOKENS", 4096))
         max_response_chars = max(
