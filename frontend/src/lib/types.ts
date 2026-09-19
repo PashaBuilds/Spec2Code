@@ -172,6 +172,14 @@ export interface LlmDescriptorRound {
   seconds: number;
   errors: string[];
 }
+export interface LlmReferenceResponse {
+  text: string;
+  pages_total: number;
+  pages_used: number[];
+  chars: number;
+  truncated: boolean;
+  suggested_pages: number[];
+}
 export interface LlmDescriptorResponse {
   accepted: boolean;
   yaml: string;

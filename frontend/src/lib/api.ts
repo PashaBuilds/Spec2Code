@@ -11,6 +11,7 @@ import type {
   KnowledgeAskResponse,
   LlmDescriptorRequest,
   LlmDescriptorResponse,
+  LlmReferenceResponse,
   PlatformInfo,
   ProjectSpec,
   TestbenchCommandRequest,
@@ -163,6 +164,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  /** Yapay zeka modu: datasheet PDF'inden referans metni (yerel çıkarım; PDF dışarı gitmez). */
+  llmReference: async (file: File, pages: string): Promise<LlmReferenceResponse> => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("pages", pages);
+    const res = await fetch("/api/llm/reference", { method: "POST", body: form });
+    if (!res.ok) {
+      let detail: unknown = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return (await res.json()) as LlmReferenceResponse;
+  },
 
   /** Yapay zeka modu: referans metninden descriptor adayı (doğrulayıcı döngüsü; kaydetmez). */
   llmDescriptor: (payload: LlmDescriptorRequest) =>

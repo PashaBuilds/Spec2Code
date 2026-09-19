@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from orchestrator import generation_mode as gm
 from orchestrator.descriptor_example import EXAMPLE_USER_DESCRIPTOR
-from orchestrator.llm import descriptor_gen
+from orchestrator.llm import descriptor_gen, pdf_reference
 from orchestrator.llm.client import LlmConfig, env_secret
 
 
@@ -107,6 +107,63 @@ class DescriptorGenerationTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             routes.llm_descriptor(routes.LlmDescriptorRequest(part="X", reference="ref", llm={"enabled": True}))
         self.assertIn("llm invalid", str(ctx.exception.detail))
+
+
+def _minimal_pdf(pages: list[str]) -> bytes:
+    """Metin nesneli, xref tablolu en kucuk gecerli PDF (Helvetica, tek satir/sayfa); pypdf extract_text okur."""
+    font_id = 3 + 2 * len(pages)
+    objects: dict[int, bytes] = {1: b"<< /Type /Catalog /Pages 2 0 R >>"}
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(len(pages)))
+    objects[2] = f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode()
+    for i, text in enumerate(pages):
+        page_id = 3 + 2 * i
+        content = f"BT /F1 12 Tf 20 700 Td ({text}) Tj ET".encode()
+        objects[page_id] = (f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {page_id + 1} 0 R "
+                            f"/Resources << /Font << /F1 {font_id} 0 R >> >> >>").encode()
+        objects[page_id + 1] = f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream"
+    objects[font_id] = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    out = bytearray(b"%PDF-1.4\n")
+    offsets: dict[int, int] = {}
+    for num in sorted(objects):
+        offsets[num] = len(out)
+        out += f"{num} 0 obj\n".encode() + objects[num] + b"\nendobj\n"
+    xref_pos = len(out)
+    count = max(objects) + 1
+    out += f"xref\n0 {count}\n".encode() + b"0000000000 65535 f \n"
+    for num in range(1, count):
+        out += f"{offsets[num]:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+class PdfReferenceTests(unittest.TestCase):
+    def test_page_spec_parsing(self) -> None:
+        self.assertEqual(pdf_reference.parse_page_spec("", 3), [1, 2, 3])
+        self.assertEqual(pdf_reference.parse_page_spec("2-3, 1", 3), [1, 2, 3])
+        with self.assertRaises(ValueError):
+            pdf_reference.parse_page_spec("2-9", 3)
+        with self.assertRaises(ValueError):
+            pdf_reference.parse_page_spec("abc", 3)
+
+    def test_extract_selected_pages_and_suggest_register_pages(self) -> None:
+        pdf = _minimal_pdf(["Ordering guide and packaging", "Register 0x0B STATUS reset 0x40 address", "Absolute maximum ratings"])
+        result = pdf_reference.extract_reference(pdf, "2")
+        self.assertEqual(result["pages_total"], 3)
+        self.assertEqual(result["pages_used"], [2])
+        self.assertIn("STATUS", result["text"])
+        self.assertNotIn("Ordering", result["text"])
+        self.assertEqual(result["suggested_pages"], [2])
+        self.assertFalse(result["truncated"])
+        everything = pdf_reference.extract_reference(pdf, "")
+        self.assertEqual(everything["pages_used"], [1, 2, 3])
+
+    def test_char_limit_truncates_and_bad_pdf_is_a_value_error(self) -> None:
+        pdf = _minimal_pdf(["a" * 200, "b" * 200])
+        result = pdf_reference.extract_reference(pdf, "", max_chars=250)
+        self.assertEqual(result["pages_used"], [1])
+        self.assertTrue(result["truncated"])
+        with self.assertRaises(ValueError):
+            pdf_reference.extract_reference(b"not a pdf", "")
 
 
 if __name__ == "__main__":

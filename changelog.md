@@ -3,6 +3,14 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.254 - 2026-09-19
+
+- **Yapay zeka sekmesi: datasheet PDF'ten referans metni**: elde metin degil PDF varsa dosya secilir, sayfa araligi
+  ("12-20,35", bos = hepsi) verilir, "Metni cikar" secili sayfalarin metnini referans alanina ekler. Cikarim yerel
+  (pypdf), PDF disari gitmez; register/reset/address yogun sayfalar oneri olarak listelenir (icindekiler'e bakmadan
+  register haritasi sayfalarini bulmak icin). 60k karakter siniri; taranmis/goruntu PDF'te net hata (OCR yok).
+  Yeni uc `POST /api/llm/reference`; `orchestrator/llm/pdf_reference.py`; `pypdf` core bagimliliklara eklendi.
+
 ## v0.1.253 - 2026-09-19
 
 - **Arayuz/YATT sekmesi kaldirildi**: S2C-MSG protokol tablosu sayfasi test amacliydi, kullanicinin gormesi

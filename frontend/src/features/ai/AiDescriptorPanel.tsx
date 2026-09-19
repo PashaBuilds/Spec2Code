@@ -3,7 +3,7 @@
 // modele geri verilir; kabul edilen aday KAYDEDİLMEZ — burada önizlenir/düzenlenir, mevcut
 // Doğrula/Kaydet uçlarından user_descriptors'a girer. Statik akış (codegen + QC) değişmez.
 import * as React from "react";
-import { CheckCircle2, CircleDashed, Loader2, Save, Sparkles, Download } from "lucide-react";
+import { CheckCircle2, CircleDashed, FileText, Loader2, Save, Sparkles, Download } from "lucide-react";
 import { api } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import type { LlmDescriptorRound } from "@/lib/types";
@@ -27,6 +27,30 @@ export default function AiDescriptorPanel() {
   const [notice, setNotice] = React.useState("");
   const [startedAt, setStartedAt] = React.useState<number | null>(null);
   const [elapsed, setElapsed] = React.useState(0);
+  const [pdfFile, setPdfFile] = React.useState<File | null>(null);
+  const [pdfPages, setPdfPages] = React.useState("");
+  const [pdfBusy, setPdfBusy] = React.useState(false);
+  const [pdfInfo, setPdfInfo] = React.useState("");
+  const [pdfSuggested, setPdfSuggested] = React.useState<number[]>([]);
+
+  async function extractPdf() {
+    if (!pdfFile) return;
+    setPdfBusy(true);
+    setError("");
+    try {
+      const result = await api.llmReference(pdfFile, pdfPages);
+      setReference((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" : "") + result.text);
+      setPdfSuggested(result.suggested_pages);
+      setPdfInfo(
+        `${result.pages_total} sayfalık PDF'ten ${result.pages_used.length} sayfa, ${result.chars} karakter alındı` +
+          (result.truncated ? " (karakter sınırına takıldı: sayfa aralığını daralt)" : "") + ".",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   React.useEffect(() => {
     if (!busy || startedAt === null) return;
@@ -117,6 +141,35 @@ export default function AiDescriptorPanel() {
             <div>
               <Label>Parça adı *</Label>
               <Input value={part} onChange={(e) => setPart(e.target.value)} placeholder="ADXL362" data-testid="ai-part" />
+            </div>
+            <div className="rounded-md border border-border bg-inset p-2">
+              <Label>Datasheet PDF'ten metin çıkar (yerel; PDF dışarı gitmez)</Label>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={(e) => { setPdfFile(e.target.files?.[0] ?? null); setPdfInfo(""); setPdfSuggested([]); }}
+                  className="block max-w-[260px] text-xs text-muted file:mr-2 file:rounded-md file:border file:border-border file:bg-bg file:px-2 file:py-1 file:text-xs file:text-text"
+                  data-testid="ai-pdf"
+                />
+                <Input
+                  value={pdfPages}
+                  onChange={(e) => setPdfPages(e.target.value)}
+                  placeholder="sayfalar: 12-20,35 (boş = hepsi)"
+                  className="h-8 w-48 text-xs"
+                />
+                <Button size="sm" variant="outline" onClick={() => void extractPdf()} disabled={!pdfFile || pdfBusy} data-testid="ai-pdf-extract">
+                  {pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  Metni çıkar
+                </Button>
+              </div>
+              <p className="mt-1 text-[11px] text-faint">
+                Register haritası sayfalarını seç (içindekiler'den bak); tüm datasheet karakter sınırını aşar.
+                {pdfInfo && <span className="block text-muted">{pdfInfo}</span>}
+                {pdfSuggested.length > 0 && (
+                  <span className="block">Register yoğun sayfalar (öneri): {pdfSuggested.join(", ")}</span>
+                )}
+              </p>
             </div>
             <div>
               <Label>Referans metni *</Label>

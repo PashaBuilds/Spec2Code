@@ -893,7 +893,9 @@ Setup'taki **Uretim modu** secicisi iki secenek sunar:
   `deepseek-flash`) ile su ozellikler acilir:
   1. **Referans metninden descriptor** ("Yapay zeka" sekmesi): datasheet'in register tablosunu
      (adres, ad, reset, bit alanlari, SPI/I2C cerceve tarifi) ya da ureticinin surucu basligini
-     yapistir; model bir YAML adayi yazar, backend adayi descriptor dogrulayicisindan gecirir,
+     yapistir; elinde PDF varsa "Datasheet PDF'ten metin cikar" ile dosyayi sec, register haritasi
+     sayfalarini ("12-20,35") ver, metin alana eklenir (cikarim yerel, PDF disari gitmez; register
+     yogun sayfalar onerilir; taranmis PDF'te OCR yok). Model bir YAML adayi yazar, backend adayi descriptor dogrulayicisindan gecirir,
      hata varsa hatalari ve onceki YAML'i modele geri verip yeniden ister (tur siniri 1-5, her
      tur suresi ve dogrulayici sonucu tabloda). Kabul edilen aday KAYDEDILMEZ: onizle, gerekirse
      duzelt, Dogrula, Kaydet (user_descriptors). Kaydedilen parca sematikte gorunur; Generate,

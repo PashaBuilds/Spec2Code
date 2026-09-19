@@ -14,7 +14,7 @@ from pathlib import PurePosixPath
 from typing import Literal
 
 import yaml
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from jsonschema import Draft7Validator
 from pydantic import BaseModel, Field
@@ -50,6 +50,7 @@ from orchestrator.descriptor_check import validate_descriptor
 from orchestrator.descriptor_example import EXAMPLE_FILE_NAME, EXAMPLE_USER_DESCRIPTOR
 from orchestrator.llm.client import LlmClient, LlmConfig, LlmError
 from orchestrator.llm.descriptor_gen import generate_descriptor
+from orchestrator.llm.pdf_reference import extract_reference
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 # Yazilabilir veri koku (outputs/, uploads/, catalog/imported.json): paketli
@@ -717,6 +718,18 @@ def llm_descriptor(req: LlmDescriptorRequest) -> dict:
         raise HTTPException(400, str(exc))
     except LlmError as exc:
         raise HTTPException(502, str(exc))
+
+
+@router.post("/llm/reference")
+async def llm_reference(file: UploadFile, pages: str = Form("")) -> dict:
+    """Datasheet PDF'inden referans metni (yerel pypdf; PDF disari gitmez). `pages`: "12-20,35" ya da bos."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "PDF bos")
+    try:
+        return extract_reference(content, pages)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.post("/knowledge/ask")
