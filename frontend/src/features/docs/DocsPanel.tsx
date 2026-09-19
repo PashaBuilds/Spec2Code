@@ -374,9 +374,8 @@ const SECTIONS: DocSection[] = [
           protokol hatalarını ayıklarken birebir kayıttır. Tel üzerinde artık <B>S2C-MSG binary
           çerçeve</B> akar: her komut/yanıt 12 baytlık sabit başlıkla (<M>uiMesajKomut</M>,{" "}
           <M>uiMesajBoyu</M>, <M>uiMesajSayac</M>) başlar; Akış'ta hem çözülmüş özet hem ham hex
-          görünür. Tüm mesaj kataloğu (ID, ad, gövde alanları, hata kodları) ve başlık formatının
-          tam açıklaması <B>Arayüz/YATT</B> sayfasında — orada ayrıca self-contained HTML/MD olarak
-          dışa aktarılabilir. Ham konsol çıktısı içinse harici bir seri terminal kullan
+          görünür. Mesaj kataloğunun tek doğruluk kaynağı <M>backend/data/message_catalog.json</M>
+          dosyasıdır (op id'ler kalıcı). Ham konsol çıktısı içinse harici bir seri terminal kullan
           (TeraTerm/PuTTY): karttaki ajan konsol UART'ını paylaşabilir, log/trace satırları
           (<M>S2C-LOG|...</M>) metin olarak korunur, geri kalan trafik binary çerçevedir.
         </P>

@@ -14,7 +14,7 @@ interface InitStepResult {
 }
 
 /** Manifest'teki her cihaz için sırayla (paralel DEĞİL — bus disiplini)
- * device_init koşar. Saha isteği: CIT/YATT'tan önce her entegrenin
+ * device_init koşar. Saha isteği: CIT'ten önce her entegrenin
  * "device init uygula"sına tek tek basmak gerekiyordu, tek tuşla toplu
  * ilklendirme okumaların fail olmasını önler. Bir cihaz fail olsa da
  * devam eder — kısmi ilklendirme yine de değerlidir.

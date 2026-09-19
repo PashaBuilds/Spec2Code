@@ -3,6 +3,13 @@
 Bu dosya release paketlerinin icine girer ve gecmis tum release degisikliklerini
 tek yerde tutar. En yeni surum her zaman en usttedir.
 
+## v0.1.253 - 2026-09-19
+
+- **Arayuz/YATT sekmesi kaldirildi**: S2C-MSG protokol tablosu sayfasi test amacliydi, kullanicinin gormesi
+  gerekmiyor (komut paletindeki girdi ve tipler dahil). Protokol belgesi uretimi (`backend/yatt.py`,
+  `/api/yatt/catalog|export`) ve testleri yerinde; mesaj katalogunun tek dogruluk kaynagi
+  `backend/data/message_catalog.json`.
+
 ## v0.1.252 - 2026-09-19
 
 - **Uretim modu (Setup)**: `project.generation_mode` = **Statik** (varsayilan) | **Yapay zeka ile uretim**.

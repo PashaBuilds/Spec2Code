@@ -15,7 +15,7 @@ ve devam geliştirme.
 - **Çok-kartlı sistem topolojisi:** Sistem tek karttan ibaret değilse kartlar
   birinci sınıf olur — şematikte kutu, üretimde `drivers/<kart>/` klasörü ve kart
   başına `<kart>Init` / `<kart>CitRun` / `<kart>SelfTest` API'si, CİT ve Test
-  Bench'te kart grupları, YATT'ta "Sistem Topolojisi" bölümü. Kartlar arası
+  Bench'te kart grupları. Kartlar arası
   geçişler isimli konnektörlerle (hat + I2C mux kanalı) belgelenir. Kart
   tanımlanmayan projelerde üretilen çıktı **bayt-bayt** değişmez.
 - **Descriptor tabanlı deterministik üretim:** Cihaz davranışı YAML descriptor'lardan

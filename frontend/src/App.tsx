@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, FileText, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket, Sparkles, Waves } from "lucide-react";
+import { Activity, BookOpen, BookOpenText, Boxes, Command, Cpu, Grid3X3, HeartPulse, Play, Loader2, Library, PlugZap, Rocket, Sparkles, Waves } from "lucide-react";
 import { api, openJobSocket } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
 import { PLATFORM_LABELS, useStore, type Step } from "@/store/useStore";
@@ -24,11 +24,10 @@ import DocsPanel from "@/features/docs/DocsPanel";
 import RegisterMapPanel from "@/features/register-map/RegisterMapPanel";
 import CapturePanel from "@/features/capture/CapturePanel";
 import CitPanel from "@/features/cit/CitPanel";
-import YattPanel from "@/features/yatt/YattPanel";
 import AiDescriptorPanel from "@/features/ai/AiDescriptorPanel";
 import CommandPalette, { type PaletteCommand } from "@/components/CommandPalette";
 
-type View = "flow" | "ai" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "yatt" | "capture";
+type View = "flow" | "ai" | "knowledge" | "catalog" | "testbench" | "traffic" | "bringup" | "registers" | "docs" | "regmap" | "cit" | "capture";
 
 const STEPS: { id: Step; label: string; icon: typeof Cpu }[] = [
   { id: "setup", label: "Setup", icon: Cpu },
@@ -138,7 +137,6 @@ export default function App() {
     { id: "bringup", label: "Bring-up — Mission Control", hint: "görünüm", keywords: "bringup sihirbaz sertifika", run: () => setView("bringup") },
     { id: "registers", label: "Register snapshot & diff", hint: "görünüm", keywords: "register bit ısı haritası", run: () => setView("registers") },
     { id: "cit", label: "CİT sayfası", hint: "görünüm", keywords: "cit cihaz ici test board contract ok nok limit", run: () => setView("cit") },
-    { id: "yatt", label: "Arayüz/YATT sayfası", hint: "görünüm", keywords: "yatt s2cmsg protokol mesaj katalog export html md interface", run: () => setView("yatt") },
     { id: "docs", label: "Kullanım kılavuzu", hint: "görünüm", keywords: "docs kılavuz yardım dokümantasyon manual help", run: () => setView("docs") },
     { id: "regmap", label: "Register Map — struct/union header üret", hint: "görünüm", keywords: "register map struct union header bitfield memory mapped pl ip", run: () => setView("regmap") },
   ];
@@ -212,7 +210,6 @@ export default function App() {
           ["registers", Grid3X3, "Registers"],
           ["regmap", Cpu, "Register Map"],
           ["capture", Waves, "Yakalama"],
-          ["yatt", FileText, "Arayüz/YATT"],
           ["docs", BookOpenText, "Kılavuz"],
         ] as const).map(([id, Icon, label]) => (
           <Button
@@ -316,14 +313,6 @@ export default function App() {
             <h2 className="mb-3 shrink-0 text-sm font-semibold">CİT — Cihaz İçi Test</h2>
             <div className="min-h-0 flex-1">
               <CitPanel />
-            </div>
-          </div>
-        ))}
-        {keepAlive("yatt", (
-          <div className="flex h-full min-h-0 flex-col p-4">
-            <h2 className="mb-3 shrink-0 text-sm font-semibold">Arayüz/YATT — S2C-MSG protokol tablosu</h2>
-            <div className="min-h-0 flex-1">
-              <YattPanel />
             </div>
           </div>
         ))}

@@ -3,8 +3,8 @@
 Bu dosya release paketinin icinde gelir. Amaci, Spec2Code'u kullanan bir gomulu
 yazilimcinin uygulamayi acip proje kurmasina, kod uretmesine, ciktiyi kendi
 firmware'ine tasimasina ve gercek kartta dogrulamasina yetecek bilgiyi tek yerde,
-kisa ve dogru vermektir. Ayrintili protokol tablosu (YATT) ve kodlama standardi
-kendi belgelerindedir; burada tekrar edilmez.
+kisa ve dogru vermektir. Mesaj katalogu (`backend/data/message_catalog.json`) ve kodlama
+standardi kendi belgelerindedir; burada tekrar edilmez.
 
 Icindekiler:
 
@@ -20,7 +20,7 @@ Icindekiler:
 10. Karta baglanma
 11. Test Bench
 12. CIT (Cihaz Ici Test)
-13. Bring-up, Registers, Akis, Register Map, Arayuz/YATT
+13. Bring-up, Registers, Akis, Register Map
 14. Vitis workspace ve Board'da calistirma
 15. Kodlama standardi (ozet)
 16. LLM kullanimi
@@ -41,7 +41,7 @@ tarayici arayuzu baslatir.
 
 Uretim akisi bastan sona "spec"e dayanir: Setup + Schematic ekranlarinda kurdugun
 model bir JSON spec'e yazilir, kod bu spec'ten uretilir, ayni spec test bench
-manifestini ve YATT'i besler. Elle duzenlenecek dosya yoktur; degistirmek icin
+manifestini besler. Elle duzenlenecek dosya yoktur; degistirmek icin
 ekranda degistirip yeniden uretirsin.
 
 ---
@@ -131,7 +131,6 @@ gorunumler:
 | CIT | Cihaz ici test: her entegre kendi kutusunda, OK/NOK karari kartta |
 | Registers | Register anlik goruntusu, reset degeriyle/onceki goruntuyle diff, isi haritasi |
 | Register Map | XSA'daki bloklarin register haritalari (salt okunur) + canli okuma/yazma |
-| Arayuz/YATT | S2C-MSG mesaj katalogu ve govde sablonlari (tek dogruluk kaynagi); HTML/MD disa aktarim |
 | Kilavuz | Bu kilavuzun uygulama ici surumu |
 
 `Ctrl+K` komut paleti her ekrana ve sik aksiyonlara (Generate, Karta baglan) kisayoldur.
@@ -273,8 +272,7 @@ tanimlamadigin surece hicbir sey degismez.
   kartinda cihaz olup konnektor yoksa uyari alirsin.
 - Ciktida surucu dosyalari kart klasorlerine ayrilir (`drivers/ana_kart/ltc2991.c`,
   `drivers/rf_kart/tmp101.c`); `cit/` ve `tests/` sistem genelidir. Vitis include
-  yolu otomatik eklenir. CIT/Test Bench kutulari kart basliklari altinda gruplanir,
-  YATT'a **Sistem Topolojisi** bolumu gelir.
+  yolu otomatik eklenir. CIT/Test Bench kutulari kart basliklari altinda gruplanir.
 
 Ornek: `specs/samples/multi_board_demo.spec.json`
 (`python spec2code_cli.py build --spec specs/samples/multi_board_demo.spec.json`).
@@ -426,7 +424,7 @@ spec2code_mesaj.c/.h                S2C-MSG cerceve cozucu + dispatch koprusu
 spec2code_testbench_log.c/.h        dbg_printf sink: satirlari S2C-LOG cercevesine sarar
 <proje>_testbench_ops.c/.h          op dispatch (her cihaz kendi tablo satiriyla)
 spec2code_cit.c/.h                  CIT kosusu (cit/ katmanini cagirir) - olcum varsa
-spec2code_testbench_manifest.json   Test Bench / CIT / YATT'in okudugu manifest
+spec2code_testbench_manifest.json   Test Bench / CIT'in okudugu manifest
 <mod>_test.c/.h                     self-test (yalniz self_test istenen cihazlar)
 spec2code_testbench_uart|lwip|coresight.* + _main.*   secilen tasiyici ve main()
 sim/                                sanal cihazlar (asagida)
@@ -583,8 +581,8 @@ tarafinda devralinir. Kartin debug esigi (0 always .. 5 trace, varsayilan error)
 buradan canli degistirilir (`log_level` komutu).
 
 Protokol: uc tasiyici da ayni 12 baytlik little-endian cerceveyi tasir
-(`uiMesajKomut`, `uiMesajBoyu`, `uiMesajSayac`); mesajlar katalogludur ve tam tablo
-Arayuz/YATT sayfasindadir. Kart yazilimi bu surumun uretimiyle yuklenmemisse ilk
+(`uiMesajKomut`, `uiMesajBoyu`, `uiMesajSayac`); mesajlar katalogludur
+(`backend/data/message_catalog.json`, op id'ler kalici). Kart yazilimi bu surumun uretimiyle yuklenmemisse ilk
 komutta zaman asimi / GECERSIZ_MESAJ alirsin: Generate + Vitis ile yeniden derleyip
 yukle.
 
@@ -654,7 +652,7 @@ cihazlari ilklendir" ya da Bring-up kos.
 
 ---
 
-## 13. Bring-up, Registers, Akis, Register Map, Arayuz/YATT
+## 13. Bring-up, Registers, Akis, Register Map
 
 - **Bring-up (Mission Control)**: guc -> sensor -> saat agaci -> bellek -> RF sirasiyla
   cihazlari ilklendirir ve okur; her adim yesil/kirmizi, sonunda dogum sertifikasi.
@@ -786,9 +784,6 @@ flowchart TD
   kanonik surucu adiyla verir (`XPAR_XIICPS_0_BASEADDR`; `XPAR_PSU_I2C_0_*` yoktur). Uretim
   `bsp_flow = sdt` iken PS denetleyicilerini surucu + taban adres sirasina gore kanonik ada
   cevirir (tek etkin GEM `psu_ethernet_3` -> `XPAR_XEMACPS_0`); PL IP'lerde etiket adi korunur.
-- **Arayuz/YATT**: S2C-MSG mesaj katalogu (ID, yon, govde sablonu, durum kodlari),
-  manifest ile zenginlestirilmis; cok kartli projede Sistem Topolojisi; HTML/MD olarak
-  paylasilabilir. Protokolun tek dogruluk kaynagi budur.
 
 ---
 
